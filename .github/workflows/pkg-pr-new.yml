@@ -23,4 +23,4 @@ jobs:
       - run: vp run build
 
       - name: Publish preview packages
-        run: vp dlx pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm
+        run: ./.github/ci-tools/node_modules/.bin/pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm

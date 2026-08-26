@@ -6,7 +6,31 @@ import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from "yam
 
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
+const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|\$(?:\{[A-Z][A-Z0-9_]*\}|[A-Z][A-Z0-9_]*))$/
+const packageExecutorPattern = /\b(?:(?:vp|pnpm|yarn)\s+dlx|npx|bunx|npm\s+exec)\b(.*)$/g
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
+
+function findExecutablePackageSpecs(command) {
+  const specs = []
+  for (const line of command.split("\n")) {
+    if (line.trimStart().startsWith("#")) continue
+    packageExecutorPattern.lastIndex = 0
+    for (const match of line.matchAll(packageExecutorPattern)) {
+      const tokens = [...match[1].matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)]
+        .map(token => token[1] ?? token[2] ?? token[3])
+      specs.push(tokens.find(token => token !== "--" && !token.startsWith("-")) ?? "(missing)")
+    }
+  }
+  return specs
+}
+
+function imageUsesLatest(reference) {
+  const [nameAndTag, digest] = reference.split("@", 2)
+  const lastSegment = nameAndTag.slice(nameAndTag.lastIndexOf("/") + 1)
+  const hasTag = lastSegment.includes(":")
+  const tag = hasTag ? lastSegment.slice(lastSegment.lastIndexOf(":") + 1) : "latest"
+  return tag === "latest" && (hasTag || !digest)
+}
 
 async function findYamlFiles(directory, filter, ignoredDirectories = new Set(), recursive = true) {
   let entries
@@ -31,7 +55,7 @@ async function findYamlFiles(directory, filter, ignoredDirectories = new Set(), 
   return files
 }
 
-export async function findGitHubActionPolicyFiles(repoRoot) {
+export async function findGitHubCIPolicyFiles(repoRoot) {
   const githubRoot = resolve(repoRoot, ".github")
   const [workflows, actions] = await Promise.all([
     findYamlFiles(resolve(githubRoot, "workflows"), name => /\.ya?ml$/.test(name), new Set(), false),
@@ -40,7 +64,7 @@ export async function findGitHubActionPolicyFiles(repoRoot) {
   return [...new Set([...workflows, ...actions])].sort()
 }
 
-export function inspectGitHubActionReferences(path, source) {
+export function inspectGitHubCIInputs(path, source) {
   const normalizedPath = path.replaceAll("\\", "/")
   const lineCounter = new LineCounter()
   const document = parseDocument(source, { lineCounter, schema: "failsafe" })
@@ -101,7 +125,20 @@ export function inspectGitHubActionReferences(path, source) {
     for (let step of steps.items) {
       const aliasComment = step?.comment ?? ""
       if (isAlias(step)) step = step.resolve(document)
-      if (isMap(step)) inspectUses(findPair(step, "uses"), aliasComment || step.comment || enclosingSequenceComment)
+      if (!isMap(step)) continue
+      inspectUses(findPair(step, "uses"), aliasComment || step.comment || enclosingSequenceComment)
+      const runPair = findPair(step, "run")
+      if (!runPair) continue
+      const line = lineCounter.linePos(runPair.key.range?.[0] ?? 0).line
+      if (!isScalar(runPair.value) || typeof runPair.value.value !== "string") {
+        failures.push({ line, message: "run must be a string", path })
+        continue
+      }
+      for (const spec of findExecutablePackageSpecs(runPair.value.value)) {
+        if (!exactPackagePattern.test(spec)) {
+          failures.push({ line, message: `transient package executor must use an exact version: ${spec}`, path })
+        }
+      }
     }
   }
 
@@ -120,6 +157,18 @@ export function inspectGitHubActionReferences(path, source) {
       if (!isMap(job)) continue
       inspectUses(findPair(job, "uses"), aliasComment || job.comment || enclosingJobsComment)
       inspectSteps(findPair(job, "steps")?.value)
+      for (const container of [findPair(job, "container")?.value, ...((findPair(job, "services")?.value?.items ?? []).map(pair => pair.value))]) {
+        if (!isMap(container)) continue
+        const imagePair = findPair(container, "image")
+        if (!imagePair) continue
+        const line = lineCounter.linePos(imagePair.key.range?.[0] ?? 0).line
+        if (!isScalar(imagePair.value) || typeof imagePair.value.value !== "string") {
+          failures.push({ line, message: "image must be a string", path })
+        }
+        else if (imageUsesLatest(imagePair.value.value)) {
+          failures.push({ line, message: `container image must not use latest, explicitly or implicitly: ${imagePair.value.value}`, path })
+        }
+      }
     }
   }
   else {
@@ -130,8 +179,8 @@ export function inspectGitHubActionReferences(path, source) {
   return failures
 }
 
-export async function checkGitHubActionPins(repoRoot) {
-  const files = await findGitHubActionPolicyFiles(repoRoot)
+export async function checkGitHubCIInputs(repoRoot) {
+  const files = await findGitHubCIPolicyFiles(repoRoot)
   if (files.length === 0) {
     return [{ line: 1, message: "no workflow or composite action YAML files found", path: ".github" }]
   }
@@ -140,19 +189,19 @@ export async function checkGitHubActionPins(repoRoot) {
   for (const file of files) {
     const source = await readFile(file, "utf8")
     const path = relative(repoRoot, file)
-    failures.push(...inspectGitHubActionReferences(path, source))
+    failures.push(...inspectGitHubCIInputs(path, source))
   }
   return failures
 }
 
-export async function runActionPinCheck(args, output = process) {
+export async function runCIInputCheck(args, output = process) {
   if (args.length > 1) {
-    output.stderr.write("Usage: node .github/scripts/check-action-pins.mjs [repo-root]\n")
+    output.stderr.write("Usage: node .github/scripts/check-ci-inputs.mjs [repo-root]\n")
     return 2
   }
 
   const repoRoot = resolve(args[0] ?? import.meta.dirname, args[0] ? "." : "../..")
-  const failures = await checkGitHubActionPins(repoRoot)
+  const failures = await checkGitHubCIInputs(repoRoot)
   if (failures.length > 0) {
     for (const failure of failures) {
       output.stderr.write(`${failure.path}:${failure.line}: ${failure.message}\n`)
@@ -160,10 +209,10 @@ export async function runActionPinCheck(args, output = process) {
     return 1
   }
 
-  output.stdout.write("GitHub Action references are pinned.\n")
+  output.stdout.write("GitHub CI inputs are pinned.\n")
   return 0
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  process.exitCode = await runActionPinCheck(process.argv.slice(2))
+  process.exitCode = await runCIInputCheck(process.argv.slice(2))
 }

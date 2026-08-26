@@ -6,13 +6,13 @@ import { join, relative, resolve } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
-  checkGitHubActionPins,
-  findGitHubActionPolicyFiles,
-  inspectGitHubActionReferences,
-} from "../.github/scripts/check-action-pins.mjs"
+  checkGitHubCIInputs,
+  findGitHubCIPolicyFiles,
+  inspectGitHubCIInputs,
+} from "../.github/scripts/check-ci-inputs.mjs"
 
 const repoRoot = resolve(import.meta.dirname, "..")
-const scriptPath = resolve(repoRoot, ".github/scripts/check-action-pins.mjs")
+const scriptPath = resolve(repoRoot, ".github/scripts/check-ci-inputs.mjs")
 const pinnedCheckout = "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0"
 const temporaryDirectories: string[] = []
 
@@ -31,9 +31,9 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(path => rm(path, { force: true, recursive: true })))
 })
 
-describe("GitHub Action pin policy", () => {
+describe("GitHub CI input policy", () => {
   it("parses every repository workflow and composite action", async () => {
-    const files = await findGitHubActionPolicyFiles(repoRoot)
+    const files = await findGitHubCIPolicyFiles(repoRoot)
 
     expect(files.map(path => relative(repoRoot, path).replaceAll("\\", "/"))).toEqual([
       ".github/actions/setup-deno/action.yml",
@@ -44,7 +44,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/pullfrog.yml",
       ".github/workflows/release.yml",
     ])
-    await expect(checkGitHubActionPins(repoRoot)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(repoRoot)).resolves.toEqual([])
   })
 
   it("allows full commit pins with version comments and local actions", async () => {
@@ -53,7 +53,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yaml": "jobs:\n  test:\n    steps:\n      - { uses: './.github/actions/setup' }\n",
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("allows Docker actions pinned to full SHA-256 digests", async () => {
@@ -62,7 +62,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - uses: docker://alpine@sha256:${digest} # v3.22.1\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("rejects Docker actions that use movable tags", async () => {
@@ -70,7 +70,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: docker://alpine:3.22\n",
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("full SHA-256 digest") }),
     ])
   })
@@ -81,11 +81,11 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `env:\n  uses: not-an-action-reference\njobs:\n  test:\n    env:\n      uses: still-not-an-action-reference\n    steps:\n      - uses: ${pinnedCheckout}\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("classifies Windows-style workflow paths", () => {
-    const failures = inspectGitHubActionReferences(
+    const failures = inspectGitHubCIInputs(
       ".github\\workflows\\ci.yml",
       "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n",
     )
@@ -104,7 +104,7 @@ describe("GitHub Action pin policy", () => {
       "tools/setup/action.yml": "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v6\n",
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({
         message: expect.stringContaining("full 40-character commit SHA"),
         path: "tools/setup/action.yml",
@@ -118,7 +118,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/fixtures/example.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n",
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("classifies nested action manifests under .github/workflows as actions", async () => {
@@ -127,7 +127,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: ./github/workflows/actions/setup\n",
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({
         message: expect.stringContaining("full 40-character commit SHA"),
         path: ".github/workflows/actions/setup/action.yml",
@@ -140,7 +140,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/action.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n",
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({
         message: expect.stringContaining("full 40-character commit SHA"),
         path: ".github/workflows/action.yml",
@@ -155,7 +155,7 @@ describe("GitHub Action pin policy", () => {
     })
     await symlink("composite.yml", resolve(root, "tools/setup/action.yml"))
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({
         message: expect.stringContaining("full 40-character commit SHA"),
         path: "tools/setup/action.yml",
@@ -168,7 +168,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - { uses: "${pinnedCheckout.split(" #")[0]}" } # v6.1.0\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("does not share an enclosing sequence version comment across actions", async () => {
@@ -178,7 +178,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps: [{ uses: "${first}" }, { uses: "${second}" }] # v6.1.0\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining(first) }),
       expect.objectContaining({ message: expect.stringContaining(second) }),
     ])
@@ -190,7 +190,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `jobs:\n  call: { uses: "${reference}" } # v1.2.3\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("allows a pinned reusable workflow with an enclosing jobs version comment", async () => {
@@ -199,7 +199,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `jobs: { call: { uses: "${reference}" } } # v1.2.3\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("does not share an enclosing jobs version comment across reusable workflows", async () => {
@@ -209,7 +209,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `jobs: { first: { uses: "${first}" }, second: { uses: "${second}" } } # v1.2.3\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining(first) }),
       expect.objectContaining({ message: expect.stringContaining(second) }),
     ])
@@ -222,7 +222,7 @@ describe("GitHub Action pin policy", () => {
       ".github/workflows/ci.yml": `env:\n  CHECKOUT: &checkout ${reference}\njobs:\n  test:\n    steps:\n      - uses: *checkout # v6.1.0\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("inspects action references through aliased step containers and steps", async () => {
@@ -240,7 +240,7 @@ jobs:
 `,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("actions/setup-node@v6") }),
       expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
     ])
@@ -258,7 +258,7 @@ jobs:
 `,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("allows pinned steps with a flow-sequence version comment", async () => {
@@ -267,7 +267,7 @@ jobs:
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps: [{ uses: ${reference} }] # v6.1.0\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("inspects action references through aliased workflow jobs", async () => {
@@ -280,7 +280,7 @@ jobs:
 `,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
     ])
   })
@@ -291,7 +291,7 @@ jobs:
       ".github/workflows/ci.yml": `job: &call\n  uses: ${reference}\njobs:\n  call: *call # v1.2.3\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("inspects action fields whose mapping keys are aliases", async () => {
@@ -300,7 +300,7 @@ jobs:
       ".github/workflows/ci.yml": `env:\n  JOBS_KEY: &jobs-key jobs\n  STEPS_KEY: &steps-key steps\n  USES_KEY: &uses-key uses\n? *jobs-key\n:\n  test:\n    ? *steps-key\n    :\n      - ? *uses-key\n        : actions/setup-node@v6\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
       expect.objectContaining({ message: expect.stringContaining("actions/setup-node@v6") }),
     ])
@@ -315,7 +315,7 @@ jobs:
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - { uses: "${reference}" }\n`,
     })
 
-    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ line: 4, message: expect.stringContaining(message), path: ".github/workflows/ci.yml" }),
     ])
   })
@@ -328,10 +328,10 @@ jobs:
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses:\n          action: checkout\n",
     })
 
-    await expect(checkGitHubActionPins(malformedRoot)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(malformedRoot)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("invalid YAML") }),
     ])
-    await expect(checkGitHubActionPins(nonStringRoot)).resolves.toEqual([
+    await expect(checkGitHubCIInputs(nonStringRoot)).resolves.toEqual([
       expect.objectContaining({ message: "uses must be a string" }),
     ])
   })
@@ -345,7 +345,7 @@ jobs:
     })
 
     const passing = spawnSync(process.execPath, [scriptPath, passingRoot], { encoding: "utf8" })
-    expect(passing).toMatchObject({ status: 0, stderr: "", stdout: "GitHub Action references are pinned.\n" })
+    expect(passing).toMatchObject({ status: 0, stderr: "", stdout: "GitHub CI inputs are pinned.\n" })
 
     const failing = spawnSync(process.execPath, [scriptPath, failingRoot], { encoding: "utf8" })
     expect(failing.status).toBe(1)
@@ -355,7 +355,7 @@ jobs:
     const usageError = spawnSync(process.execPath, [scriptPath, passingRoot, failingRoot], { encoding: "utf8" })
     expect(usageError).toMatchObject({
       status: 2,
-      stderr: "Usage: node .github/scripts/check-action-pins.mjs [repo-root]\n",
+      stderr: "Usage: node .github/scripts/check-ci-inputs.mjs [repo-root]\n",
       stdout: "",
     })
   })
