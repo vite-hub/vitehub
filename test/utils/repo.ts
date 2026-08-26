@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 
+import { array, boolean, type GenericSchema, type InferOutput, object, optional, parse, record, string, union } from "valibot"
+
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 
 export const repoRoot = resolve(import.meta.dirname, "../..")
@@ -9,34 +11,42 @@ export const packageNames = packageInfos.map(info => info.name)
 
 export type PackageName = string
 
-type PackageManifest = {
-  name?: string
-  description?: string
-  license?: string
-  sideEffects?: boolean | string[]
-  type?: string
-  types?: string
-  exports?: Record<string, string | Record<string, string>>
-  files?: string[]
-  dependencies?: Record<string, string>
-  devDependencies?: Record<string, string>
-  optionalDependencies?: Record<string, string>
-  peerDependencies?: Record<string, string>
-  peerDependenciesMeta?: Record<string, { optional?: boolean }>
-  repository?: { directory?: string, type?: string, url?: string }
-  scripts?: Record<string, string>
-}
+const stringRecord = record(string(), string())
+
+export const packageManifestSchema = object({
+  name: string(),
+  bin: optional(stringRecord),
+  description: optional(string()),
+  license: optional(string()),
+  sideEffects: optional(union([boolean(), array(string())])),
+  type: optional(string()),
+  types: optional(string()),
+  exports: optional(record(string(), union([string(), stringRecord]))),
+  files: optional(array(string())),
+  dependencies: optional(stringRecord),
+  devDependencies: optional(stringRecord),
+  optionalDependencies: optional(stringRecord),
+  peerDependencies: optional(stringRecord),
+  peerDependenciesMeta: optional(record(string(), object({ optional: optional(boolean()) }))),
+  repository: optional(object({
+    directory: optional(string()),
+    type: optional(string()),
+    url: optional(string()),
+  })),
+  scripts: optional(stringRecord),
+})
 
 export function packageDir(packageName: PackageName) {
   return join(repoRoot, "packages", packageName)
 }
 
-export function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, "utf8")) as T
+export function readJson<TSchema extends GenericSchema>(schema: TSchema, path: string): InferOutput<TSchema> {
+  const value: unknown = JSON.parse(readFileSync(path, "utf8"))
+  return parse(schema, value)
 }
 
 export function readPackageManifest(packageName: PackageName) {
-  return readJson<PackageManifest>(join(packageDir(packageName), "package.json"))
+  return readJson(packageManifestSchema, join(packageDir(packageName), "package.json"))
 }
 
 export function packageInfo(packageName: PackageName) {

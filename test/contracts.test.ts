@@ -2,12 +2,14 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { array, object, optional, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import {
   packageDir,
   packageInfo,
   packageInfoByPublishName,
   packageInfos,
+  packageManifestSchema,
   packageNames,
   readJson,
   readPackageManifest,
@@ -25,6 +27,16 @@ const ignoredGeneratedDirs = new Set([
   "dist",
   "node_modules",
 ])
+
+const showcaseManifestSchema = object({
+  label: optional(string()),
+  frameworks: optional(record(string(), object({
+    modes: optional(record(string(), object({
+      phases: optional(record(string(), string())),
+      supplementalFiles: optional(array(string())),
+    }))),
+  }))),
+})
 
 function exportTargetPath(packageName: PackageName, target: string) {
   return join(packageDir(packageName), target.replace(/^\.\//, ""))
@@ -101,10 +113,7 @@ describe("package manifest contracts", () => {
   })
 
   it("uses the repository Apache license and source metadata for every public package", () => {
-    const rootManifest = readJson<{
-      license?: string
-      repository?: { type?: string, url?: string }
-    }>(join(repoRoot, "package.json"))
+    const rootManifest = readJson(packageManifestSchema, join(repoRoot, "package.json"))
     const expectedRepository = {
       type: "git",
       url: "git+https://github.com/vite-hub/vitehub.git",
@@ -174,7 +183,7 @@ describe("package manifest contracts", () => {
       cwd: repoRoot,
       encoding: "utf8",
     }).trim().split("\n")
-    const positions = new Map(order.map((path, index) => [readJson<{ name: string }>(join(repoRoot, path)).name, index]))
+    const positions = new Map(order.map((path, index) => [readJson(packageManifestSchema, join(repoRoot, path)).name, index]))
 
     expect(positions.size).toBe(packageInfos.length)
     for (const info of packageInfos) {
@@ -333,10 +342,7 @@ describe("showcase contracts", () => {
         continue
       }
 
-      const manifest = readJson<{
-        label?: string
-        frameworks?: Record<string, { modes?: Record<string, { phases?: Record<string, string>, supplementalFiles?: string[] }> }>
-      }>(manifestPath)
+      const manifest = readJson(showcaseManifestSchema, manifestPath)
 
       expect(manifest.label, `${packageName} showcase should have a label`).toEqual(expect.any(String))
       expect(manifest.frameworks, `${packageName} showcase should list frameworks`).toEqual(expect.any(Object))
