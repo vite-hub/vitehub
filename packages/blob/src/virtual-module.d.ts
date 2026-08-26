@@ -4,3 +4,5 @@ declare module "#vitehub/blob/config" {
   const config: { hosting?: string, blob: typeof blob }
   export default config
 }
+
+export {}

@@ -187,6 +187,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
+    "evalite": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
@@ -214,6 +215,9 @@
       "optional": true
     },
     "askweb": {
+      "optional": true
+    },
+    "evalite": {
       "optional": true
     },
     "vite": {

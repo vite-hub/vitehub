@@ -4,3 +4,5 @@ declare module "#vitehub/kv/config" {
   const config: { hosting?: string, kv: typeof kv }
   export default config
 }
+
+export {}

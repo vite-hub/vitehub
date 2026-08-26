@@ -1,0 +1,224 @@
+import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, relative, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
+
+import { describe, expect, it } from "vitest"
+
+import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
+import { packageInfos } from "../utils/repo"
+
+const execFileAsync = promisify(execFile)
+const repoRoot = resolve(import.meta.dirname, "../..")
+const maxBuffer = 64 * 1024 * 1024
+
+interface PackageManifest {
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  name: string
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  version: string
+}
+
+async function run(command: string, args: string[], cwd: string) {
+  try {
+    const result = await execFileAsync(command, args, { cwd, maxBuffer })
+    return { stderr: String(result.stderr || ""), stdout: String(result.stdout || "") }
+  }
+  catch (error) {
+    const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
+    const output = `${failed.stdout || ""}${failed.stderr || ""}`
+    throw new Error(`${command} ${args.join(" ")} failed${output ? `\n${output}` : ""}`, { cause: error })
+  }
+}
+
+function workspaceConfig(specs: Record<string, string>) {
+  const overrides = Object.entries(specs)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
+  return ["packages:", "  - .", "overrides:", ...overrides, ""].join("\n")
+}
+
+async function readManifest(path: string) {
+  return JSON.parse(await readFile(path, "utf8")) as PackageManifest
+}
+
+async function installedVersion(path: string) {
+  return (await readManifest(path)).version
+}
+
+async function packPublicPackages(packDir: string) {
+  const specs: Record<string, string> = {}
+  for (const info of packageInfos) {
+    const before = new Set(await readdir(packDir))
+    await run("corepack", ["pnpm", "--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+    const tarballs = (await readdir(packDir)).filter(file => !before.has(file))
+    expect(tarballs, `${info.packageName} should produce one tarball`).toHaveLength(1)
+    specs[info.packageName] = `file:${join(packDir, tarballs[0]!)}`
+  }
+  return specs
+}
+
+async function writeConsumer(appDir: string, specs: Record<string, string>) {
+  const fixture = JSON.parse(await readFile(join(repoRoot, "fixtures/consumer/vite-hub/package.json"), "utf8")) as PackageManifest
+  const requiredPeers = {
+    ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
+    "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
+    "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
+    "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    typescript: await installedVersion(join(repoRoot, "node_modules/typescript/package.json")),
+    vite: fixture.dependencies!.vite,
+    vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
+  }
+
+  await Promise.all([
+    writeFile(join(appDir, ".npmrc"), "auto-install-peers=false\nstrict-peer-dependencies=false\n", "utf8"),
+    writeFile(join(appDir, "package.json"), JSON.stringify({
+      dependencies: specs,
+      devDependencies: requiredPeers,
+      packageManager: "pnpm@10.33.0",
+      private: true,
+      type: "module",
+    }, null, 2), "utf8"),
+    writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+  ])
+}
+
+async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) {
+  const script = [
+    "const specifiers = JSON.parse(process.argv[1])",
+    "process.stdout.write(JSON.stringify(specifiers.map(specifier => import.meta.resolve(specifier))))",
+  ].join("\n")
+  const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
+  return JSON.parse(stdout) as string[]
+}
+
+async function importSpecifiers(appDir: string, specifiers: readonly string[]) {
+  const script = [
+    "const specifiers = JSON.parse(process.argv[1])",
+    "const failures = []",
+    "for (const specifier of specifiers) {",
+    "  try { await import(specifier) }",
+    "  catch (error) { failures.push({ message: error instanceof Error ? error.message : String(error), specifier }) }",
+    "}",
+    "if (failures.length) { console.error(JSON.stringify(failures, null, 2)); process.exitCode = 1 }",
+  ].join("\n")
+  await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
+}
+
+async function assertResolution(appDir: string, specifiers: readonly string[], expected: boolean) {
+  const script = [
+    "const specifiers = JSON.parse(process.argv[1])",
+    "const resolved = specifiers.map(specifier => {",
+    "  try { import.meta.resolve(specifier); return true } catch { return false }",
+    "})",
+    "process.stdout.write(JSON.stringify(resolved))",
+  ].join("\n")
+  const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
+  expect(JSON.parse(stdout)).toEqual(specifiers.map(() => expected))
+}
+
+async function addOptionalPeers(appDir: string) {
+  const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
+  const peers = {
+    "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
+    "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
+    "comark-content": await installedVersion(join(repoRoot, "packages/source/node_modules/comark-content/package.json")),
+    evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
+    "files-sdk": await installedVersion(join(repoRoot, "packages/blob/node_modules/files-sdk/package.json")),
+    vitest: agentManifest.peerDependencies!.vitest!,
+  }
+  const args = Object.entries(peers).map(([name, version]) => `${name}@${version}`)
+  await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", ...args], appDir)
+  return Object.keys(peers)
+}
+
+async function typecheckExports(appDir: string) {
+  const modules = publicPackageExportContracts.filter(contract => contract.target.endsWith(".js"))
+  const source = modules.map((contract, index) => [
+    `import type * as Export${index} from ${JSON.stringify(contract.specifier)}`,
+    `type Contract${index} = typeof Export${index}`,
+    `declare const contract${index}: Contract${index}`,
+    `void contract${index}`,
+  ].join("\n")).join("\n")
+  await writeFile(join(appDir, "exports.ts"), `${source}\n`, "utf8")
+  await writeFile(join(appDir, "tsconfig.json"), JSON.stringify({
+    compilerOptions: {
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      noEmit: true,
+      skipLibCheck: true,
+      strict: true,
+      target: "ESNext",
+    },
+    files: ["exports.ts"],
+  }, null, 2), "utf8")
+  await run("corepack", ["pnpm", "exec", "tsc", "-p", "tsconfig.json"], appDir)
+}
+
+describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package exports from tarballs", () => {
+  it("installs and exercises every classified export without workspace visibility", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-public-exports-"))
+    const appDir = join(root, "consumer")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([mkdir(appDir, { recursive: true }), mkdir(packDir, { recursive: true })])
+      const specs = await packPublicPackages(packDir)
+      await writeConsumer(appDir, specs)
+      await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
+
+      const consumerRoot = await realpath(appDir)
+      for (const info of packageInfos) {
+        const packageRoot = await realpath(join(appDir, "node_modules", ...info.packageName.split("/")))
+        const fromConsumer = relative(consumerRoot, packageRoot)
+        expect(fromConsumer === ".." || fromConsumer.startsWith(`..${sep}`), `${info.packageName} should stay inside the consumer`).toBe(false)
+        expect(packageRoot, `${info.packageName} should not resolve to a workspace package`).not.toContain(`${sep}packages${sep}${info.name}`)
+
+        const manifest = await readManifest(join(packageRoot, "package.json"))
+        for (const section of [manifest.dependencies, manifest.devDependencies, manifest.optionalDependencies, manifest.peerDependencies]) {
+          for (const spec of Object.values(section || {})) {
+            expect(spec, `${info.packageName} should not publish a workspace-only dependency`).not.toMatch(/^(?:catalog|workspace):/)
+          }
+        }
+      }
+
+      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "vitest"]
+      await assertResolution(appDir, optionalPeers, false)
+      await importSpecifiers(appDir, publicPackageExportContracts
+        .filter(contract => contract.target.endsWith(".js") && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
+        .map(contract => contract.specifier))
+
+      expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
+      await assertResolution(appDir, optionalPeers, true)
+      await importSpecifiers(appDir, publicPackageExportContracts
+        .filter(contract => contract.target.endsWith(".js") && contract.kind !== "type-only")
+        .map(contract => contract.specifier))
+      await typecheckExports(appDir)
+
+      const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
+      const typeOnlyContracts = publicPackageExportContracts.filter(contract => contract.kind === "type-only")
+      const resolved = await resolveSpecifiers(appDir, [...staticContracts, ...typeOnlyContracts].map(contract => contract.specifier))
+      for (const [index, url] of resolved.entries()) {
+        const contract = [...staticContracts, ...typeOnlyContracts][index]!
+        const path = fileURLToPath(url)
+        expect(existsSync(path), `${contract.specifier} should resolve from the installed package`).toBe(true)
+        expect((await readFile(path)).byteLength, `${contract.specifier} should not publish an empty asset`).toBeGreaterThan(0)
+      }
+
+      for (const contract of publicPackageBinContracts) {
+        const packageRoot = await realpath(join(appDir, "node_modules", ...contract.packageName.split("/")))
+        const result = await run(process.execPath, [join(packageRoot, contract.target), "--help"], appDir)
+        expect(result.stdout, `${contract.packageName} ${contract.binName} should print help`).toContain("Usage: vitehub")
+        expect(result.stderr).toBe("")
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 600_000)
+})
