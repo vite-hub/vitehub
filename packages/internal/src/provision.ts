@@ -60,6 +60,7 @@ export function resolveVercelProvisionConfig(env: Record<string, string | undefi
 
 export interface CloudflareEnvelope<T> {
   result?: T
+  result_info?: { cursor?: string }
   success?: boolean
   errors?: Array<{ message?: string }>
 }

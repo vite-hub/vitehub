@@ -9,7 +9,7 @@ import { readEnv } from "@vite-hub/internal/env"
 
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
-import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
+import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { BlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
 
 interface CloudflareR2Bucket {
@@ -44,6 +44,47 @@ interface VercelBlobStoreResponse {
 const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
 const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
+const CLOUDFLARE_R2_BUCKET_LIST_MAX_PAGES = 100
+const CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE = "1000"
+
+async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest): Promise<Set<string>> {
+  const names = new Set<string>()
+  const cursors = new Set<string>()
+  let cursor: string | undefined
+
+  for (let page = 0; page < CLOUDFLARE_R2_BUCKET_LIST_MAX_PAGES; page++) {
+    const listed = await request<{ buckets?: CloudflareR2Bucket[] }>("/r2/buckets", {
+      query: {
+        per_page: CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE,
+        ...(cursor ? { cursor } : {}),
+      },
+    })
+    for (const bucket of listed.result?.buckets ?? []) {
+      if (bucket.name) names.add(bucket.name)
+    }
+
+    const nextCursor = listed.result_info?.cursor?.trim()
+    if (!nextCursor) return names
+    if (cursors.has(nextCursor)) {
+      throw new Error("Cloudflare R2 bucket listing returned a repeated pagination cursor.")
+    }
+    cursors.add(nextCursor)
+    cursor = nextCursor
+  }
+
+  throw new Error(`Cloudflare R2 bucket listing exceeded ${CLOUDFLARE_R2_BUCKET_LIST_MAX_PAGES} pages.`)
+}
+
+async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, bucketName: string): Promise<void> {
+  try {
+    await request("/r2/buckets", { method: "POST", body: { name: bucketName } })
+  }
+  catch (error) {
+    if (!(error instanceof ProvisionRequestError) || error.status !== 409) throw error
+    const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`)
+    if (existing.result?.name !== bucketName) throw error
+  }
+}
 
 function parseObject(value: unknown): Record<string, unknown> {
   if (!value || Object(value) !== value) throw new Error("Provisioning returned an invalid response.")
@@ -140,8 +181,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       }
 
       const request = createCloudflareProvisionClient(config, context.fetch)
-      const listed = await request("/r2/buckets", { parse: parseCloudflareBuckets })
-      const existing = new Set((listed.result?.buckets ?? []).map(bucket => bucket.name).filter((name): name is string => Boolean(name)))
+      const existing = await listCloudflareR2BucketNames(request)
 
       return [...new Set(buckets)].map((bucketName): ProvisionAction => ({
         kind: "cloudflare-r2-bucket",
@@ -149,7 +189,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
         exists: existing.has(bucketName),
         apply: async () => {
           if (!existing.has(bucketName)) {
-            await request(`/r2/buckets`, { method: "POST", body: { name: bucketName } })
+            await createCloudflareR2Bucket(request, bucketName)
           }
           return {}
         },
