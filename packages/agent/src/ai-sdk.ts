@@ -1867,6 +1867,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           return await synthesizedOutput(synthesized, original)
         }
         catch (error) {
+          if (!isAgentOutputValidationError(error)) throw error
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           const repairResult = await repairOutput({
             error: error instanceof Error ? error : new Error(String(error)),
