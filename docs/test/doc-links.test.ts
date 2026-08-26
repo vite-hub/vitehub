@@ -22,6 +22,7 @@ describe("documentation link validation", () => {
 [Reference][guide]
 [Shortcut]
 ![Image](/images/diagram.png)
+<img src="/images/html-diagram.png" alt="HTML diagram">
 :u-button[Guide]{to="/docs/inline"}
 ::card
 ---
@@ -63,6 +64,7 @@ https://vitehub.dev/docs/bare-autolink
       "./api_(stable).md",
       "/docs/guide",
       "/images/diagram.png",
+      "/images/html-diagram.png",
       "/docs/inline",
       "/docs/card",
       "/docs/card#install",
@@ -135,12 +137,26 @@ https://vitehub.dev/docs/bare-autolink
   it("reports missing rendered images", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": "# Docs\n\n![Diagram](/images/missing.png)",
+      "docs/content/docs/index.md": "# Docs\n\n![Diagram](/images/missing.png)\n\n<img src=\"/images/missing-html.png\" alt=\"Missing\">",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/images/missing.png" does not exist'),
+      expect.stringContaining('route "/images/missing-html.png" does not exist'),
     ]);
+  });
+
+  it("maps only configured content collections to routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><h1>Home</h1></template>",
+      "docs/content/index.md": "# Orphan",
+      "docs/content/docs/index.md": "# Docs\n\n[Wrong landing anchor](/#orphan)",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({
+      errors: [expect.stringContaining('anchor #orphan cannot be validated for route "/"')],
+      files: 1,
+    });
   });
 
   it("reports missing routes, files, and anchors", () => {

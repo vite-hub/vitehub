@@ -6,6 +6,11 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 const siteOrigin = "https://vitehub.dev";
+const contentCollectionPrefixes = new Map([
+  ["blog", "blog"],
+  ["docs", "docs"],
+  ["trust", ""],
+]);
 
 function walk(directory, predicate) {
   if (!existsSync(directory)) return [];
@@ -89,7 +94,7 @@ export function markdownLinks(markdown) {
       if (typeof destination === "string") links.push(destination);
     }
     if (node.type === "html" && !node.value.startsWith("<!--")) {
-      for (const match of node.value.matchAll(/<a\s[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
+      for (const match of node.value.matchAll(/<(?:a\b[^>]*?\bhref|img\b[^>]*?\bsrc)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
         links.push(match[1] ?? match[2] ?? match[3]);
       }
     }
@@ -99,12 +104,12 @@ export function markdownLinks(markdown) {
 
 function routeFromContentPath(contentRoot, path) {
   const parts = relative(contentRoot, path).split(sep);
-  if (parts.length === 1) return "/";
   const collection = parts.shift();
+  if (!contentCollectionPrefixes.has(collection)) return undefined;
   const clean = parts.map((part) => part.replace(/^\d+\./, ""));
   clean[clean.length - 1] = clean.at(-1).replace(/\.md$/, "");
   if (clean.at(-1) === "index") clean.pop();
-  const prefix = collection === "trust" ? "" : collection;
+  const prefix = contentCollectionPrefixes.get(collection);
   return normalizeRoute(`/${[prefix, ...clean].filter(Boolean).join("/")}`);
 }
 
@@ -152,7 +157,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   const docsRoot = join(repoRoot, "docs");
   const contentRoot = join(docsRoot, "content");
   const publicRoot = join(docsRoot, "public");
-  const contentFiles = walk(contentRoot, (path) => path.endsWith(".md"));
+  const contentFiles = walk(contentRoot, (path) => path.endsWith(".md"))
+    .filter((path) => routeFromContentPath(contentRoot, path) !== undefined);
   const readmes = publicReadmes(repoRoot);
   const markdownFiles = [...contentFiles, ...readmes];
   const routeFiles = new Map(contentFiles.map((path) => [routeFromContentPath(contentRoot, path), path]));
@@ -227,6 +233,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
         if (targetAnchors && !targetAnchors.has(fragment)) {
           errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist in ${relative(repoRoot, targetFile)}`);
         }
+      } else if (fragment && targetRoute) {
+        errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} cannot be validated for route ${JSON.stringify(targetRoute)}`);
       }
     }
   }
