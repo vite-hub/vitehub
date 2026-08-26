@@ -86,6 +86,10 @@ export default defineConfig({
         command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
         dependsOn: ["@vite-hub/cli#build"],
       },
+      preflight: {
+        cache: false,
+        command: "node test/preflight.mjs",
+      },
       "queue:e2e": {
         cache: false,
         command: "node packages/queue/test/e2e-live.mjs",
@@ -145,7 +149,7 @@ export default defineConfig({
       verify: {
         cache: false,
         command:
-          "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+          "vp run preflight && vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,
