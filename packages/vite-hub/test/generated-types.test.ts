@@ -200,7 +200,11 @@ describe("framework generated types", () => {
 
   it("refreshes build output and exposes the prepare lifecycle", async () => {
     const { root, viteRoot } = await createNestedProject()
-    await writeFile(join(root, ".vitehub/types/env.d.ts"), "interface ImportMetaEnv {}\n")
+    await Promise.all([
+      mkdir(join(root, "server/collections"), { recursive: true }),
+      writeFile(join(root, ".vitehub/types/env.d.ts"), "interface ImportMetaEnv {}\n"),
+      writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
+    ])
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })
@@ -220,6 +224,10 @@ describe("framework generated types", () => {
     await prepareFeature(viteHubTypesPlugin()).run([], context)
 
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/env.d.ts")
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./source/collections.d.ts")
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
+      `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
+    )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
   })
 

@@ -5,6 +5,7 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_NITRO_CONFIG_CONTEXT,
 } from "@vite-hub/internal/build/vite"
+import { prepareSourceGeneration } from "@vite-hub/source/vite"
 
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -108,6 +109,7 @@ export function viteHubTypesPlugin(): Plugin &
             name: "prepare",
             async run(_args, context) {
               const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
+              await prepareSourceGeneration({ importBase: "vite-hub/source", projectRoot: root })
               await writeViteHubTypes({ projectRoot: root })
               context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)
             },
