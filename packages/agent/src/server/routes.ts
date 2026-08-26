@@ -106,6 +106,7 @@ import type {
   AgentToolStepItem,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  ResolvedAgentRuntimeContext,
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
@@ -136,7 +137,7 @@ interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
 }
 
-interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRouteRuntimeConfig> {
+interface ViteAgentRouteRuntimeContext extends ResolvedAgentRuntimeContext<ViteAgentRouteRuntimeConfig> {
   request: Request
   runtime: AgentRuntimeName
   runtimeConfig: ViteAgentRouteRuntimeConfig
@@ -3301,7 +3302,7 @@ async function postDurableSteerErrorFallback(
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
   const deliveryContext: ViteAgentRouteRuntimeContext = {
     ...context,
-    capabilities: delivery.capabilities,
+    capabilities: delivery.capabilities || {},
     ...(delivery.requestUrl ? { request: new Request(delivery.requestUrl) } : {}),
     ...(delivery.run ? { run: delivery.run } : {}),
   }

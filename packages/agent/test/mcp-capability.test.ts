@@ -17,11 +17,12 @@ type MockMcpClient = MCPClient & {
 }
 
 function createClient(tools: Record<string, unknown>): MockMcpClient {
-  return {
+  // SAFETY: The tests exercise only this MCPClient subset.
+  return Object.assign({} as MCPClient, {
     close: vi.fn(async () => undefined),
     serverInfo: { name: "test", version: "1.0.0" },
     tools: vi.fn(async () => tools),
-  } as unknown as MockMcpClient
+  }) as MockMcpClient
 }
 
 async function createTools(descriptions: Record<string, string>) {

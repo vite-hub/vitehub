@@ -154,7 +154,8 @@ describe("Agent model materialization", () => {
       async doGenerate() { return generateResult }
       async doStream() { return { stream: new ReadableStream() } }
     }
-    const model = new ClassBackedModel() as unknown as AgentModelInput
+    // SAFETY: This fixture implements the model members materializeAgentModel reads.
+    const model = new ClassBackedModel() as AgentModelInput
     const { materializeAgentModel } = await import("../src/internal/agent-model.ts")
 
     expect(Object.keys(model as object)).toEqual(["id"])

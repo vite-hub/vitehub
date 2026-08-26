@@ -80,7 +80,7 @@ export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfi
   }
 
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  Omit<AgentRuntimeContext<TRuntimeConfig>, "runtimeConfig"> & {
+  Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig"> & {
     runEvents?: AgentRunEventPublisher
   }
 

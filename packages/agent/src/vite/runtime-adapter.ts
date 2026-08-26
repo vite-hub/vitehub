@@ -19,10 +19,11 @@ import type {
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  ResolvedAgentRuntimeContext,
   DiscoveredAgentDefinition,
 } from "../index.ts"
 
-export interface ViteAgentRuntimeContext extends AgentRuntimeContext {
+export interface ViteAgentRuntimeContext extends ResolvedAgentRuntimeContext {
   request?: Request
   runtime: "vite"
   runtimeConfig: AgentRuntimeConfig

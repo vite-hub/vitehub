@@ -7,6 +7,7 @@ import { defineAgent, runAgentTrigger, verifyAgentWebhookRequest } from "../src/
 function runtime(request?: Request) {
   return {
     ...(request ? { request } : {}),
+    capabilities: {},
     memo: vi.fn(),
     runtime: "unknown" as const,
     waitUntil: vi.fn(),
