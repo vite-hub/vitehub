@@ -1223,6 +1223,10 @@ async function* runProvider<
         nextEvent = events.next()
         continue
       }
+      if (isAuxiliaryAgentAdapterContext(context) && current.value.type === "request.opened" && current.value.requestId) {
+        // SAFETY: A request.opened event always carries the provider approval request identifier expected by respondToRequest.
+        await activeRuntime.respondToRequest(threadId, current.value.requestId as never, "decline")
+      }
       const normalized = providerEvent(current.value, context.tools)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)

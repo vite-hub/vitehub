@@ -863,6 +863,21 @@ describe("Provider Agent Driver", () => {
     expect(primary.interruptTurn).toHaveBeenCalledWith(primaryThreadId, "turn-1")
   })
 
+  it("declines approval requests from auxiliary provider runs", async () => {
+    const threadId = "thread-auxiliary-approval"
+    const provider = runtime(threadId, [
+      event("request.opened", threadId, { args: { command: "git status" }, requestType: "command" }, { requestId: "approval-1", turnId: "turn-1" }),
+      event("request.resolved", threadId, { decision: "decline" }, { requestId: "approval-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(auxiliaryContext as never)
+
+    expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "decline")
+  })
+
   it("serves Capability tools through the provider MCP boundary", async () => {
     const execute = vi.fn(async (input: unknown) => ({ echoed: input }))
     runtime("thread-tools", [event("turn.completed", "thread-tools", { state: "completed" }, { turnId: "turn-1" })], {
