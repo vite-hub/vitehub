@@ -1,3 +1,4 @@
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -8,5 +9,6 @@ export default defineConfig({
       database: true,
       queue: true,
     }),
+    nitro() as never,
   ],
 })

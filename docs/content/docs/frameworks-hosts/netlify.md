@@ -24,6 +24,7 @@ In a Nuxt app, the source wrapper follows Nuxt's build directory and is normally
 Each active package integration contributes only its owned Netlify output.
 
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -35,6 +36,7 @@ export default defineConfig({
       blob: true,
       schedule: true,
     }),
+    nitro() as never,
   ],
 })
 ```

@@ -25,6 +25,7 @@ ViteHub keeps Definitions portable and moves Vercel-specific behavior into packa
 Select the Vercel preset in the framework integration. Each primitive still owns its Definitions and Runtime Helpers.
 
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -35,6 +36,7 @@ export default defineConfig({
       blob: true,
       queue: true,
     }),
+    nitro() as never,
   ],
 })
 ```

@@ -1,15 +1,17 @@
-import { hubAgent } from '@vite-hub/agent/vite'
-import { hubKv } from '@vite-hub/kv/vite'
 import { hubSchedule } from '@vite-hub/schedule/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubAgent({ runtime: 'deno' }),
-    hubKv(),
+    vitehub({
+      preset: 'deno',
+      kv: {
+        driver: 'deno-kv',
+      },
+    }),
     hubSchedule(),
+    nitro() as never,
   ],
-  kv: {
-    driver: 'deno-kv',
-  },
 })

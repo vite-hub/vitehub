@@ -24,6 +24,7 @@ Keep the Definition and Runtime Helper host-neutral. Put Cloudflare details in I
 Select the Cloudflare preset in the framework integration. Each primitive still owns its Definitions and Runtime Helpers.
 
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -34,6 +35,7 @@ export default defineConfig({
       database: true,
       queue: true,
     }),
+    nitro() as never,
   ],
 })
 ```

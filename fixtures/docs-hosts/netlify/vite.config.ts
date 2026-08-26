@@ -1,3 +1,4 @@
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -9,5 +10,6 @@ export default defineConfig({
       blob: true,
       schedule: true,
     }),
+    nitro() as never,
   ],
 })

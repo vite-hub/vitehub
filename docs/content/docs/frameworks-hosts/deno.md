@@ -22,47 +22,48 @@ ViteHub keeps Agent Definitions, Schedule Definitions, KV Stores, and Runtime He
 The Agent integration selects Deno when generated Agent routes run through `Deno.serve`. Other primitives retain their package-owned runtime options.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
-import { hubKv } from '@vite-hub/kv/vite'
 import { hubSchedule } from '@vite-hub/schedule/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubAgent({ runtime: 'deno' }),
-    hubKv(),
+    vitehub({
+      preset: 'deno',
+      kv: {
+        driver: 'deno-kv',
+      },
+    }),
     hubSchedule(),
+    nitro() as never,
   ],
-  kv: {
-    driver: 'deno-kv',
-  },
 })
 ```
 
-The generated Agent server imports discovered Agent Definitions and mounts both the webhook route pattern and the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher.
-If Schedule output exists, the generated server loads `.vitehub/schedule/deno-cron.mjs` before serving requests.
+The generated Nitro server imports discovered Agent Definitions and mounts both the webhook route pattern and the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher.
+Schedule keeps its package-owned `.vitehub/schedule/deno-cron.mjs` output.
 
 ## Generated output
 
-A production-shaped build writes the Deno files under `.vitehub`.
-In a Nuxt app, the Agent entrypoint is written under Nuxt's build directory at `.nuxt/vitehub/agent/deno-server.ts` by default; the Schedule output remains project-owned under `.vitehub/schedule`.
+A production-shaped build writes the Deno server under `.output` and Schedule output under `.vitehub`.
 
 ```bash [Terminal]
 pnpm build
-test -f .vitehub/agent/deno-server.ts
-find .vitehub -maxdepth 4 -type f | sort
+test -f .output/server/index.mjs
+find .output .vitehub -maxdepth 4 -type f | sort
 ```
 
 The generated server runs locally with Deno network permission for the selected port.
 
 ```bash [Terminal]
-deno run --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts --host 127.0.0.1 --port 8787
+deno run --allow-net=127.0.0.1:8787 .output/server/index.mjs
 ```
 
 A route using `driver: 'deno-kv'` also requires Deno KV support.
 
 ```bash [Terminal]
-deno run --unstable-kv --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts --host 127.0.0.1 --port 8787
+deno run --unstable-kv --allow-net=127.0.0.1:8787 .output/server/index.mjs
 ```
 
 For a single discovered `support` Agent with the default chat route enabled, the generated route accepts the following request. The target Agent must attach a route-enabled `webChat()` Channel; Agents without one remain unreachable through the dispatcher.
@@ -75,8 +76,7 @@ curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \
 
 ## Production notes
 
-Deno Deploy uses `.vitehub/agent/deno-server.ts` as the generated server entrypoint.
-For Nuxt, configure `.nuxt/vitehub/agent/deno-server.ts` instead, or the equivalent path under a custom `buildDir`.
+Deno Deploy uses `.output/server/index.mjs` as the generated server entrypoint.
 Do not import generated files from application code to work around deployment configuration; keep application code on Agent Definitions, Runtime Helpers, and stable ViteHub imports.
 
 Use Deno environment variables for model keys and other Runtime Env.
