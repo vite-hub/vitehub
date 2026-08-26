@@ -116,6 +116,7 @@ export type ResolvedAuthSecondaryStorageConfiguration =
   | { mode: "named"; store: string }
 
 export interface ResolvedAuthAccessRoute {
+  authorize?: true
   method?: string
   route: string
 }

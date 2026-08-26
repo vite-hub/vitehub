@@ -11,7 +11,7 @@ Console data can contain user prompts, model output, tool activity, and provider
 
 ## Enable the Console
 
-Set `console: true` in the root ViteHub integration. The Node preset supports the Console in development and production.
+Set `console: true` in the root ViteHub integration during development. Production builds require an explicit access contract described below.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -71,9 +71,19 @@ If `console` is omitted or set to `false`, ViteHub does not register a Console p
 
 ## Protect both route groups
 
-`console: true` registers the page under `/_vitehub/**` and its read API under `/api/_vitehub/console/**`. It does not add authentication or an admin role.
+The Console registers the page under `/_vitehub/**` and its read API under `/api/_vitehub/console/**`. A production build rejects bare `console: true` so these inspection routes cannot be exposed accidentally.
 
-If the app uses ViteHub Auth, guard both route groups in the Primary Auth Definition. The host decides what makes a user an administrator.
+If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard both route groups in the Primary Auth Definition. The host decides what makes a user an administrator.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    console: { access: 'auth' },
+    preset: 'node',
+  })],
+})
+```
 
 ```ts [server/auth.ts]
 import { defineAuth, type AuthAccessAuthorize } from 'vite-hub/auth'
@@ -93,7 +103,20 @@ export default defineAuth({
 
 ViteHub checks for an Auth Session before it calls `authorizeConsole`. A missing session returns `401`. Returning `false` from the callback returns `403`. The callback can return a `Response` when the app needs another rejection or redirect.
 
-The `role` field above is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist already used by the host. Apps that use another authentication library should protect the same two route groups in host middleware.
+The `role` field above is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist already used by the host.
+
+Apps that use another authentication library must protect both route groups in host middleware and acknowledge that boundary explicitly:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    console: { exposure: 'host-managed' },
+    preset: 'node',
+  })],
+})
+```
+
+`host-managed` is an acknowledgement, not middleware. ViteHub does not inspect or enforce the host's access policy in this mode.
 
 Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in redirects and the complete callback contract.
 
@@ -107,7 +130,7 @@ The fallback applies only when an Agent Definition does not configure `invocatio
 
 The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store. Use the [Invocation UI](/docs/ui/invocation) with that store when the app needs a custom inspection page.
 
-Production Console builds currently require `preset: 'node'` because the fallback journal uses local SQLite. The Node preset supports the build, but it does not make `.vitehub/data/console.sqlite` persistent: the host must provide durable storage that survives process and deployment replacement. The file is also local to one replica and is not shared across replicas. Other presets can run the Console during development. Their production builds fail while `console: true` is set, so ViteHub does not write the journal to storage that may disappear between requests or deployments.
+Production Console builds currently require `preset: 'node'` because the fallback journal uses local SQLite. The Node preset supports the build, but it does not make `.vitehub/data/console.sqlite` persistent: the host must provide durable storage that survives process and deployment replacement. The file is also local to one replica and is not shared across replicas. Other presets can run the Console during development. Their production builds fail while Console is enabled, so ViteHub does not write the journal to storage that may disappear between requests or deployments.
 
 The Console API accepts `GET` requests only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
@@ -123,7 +146,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | --- | --- |
 | `/_vitehub` returns `404` | Confirm `console: true`, then restart the development server. Omitted and false configurations register no route. |
 | The Console opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
-| A production build rejects `console: true` | Use the Node preset or disable the Console for that production build. |
+| A production build rejects `console: true` | Use `console: { access: 'auth' }` with callback-backed policies for both route groups, or acknowledge host middleware with `console: { exposure: 'host-managed' }`. Production also requires the Node preset. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the host's `authorize` callback and the current user's role or permission. |
 

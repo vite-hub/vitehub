@@ -6,6 +6,7 @@ import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
+import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -14,10 +15,11 @@ import { mergeConfig } from "vite"
 import { vitehub } from "./index.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { consoleInvocationRootPlugin } from "./console/vite.ts"
+import { assertConsoleProductionAccess, consoleInvocationRootPlugin } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { HookHandler, Plugin, PluginOption, UserConfig } from "vite"
 
@@ -51,7 +53,7 @@ type NuxtLike = {
     rootDir?: string
     serverDir?: string
     srcDir?: string
-    vite?: UserConfig
+    vite?: UserConfig & { auth?: AuthModuleOptions }
     vitehub?: ViteHubNuxtOptions
     typescript?: Record<string, unknown>
   }
@@ -360,6 +362,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
   }
+  config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
   config[VITEHUB_GENERATED_ROOT] = generatedRoot
   config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
@@ -458,11 +461,20 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
   if (options.console) {
-    if (!nuxt.options.dev && plan.preset !== "node") {
-      throw new Error(
-        `[vitehub] console: true currently requires preset: "node" for production because its fallback journal uses durable local SQLite. Disable Console for the ${JSON.stringify(plan.preset)} production build or deploy it with the Node preset.`,
-      )
-    }
+    const configuredConsole = options.console === true ? true : options.console
+    const viteAuth = nuxt.options.vite?.auth
+    const effectiveAuth = viteAuth ?? options.auth
+    assertConsoleProductionAccess(configuredConsole, {
+      auth: configuredConsole !== true && configuredConsole.access === "auth" && effectiveAuth
+        ? resolveAuthViteConfig(
+            effectiveAuth === true ? undefined : effectiveAuth,
+            viteRoot,
+            { serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined },
+          )
+        : undefined,
+      development: Boolean(nuxt.options.dev),
+      preset: plan.preset,
+    })
     await installConsole(
       nuxt,
       projectRoot,
