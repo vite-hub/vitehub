@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -110,6 +110,32 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[]) {
   await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
 }
 
+async function importPackagesWithoutRootFallback(appDir: string) {
+  const scopeDir = join(appDir, "node_modules/@vite-hub")
+  const hiddenScopeDir = join(appDir, "node_modules/.vite-hub-root-dependencies")
+  const packageRoots = new Map(await Promise.all(packageInfos.map(async info => [
+    info.packageName,
+    await realpath(join(appDir, "node_modules", ...info.packageName.split("/"))),
+  ] as const)))
+
+  await rename(scopeDir, hiddenScopeDir)
+  try {
+    for (const info of packageInfos) {
+      const runnerDir = join(appDir, ".isolated", info.name)
+      const packageNameParts = info.packageName.split("/")
+      const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
+      await mkdir(linkDir, { recursive: true })
+      await symlink(packageRoots.get(info.packageName)!, join(linkDir, packageNameParts.at(-1)!), "dir")
+      await importSpecifiers(runnerDir, publicPackageExportContracts
+        .filter(contract => contract.packageName === info.packageName && contract.target.endsWith(".js") && contract.kind !== "type-only")
+        .map(contract => contract.specifier))
+    }
+  }
+  finally {
+    await rename(hiddenScopeDir, scopeDir)
+  }
+}
+
 async function assertResolution(appDir: string, specifiers: readonly string[], expected: boolean) {
   const script = [
     "const specifiers = JSON.parse(process.argv[1])",
@@ -151,7 +177,7 @@ async function typecheckExports(appDir: string) {
       module: "NodeNext",
       moduleResolution: "NodeNext",
       noEmit: true,
-      skipLibCheck: true,
+      skipLibCheck: false,
       strict: true,
       target: "ESNext",
     },
@@ -198,6 +224,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       await importSpecifiers(appDir, publicPackageExportContracts
         .filter(contract => contract.target.endsWith(".js") && contract.kind !== "type-only")
         .map(contract => contract.specifier))
+      await importPackagesWithoutRootFallback(appDir)
       await typecheckExports(appDir)
 
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
