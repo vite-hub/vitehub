@@ -7,6 +7,7 @@ import { getCloudflareRateLimitBindingName } from "../integrations/cloudflare.ts
 import { normalizeRateLimitPolicy } from "../policy.ts"
 import { writeRateLimitManifest } from "./manifest.ts"
 
+import type { ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { ProviderOutputConfigOwnership } from "@vite-hub/internal/build/provider-output-config"
 import type { RateLimitDeclaration } from "../types.ts"
 
@@ -97,7 +98,7 @@ export async function writeRateLimitProviderOutput(options: {
   previousDeclarations?: RateLimitDeclaration[]
   provider: "cloudflare" | "memory"
   rootDir: string
-}): Promise<void> {
+}, write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs): Promise<void> {
   const state = await readOutputState(options.rootDir)
   const currentBindings = options.declarations.map(declaration => getCloudflareRateLimitBindingName(declaration.name))
   const previousBindings = options.previousDeclarations?.map(declaration => getCloudflareRateLimitBindingName(declaration.name)) ?? []
@@ -115,7 +116,7 @@ export async function writeRateLimitProviderOutput(options: {
       throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
     }
     if (state.standalone && state.bindings.length > 0) {
-      await writeProviderDeploymentOutputs({
+      await write({
         clientOutDir: options.clientOutDir,
         cleanup: {
           cloudflare: {
@@ -142,7 +143,7 @@ export async function writeRateLimitProviderOutput(options: {
     if (!options.namespace) {
       throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
     }
-    await writeProviderDeploymentOutputs({
+    await write({
       clientOutDir: options.clientOutDir,
       cloudflare: {
         outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
@@ -158,7 +159,7 @@ export async function writeRateLimitProviderOutput(options: {
     return
   }
 
-  await writeProviderDeploymentOutputs({
+  await write({
     clientOutDir: options.clientOutDir,
     cleanup: {
       cloudflare: {

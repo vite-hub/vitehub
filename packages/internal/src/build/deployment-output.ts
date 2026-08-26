@@ -8,6 +8,7 @@ import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProvider
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+import type { ProviderOutputCatalog as ProviderOutputCatalogType } from "./provider-output-catalog.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { composeNitroCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
@@ -108,7 +109,48 @@ export interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions
   vercel?: VercelProviderDeploymentOutput
 }
 
+export type ProviderDeploymentOutputOwner =
+  | "agent"
+  | "database"
+  | "blob"
+  | "queue"
+  | "rate-limit"
+  | "schedule"
+  | "workflow"
+  | "vite-hub"
+
+export interface ProviderDeploymentOutputWriter {
+  (options: ProviderDeploymentOutputOptions): Promise<void>
+}
+
+export interface ProviderDeploymentOutputContribution {
+  owner: ProviderDeploymentOutputOwner
+  rootDir: string
+  write: (context: { signal: AbortSignal; write: ProviderDeploymentOutputWriter }) => Promise<void>
+}
+
+interface FinalizeProviderDeploymentOutputOptions {
+  signal?: AbortSignal
+}
+
 const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
+const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, Promise<void>>()
+
+const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
+  "agent",
+  "database",
+  "blob",
+  "queue",
+  "rate-limit",
+  "schedule",
+  "workflow",
+  "vite-hub",
+]
+
+function throwIfProviderOutputAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return
+  throw signal.reason ?? new DOMException("Provider Output finalization aborted.", "AbortError")
+}
 
 async function settleWrites(writes: Array<Promise<void>>): Promise<void> {
   const results = await Promise.allSettled(writes)
@@ -355,20 +397,91 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
   await settleWrites(cleanups)
 }
 
+async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operation: () => Promise<T>): Promise<T> {
+  const key = resolve(rootDir)
+  const previous = providerDeploymentOutputWrites.get(key) ?? Promise.resolve()
+  const current = previous.catch(() => undefined).then(operation)
+  providerDeploymentOutputWrites.set(key, current)
+  try {
+    return await current
+  }
+  finally {
+    if (providerDeploymentOutputWrites.get(key) === current) providerDeploymentOutputWrites.delete(key)
+  }
+}
+
+export function contributeProviderDeploymentOutput(
+  catalog: ProviderOutputCatalogType | undefined,
+  contribution: ProviderDeploymentOutputContribution,
+): void {
+  catalog?.replaceDeploymentContribution(contribution)
+}
+
+export function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): void {
+  catalog?.resetDeploymentContributions()
+}
+
+export async function finalizeProviderDeploymentOutputs(
+  catalog: ProviderOutputCatalogType | undefined,
+  options: FinalizeProviderDeploymentOutputOptions = {},
+): Promise<void> {
+  if (!catalog) return
+  const existing = providerDeploymentOutputFinalizations.get(catalog)
+  if (existing) return await existing
+
+  const finalization = (async () => {
+    const contributions = catalog.takeDeploymentContributions()
+    if (!contributions.length) return
+    const order = new Map(providerDeploymentOutputOwnerOrder.map((owner, index) => [owner, index]))
+    contributions.sort((left, right) => order.get(left.owner)! - order.get(right.owner)!)
+    const grouped = new Map<string, ProviderDeploymentOutputContribution[]>()
+    for (const contribution of contributions) {
+      const rootDir = resolve(contribution.rootDir)
+      const rootContributions = grouped.get(rootDir) ?? []
+      rootContributions.push(contribution)
+      grouped.set(rootDir, rootContributions)
+    }
+    const controller = new AbortController()
+    const abort = () => controller.abort(options.signal?.reason)
+    if (options.signal?.aborted) abort()
+    else options.signal?.addEventListener("abort", abort, { once: true })
+    try {
+      await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
+        await withProviderDeploymentOutputRootLock(rootDir, async () => {
+          for (const contribution of rootContributions) {
+            throwIfProviderOutputAborted(controller.signal)
+            try {
+              await contribution.write({ signal: controller.signal, write: writeProviderDeploymentOutputsNow })
+            }
+            catch (error) {
+              controller.abort(error)
+              throw error
+            }
+            throwIfProviderOutputAborted(controller.signal)
+          }
+        })
+      }))
+    }
+    finally {
+      options.signal?.removeEventListener("abort", abort)
+    }
+  })()
+  providerDeploymentOutputFinalizations.set(catalog, finalization)
+  try {
+    await finalization
+  }
+  finally {
+    if (providerDeploymentOutputFinalizations.get(catalog) === finalization) {
+      providerDeploymentOutputFinalizations.delete(catalog)
+    }
+  }
+}
+
 export async function withProviderDeploymentOutputLock<T>(
   rootDir: string,
   operation: (write: (options: ProviderDeploymentOutputOptions) => Promise<void>) => Promise<T>,
 ): Promise<T> {
-  const key = resolve(rootDir)
-  const previous = providerDeploymentOutputWrites.get(key) ?? Promise.resolve()
-  const write = previous.catch(() => undefined).then(() => operation(writeProviderDeploymentOutputsNow))
-  providerDeploymentOutputWrites.set(key, write)
-  try {
-    return await write
-  }
-  finally {
-    if (providerDeploymentOutputWrites.get(key) === write) providerDeploymentOutputWrites.delete(key)
-  }
+  return await withProviderDeploymentOutputRootLock(rootDir, async () => await operation(writeProviderDeploymentOutputsNow))
 }
 
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {

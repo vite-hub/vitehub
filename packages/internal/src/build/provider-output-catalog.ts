@@ -1,4 +1,5 @@
 import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
+import type { ProviderDeploymentOutputContribution } from "./deployment-output.ts"
 
 export interface CloudflareQueueConsumer {
   queue: string
@@ -71,6 +72,7 @@ export class ProviderOutputCatalog {
   #appliedCloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #cloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #runtimeContributions = new Map<ProviderOutputProduct, ProviderRuntimeContribution>()
+  #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], ProviderDeploymentOutputContribution>()
 
   appliedCloudflareContributions(): IterableIterator<CloudflareProviderOutputValue> {
     return this.#appliedCloudflareContributions.values()
@@ -117,6 +119,20 @@ export class ProviderOutputCatalog {
 
   resetRuntimeContributions(): void {
     this.#runtimeContributions.clear()
+  }
+
+  replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution): void {
+    this.#deploymentContributions.set(contribution.owner, contribution)
+  }
+
+  resetDeploymentContributions(): void {
+    this.#deploymentContributions.clear()
+  }
+
+  takeDeploymentContributions(): ProviderDeploymentOutputContribution[] {
+    const contributions = [...this.#deploymentContributions.values()]
+    this.#deploymentContributions.clear()
+    return contributions
   }
 }
 

@@ -18,7 +18,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const queuePackageName = "@vite-hub/queue"
 const cloudflareQueueWorkerMarker = "vitehub-queue-worker"
@@ -551,7 +551,10 @@ async function writeVercelQueueFunctions(
   }
 }
 
-export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
+export async function generateProviderOutputs(
+  options: GenerateProviderOutputsOptions,
+  write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
+): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
   const cloudflareQueueConfig = resolveOutputQueueConfig(options.queue, "cloudflare")
   const usesCloudflare = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare"
@@ -560,7 +563,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const createVercel = shouldCreateVercelOutput(options.queue)
   const vercelFunctionName = options.serverFunctionName ?? "__server.func"
   if (!createCloudflare) {
-    await writeProviderDeploymentOutputs({
+    await write({
       clientOutDir: options.clientOutDir,
       cleanup: {
         cloudflare: options.cloudflareOwnedByNitro
@@ -571,7 +574,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     })
   }
   // Verify and update Queue ownership under the shared provider-output lock.
-  await writeProviderDeploymentOutputs({
+  await write({
     afterWrite: async () => {
       const previousVercelOutput = await readVercelQueueOutputState(options.rootDir)
       const vercelFunctionCandidates = new Set(["__server.func", "__queue.func"])
