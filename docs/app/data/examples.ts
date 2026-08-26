@@ -84,6 +84,21 @@ export const examples: readonly Example[] = [
     startPath: "app/pages/index.vue",
   },
   {
+    slug: "nuxt-agent",
+    name: "Nuxt Agent",
+    description:
+      "A ViteHub Agent that answers Nuxt questions through Telegram text and voice using Nuxt's MCP server and public documentation.",
+    builtWith: ["Agent Definitions", "MCP", "Workspaces", "Channels", "Rate Limit", "Workflow"],
+    kind: "template",
+    status: "published",
+    action: {
+      kind: "use",
+      label: "Use template",
+      to: "https://github.com/vite-hub/nuxt-agent/generate",
+    },
+    startPath: "server/agents/nuxt/agent.ts",
+  },
+  {
     slug: "babysitter",
     name: "Babysitter",
     description:

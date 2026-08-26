@@ -52,6 +52,18 @@ describe("examples catalog", () => {
         startPath: "app/pages/index.vue",
       }),
       expect.objectContaining({
+        name: "Nuxt Agent",
+        kind: "template",
+        status: "published",
+        action: {
+          kind: "use",
+          label: "Use template",
+          to: "https://github.com/vite-hub/nuxt-agent/generate",
+        },
+        builtWith: ["Agent Definitions", "MCP", "Workspaces", "Channels", "Rate Limit", "Workflow"],
+        startPath: "server/agents/nuxt/agent.ts",
+      }),
+      expect.objectContaining({
         name: "Babysitter",
         kind: "project",
         status: "pending",
