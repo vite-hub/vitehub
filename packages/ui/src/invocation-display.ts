@@ -14,6 +14,7 @@ export interface AgentInvocationDisplaySource {
 
 function annotation(source: AgentInvocationDisplaySource, key: string): string | undefined {
   const value = source.annotations?.[key];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Annotation values cross provider boundaries and must be narrowed before display.
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
@@ -26,6 +27,7 @@ export function agentInvocationTitle(source: AgentInvocationDisplaySource): stri
 export function agentInvocationContext(source: AgentInvocationDisplaySource): string {
   const repository = annotation(source, "github.repository");
   const pullRequest = source.annotations?.["github.pullRequest"];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider annotations permit both the string and numeric GitHub pull-request representations.
   if (repository && (typeof pullRequest === "string" || typeof pullRequest === "number")) {
     return `${repository} · PR #${pullRequest}`;
   }

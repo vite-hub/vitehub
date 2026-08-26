@@ -233,10 +233,12 @@ async function loadAgents(): Promise<void> {
   agentsLoading.value = true;
   try {
     const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
     const names = Array.isArray(value?.agents)
       ? value.agents.filter(
-          (name): name is string => typeof name === "string" && Boolean(name.trim()),
+          (name): name is string => {
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
+            return typeof name === "string" && Boolean(name.trim());
+          },
         )
       : [];
     if (agentsRequest === controller) {
