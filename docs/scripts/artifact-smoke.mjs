@@ -8,6 +8,7 @@ const docsRoot = resolve(import.meta.dirname, "..");
 const serverEntry = resolve(docsRoot, ".output/server/index.mjs");
 const port = Number(process.env.DOCS_ARTIFACT_SMOKE_PORT ?? 8797);
 const origin = `http://127.0.0.1:${port}`;
+const requestTimeout = 15_000;
 
 if (!existsSync(serverEntry)) {
   throw new Error("Missing docs/.output/server/index.mjs. Build vitehub-docs before running the artifact smoke.");
@@ -30,6 +31,13 @@ let serverOutput = "";
 server.stdout.on("data", chunk => serverOutput += chunk);
 server.stderr.on("data", chunk => serverOutput += chunk);
 const serverExit = new Promise(resolveExit => server.once("exit", (code, signal) => resolveExit({ code, signal })));
+let stopPromise;
+
+for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+  process.once(signal, () => {
+    void stopServer().finally(() => process.exit(exitCode));
+  });
+}
 
 try {
   await waitUntilReady();
@@ -47,12 +55,7 @@ catch (error) {
   process.exitCode = 1;
 }
 finally {
-  signalServer("SIGTERM");
-  const stopped = await Promise.race([serverExit.then(() => true), delay(5_000).then(() => false)]);
-  if (!stopped) {
-    signalServer("SIGKILL");
-    await serverExit;
-  }
+  await stopServer();
 }
 
 function signalServer(signal) {
@@ -65,12 +68,25 @@ function signalServer(signal) {
   }
 }
 
+function stopServer() {
+  stopPromise ??= (async () => {
+    signalServer("SIGTERM");
+    const stopped = await Promise.race([serverExit.then(() => true), delay(5_000).then(() => false)]);
+    if (!stopped) {
+      signalServer("SIGKILL");
+      await serverExit;
+    }
+  })();
+  return stopPromise;
+}
+
 async function waitUntilReady() {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (server.exitCode !== null) throw new Error(`Docs artifact server exited before startup with status ${server.exitCode}`);
     try {
-      const response = await fetch(`${origin}/openapi.json`);
+      const remaining = deadline - Date.now();
+      const response = await fetch(`${origin}/openapi.json`, { signal: AbortSignal.timeout(Math.max(1, Math.min(requestTimeout, remaining))) });
       if (response.status === 200) return;
     }
     catch {}
@@ -80,7 +96,7 @@ async function waitUntilReady() {
 }
 
 async function request(name, path, expectedStatus, expectedType, headers = {}) {
-  const response = await fetch(`${origin}${path}`, { headers });
+  const response = await fetch(`${origin}${path}`, { headers, signal: AbortSignal.timeout(requestTimeout) });
   const body = await response.text();
   if (response.status !== expectedStatus) throw new Error(`${name} returned ${response.status}, expected ${expectedStatus}`);
   const contentType = response.headers.get("content-type") ?? "";
