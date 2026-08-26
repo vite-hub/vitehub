@@ -88,13 +88,16 @@ describe("createEmail", () => {
     expect(initialize).toHaveBeenCalledTimes(2)
   })
 
-  it("applies unsubscribe headers and the first personalization before dispatch", async () => {
+  it("applies portable headers and preserves personalizations for the driver", async () => {
     const driver = fixtureDriver()
     const client = createEmail({ driver })
 
     await client.send({
       ...message,
-      personalizations: [{ subject: "Personal welcome", to: "jane@example.com" }],
+      personalizations: [
+        { customArgs: { campaign: "welcome" }, subject: "Personal welcome", to: "jane@example.com", variables: { name: "Jane" } },
+        { sendAt: "2026-08-10T15:00:00.000Z", to: "john@example.com", variables: { name: "John" } },
+      ],
       unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" },
     })
 
@@ -107,7 +110,10 @@ describe("createEmail", () => {
       subject: "Personal welcome",
       to: "jane@example.com",
     }))
-    expect(preparedMessage).not.toHaveProperty("personalizations")
+    expect(preparedMessage.personalizations).toEqual([
+      { customArgs: { campaign: "welcome" }, subject: "Personal welcome", to: "jane@example.com", variables: { name: "Jane" } },
+      { sendAt: "2026-08-10T15:00:00.000Z", to: "john@example.com", variables: { name: "John" } },
+    ])
   })
 
   it("serializes concurrent initialization for an eager driver", async () => {

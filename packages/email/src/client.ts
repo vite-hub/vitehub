@@ -35,21 +35,20 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
 
 function prepareMessage(message: EmailMessage): EmailMessage {
   const personalization = message.personalizations?.[0]
-  const { personalizations: _personalizations, ...prepared } = message
-  const headers = { ...prepared.headers }
-  if (prepared.unsubscribe) {
-    const { mailto, oneClick, url } = prepared.unsubscribe
+  const headers = { ...message.headers }
+  if (message.unsubscribe) {
+    const { mailto, oneClick, url } = message.unsubscribe
     const values = [url ? `<${url}>` : undefined, mailto ? `<mailto:${mailto}>` : undefined].filter(value => value !== undefined)
     if (values.length > 0 && !hasHeader(headers, "list-unsubscribe")) headers["List-Unsubscribe"] = values.join(", ")
     if ((oneClick ?? Boolean(url)) && url && !hasHeader(headers, "list-unsubscribe-post")) headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
   }
   return {
-    ...prepared,
+    ...message,
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
     ...(personalization ? {
-      bcc: personalization.bcc ?? prepared.bcc,
-      cc: personalization.cc ?? prepared.cc,
-      subject: personalization.subject ?? prepared.subject,
+      bcc: personalization.bcc ?? message.bcc,
+      cc: personalization.cc ?? message.cc,
+      subject: personalization.subject ?? message.subject,
       to: personalization.to,
     } : {}),
   }
