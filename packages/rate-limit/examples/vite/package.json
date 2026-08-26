@@ -2,8 +2,16 @@
   "name": "@vite-hub/rate-limit-example-vite",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "vp build"
+  },
   "dependencies": {
     "@vite-hub/rate-limit": "workspace:*",
+    "h3": "catalog:unjs",
     "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "vite-plus": "catalog:tooling"
   }
 }

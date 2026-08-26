@@ -1,0 +1,70 @@
+{
+  "examples": [
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "blob",
+      "outputs": ["dist/server.js", "dist/vite/wrangler.json", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "database",
+      "outputs": ["dist/server.js", "dist/vite/wrangler.json", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "env",
+      "outputs": ["dist/server.js", ".vitehub/env/public.mjs"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "kv",
+      "outputs": ["dist/server.js"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "queue",
+      "outputs": ["dist/server.js", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "rate-limit",
+      "outputs": ["dist/server.js", "dist/vite/wrangler.json"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "sandbox",
+      "outputs": ["dist/server.js", ".vitehub/sandbox/runtime/sandbox-registry.mjs"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "schedule",
+      "outputs": [
+        "dist/server.js",
+        "dist/vite/wrangler.json",
+        ".vercel/output/config.json",
+        ".netlify/v1/functions/vitehub-schedule-daily-report.mjs",
+        ".netlify/v1/functions/vitehub-schedule-database-cleanup.mjs"
+      ]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "workflow",
+      "outputs": ["dist/server.js", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "workspace",
+      "outputs": ["dist/server.js", ".vitehub/types/workspace.d.ts"]
+    }
+  ]
+}

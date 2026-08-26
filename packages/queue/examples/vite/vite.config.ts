@@ -6,6 +6,7 @@ import { hubQueue } from "@vite-hub/queue/vite"
 export default defineConfig({
   appType: "custom",
   build: {
+    ssr: true,
     rollupOptions: {
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
