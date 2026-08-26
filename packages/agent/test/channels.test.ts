@@ -945,6 +945,99 @@ describe("agent channels", () => {
     expect(messageChannelDeliveredReplyBody(deliveryContext)).toBe(postedBodies[0])
   })
 
+  it("isolates rewritten GitHub reply bodies for overlapping delivery contexts", async () => {
+    const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const postedBodies: string[] = []
+    let releaseFirstPost!: () => void
+    const firstPostReleased = new Promise<void>(resolve => { releaseFirstPost = resolve })
+    let firstPostStarted!: () => void
+    const firstPostPending = new Promise<void>(resolve => { firstPostStarted = resolve })
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/457/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/git/ref/heads/review-assets")) return Response.json({ object: { sha: "branch-sha" } })
+      if (href.includes("/contents/")) return Response.json({ content: { sha: "content-sha" } }, { status: 201 })
+      if (href.endsWith("/issues/42/comments")) {
+        const body = JSON.parse(String(init?.body)).body as string
+        postedBodies.push(body)
+        if (postedBodies.length === 1) {
+          firstPostStarted()
+          await firstPostReleased
+        }
+        return Response.json({ ok: true }, { status: 201 })
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "2",
+        artifacts: { branch: "review-assets", pathPrefix: "review-output" },
+        fetch: fetcher as typeof fetch,
+        installationId: 457,
+        privateKey: privateKeyPem,
+      },
+    })
+    const replyEffect = channel.effects?.reply
+    if (typeof replyEffect !== "function") throw new Error("Missing GitHub reply effect.")
+
+    const effect = {
+      kind: "reply" as const,
+      payload: { body: "Result: result.png" },
+    }
+    const deliveryContext = (runId: string) => ({
+      channel,
+      effect,
+      input: {
+        context: {
+          github: {
+            action: "created",
+            actor: { login: "onmax" },
+            args: "",
+            body: "/review",
+            command: "/review",
+            commentId: 99,
+            installationId: 457,
+            issueNumber: 42,
+            owner: "vite-hub",
+            pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+            repo: "vitehub",
+            repository: "vite-hub/vitehub",
+          },
+        },
+        prompt: "/review",
+      },
+      memo: vi.fn(),
+      run: { runId },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+      workspace: {
+        fs: {
+          readFile: vi.fn(async () => new Uint8Array([1, 2, 3])),
+          stat: vi.fn(async (path: string) => ({ mediaType: "image/png", path, type: "file" as const })),
+        },
+      },
+    }) as never
+    const firstContext = deliveryContext("run-first")
+    const secondContext = deliveryContext("run-second")
+
+    const firstDelivery = replyEffect(firstContext)
+    await firstPostPending
+    await replyEffect(secondContext)
+    releaseFirstPost()
+    await firstDelivery
+
+    expect(postedBodies).toHaveLength(2)
+    expect(postedBodies[0]).toContain("/run-first/")
+    expect(postedBodies[1]).toContain("/run-second/")
+    expect(messageChannelDeliveredReplyBody(firstContext)).toBe(postedBodies[0])
+    expect(messageChannelDeliveredReplyBody(secondContext)).toBe(postedBodies[1])
+  })
+
   it("normalizes hand-written GitHub PR status string payloads", async () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
