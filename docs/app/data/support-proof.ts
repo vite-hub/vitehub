@@ -291,16 +291,17 @@ const markdownTiers: readonly [string, SupportProofTier][] = [
   ["Live Smoke", "deployed-runtime"],
 ];
 
-export function renderSupportProofMarkdownRows(now: Date = new Date()): string {
+export function renderSupportProofMarkdownRows(): string {
   return markdownTiers
     .map(([label, tier]) => {
       const cells = supportHosts.map((host) => {
         const claim = supportProofFor(tier, host);
-        const presentation = supportProofPresentation(claim, now);
+        const presentation = supportProofPresentation(claim);
         if (!claim.evidence.url || !claim.evidence.observedAt) {
           return presentation.state === "not-applicable" ? "—" : `**${presentation.display}**`;
         }
-        return `[${presentation.mark} ${presentation.display}](${claim.evidence.url}) (${claim.evidence.observedAt.slice(0, 10)})`;
+        const maxAgeDays = claim.freshness.maxAgeDays;
+        return `[Evidence](${claim.evidence.url}) (${claim.evidence.observedAt.slice(0, 10)}${maxAgeDays === null ? "" : `; ${maxAgeDays}-day freshness window`})`;
       });
       return `| ${label} | ${cells.join(" | ")} |`;
     })

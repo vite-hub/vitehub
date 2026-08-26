@@ -2,6 +2,7 @@
 import {
   supportHosts,
   supportProofFor,
+  supportProofLedger,
   supportProofPresentation,
   type SupportProofState,
   type SupportProofTier,
@@ -33,6 +34,7 @@ type MatrixRow = {
 const route = useRoute();
 const navigationOpen = ref(false);
 const openDetails = reactive<Record<string, boolean>>({});
+const proofObservedAt = useState("support-proof-observed-at", () => new Date().toISOString());
 
 watch(
   () => route.path,
@@ -105,7 +107,10 @@ const cell = (status: MatrixStatus, detail: string, display?: string): MatrixCel
 const proofValues = (tier: SupportProofTier): Record<string, MatrixCell> =>
   Object.fromEntries(
     supportHosts.map((host) => {
-      const presentation = supportProofPresentation(supportProofFor(tier, host));
+      const presentation = supportProofPresentation(
+        supportProofFor(tier, host),
+        new Date(proofObservedAt.value),
+      );
       return [host, cell(presentation.state, presentation.detail, presentation.display)];
     }),
   );
@@ -642,6 +647,48 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
   unpublished: { label: "Proof not published", mark: "—" },
   "not-applicable": { label: "Not applicable", mark: "—" },
 };
+
+let proofRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+function refreshProofRows(): void {
+  proofObservedAt.value = new Date().toISOString();
+  for (const [rowId, tier] of [
+    ["provider-output", "generated-output"],
+    ["contract-tests", "contract"],
+    ["local-run", "local-provider-run"],
+    ["live-smoke", "deployed-runtime"],
+  ] as const) {
+    const row = sections.flatMap((section) => section.rows).find((item) => item.id === rowId);
+    if (row) row.values = proofValues(tier);
+  }
+}
+
+function scheduleProofRefresh(): void {
+  const now = Date.now();
+  const nextExpiry = supportProofLedger
+    .flatMap((claim) => {
+      const observedAt = Date.parse(claim.evidence.observedAt ?? "");
+      const maxAgeDays = claim.freshness.maxAgeDays;
+      return Number.isFinite(observedAt) && maxAgeDays !== null
+        ? [observedAt + maxAgeDays * 86_400_000]
+        : [];
+    })
+    .filter((expiresAt) => expiresAt >= now)
+    .sort((left, right) => left - right)[0];
+  if (nextExpiry === undefined) return;
+
+  const delay = Math.min(nextExpiry - now + 1, 2_147_000_000);
+  proofRefreshTimer = setTimeout(() => {
+    refreshProofRows();
+    scheduleProofRefresh();
+  }, delay);
+}
+
+onMounted(() => {
+  refreshProofRows();
+  scheduleProofRefresh();
+});
+onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 </script>
 
 <template>

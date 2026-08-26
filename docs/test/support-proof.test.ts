@@ -86,9 +86,10 @@ describe("support proof ledger", () => {
       .join("\n");
 
     expect(renderedRows).toBe(renderSupportProofMarkdownRows());
+    expect(renderedRows).toContain("30-day freshness window");
+    expect(renderedRows).not.toContain("✓");
     const liveRow = renderedRows.split("\n").find((line) => line.startsWith("| Live Smoke |"));
-    expect(liveRow).toContain("Stopped at provision");
-    expect(liveRow).not.toContain("✓");
+    expect(liveRow).toContain("2-day freshness window");
   });
 
   it("makes the Vue matrix consume the same proof projection", () => {
@@ -98,9 +99,22 @@ describe("support proof ledger", () => {
     );
 
     expect(component).toContain('from "../data/support-proof"');
+    expect(component).toContain('useState("support-proof-observed-at"');
+    expect(component).toContain("scheduleProofRefresh");
     for (const tier of supportProofTiers) {
       expect(component).toContain(`proofValues("${tier}")`);
     }
     expect(component).not.toContain('"available",\n            "The nightly Live Smoke deploys');
+  });
+
+  it("renders the time-sensitive support matrix on request", () => {
+    const docsModule = readFileSync(
+      resolve(repoRoot, "docs/modules/vitehub-docs/index.ts"),
+      "utf8",
+    );
+
+    expect(docsModule).toContain(
+      'if (page.path === "/docs/frameworks-hosts/support-matrix") continue;',
+    );
   });
 });
