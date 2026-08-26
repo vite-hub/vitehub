@@ -7,6 +7,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
@@ -23,12 +24,17 @@ async function run(command: string, args: string[], cwd: string) {
 
 async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
-  for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
+  const infos = listWorkspacePackageInfos(repoRoot).filter(info => !info.private)
+  const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
+  for (const info of infos) {
     const manifest = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as { name: string, version: string }
-    await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-    const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
-    overrides[manifest.name] = `file:${join(packDir, tarball)}`
+    const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
+      await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+      return join(packDir, `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`)
+    })
+    overrides[manifest.name] = `file:${tarball}`
   }
+  if (releaseTarballs && releaseTarballs.size !== infos.length) throw new Error("Release manifest package count does not match consumer inventory")
   return overrides
 }
 

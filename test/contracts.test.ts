@@ -18,6 +18,7 @@ import {
   walkFiles,
   type PackageName,
 } from "./utils/repo"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "./utils/release-artifacts"
 
 const ignoredGeneratedDirs = new Set([
   ".nuxt",
@@ -138,24 +139,27 @@ describe("package manifest contracts", () => {
   it("includes the repository license in every packed public package", () => {
     const packDir = mkdtempSync(join(tmpdir(), "vitehub-license-pack-"))
     const license = readFileSync(join(repoRoot, "LICENSE"), "utf8")
+    const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
 
     try {
       for (const info of packageInfos) {
-        const before = new Set(readdirSync(packDir))
-        execFileSync("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], {
-          cwd: repoRoot,
-          encoding: "utf8",
-          stdio: "pipe",
+        const tarball = resolveReleaseArtifactTarball(releaseTarballs, info.packageName, () => {
+          const before = new Set(readdirSync(packDir))
+          execFileSync("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], {
+            cwd: repoRoot,
+            encoding: "utf8",
+            stdio: "pipe",
+          })
+          const tarballs = readdirSync(packDir).filter(file => !before.has(file))
+          expect(tarballs, `${info.packageName} should create one tarball`).toHaveLength(1)
+          return join(packDir, tarballs[0]!)
         })
-        const tarballs = readdirSync(packDir).filter(file => !before.has(file))
-        expect(tarballs, `${info.packageName} should create one tarball`).toHaveLength(1)
-
-        const tarball = join(packDir, tarballs[0]!)
         const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).split("\n")
         expect(listing, `${info.packageName} should include the root license`).toContain("package/LICENSE")
         expect(execFileSync("tar", ["-xOf", tarball, "package/LICENSE"], { encoding: "utf8" }))
           .toBe(license)
       }
+      if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
     }
     finally {
       rmSync(packDir, { recursive: true })
@@ -179,7 +183,7 @@ describe("package manifest contracts", () => {
   })
 
   it("publishes required package dependencies before their consumers", () => {
-    const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/package-release-order.mjs")], {
+    const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/release-packages.mjs"), "order", "--workspace", repoRoot], {
       cwd: repoRoot,
       encoding: "utf8",
     }).trim().split("\n")

@@ -11,6 +11,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
@@ -222,15 +223,20 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
   const specs: Record<string, string> = {}
   const infos = listWorkspacePackageInfos(repoRoot)
     .filter(info => !info.private && (!packageNames || packageNames.has(info.packageName)))
+  const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
 
   for (const info of infos) {
     const source = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as PackageManifest
-    await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-    const tarball = join(packDir, packageTarballName(info.packageName, source.version))
+    const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
+      await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+      return join(packDir, packageTarballName(info.packageName, source.version))
+    })
     expect(existsSync(tarball), `Missing tarball for ${info.packageName}`).toBe(true)
     await assertPackedPackage(tarball, info.packageName === "vite-hub")
     specs[info.packageName] = `file:${tarball}`
   }
+
+  if (releaseTarballs && !packageNames) expect(releaseTarballs.size).toBe(infos.length)
 
   return specs
 }
