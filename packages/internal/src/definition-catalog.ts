@@ -2,7 +2,7 @@ import type { Dirent } from "node:fs"
 import { readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 
-import { dirname, relative, resolve } from "pathe"
+import { relative, resolve } from "pathe"
 
 import { generatedDirSegments } from "./build/paths.ts"
 
@@ -278,58 +278,11 @@ function createImportExpression(registryFile: string, file: string): string {
   return `import(${JSON.stringify(importPath.startsWith(".") ? importPath : `./${importPath}`)})`
 }
 
-export function createRuntimeRegistryContents(registryFile: string, definitions: Array<Pick<DiscoveredDefinition, "handler" | "name"> & { steps?: string[] }>): string {
-  const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
-  const runtimeImport = needsWorkflowRuntime
-    ? [
-        `import { createWorkflowSteps } from "@vite-hub/workflow/runtime/execute"`,
-        `import { takeInlineWorkflowDefinitionForModule } from "@vite-hub/workflow/runtime/state"`,
-      ]
-    : []
-  const imports = definitions.map((definition) => {
-    if (!definition.steps?.length) {
-      return `  ${JSON.stringify(definition.name)}: async () => ${createImportExpression(registryFile, definition.handler)},`
-    }
-
-    const workflowDirectory = /\.(?:c|m)?[jt]s$/i.test(definition.handler) ? dirname(definition.handler) : definition.handler
-    const stepImports = definition.steps.map((step) => {
-      const stepName = relative(workflowDirectory, step)
-      return `{ name: ${JSON.stringify(stepName)}, run: (await ${createImportExpression(registryFile, step)}).default }`
-    })
-
-    const hasIndex = /\.(?:c|m)?[jt]s$/i.test(definition.handler)
-    const indexImport = hasIndex ? `const index = await ${createImportExpression(registryFile, definition.handler)}` : ""
-    const handler = hasIndex
-      ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
-      : "{ handler: async (context) => { let value = context.payload; for (const step of Object.values(context.steps || {})) value = await step(value); return value } }"
-
-    return [
-      `  ${JSON.stringify(definition.name)}: async () => {`,
-      `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
-      "    if (cached) return cached",
-      indexImport ? `    ${indexImport}` : "",
-      `    const steps = [${stepImports.join(", ")}]`,
-      `    const definition = ${handler}`,
-      "    const entry = {",
-      "      ...definition,",
-      "      options: { ...definition.options, rootStep: false },",
-      "      handler: async (context) => {",
-      "        const workflowSteps = createWorkflowSteps(context, steps)",
-      "        return await definition.handler({ ...context, steps: workflowSteps })",
-      "      },",
-      "    }",
-      `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
-      "    return entry",
-      "  },",
-    ].filter(Boolean).join("\n")
-  })
-
+export function createRuntimeRegistryContents(registryFile: string, definitions: Array<Pick<DiscoveredDefinition, "handler" | "name">>): string {
   return [
-    ...runtimeImport,
-    runtimeImport.length ? "" : "",
-    ...(needsWorkflowRuntime ? ["const registryEntryCache = new Map()", ""] : []),
+    "",
     "const registry = {",
-    ...imports,
+    ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: async () => ${createImportExpression(registryFile, definition.handler)},`),
     "}",
     "",
     "export default registry",

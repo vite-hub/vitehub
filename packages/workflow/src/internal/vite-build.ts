@@ -873,7 +873,7 @@ function renderWorkflowRegistryEntry(registryFile: string, definition: Discovere
   ].filter(Boolean).join("\n")
 }
 
-function createWorkflowRegistryContents(
+export function createWorkflowRegistryContents(
   registryFile: string,
   definitions: DiscoveredWorkflowDefinition[],
   importBases: WorkflowImportBases = {},
