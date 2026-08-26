@@ -19,13 +19,22 @@ function safeHeader(value: string): string {
   return value
 }
 
+function quotedParameter(value: string): string {
+  return safeHeader(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')
+}
+
+function foldBase64(value: string): string {
+  return value.match(/.{1,76}/g)?.join("\r\n") ?? ""
+}
+
 function attachmentPart(boundary: string, value: EmailAttachment): string {
-  const content = typeof value.content === "string" ? stringToBase64(value.content) : bytesToBase64(value.content)
+  const content = foldBase64(typeof value.content === "string" ? stringToBase64(value.content) : bytesToBase64(value.content))
+  const filename = quotedParameter(value.filename)
   return [
     `--${boundary}`,
-    `Content-Type: ${safeHeader(value.contentType ?? "application/octet-stream")}; name="${safeHeader(value.filename)}"`,
+    `Content-Type: ${safeHeader(value.contentType ?? "application/octet-stream")}; name="${filename}"`,
     "Content-Transfer-Encoding: base64",
-    `Content-Disposition: ${value.disposition ?? "attachment"}; filename="${safeHeader(value.filename)}"`,
+    `Content-Disposition: ${value.disposition ?? "attachment"}; filename="${filename}"`,
     ...(value.cid ? [`Content-ID: <${safeHeader(value.cid)}>`] : []),
     "",
     content,

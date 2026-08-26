@@ -130,6 +130,22 @@ describe("Cloudflare Email driver", () => {
     expect(Constructor.mock.calls[0]![2]).toContain("aGVsbG8=")
   })
 
+  it("folds attachment base64 and escapes quoted filenames", async () => {
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
+
+    await driver.send({
+      ...message,
+      attachments: [{ content: new Uint8Array(120), filename: 'report\\"final.pdf' }],
+    }, context)
+
+    const raw = Constructor.mock.calls[0]![2] as string
+    expect(raw).toContain('filename="report\\\\\\"final.pdf"')
+    const encoded = raw.match(/Content-Transfer-Encoding: base64\r\nContent-Disposition: [^\r]+\r\n\r\n([\s\S]+?)\r\n--vitehub-/)?.[1] ?? ""
+    expect(encoded.split("\r\n").every(line => line.length <= 76)).toBe(true)
+    expect(encoded.replaceAll("\r\n", "")).toBe("A".repeat(160))
+  })
+
   it("rejects header injection before sending", async () => {
     const send = vi.fn()
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })
