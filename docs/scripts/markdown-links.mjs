@@ -1,5 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import remarkMdc from "remark-mdc";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 const siteOrigin = "https://vitehub.dev";
 
@@ -13,63 +16,20 @@ function walk(directory, predicate) {
     });
 }
 
-function withoutFencedCode(markdown) {
-  let fence;
-  return markdown.split("\n").map((line) => {
-    const delimiter = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (!fence && delimiter) {
-      fence = delimiter;
-      return "";
-    }
-    if (fence) {
-      if (delimiter?.[0] === fence[0] && delimiter.length >= fence.length && /^\s*$/.test(line.slice(line.indexOf(delimiter) + delimiter.length))) {
-        fence = undefined;
-      }
-      return "";
-    }
-    return line;
-  }).join("\n");
+function parseMarkdown(markdown) {
+  const parser = unified().use(remarkParse).use(remarkMdc);
+  return parser.runSync(parser.parse(markdown));
 }
 
-function withoutCode(markdown) {
-  const withoutFences = withoutFencedCode(markdown)
-    .split("\n")
-    .map((line) => /^(?: {4}|\t)/.test(line) ? "" : line)
-    .join("\n");
-  return withoutFences.split(/(\n[ \t]*\n)/).map((block, index) => {
-    if (index % 2 === 1) return block;
-    return withoutCodeSpans(block);
-  }).join("");
+function visit(node, callback) {
+  callback(node);
+  for (const child of node.children ?? []) visit(child, callback);
 }
 
-function withoutCodeSpans(markdown) {
-  let result = "";
-  for (let index = 0; index < markdown.length;) {
-    if (markdown[index] !== "`") {
-      result += markdown[index];
-      index += 1;
-      continue;
-    }
-    const opener = /^`+/.exec(markdown.slice(index))[0];
-    let closing = -1;
-    for (let cursor = index + opener.length; cursor < markdown.length;) {
-      const next = markdown.indexOf("`", cursor);
-      if (next === -1) break;
-      const delimiter = /^`+/.exec(markdown.slice(next))[0];
-      if (delimiter.length === opener.length) {
-        closing = next;
-        break;
-      }
-      cursor = next + delimiter.length;
-    }
-    if (closing === -1) {
-      result += opener;
-      index += opener.length;
-      continue;
-    }
-    index = closing + opener.length;
-  }
-  return result;
+function nodeText(node) {
+  if (typeof node.value === "string") return node.value;
+  if (node.type === "image") return node.alt ?? "";
+  return (node.children ?? []).map(nodeText).join("");
 }
 
 function rawMarkdownSlug(value) {
@@ -92,12 +52,10 @@ function markdownSlug(value) {
 export function markdownAnchors(markdown) {
   const anchors = new Set();
   const occurrences = new Map();
-  const source = withoutFencedCode(markdown);
-  for (const line of source.split("\n")) {
-    const heading = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
-    if (!heading) continue;
-    const rawBase = rawMarkdownSlug(heading[1]);
-    if (!rawBase) continue;
+  visit(parseMarkdown(markdown), (node) => {
+    if (node.type !== "heading") return;
+    const rawBase = rawMarkdownSlug(nodeText(node));
+    if (!rawBase) return;
     let rawAnchor = rawBase;
     while (occurrences.has(rawAnchor)) {
       const count = (occurrences.get(rawBase) ?? 0) + 1;
@@ -105,74 +63,36 @@ export function markdownAnchors(markdown) {
       rawAnchor = `${rawBase}-${count}`;
     }
     const anchor = markdownSlug(rawAnchor);
-    if (!anchor) continue;
+    if (!anchor) return;
     anchors.add(anchor);
     occurrences.set(rawAnchor, 0);
-  }
+  });
   return anchors;
 }
 
 export function markdownLinks(markdown) {
-  const source = withoutCode(markdown);
+  const tree = parseMarkdown(markdown);
   const definitions = new Map();
-  for (const match of source.matchAll(/^\s{0,3}\[([^\]]+)\]:\s*<?([^\s>]+)>?/gm)) {
-    definitions.set(match[1].trim().toLowerCase(), match[2]);
-  }
-
   const links = [];
-  for (const match of source.matchAll(/^\s*to:\s*(?:"([^"]+)"|'([^']+)'|([^#\s]\S*))/gm)) {
-    links.push(match[1] ?? match[2] ?? match[3]);
-  }
-  for (const match of source.matchAll(/<a\s[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
-    links.push(match[1] ?? match[2] ?? match[3]);
-  }
-  for (const match of source.matchAll(/<([a-z][a-z\d+.-]*:[^<>\s]+)>/gi)) {
-    links.push(match[1]);
-  }
-  for (let index = 0; index < source.length; index += 1) {
-    const bracket = source.indexOf("[", index);
-    if (bracket === -1) break;
-    const labelEnd = source.indexOf("]", bracket + 1);
-    if (labelEnd === -1) break;
-    const lineStart = source.lastIndexOf("\n", bracket - 1) + 1;
-    if (/^\s{0,3}$/.test(source.slice(lineStart, bracket)) && source[labelEnd + 1] === ":") {
-      index = labelEnd;
-      continue;
+  visit(tree, (node) => {
+    if (node.type === "definition") definitions.set(node.identifier, node.url);
+  });
+  visit(tree, (node) => {
+    if (node.type === "link" || node.type === "image") links.push(node.url);
+    if (node.type === "linkReference" || node.type === "imageReference") {
+      const destination = definitions.get(node.identifier);
+      if (destination) links.push(destination);
     }
-    if (source[labelEnd + 1] === "(") {
-      let depth = 1;
-      let cursor = labelEnd + 2;
-      for (; cursor < source.length && depth > 0; cursor += 1) {
-        if (source[cursor] === "\\") cursor += 1;
-        else if (source[cursor] === "(") depth += 1;
-        else if (source[cursor] === ")") depth -= 1;
-      }
-      if (depth === 0) {
-        const raw = source.slice(labelEnd + 2, cursor - 1).trim();
-        const destination = raw.startsWith("<")
-          ? raw.slice(1, raw.indexOf(">"))
-          : raw.split(/\s+["']/)[0];
-        if (destination) links.push(destination);
-        index = cursor - 1;
-      }
-      continue;
+    if (node.type === "containerComponent" || node.type === "leafComponent") {
+      const destination = node.fmAttributes?.to ?? node.attributes?.to;
+      if (typeof destination === "string") links.push(destination);
     }
-    if (source[labelEnd + 1] === "[") {
-      const referenceEnd = source.indexOf("]", labelEnd + 2);
-      if (referenceEnd !== -1) {
-        const key = source.slice(labelEnd + 2, referenceEnd).trim().toLowerCase()
-          || source.slice(bracket + 1, labelEnd).trim().toLowerCase();
-        const destination = definitions.get(key);
-        if (destination) links.push(destination);
-        index = referenceEnd;
+    if (node.type === "html" && !node.value.startsWith("<!--")) {
+      for (const match of node.value.matchAll(/<a\s[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
+        links.push(match[1] ?? match[2] ?? match[3]);
       }
-      continue;
     }
-    const key = source.slice(bracket + 1, labelEnd).trim().toLowerCase();
-    const destination = definitions.get(key);
-    if (destination) links.push(destination);
-    index = labelEnd;
-  }
+  });
   return links;
 }
 

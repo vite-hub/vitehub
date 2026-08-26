@@ -3,6 +3,9 @@ packages:
   - "packages/*"
 catalog:
   '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@99682f626b1d24843d3f82bd082644d77aa0de43
+  remark-mdc: ^3.11.1
+  remark-parse: ^11.0.0
+  unified: ^11.0.5
   vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
 
 ignoredOptionalDependencies:

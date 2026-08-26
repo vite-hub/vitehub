@@ -57,28 +57,38 @@ to: "#install"
 [also ignored](./missing.md)
 \`\`\`\`
 `)).toEqual([
-      "/docs/card",
-      "/docs/card#install",
-      "#install",
-      "/docs/html",
-      "https://vitehub.dev/docs/autolink",
       "./guide.md#install",
       "./api_(stable).md",
       "/docs/guide",
       "/docs/shortcut",
       "/images/diagram.png",
+      "/docs/card",
+      "/docs/card#install",
+      "#install",
+      "/docs/html",
+      "https://vitehub.dev/docs/autolink",
     ]);
   });
 
-  it("keeps code spans within rendered blocks and excludes indented code", () => {
+  it("uses rendered block boundaries for code and list continuations", () => {
     expect(markdownLinks(`\`first
+
+# [Heading](/docs/heading)
 
 [Rendered](/docs/rendered)
 
 \`last
 
     [Indented](/docs/ignored)
-\t[Tabbed](/docs/also-ignored)`)).toEqual(["/docs/rendered"]);
+\t[Tabbed](/docs/also-ignored)
+
+- Item
+
+    [Nested](/docs/nested)`)).toEqual(["/docs/heading", "/docs/rendered", "/docs/nested"]);
+  });
+
+  it("ignores links in HTML comments", () => {
+    expect(markdownLinks("<!-- [Draft](/docs/missing) -->")).toEqual([]);
   });
 
   it("matches generated anchors for repeated headings", () => {
@@ -94,6 +104,7 @@ to: "#install"
       "trim",
       "a-b",
     ]);
+    expect([...markdownAnchors("Install\n---")]).toEqual(["install"]);
   });
 
   it("accepts relative routes and anchors across docs and public package READMEs", () => {
