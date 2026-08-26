@@ -19,6 +19,14 @@ function safeHeader(value: string): string {
   return value
 }
 
+function headerLine(name: string, value: string): string {
+  const line = `${safeHeader(name)}: ${safeHeader(value)}`
+  if (new TextEncoder().encode(line).length > 998) {
+    throw emailProviderError("cloudflare-email", "INVALID_OPTIONS", `Cloudflare Email cannot encode an overlong ${name} header.`)
+  }
+  return line
+}
+
 function quotedParameter(value: string): string {
   return safeHeader(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')
 }
@@ -28,7 +36,8 @@ function foldBase64(value: string): string {
 }
 
 function encodedBody(value: string): string[] {
-  return ["Content-Transfer-Encoding: base64", "", foldBase64(stringToBase64(value))]
+  const canonical = value.replace(/\r\n|\r|\n/g, "\r\n")
+  return ["Content-Transfer-Encoding: base64", "", foldBase64(stringToBase64(canonical))]
 }
 
 function attachmentPart(boundary: string, value: EmailAttachment): string {
@@ -77,14 +86,14 @@ function rawMessage(message: EmailMessage, id: string): string {
   const boundary = `vitehub-${crypto.randomUUID()}`
   const body = bodyPart(message)
   const headers = [
-    `From: ${safeHeader(formatAddress(addresses(message.from)[0]!))}`,
-    `To: ${safeHeader(addresses(message.to).map(formatAddress).join(", "))}`,
-    ...(message.cc ? [`Cc: ${safeHeader(addresses(message.cc).map(formatAddress).join(", "))}`] : []),
-    ...(message.replyTo ? [`Reply-To: ${safeHeader(addresses(message.replyTo).map(formatAddress).join(", "))}`] : []),
-    `Subject: ${safeHeader(message.subject)}`,
-    `Message-ID: ${safeHeader(id)}`,
+    headerLine("From", formatAddress(addresses(message.from)[0]!)),
+    headerLine("To", addresses(message.to).map(formatAddress).join(", ")),
+    ...(message.cc ? [headerLine("Cc", addresses(message.cc).map(formatAddress).join(", "))] : []),
+    ...(message.replyTo ? [headerLine("Reply-To", addresses(message.replyTo).map(formatAddress).join(", "))] : []),
+    headerLine("Subject", message.subject),
+    headerLine("Message-ID", id),
     "MIME-Version: 1.0",
-    ...Object.entries(message.headers ?? {}).filter(([name]) => name.toLowerCase() !== "message-id").map(([name, value]) => `${safeHeader(name)}: ${safeHeader(value)}`),
+    ...Object.entries(message.headers ?? {}).filter(([name]) => name.toLowerCase() !== "message-id").map(([name, value]) => headerLine(name, value)),
   ]
   if (!message.attachments?.length) return [...headers, `Content-Type: ${body.contentType}`, ...body.lines].join("\r\n")
   return [
@@ -116,6 +125,9 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
     async send(message) {
       try {
         rejectTransportOwnedHeaders(message.headers)
+        if (message.scheduledAt !== undefined) {
+          return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support scheduled delivery.") }
+        }
         const from = addresses(message.from)[0]
         const recipients = [
           ...addresses(message.to),

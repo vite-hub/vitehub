@@ -12,7 +12,6 @@ const message: EmailMessage = {
   html: "<p>Hello</p>",
   idempotencyKey: "send-1",
   replyTo: "support@example.com",
-  scheduledAt: new Date("2026-08-26T12:00:00.000Z"),
   subject: "Welcome",
   tags: [{ name: "kind", value: "welcome" }],
   text: "Hello",
@@ -33,7 +32,7 @@ describe("Resend Email driver", () => {
     }))
     const driver = resend({ apiKey: "re_secret", fetch: request })
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({
+    await expect(driver.send({ ...message, scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context)).resolves.toMatchObject({
       data: { driver: "resend", id: "email-1" },
       error: null,
     })
@@ -75,9 +74,14 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it.each([[401, "AUTH"], [429, "RATE_LIMIT"], [500, "NETWORK"], [400, "PROVIDER"]] as const)("maps HTTP %s to %s", async (status, code) => {
+  it.each([[401, "AUTH"], [408, "TIMEOUT"], [429, "RATE_LIMIT"], [500, "NETWORK"], [400, "PROVIDER"]] as const)("maps HTTP %s to %s", async (status, code) => {
     const driver = resend({ apiKey: "re_secret", fetch: async () => new Response(JSON.stringify({ message: "failed" }), { status }) })
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code, driver: "resend", status } })
+  })
+
+  it.each([200, 400])("handles a JSON null response with HTTP %s", async (status) => {
+    const driver = resend({ apiKey: "re_secret", fetch: async () => new Response("null", { status }) })
+    await expect(driver.send(message, context)).resolves.toMatchObject({ data: null, error: { code: "PROVIDER", driver: "resend" } })
   })
 })
 
@@ -172,6 +176,38 @@ describe("Cloudflare Email driver", () => {
     const raw = Constructor.mock.calls[0]![2] as string
     const encoded = raw.split("Content-Transfer-Encoding: base64\r\n\r\n")[1] ?? ""
     expect(encoded.split("\r\n").every(line => line.length <= 76)).toBe(true)
+  })
+
+  it.each(["first\nsecond", "first\rsecond", "first\r\nsecond"])("canonicalizes body newlines before transfer encoding", async (text) => {
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
+
+    await driver.send({ ...message, attachments: undefined, html: undefined, scheduledAt: undefined, text }, context)
+
+    const encoded = (Constructor.mock.calls[0]![2] as string).split("Content-Transfer-Encoding: base64\r\n\r\n")[1] ?? ""
+    expect(Buffer.from(encoded.replaceAll("\r\n", ""), "base64").toString()).toBe("first\r\nsecond")
+  })
+
+  it("rejects scheduled delivery before sending", async () => {
+    const send = vi.fn()
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
+
+    await expect(driver.send({ ...message, scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context)).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
+    expect(Constructor).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { headers: { "X-Long": "x".repeat(1000) }, subject: "Welcome" },
+    { headers: undefined, subject: "x".repeat(1000) },
+  ])("rejects overlong raw headers", async ({ headers, subject }) => {
+    const send = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() })
+
+    await expect(driver.send({ ...message, headers, scheduledAt: undefined, subject }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
+    expect(send).not.toHaveBeenCalled()
   })
 
   it("preserves a case-insensitive custom message ID", async () => {

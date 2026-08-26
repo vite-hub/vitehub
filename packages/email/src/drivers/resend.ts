@@ -82,15 +82,18 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: true }) }
       }
       let responseBody: Record<string, unknown> = {}
-      try { responseBody = text ? JSON.parse(text) as Record<string, unknown> : {} }
+      try {
+        const parsed: unknown = text ? JSON.parse(text) : {}
+        responseBody = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+      }
       catch {}
       if (!response.ok) {
         const code: EmailProviderErrorCode = response.status === 401 || response.status === 403
           ? "AUTH"
-          : response.status === 429 ? "RATE_LIMIT" : response.status >= 500 ? "NETWORK" : "PROVIDER"
+          : response.status === 408 ? "TIMEOUT" : response.status === 429 ? "RATE_LIMIT" : response.status >= 500 ? "NETWORK" : "PROVIDER"
         return { data: null, error: emailProviderError("resend", code, typeof responseBody.message === "string" ? responseBody.message : `HTTP ${response.status}`, {
           cause: responseBody,
-          retryable: code === "RATE_LIMIT" || code === "NETWORK",
+          retryable: code === "TIMEOUT" || code === "RATE_LIMIT" || code === "NETWORK",
           status: response.status,
         }) }
       }
