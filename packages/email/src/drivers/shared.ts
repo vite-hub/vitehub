@@ -25,6 +25,10 @@ export function bytesToBase64(value: Uint8Array): string {
   return btoa(binary)
 }
 
+export function stringToBase64(value: string): string {
+  return bytesToBase64(new TextEncoder().encode(value))
+}
+
 export function requiredOption(driver: string, value: unknown, name: string): asserts value {
   if (!value) throw emailProviderError(driver, "INVALID_OPTIONS", `${name} is required.`)
 }

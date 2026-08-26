@@ -48,6 +48,23 @@ describe("Resend Email driver", () => {
     })
   })
 
+  it("encodes string attachments as UTF-8 base64", async () => {
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await driver.send({ ...message, attachments: [{ content: "hello", filename: "hello.txt" }] }, context)
+
+    expect(JSON.parse(request.mock.calls[0]![1]?.body as string).attachments).toEqual([{ content: "aGVsbG8=", filename: "hello.txt" }])
+  })
+
+  it("maps response body read failures to retryable network errors", async () => {
+    const response = new Response(null, { status: 200 })
+    vi.spyOn(response, "text").mockRejectedValue(new Error("connection reset"))
+    const driver = resend({ apiKey: "re_secret", fetch: async () => response })
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: true } })
+  })
+
   it.each([[401, "AUTH"], [429, "RATE_LIMIT"], [500, "NETWORK"], [400, "PROVIDER"]] as const)("maps HTTP %s to %s", async (status, code) => {
     const driver = resend({ apiKey: "re_secret", fetch: async () => new Response(JSON.stringify({ message: "failed" }), { status }) })
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code, driver: "resend", status } })
@@ -68,29 +85,34 @@ describe("Cloudflare Email driver", () => {
     expect(send).toHaveBeenCalledOnce()
   })
 
-  it("sends to every envelope recipient", async () => {
+  it("rejects multiple envelope recipients before sending", async () => {
     const send = vi.fn()
     const Constructor = vi.fn(function (this: Record<string, unknown>, from: string, to: string, raw: string) {
       Object.assign(this, { from, raw, to })
     })
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never })
 
-    await driver.send({
+    await expect(driver.send({
       ...message,
       bcc: "audit@example.com",
       cc: { email: "reviewer@example.com", name: "Reviewer" },
       to: ["maxi@example.com", "team@example.com"],
-    }, context)
+    }, context)).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
 
-    expect(Constructor.mock.calls.map(([, to]) => to)).toEqual([
-      "maxi@example.com",
-      "team@example.com",
-      "reviewer@example.com",
-      "audit@example.com",
-    ])
-    expect(send).toHaveBeenCalledTimes(4)
-    expect(Constructor.mock.calls[0]![2]).toContain("Cc: Reviewer <reviewer@example.com>")
-    expect(Constructor.mock.calls[0]![2]).not.toContain("Bcc:")
+    expect(Constructor).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it("encodes string attachments as UTF-8 base64", async () => {
+    const send = vi.fn()
+    const Constructor = vi.fn(function (this: Record<string, unknown>, from: string, to: string, raw: string) {
+      Object.assign(this, { from, raw, to })
+    })
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never })
+
+    await driver.send({ ...message, attachments: [{ content: "hello", filename: "hello.txt" }] }, context)
+
+    expect(Constructor.mock.calls[0]![2]).toContain("aGVsbG8=")
   })
 
   it("rejects header injection before sending", async () => {

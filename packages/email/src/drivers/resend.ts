@@ -1,5 +1,5 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts"
-import { addresses, bytesToBase64, formatAddress, requiredOption } from "./shared.ts"
+import { addresses, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
 
 import type { EmailAttachment, EmailDriver, EmailMessage, EmailProviderErrorCode } from "../types.ts"
 
@@ -11,7 +11,7 @@ export interface ResendEmailDriverOptions {
 
 function attachment(value: EmailAttachment): Record<string, unknown> {
   return {
-    content: typeof value.content === "string" ? value.content : bytesToBase64(value.content),
+    content: typeof value.content === "string" ? stringToBase64(value.content) : bytesToBase64(value.content),
     ...(value.cid ? { content_id: value.cid } : {}),
     ...(value.contentType ? { content_type: value.contentType } : {}),
     ...(value.disposition ? { disposition: value.disposition } : {}),
@@ -66,7 +66,13 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         if (isEmailProviderError(cause)) return { data: null, error: cause }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend request failed.", { cause, retryable: true }) }
       }
-      const text = await response.text()
+      let text: string
+      try {
+        text = await response.text()
+      }
+      catch (cause) {
+        return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: true }) }
+      }
       let body: Record<string, unknown> = {}
       try { body = text ? JSON.parse(text) as Record<string, unknown> : {} }
       catch {}
