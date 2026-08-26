@@ -200,6 +200,35 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("inspect")).toEqual([["agent"], ["workspace"]]);
   });
 
+  it("keeps a failed delivery's error inspectable beside its captured reply", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "Partially delivered reply.",
+          "channel.effect.kind": "reply",
+          "error.message": "Telegram disconnected",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const delivery = wrapper.get('[data-kind="delivery"]');
+
+    expect(delivery.get("summary").element.tagName).toBe("SUMMARY");
+    expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Partially delivered reply.");
+    await delivery.get("summary").trigger("click");
+    expect(delivery.get(".vh-invocation-event__failure").text()).toBe("Telegram disconnected");
+  });
+
   it("includes failure in a collapsed activity's accessible text", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

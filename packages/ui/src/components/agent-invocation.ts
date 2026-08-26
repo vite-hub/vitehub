@@ -220,7 +220,11 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     ?? channelDeliverySummary(activity)
     ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
   const visibleDelivery = activity.kind === "delivery" && Boolean(activity.body);
-  const hasDetails = !visibleDelivery && (activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated));
+  const deliveryFailure = visibleDelivery
+    ? stringAttribute(activity.attributes, "error.message")
+    : undefined;
+  const hasDetails = Boolean(deliveryFailure)
+    || (!visibleDelivery && (activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated)));
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
   const summaryContent = [
@@ -255,6 +259,9 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
         ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(activity.body!, "vh-invocation-event__markdown")])
         : null,
       hasDetails ? h("div", { class: "vh-invocation-event__details" }, [
+        deliveryFailure
+          ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
+          : null,
         activity.truncated
           ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
           : null,
