@@ -42,7 +42,7 @@ export default defineAgent({
 
 ViteHub validates the configured tool map and creates internal Agent tools.
 At invocation time, each tool resolves the request, executes the HTTP call, parses the configured response type, and returns either the parsed data or a transformed output.
-Requests time out after 30 seconds and responses are limited to 5 MiB by default. The limit applies to decoded streamed bytes, so a missing or incorrect `Content-Length` cannot bypass it.
+Each request attempt times out after 30 seconds, and responses are limited to 5 MiB by default. Safe requests may retry once after a timeout. The size limit applies to decoded streamed bytes, so a missing or incorrect `Content-Length` cannot bypass it.
 
 ## Requirements
 

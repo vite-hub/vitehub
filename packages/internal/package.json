@@ -61,6 +61,7 @@
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "catalog:",
     "@types/node": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "sharp": "0.34.5",

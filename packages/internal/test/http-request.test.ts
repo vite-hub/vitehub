@@ -151,7 +151,7 @@ describe("HTTP request", () => {
     }
   })
 
-  it.each(["Node", "Cloudflare"])("decodes bounded text and JSON through the %s WHATWG Response path", async () => {
+  it("decodes bounded text and JSON through the Node WHATWG Response path", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(new Response("hello"))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })))
@@ -170,11 +170,14 @@ describe("HTTP request", () => {
     vi.stubGlobal("fetch", fetch)
 
     const arrayBuffer = await executeHttpRequest({ maxResponseBytes: 3, url: "https://example.com/buffer" }, { responseType: "arrayBuffer" })
-    expect(new Uint8Array(arrayBuffer.data as ArrayBuffer)).toEqual(new Uint8Array([1, 2, 3]))
+    expect(arrayBuffer.data).toBeInstanceOf(ArrayBuffer)
+    if (!(arrayBuffer.data instanceof ArrayBuffer)) throw new TypeError("Expected an ArrayBuffer response")
+    expect(new Uint8Array(arrayBuffer.data)).toEqual(new Uint8Array([1, 2, 3]))
     const blob = await executeHttpRequest({ maxResponseBytes: 4, url: "https://example.com/blob" }, { responseType: "blob" })
     expect(blob.data).toBeInstanceOf(Blob)
-    expect((blob.data as Blob).type).toBe("text/custom")
-    await expect((blob.data as Blob).text()).resolves.toBe("blob")
+    if (!(blob.data instanceof Blob)) throw new TypeError("Expected a Blob response")
+    expect(blob.data.type).toBe("text/custom")
+    await expect(blob.data.text()).resolves.toBe("blob")
   })
 
   it("does not retry deterministic response schema failures", async () => {
