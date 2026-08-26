@@ -257,18 +257,20 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "queue",
         rootDir,
-        write: async ({ write }) => await generateProviderOutputs({
-          clientOutDir: config.build.outDir,
-          cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
-          definitions,
-          providerImportAliases: internalOptions?.providerImportAliases,
-          providerOutput,
-          queue: queue ?? (resolveNitroHosting(cloneNitroConfig((config as { nitro?: unknown }).nitro))
-            ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
-            : undefined),
-          rootDir,
-          serverFunctionName: resolveNitroVercelFunctionName(config, "queue"),
-        }, write),
+        write: async ({ write }) => {
+          await generateProviderOutputs({
+            clientOutDir: config.build.outDir,
+            cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
+            definitions,
+            providerImportAliases: internalOptions?.providerImportAliases,
+            providerOutput,
+            queue: queue ?? (resolveNitroHosting(cloneNitroConfig((config as { nitro?: unknown }).nitro))
+              ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
+              : undefined),
+            rootDir,
+            serverFunctionName: resolveNitroVercelFunctionName(config, "queue"),
+          }, write)
+        },
       })
     },
     closeBundle: {

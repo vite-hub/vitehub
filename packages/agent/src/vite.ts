@@ -2889,7 +2889,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         rootDir: config.root,
         write: async ({ write }) => {
           const normalized = normalizeAgentOptions(agent)
-          if (normalized?.runtime === "deno") return
+          if (normalized && normalized.runtime === "deno") return
           if (normalized && hasHostedAgentDefinitions(config.root, serverDirs) && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               agentImportBase: getAgentImportBase(agent, frameworkOptions),
