@@ -31,6 +31,30 @@ vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 
 const execFileAsync = promisify(execFile)
 
+function deferred<T>() {
+  let reject!: (reason?: unknown) => void
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    reject = rejectPromise
+    resolve = resolvePromise
+  })
+  return { promise, reject, resolve }
+}
+
+async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 function isTestRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
 }
@@ -14158,14 +14182,21 @@ describe("server helpers", () => {
     const acquireLock = vi.spyOn(state, "acquireLock")
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
-    let rejectReplacement!: (error: Error) => void
-    const replacement = new Promise<never>((_resolve, reject) => {
-      rejectReplacement = reject
-    })
+    const replacement = deferred<never>()
+    const replacementStarted = deferred<void>()
+    let replacementWaiting = false
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params ?? {})
-      if (createBatch.mock.calls.length === 2) await replacement
+      if (createBatch.mock.calls.length === 2) {
+        replacementWaiting = true
+        replacementStarted.resolve(undefined)
+        try {
+          await replacement.promise
+        } finally {
+          replacementWaiting = false
+        }
+      }
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const run = vi.fn(() => "internal output")
@@ -14182,6 +14213,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    let replacementHandler: Promise<Response> | undefined
 
     try {
       await state.connect()
@@ -14215,14 +14247,15 @@ describe("server helpers", () => {
       expect(ownershipKey).toBeDefined()
       expect(handoffKey).toBeDefined()
       await state.forceReleaseLock(ownershipKey!)
-      const replacementHandler = handler(chatWebhookRequest(91_108), "telegram", {
+      replacementHandler = handler(chatWebhookRequest(91_108), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: {
           env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } },
         },
         waitUntil: (task) => waitUntilTasks.push(task),
       })
-      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
+      await withDeadline(replacementStarted.promise, 10_000, "Replacement Agent Workflow did not reach provider startup.")
+      expect(createBatch).toHaveBeenCalledTimes(2)
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91106", "91107", "91108"])
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
       const successorDelivery = workflowPayloads[1]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
@@ -14259,16 +14292,18 @@ describe("server helpers", () => {
         } as never,
         1,
       )
-      rejectReplacement(Object.assign(new Error("Workflow handoff failed"), { status: 503 }))
+      replacement.reject(Object.assign(new Error("Workflow handoff failed"), { status: 503 }))
       await expect(replacementHandler).resolves.toMatchObject({ status: 200 })
       expect(createBatch).toHaveBeenCalledTimes(3)
       expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91106", "91107", "91108"])
     } finally {
+      if (replacementWaiting) replacement.reject(Object.assign(new Error("Test cleanup released the replacement Workflow."), { status: 503 }))
+      if (replacementHandler) await replacementHandler.catch(() => undefined)
       resetWorkflowRuntime()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it.each([
     {
@@ -15373,13 +15408,13 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    let resolveProgressEdit: (() => void) | undefined
-    adapter.editMessage.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveProgressEdit = resolve
-        }),
-    )
+    const progressEdit = deferred<void>()
+    const progressEditSettled = deferred<void>()
+    const stalledStream = deferred<void>()
+    adapter.editMessage.mockImplementationOnce(async () => {
+      await progressEdit.promise
+      progressEditSettled.resolve(undefined)
+    })
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -15402,7 +15437,7 @@ describe("server helpers", () => {
               transient: true,
               type: "data-progress-summary",
             }
-            await new Promise(() => undefined)
+            await stalledStream.promise
           })(),
         }),
       },
@@ -15424,10 +15459,16 @@ describe("server helpers", () => {
       expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
       expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
       expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
-      resolveProgressEdit?.()
-      await Promise.resolve()
+      progressEdit.resolve(undefined)
+      await progressEditSettled.promise
+      stalledStream.resolve(undefined)
+      await vi.advanceTimersByTimeAsync(0)
       expect(adapter.editMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
     } finally {
+      progressEdit.resolve(undefined)
+      stalledStream.resolve(undefined)
+      await vi.advanceTimersByTimeAsync(0)
       consoleError.mockRestore()
       vi.useRealTimers()
     }
