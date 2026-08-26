@@ -81,13 +81,38 @@ function config(plugin: Plugin) {
 }
 
 function buildStart(plugin: Plugin) {
+  if (plugin.buildStart && !(plugin.buildStart instanceof Function)) {
+    // SAFETY: This fixture invokes the documented Vite buildStart hook signature.
+    return plugin.buildStart.handler as () => Promise<void>
+  }
   // SAFETY: This fixture invokes the documented Vite buildStart hook signature.
   return plugin.buildStart as () => Promise<void>
 }
 
 function buildEnd(plugin: Plugin) {
+  if (plugin.buildEnd && !(plugin.buildEnd instanceof Function)) {
+    // SAFETY: This fixture invokes the documented Vite buildEnd hook signature.
+    return plugin.buildEnd.handler as () => Promise<void>
+  }
   // SAFETY: This fixture invokes the documented Vite buildEnd hook signature.
   return plugin.buildEnd as () => Promise<void>
+}
+
+async function runParallelBuildEnd(plugins: Plugin[]): Promise<void> {
+  let parallel: Promise<void>[] = []
+  for (const plugin of plugins) {
+    if (!plugin.buildEnd) continue
+    const hook = buildEnd(plugin)
+    if (!(plugin.buildEnd instanceof Function) && plugin.buildEnd.sequential) {
+      await Promise.all(parallel)
+      parallel = []
+      await hook()
+    }
+    else {
+      parallel.push(hook())
+    }
+  }
+  await Promise.all(parallel)
 }
 
 function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
@@ -209,7 +234,7 @@ describe("framework generated types", () => {
     const plugin = sourcePlugin()
     await configResolved(plugin)({ root: viteRoot })
     const handlers = await plugin.api.prepareSources({ projectRoot: root })
-    await viteHubTypesPlugin().api.prepareTypes(root)
+    await viteHubTypesPlugin().api.prepareTypes({ projectRoot: root })
 
     await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toBe(
       [
@@ -534,6 +559,28 @@ describe("framework generated types", () => {
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
       JSON.stringify(pathToFileURL(join(serverDir, "collections/meals.ts")).href),
+    )
+  })
+
+  it("aggregates declarations after earlier parallel lifecycle contributors", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const generatedDeclaration = join(root, ".vitehub/source/delayed.d.ts")
+    const typesPlugin = viteHubTypesPlugin()
+    await configResolved(typesPlugin)({ root: viteRoot })
+
+    const delayedContributor: Plugin = {
+      name: "delayed-source-contributor",
+      async buildEnd() {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        await mkdir(join(root, ".vitehub/source"), { recursive: true })
+        await writeFile(generatedDeclaration, "export {}\n")
+      },
+    }
+
+    await runParallelBuildEnd([delayedContributor, typesPlugin])
+
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
+      "./source/delayed.d.ts",
     )
   })
 })

@@ -304,6 +304,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     enforce: "post",
     api: { prepareSources },
     async config(config) {
+      // SAFETY: Vite passes the mutable user config object, which this plugin augments through ViteHub's shared symbols.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
@@ -317,6 +318,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
+      // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
       const viteConfig = config as SourcePluginConfig
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })

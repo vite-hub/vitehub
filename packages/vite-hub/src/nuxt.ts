@@ -598,6 +598,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       })
     | undefined
   if (!emailPlugin) await emailCleanupPlugin?.api?.prepareTypes?.(projectRoot)
+  // SAFETY: The plugin name identifies the ViteHub Source plugin and its public preparation API.
   const sourcePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/source/vite") as Plugin & {
     api?: {
       prepareSources?: (options: {

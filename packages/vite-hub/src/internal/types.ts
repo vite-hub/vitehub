@@ -57,8 +57,7 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
   await writeFile(path, contents, "utf8")
 }
 
-async function writeViteHubTypes(input: string | ViteHubTypesOptions): Promise<void> {
-  const options = typeof input === "string" ? { projectRoot: input } : input
+async function writeViteHubTypes(options: ViteHubTypesOptions): Promise<void> {
   const directory = resolve(options.projectRoot, ".vitehub")
   const files = (await collectGeneratedTypeFiles(directory)).sort()
   const references = files.map(file => `/// <reference path="./${file}" />`).join("\n")
@@ -82,6 +81,7 @@ export function viteHubTypesPlugin(): Plugin &
     enforce: "post",
     api: { prepareTypes: writeViteHubTypes },
     async config(config) {
+      // SAFETY: Vite passes the mutable user config object, which this plugin augments through ViteHub's shared symbols.
       const viteConfig = config as ViteHubPluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
@@ -91,8 +91,14 @@ export function viteHubTypesPlugin(): Plugin &
       projectRoot = resolveViteHubProjectRoot(config.root)
       await writeViteHubTypes({ projectRoot })
     },
-    buildStart: refreshGeneratedTypes,
-    buildEnd: refreshGeneratedTypes,
+    buildStart: {
+      sequential: true,
+      handler: refreshGeneratedTypes,
+    },
+    buildEnd: {
+      sequential: true,
+      handler: refreshGeneratedTypes,
+    },
     vitehub: {
       cli: {
         namespaces: [{
