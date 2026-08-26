@@ -151,13 +151,16 @@ const runtime = {
   waitUntil: () => undefined,
 }
 
-async function rawStreamingResult(beforeFirstEvent?: Promise<void>, onFirstEventRequested?: () => void) {
+async function rawStreamingResult(beforeFirstEvent?: Promise<void>, onFirstEventRequested?: () => void, onCancel?: () => void) {
   let started = false
   const fakeModel = {
     ...model([]),
     async doStream() {
       return {
         stream: new ReadableStream({
+          cancel() {
+            onCancel?.()
+          },
           async pull(controller) {
             if (started) return
             started = true
@@ -1160,11 +1163,11 @@ describe("AI SDK recovery", () => {
   })
 
   it("cancels a stream while its usage drain is waiting for a provider event", async () => {
-    let releaseFirstEvent!: () => void
     let markFirstEventRequested!: () => void
-    const firstEvent = new Promise<void>((resolve) => { releaseFirstEvent = resolve })
+    const firstEvent = new Promise<void>(() => undefined)
     const firstEventRequested = new Promise<void>((resolve) => { markFirstEventRequested = resolve })
-    const result = await rawStreamingResult(firstEvent, markFirstEventRequested)
+    const cancelled = vi.fn()
+    const result = await rawStreamingResult(firstEvent, markFirstEventRequested, cancelled)
     // SAFETY: streamAgentInline preserves the AI SDK stream and usage result members.
     const streamed = result as { stream: ReadableStream<unknown>, usage: Promise<unknown> }
     const reader = streamed.stream.getReader()
@@ -1173,16 +1176,10 @@ describe("AI SDK recovery", () => {
     await firstEventRequested
     const usage = streamed.usage
     const cancellation = reader.cancel()
-    let cancelled = false
-    void cancellation.then(() => { cancelled = true })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    const cancelledBeforeProviderEvent = cancelled
-
-    releaseFirstEvent()
     await firstRead.catch(() => undefined)
     await cancellation
 
-    expect(cancelledBeforeProviderEvent).toBe(true)
+    expect(cancelled).toHaveBeenCalledOnce()
     await expect(usage).resolves.toBeUndefined()
   })
 

@@ -1099,8 +1099,26 @@ function withCapturedStreamUsage<T extends {
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
   const wrap = (getStream: () => AsyncIterable<unknown>): ReadableStream<unknown> => {
+    let reader: ReadableStreamDefaultReader<unknown> | undefined
     let iterator: AsyncIterator<unknown> | undefined
-    const getIterator = () => iterator ??= getStream()[Symbol.asyncIterator]()
+    const getSource = () => {
+      if (reader || iterator) return
+      const stream = getStream()
+      if (stream instanceof ReadableStream) reader = stream.getReader()
+      else iterator = stream[Symbol.asyncIterator]()
+    }
+    const readSource = () => {
+      getSource()
+      return reader ? reader.read() : iterator!.next()
+    }
+    const cancelSource = async (reason?: unknown) => {
+      getSource()
+      if (reader) {
+        await reader.cancel(reason)
+        return { done: true as const, value: reason }
+      }
+      return iterator!.return ? await iterator!.return(reason) : { done: true as const, value: reason }
+    }
     const primaryCapture = captures()[0]
     let completed = false
     const complete = () => {
@@ -1117,10 +1135,9 @@ function withCapturedStreamUsage<T extends {
         return wrapped
       },
       async next() {
-        const iterator = getIterator()
         primaryCapture?.start()
         try {
-          const result = await iterator.next()
+          const result = await readSource()
           if (result.done) {
             complete()
             return result
@@ -1148,21 +1165,20 @@ function withCapturedStreamUsage<T extends {
         }
       },
       async return(value?: unknown) {
-        const iterator = getIterator()
         primaryCapture?.start()
         try {
-          return iterator.return ? await iterator.return(value) : { done: true, value }
+          return await cancelSource(value)
         }
         finally {
           complete()
         }
       },
       async throw(error?: unknown) {
-        const iterator = getIterator()
         primaryCapture?.start()
         try {
-          if (iterator.throw) return await iterator.throw(error)
-          await iterator.return?.()
+          getSource()
+          if (iterator?.throw) return await iterator.throw(error)
+          await cancelSource(error)
           throw error
         }
         finally {
@@ -1198,13 +1214,7 @@ function withCapturedStreamUsage<T extends {
         }
       },
       async cancel(reason) {
-        // A usage drain can already be waiting in `next()`. Async generators queue
-        // `return()` behind that read, so awaiting it here would make cancellation
-        // and Agent Invocation capacity wait for a provider event that may never
-        // arrive. Mark the capture complete now and let cooperative sources finish
-        // their cancellation asynchronously.
-        complete()
-        void Promise.resolve(wrapped.return?.(reason)).catch(() => undefined)
+        await wrapped.return?.(reason)
       },
     }, { highWaterMark: 0 })
   }
@@ -1289,7 +1299,7 @@ function withCapturedStreamUsage<T extends {
           },
         }
       : {}),
-  }, false)
+  })
 }
 
 async function combinedUsageRecord(
