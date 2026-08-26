@@ -93,7 +93,7 @@ catalogs:
     "@google-cloud/storage": ^7.19.0
     "@googleapis/drive": ^20.0.0
     "@microsoft/microsoft-graph-client": ^3.0.7
-    "@netlify/blobs": ^10.7.5
+    "@netlify/blobs": ^11.0.1
     "@supabase/storage-js": ^2.105.4
     "@upstash/redis": ^1.38.0
     "@vercel/blob": ^2.8.0
