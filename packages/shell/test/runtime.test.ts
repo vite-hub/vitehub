@@ -352,6 +352,29 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(runtime.exec("if test -f tmp/out\nthen\ncat tmp/out\nfi")).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
   })
 
+  it("keeps yq XML conversion unavailable in the portable provider", async () => {
+    const workspace = new MemoryWorkspace({
+      "input.xml": `<?xml version="1.0"?>
+<!DOCTYPE root [<!ENTITY a "x">]>
+<!DOCTYPE root [<!ENTITY b "&a;&a;">]>
+<root>&b;</root>
+`,
+    })
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        commands: ["yq"],
+        cwd: workspaceMountPoint,
+        fs: createReadonlyWorkspaceFs(workspace),
+      }),
+    })
+
+    await expect(runtime.exec("yq -p xml -o json '.' input.xml")).resolves.toMatchObject({
+      exitCode: 127,
+      stderr: expect.stringContaining("yq: command not available in browser environments"),
+      stdout: "",
+    })
+  })
+
   it("exposes writable filesystem adapters", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
