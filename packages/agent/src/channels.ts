@@ -1121,6 +1121,16 @@ export function messageChannelReplyBody<TRuntimeConfig extends AgentRuntimeConfi
   if (typeof context.effect.metadata?.markdown === "string") return context.effect.metadata.markdown
 }
 
+const messageChannelDeliveredReplyBodies = new WeakMap<AgentChannelDeliveryEffectIntent, string | undefined>()
+
+export function messageChannelDeliveredReplyBody(effect: AgentChannelDeliveryEffectIntent): string | undefined {
+  return messageChannelDeliveredReplyBodies.get(effect)
+}
+
+function setMessageChannelDeliveredReplyBody(effect: AgentChannelDeliveryEffectIntent, body: string | undefined): void {
+  messageChannelDeliveredReplyBodies.set(effect, body)
+}
+
 function normalizedDeliveryArtifactPath(path: string): string | undefined {
   try {
     return normalizeDeliveryArtifactPath(path)
@@ -1221,6 +1231,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     for await (const chunk of stream) body = `${body || ""}${chunk}`
   }
   body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(body, artifacts), artifacts)
+  setMessageChannelDeliveredReplyBody(context.effect, body)
   if (!body && !attachments.length && !files.length) return
   const message: AgentChatMessage = {
     markdown: body || "",

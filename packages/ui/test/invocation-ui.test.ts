@@ -335,7 +335,7 @@ describe("Agent Invocation UI", () => {
     expect(rows[4]!.attributes("data-kind")).toBe("delivery");
     expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 5s");
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
-    expect(rows[2]!.text()).toContain("Done.");
+    expect(rows[3]!.text()).toContain("Done.");
     expect(rows[4]!.get('[data-icon="telegram"]').attributes("data-icon")).toBe("telegram");
     expect(rows[4]!.get(".vh-invocation-delivery__body").text()).toBe("The Telegram reply body.");
   });

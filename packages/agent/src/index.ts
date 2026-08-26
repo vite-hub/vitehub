@@ -44,6 +44,7 @@ import {
   http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
+  messageChannelDeliveredReplyBody,
   messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
   slack as builtInSlack,
@@ -1180,14 +1181,18 @@ async function applyChannelDeliveryEffectIntents<
     let delivered = true
     for (const handler of handlers) {
       let streamedReplyContent = ""
+      let streamedReplyContentTruncated = false
       const deliveredIntent = intent.kind === "reply" && isAsyncIterable(intent.payload)
         ? {
             ...intent,
             payload: (async function* () {
               for await (const chunk of intent.payload as AsyncIterable<string>) {
                 if (streamedReplyContent.length < 16 * 1024) {
-                  streamedReplyContent += chunk.slice(0, 16 * 1024 - streamedReplyContent.length)
+                  const remaining = 16 * 1024 - streamedReplyContent.length
+                  streamedReplyContent += chunk.slice(0, remaining)
+                  if (chunk.length > remaining) streamedReplyContentTruncated = true
                 }
+                else if (chunk.length > 0) streamedReplyContentTruncated = true
                 yield chunk
               }
             })(),
@@ -1226,11 +1231,14 @@ async function applyChannelDeliveryEffectIntents<
             workspace: context.workspace,
           })
           const deliveredContent = intent.kind === "reply"
-            ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent })
+            ? messageChannelDeliveredReplyBody(deliveredIntent) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
             : undefined
+          const deliveredContentTruncated = streamedReplyContentTruncated
+            || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
           await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
             ...metadata,
             ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+            ...(deliveredContentTruncated ? { "vitehub.observation.truncated": true } : {}),
           })
         })
         handlerCompleted = true
@@ -1253,9 +1261,16 @@ async function applyChannelDeliveryEffectIntents<
           await delivery?.event({ error: agentErrorMessage(error), type: "outbound.failed", runId: context.run?.runId })
         }
         catch {}
-        await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+        const deliveredContent = intent.kind === "reply"
+          ? messageChannelDeliveredReplyBody(deliveredIntent) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
+          : undefined
+        await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
+          ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+          ...(streamedReplyContentTruncated || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
+            ? { "vitehub.observation.truncated": true }
+            : {}),
         })
       }
       if (handlerCompleted) {
