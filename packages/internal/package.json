@@ -50,7 +50,7 @@
   },
   "scripts": {
     "build": "vp pack",
-    "test": "vp run -t @vite-hub/internal#build && vp test",
+    "test": "vp run -t @vite-hub/internal#build && vp test && vp test test/http-request.workerd.ts --config vitest.workerd.config.ts",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
