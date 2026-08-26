@@ -3573,6 +3573,19 @@ function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream
   return stream
 }
 
+function withStreamResultCancellation<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
+  if (!result || !hasRuntimeType(result, "object")) return stream
+  for (const property of ["stream", "fullStream"] as const) {
+    const candidate = Reflect.get(result, property)
+    if (!candidate || !hasRuntimeType(candidate, "object")) continue
+    const cancel = Reflect.get(candidate, Symbol.for("vitehub.agent.stream.cancel"))
+    if (!hasRuntimeType(cancel, "function")) continue
+    Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), { value: cancel })
+    break
+  }
+  return stream
+}
+
 function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, result: unknown): AsyncIterable<StreamEvent> {
   if (!hasRuntimeType(stream, "object") || stream === null || !hasRuntimeType(result, "object") || result === null) return stream
   const iterator = stream[Symbol.asyncIterator]()
@@ -5757,9 +5770,11 @@ async function executeAgentInvocationWithCapacityLease<
           }
         })()
       : isStreamResult
-        ? streamAgentOutputToEvents(streamResult)
+        ? withStreamResultCancellation(streamAgentOutputToEvents(streamResult), streamResult)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
+        : customRun
+          ? rendered as AsyncIterable<StreamEvent>
+          : withStreamResultCancellation(streamAgentOutputToEvents(rendered), rendered)
     if (structuredMaterialization) {
       Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), {
         value: structuredMaterialization.cancel,

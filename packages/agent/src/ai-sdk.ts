@@ -2056,7 +2056,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             : ReadableStream.from(stream as AsyncIterable<unknown>).getReader()
           return reader
         }
-        return new ReadableStream({
+        const stream = new ReadableStream({
           async pull(controller) {
             try {
               const item = await (await getReader()).read()
@@ -2083,6 +2083,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             }
           },
         }, { highWaterMark: 0 })
+        Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), { value: cancelProvider })
+        return stream
       }
       // SAFETY: The lazy facade implements the StreamTextResult members consumed by the adapter.
       const result = asUnknownBoundary({
