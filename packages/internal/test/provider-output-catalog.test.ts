@@ -70,7 +70,7 @@ describe("Provider Output contribution catalog", () => {
 
   it("rejects unknown owners and provider kinds at the type boundary", () => {
     const catalog = createProviderOutputCatalog()
-    if (false) {
+    const invalidContributions = () => {
       // @ts-expect-error Env contributions cannot claim Queue fields.
       contributeCloudflareProviderOutput(catalog, { owner: "env", queues: {} })
       // @ts-expect-error Schedule does not contribute cross-product runtime modules.
@@ -80,6 +80,6 @@ describe("Provider Output contribution catalog", () => {
       // @ts-expect-error Database has no Deno runtime module contribution.
       getProviderRuntimeModule(catalog, "database", "deno")
     }
-    expect(catalog).toBeDefined()
+    expect(invalidContributions).toBeTypeOf("function")
   })
 })

@@ -39,7 +39,6 @@ import type { DBModulePublicOptions } from "@vite-hub/database"
 import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
-import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { QueueModuleOptions } from "@vite-hub/queue"
@@ -386,8 +385,6 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  let providerOutput: ProviderOutputCatalog | undefined
-  const useDeploymentProviderOutput = (config: object): ProviderOutputCatalog => providerOutput ??= useProviderOutputCatalog(config)
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
@@ -396,7 +393,7 @@ function deploymentPlugins(
     subscribedEnvPlugins.add(plugin)
     plugin.api.onServerEnvRegistry((registry: EnvRuntimeRegistry, config: UserConfig) => {
       if (cloneRecord((config as { vitehub?: unknown }).vitehub).preset !== plan.preset) return
-      const providerOutput = useDeploymentProviderOutput(config)
+      const providerOutput = useProviderOutputCatalog(config)
       contributeCloudflareProviderOutput(providerOutput, {
         owner: "env",
         requiredSecrets: requiredCloudflareSecretNames(registry),
@@ -530,7 +527,7 @@ function deploymentPlugins(
           if (deploymentEnvPlugin.current) {
             subscribeEnvPlugin(deploymentEnvPlugin.current)
             const envConfig = (config as { env?: { server?: Parameters<EnvVitePlugin["api"]["createServerEnvRegistry"]>[0] } }).env
-            const providerOutput = useDeploymentProviderOutput(config)
+            const providerOutput = useProviderOutputCatalog(config)
             contributeCloudflareProviderOutput(providerOutput, {
               owner: "env",
               requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.createServerEnvRegistry(envConfig?.server)),
@@ -557,15 +554,22 @@ function deploymentPlugins(
         if (plan.preset !== "cloudflare") return
         if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
           const viteConfig = config as { nitro?: unknown }
-          viteConfig.nitro = composeNitroCloudflareProviderOutput(useDeploymentProviderOutput(config), viteConfig.nitro)
+          viteConfig.nitro = composeNitroCloudflareProviderOutput(useProviderOutputCatalog(config), viteConfig.nitro)
         }
       },
       configResolved(config) {
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
-          if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
+          if (deploymentEnvPlugin.current) {
+            subscribeEnvPlugin(deploymentEnvPlugin.current)
+            const envConfig = (config as { env?: { server?: Parameters<EnvVitePlugin["api"]["createServerEnvRegistry"]>[0] } }).env
+            contributeCloudflareProviderOutput(useProviderOutputCatalog(config), {
+              owner: "env",
+              requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.createServerEnvRegistry(envConfig?.server)),
+            })
+          }
           const viteConfig = config as typeof config & { nitro?: unknown }
-          viteConfig.nitro = composeNitroCloudflareProviderOutput(useDeploymentProviderOutput(config), viteConfig.nitro)
+          viteConfig.nitro = composeNitroCloudflareProviderOutput(useProviderOutputCatalog(config), viteConfig.nitro)
         }
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
