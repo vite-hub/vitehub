@@ -10,6 +10,7 @@ import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
+import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
@@ -597,18 +598,22 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       })
     | undefined
   if (!emailPlugin) await emailCleanupPlugin?.api?.prepareTypes?.(projectRoot)
-  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+  const sourcePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/source/vite") as Plugin & {
     api?: {
-      prepareTypes?: (options: {
+      prepareSources?: (options: {
         projectRoot: string
         serverDirs?: string[]
-      }) => Promise<GeneratedServerHandler[]>
+      }) => Promise<GeneratedSourceHandler[]>
     }
   } | undefined
-  const generatedHandlers = await typesPlugin?.api?.prepareTypes?.({
+  const generatedSourceHandlers = await sourcePlugin?.api?.prepareSources?.({
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
+  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+    api?: { prepareTypes?: (options: { projectRoot: string }) => Promise<void> }
+  } | undefined
+  await typesPlugin?.api?.prepareTypes?.({ projectRoot })
 
   viteConfig.define = {
     ...viteConfig.define,
@@ -647,7 +652,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)
-    Object.assign(config, mergeGeneratedNitroConfig(config, generatedHandlers))
+    Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     installMarkdownTemplateResolver(config, markdownTemplatePlugin)
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))

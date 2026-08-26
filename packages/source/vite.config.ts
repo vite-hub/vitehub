@@ -25,6 +25,7 @@ export default defineConfig({
       "src/markdown.ts",
       "src/mcp.ts",
       "src/server.ts",
+      "src/vite.ts",
     ],
     exports: {
       customExports(exports) {

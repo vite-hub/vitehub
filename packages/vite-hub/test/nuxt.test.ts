@@ -1070,11 +1070,11 @@ describe("ViteHub Nuxt integration", () => {
       method: "get" as const,
       route: "/api/meals",
     }
-    const prepareTypes = vi.fn(async () => [generated])
+    const prepareSources = vi.fn(async () => [generated])
     mocks.vitehub.mockReturnValue([
       {
-        api: { prepareTypes },
-        name: "vite-hub/types",
+        api: { prepareSources },
+        name: "@vite-hub/source/vite",
       },
     ])
     const { nuxt, runNitroConfigHook } = createNuxt()
@@ -1084,7 +1084,7 @@ describe("ViteHub Nuxt integration", () => {
     const nitroConfig = { handlers: [existing] }
     await runNitroConfigHook(nitroConfig)
 
-    expect(prepareTypes).toHaveBeenCalledWith({
+    expect(prepareSources).toHaveBeenCalledWith({
       projectRoot: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
@@ -1099,8 +1099,8 @@ describe("ViteHub Nuxt integration", () => {
     }
     mocks.vitehub.mockReturnValue([
       {
-        api: { prepareTypes: vi.fn(async () => [generated]) },
-        name: "vite-hub/types",
+        api: { prepareSources: vi.fn(async () => [generated]) },
+        name: "@vite-hub/source/vite",
       },
     ])
     const { nuxt, runNitroConfigHook } = createNuxt()
@@ -1122,8 +1122,8 @@ describe("ViteHub Nuxt integration", () => {
     }
     mocks.vitehub.mockReturnValue([
       {
-        api: { prepareTypes: vi.fn(async () => [generated]) },
-        name: "vite-hub/types",
+        api: { prepareSources: vi.fn(async () => [generated]) },
+        name: "@vite-hub/source/vite",
       },
     ])
     const { nuxt, runNitroConfigHook } = createNuxt()

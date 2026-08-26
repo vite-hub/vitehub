@@ -66,6 +66,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -79,6 +83,7 @@
     "@vite-hub/runtime": "workspace:*",
     "effect": "catalog:effect",
     "h3": "catalog:unjs",
+    "mlly": "catalog:unjs",
     "ofetch": "catalog:unjs"
   },
   "devDependencies": {
@@ -93,6 +98,7 @@
     "publint": "catalog:tooling",
     "tinyglobby": "catalog:workspace",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
@@ -100,10 +106,14 @@
   },
   "peerDependencies": {
     "comark-content": "catalog:markdown",
+    "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "comark-content": {
+      "optional": true
+    },
+    "vite": {
       "optional": true
     },
     "vue": {

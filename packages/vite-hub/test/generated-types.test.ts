@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { IncomingMessage, ServerResponse } from "node:http"
 import { Socket } from "node:net"
 import { tmpdir } from "node:os"
@@ -9,8 +9,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createEvent } from "h3-v1"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
-import { toRuntimeModuleSpecifier, toTypeModuleSpecifier, viteHubTypesPlugin } from "../src/internal/types.ts"
+import { viteHubTypesPlugin } from "../src/internal/types.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -63,6 +64,10 @@ function configResolved(plugin: Plugin) {
   return plugin.configResolved as (config: { root: string; [VITEHUB_SERVER_DIRS]?: string[] }) => Promise<void>
 }
 
+function sourcePlugin() {
+  return hubSource({ importBase: "vite-hub/source" })
+}
+
 function config(plugin: Plugin) {
   // SAFETY: This fixture invokes the documented Vite config hook signature.
   return plugin.config as (config: {
@@ -108,7 +113,7 @@ describe("framework generated types", () => {
       root: viteRoot,
     }
 
-    await config(viteHubTypesPlugin())(viteConfig)
+    await config(sourcePlugin())(viteConfig)
 
     expect(viteConfig.define).toEqual({
       EXISTING: "true",
@@ -122,7 +127,7 @@ describe("framework generated types", () => {
       const { viteRoot } = await createNestedProject()
       const viteConfig = { base, root: viteRoot }
 
-      await config(viteHubTypesPlugin())(viteConfig)
+      await config(sourcePlugin())(viteConfig)
 
       expect(viteConfig).toMatchObject({
         define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") },
@@ -201,9 +206,10 @@ describe("framework generated types", () => {
       writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
     ])
 
-    const plugin = viteHubTypesPlugin()
+    const plugin = sourcePlugin()
     await configResolved(plugin)({ root: viteRoot })
-    const handlers = await plugin.api.prepareTypes(root)
+    const handlers = await plugin.api.prepareSources({ projectRoot: root })
+    await viteHubTypesPlugin().api.prepareTypes(root)
 
     await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toBe(
       [
@@ -250,7 +256,7 @@ describe("framework generated types", () => {
     ])
     await writeFile(join(root, "server/content.ts"), contentModule())
 
-    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
     expect(handlers).toEqual([{
       handler: join(root, ".vitehub/content/route.mjs"),
@@ -312,14 +318,14 @@ describe("framework generated types", () => {
       writeFile(join(secondServerDir, "content.ts"), contentModule()),
     ])
 
-    await expect(viteHubTypesPlugin().api.prepareTypes({
+    await expect(sourcePlugin().api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir, secondServerDir],
     })).rejects.toThrow("Content is defined in more than one server directory")
 
     await rm(join(secondServerDir, "content.ts"))
     await writeFile(join(firstServerDir, "content.ts"), "export const other = {}\n")
-    await expect(viteHubTypesPlugin().api.prepareTypes({
+    await expect(sourcePlugin().api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir],
     })).rejects.toThrow('must export a Comark Content instance named "content"')
@@ -330,7 +336,7 @@ describe("framework generated types", () => {
     await mkdir(join(root, "server"), { recursive: true })
     await writeFile(join(root, "server/content.ts"), contentModule())
 
-    await expect(config(viteHubTypesPlugin())({
+    await expect(config(sourcePlugin())({
       nitro: { handlers: [{ handler: "server/api/content.post.ts", method: "post", route: "/api/content/**" }] },
       root,
     })).rejects.toThrow('Generated Content route "/api/content/**" conflicts with an existing handler')
@@ -348,7 +354,7 @@ describe("framework generated types", () => {
       writeFile(join(collectionsDirectory, declarationFile), "export declare const meals: object\n"),
     ])
 
-    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
     const collectionTypes = await readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")
 
     expect(handlers).toEqual([
@@ -370,7 +376,7 @@ describe("framework generated types", () => {
     ])
     await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
 
-    const [handler] = await viteHubTypesPlugin().api.prepareTypes(root)
+    const [handler] = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
     await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
   })
@@ -385,7 +391,7 @@ describe("framework generated types", () => {
       root: string
     } = { nitro: { handlers: [existing] }, root }
 
-    await config(viteHubTypesPlugin())(userConfig)
+    await config(sourcePlugin())(userConfig)
 
     expect(userConfig.nitro.handlers).toEqual([
       existing,
@@ -406,7 +412,7 @@ describe("framework generated types", () => {
     await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
 
     await expect(
-      config(viteHubTypesPlugin())({
+      config(sourcePlugin())({
         nitro: { handlers: [{ handler: "server/api/meals.ts", route: "/api/meals" }] },
         root,
       }),
@@ -420,8 +426,8 @@ describe("framework generated types", () => {
       await mkdir(join(root, "server/collections"), { recursive: true })
       await writeFile(join(root, "server/collections/meals.ts"), source)
 
-      const plugin = viteHubTypesPlugin()
-      await expect(plugin.api.prepareTypes(root)).rejects.toThrow(
+      const plugin = sourcePlugin()
+      await expect(plugin.api.prepareSources({ projectRoot: root })).rejects.toThrow(
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
       await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
@@ -442,8 +448,8 @@ describe("framework generated types", () => {
       writeFile(join(secondServerDir, "collections/audit.ts"), collectionModule("audit")),
     ])
 
-    const plugin = viteHubTypesPlugin()
-    const handlers = await plugin.api.prepareTypes({
+    const plugin = sourcePlugin()
+    const handlers = await plugin.api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir, secondServerDir],
     })
@@ -455,7 +461,7 @@ describe("framework generated types", () => {
 
     await writeFile(join(secondServerDir, "collections/meals.ts"), collectionModule("meals"))
     await expect(
-      plugin.api.prepareTypes({
+      plugin.api.prepareSources({
         projectRoot: root,
         serverDirs: [firstServerDir, secondServerDir],
       }),
@@ -476,7 +482,7 @@ describe("framework generated types", () => {
     ])
 
     await expect(
-      viteHubTypesPlugin().api.prepareTypes({
+      sourcePlugin().api.prepareSources({
         projectRoot: root,
         serverDirs: [firstServerDir, secondServerDir],
       }),
@@ -488,17 +494,29 @@ describe("framework generated types", () => {
   it("preserves an explicitly empty server directory selection", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    await Promise.all([
+      writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
+      writeFile(join(root, "server/content.ts"), contentModule()),
+    ])
 
-    const plugin = viteHubTypesPlugin()
-    const handlers = await plugin.api.prepareTypes({
+    const plugin = sourcePlugin()
+    await plugin.api.prepareSources({ projectRoot: root })
+    const collectionTypes = join(root, ".vitehub/source/collections.d.ts")
+    const collectionRoute = join(root, ".vitehub/source/routes/meals.mjs")
+    const contentRoute = join(root, ".vitehub/content/route.mjs")
+    const timestamps = await Promise.all([collectionTypes, collectionRoute, contentRoute].map(async file => (await stat(file)).mtimeMs))
+    await plugin.api.prepareSources({ projectRoot: root })
+    await expect(Promise.all([collectionTypes, collectionRoute, contentRoute].map(async file => (await stat(file)).mtimeMs))).resolves.toEqual(timestamps)
+
+    const handlers = await plugin.api.prepareSources({
       projectRoot: root,
       serverDirs: [],
     })
 
     expect(handlers).toEqual([])
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+    await expect(readFile(collectionTypes, "utf8")).rejects.toThrow()
+    await expect(readFile(collectionRoute, "utf8")).rejects.toThrow()
+    await expect(readFile(contentRoute, "utf8")).rejects.toThrow()
   })
 
   it("preserves configured server directories across Vite lifecycle refreshes", async () => {
@@ -507,7 +525,7 @@ describe("framework generated types", () => {
     await mkdir(join(serverDir, "collections"), { recursive: true })
     await writeFile(join(serverDir, "collections/meals.ts"), collectionModule("meals"))
 
-    const plugin = viteHubTypesPlugin()
+    const plugin = sourcePlugin()
     await configResolved(plugin)({
       root: viteRoot,
       [VITEHUB_SERVER_DIRS]: [serverDir],

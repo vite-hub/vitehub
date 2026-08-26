@@ -131,6 +131,7 @@
     "./source/markdown": "./dist/source/markdown.js",
     "./source/mcp": "./dist/source/mcp.js",
     "./source/server": "./dist/source/server.js",
+    "./source/vite": "./dist/source/vite.js",
     "./ui": "./dist/ui.js",
     "./ui/headless": "./dist/ui/headless.js",
     "./ui/nuxt": "./dist/ui/nuxt.js",
@@ -202,7 +203,6 @@
     "dropbox": "catalog:storage",
     "files-sdk": "catalog:storage",
     "google-auth-library": "catalog:storage",
-    "mlly": "catalog:unjs",
     "uploadthing": "catalog:storage",
     "workflow": "catalog:workflow"
   },
