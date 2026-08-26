@@ -12,4 +12,5 @@ export * from "./components/agent-trace.ts";
 export * from "./composables/attachments.ts";
 export * from "./config.ts";
 export * from "./headless.ts";
+export * from "./invocation-display.ts";
 export type * from "./types.ts";

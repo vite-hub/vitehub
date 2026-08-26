@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { AgentInvocation, AgentInvocationInspector, AgentInvocationList } from "@vite-hub/ui";
+import {
+  AgentInvocation,
+  AgentInvocationInspector,
+  AgentInvocationList,
+  agentInvocationContext,
+  agentInvocationExternalUrl,
+  agentInvocationProject,
+  agentInvocationTitle,
+} from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -10,7 +18,11 @@ import type {
   AgentInvocationListItem,
   AgentInvocationView,
 } from "@vite-hub/ui";
-import { decodeAgentRouteParam, encodeAgentRouteParam, resolveAgentRouteName } from "../agent-route";
+import {
+  decodeAgentRouteParam,
+  encodeAgentRouteParam,
+  resolveAgentRouteName,
+} from "../agent-route";
 import { requestConsole } from "../client/request";
 import { relativeDuration } from "../client/time";
 import ConsoleSearch from "./console-search.vue";
@@ -38,7 +50,7 @@ let agentsRequest: AbortController | undefined;
 const recordSuccessfulPoll = () => {
   lastSuccessfulPollAt.value = new Date();
 };
-const listPollInterval = computed(() => pageVisible.value ? 5_000 : false);
+const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
 const detailPollInterval = computed(() =>
   pageVisible.value && selectedInvocationId.value ? 3_000 : false,
 );
@@ -50,7 +62,7 @@ const list = useAgentInvocations({
   pollInterval: listPollInterval,
   request: requestConsole,
   requestSummaries: requestConsole,
-  query: computed(() => selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
+  query: computed(() => (selectedAgentName.value ? { agent: selectedAgentName.value } : {})),
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
@@ -63,19 +75,19 @@ const detail = useAgentInvocation(selectedInvocationId, {
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
     agent: invocation.agentName,
-    context: invocation.threadId || invocation.origin || invocation.channelId || invocation.id,
+    context: agentInvocationContext(invocation),
     description: invocation.error?.message,
     id: invocation.id,
-    project: invocation.agentName || "Workspace",
+    project: agentInvocationProject(invocation),
     startedAt: invocation.startedAt,
     status: invocation.status,
-    title: invocation.agentName || "Agent Invocation",
+    title: agentInvocationTitle(invocation),
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
   })),
 );
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
-const selectedAgentLabel = computed(() =>
-  selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
+const selectedAgentLabel = computed(
+  () => selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
 );
 const agentMenuItems = computed<DropdownMenuItem[]>(() =>
   agentNames.value.map((name) => ({
@@ -116,33 +128,39 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   }
   return view;
 });
-const selectedTitle = computed(
-  () => invocationView.value?.agentName || selectedSummary.value?.agentName || "Agent Invocation",
+const selectedDisplay = computed(() => invocationView.value ?? selectedSummary.value);
+const selectedTitle = computed(() =>
+  selectedDisplay.value
+    ? agentInvocationTitle(selectedDisplay.value)
+    : selectedAgentName.value || "ViteHub Console",
 );
-const splitterItems = computed<SplitterItem[]>(() =>
-  detailsOpen.value
-    ? [
-        { id: "thread", slot: "thread", minSize: 52, defaultSize: 68, class: "min-w-0" },
-        {
-          id: "details",
-          slot: "details",
-          minSize: 24,
-          maxSize: 44,
-          defaultSize: 32,
-          class: "min-w-0",
-        },
-      ]
-    : [
-        {
-          id: "thread",
-          slot: "thread",
-          minSize: 100,
-          maxSize: 100,
-          defaultSize: 100,
-          class: "min-w-0",
-        },
-      ],
+const selectedProject = computed(() =>
+  selectedDisplay.value
+    ? agentInvocationProject(selectedDisplay.value)
+    : selectedAgentName.value || "Agents",
 );
+const selectedExternalUrl = computed(() =>
+  selectedDisplay.value ? agentInvocationExternalUrl(selectedDisplay.value) : undefined,
+);
+const splitterItems: SplitterItem[] = [
+  {
+    id: "thread",
+    slot: "thread",
+    minSize: 520,
+    defaultSize: 820,
+    sizeUnit: "px",
+    class: "min-h-0 min-w-0 overflow-hidden",
+  },
+  {
+    id: "details",
+    slot: "details",
+    minSize: 320,
+    maxSize: 520,
+    defaultSize: 380,
+    sizeUnit: "px",
+    class: "min-h-0 min-w-0 overflow-hidden",
+  },
+];
 const syncAgeMs = computed(() =>
   lastSuccessfulPollAt.value ? nowMs.value - lastSuccessfulPollAt.value.valueOf() : 0,
 );
@@ -217,7 +235,9 @@ async function loadAgents(): Promise<void> {
     const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
     const names = Array.isArray(value?.agents)
-      ? value.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
+      ? value.agents.filter(
+          (name): name is string => typeof name === "string" && Boolean(name.trim()),
+        )
       : [];
     if (agentsRequest === controller) {
       agentNames.value = [...new Set(names)];
@@ -246,6 +266,14 @@ function retryPagination(): void {
   paginationRetryRevision.value++;
 }
 
+function statusIcon(status: AgentInvocationListItem["status"]): string {
+  if (status === "running") return "i-lucide-loader-circle";
+  if (status === "completed") return "i-lucide-check";
+  if (status === "failed") return "i-lucide-x";
+  if (status === "cancelled") return "i-lucide-ban";
+  return "i-lucide-clock-3";
+}
+
 function updateDesktop(event?: MediaQueryListEvent): void {
   isDesktop.value = event?.matches ?? media?.matches ?? false;
 }
@@ -271,7 +299,8 @@ watch(
   [routeInvocation, routeAgent, () => list.invocations.value[0]?.id, selectedAgentName],
   async ([requestedInvocation, requestedAgent, firstInvocation, agentName]) => {
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
-    selectedInvocationId.value = requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
+    selectedInvocationId.value =
+      requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
     if (!requestedInvocation && firstInvocation && agentName && agentRouteReady) {
       await router.replace({
         name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
@@ -286,9 +315,7 @@ watch(
   [routeAgent, agentNames],
   async ([requestedAgent, names]) => {
     if (!names.length) return;
-    const agentName = requestedAgent && names.includes(requestedAgent)
-      ? requestedAgent
-      : names[0];
+    const agentName = requestedAgent && names.includes(requestedAgent) ? requestedAgent : names[0];
     selectedAgentName.value = agentName;
     if (requestedAgent !== agentName) {
       await router.replace({
@@ -300,25 +327,23 @@ watch(
   { immediate: true },
 );
 
-watch(
-  [selectedAgentName, () => detail.invocation.value],
-  async ([agentName, invocation]) => {
-    if (
-      !agentName ||
-      !invocation ||
-      invocation.id !== selectedInvocationId.value ||
-      invocation.agentName === agentName
-    ) return;
-    selectedInvocationId.value = undefined;
-    await router.replace({
-      name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
-      params: { agent: encodeAgentRouteParam(agentName) },
-    });
-  },
-);
+watch([selectedAgentName, () => detail.invocation.value], async ([agentName, invocation]) => {
+  if (
+    !agentName ||
+    !invocation ||
+    invocation.id !== selectedInvocationId.value ||
+    invocation.agentName === agentName
+  )
+    return;
+  selectedInvocationId.value = undefined;
+  await router.replace({
+    name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+    params: { agent: encodeAgentRouteParam(agentName) },
+  });
+});
 
 onMounted(() => {
-  media = window.matchMedia("(min-width: 1024px)");
+  media = window.matchMedia("(min-width: 1280px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
@@ -340,11 +365,11 @@ onBeforeUnmount(() => {
       id="agent-sessions"
       v-model:open="sessionsOpen"
       v-model:collapsed="sessionsCollapsed"
-      :default-size="21"
+      :default-size="16"
       :collapsed-size="4"
-      :min-size="17"
-      :max-size="28"
-      :menu="{ title: 'Agent sessions', description: 'Browse persisted Agent Invocations.' }"
+      :min-size="13"
+      :max-size="22"
+      :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
       :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
       collapsible
       resizable
@@ -358,10 +383,14 @@ onBeforeUnmount(() => {
         >
           <button
             type="button"
-            class="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 text-start outline-none data-[state=open]:bg-elevated focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
+            class="flex min-w-0 items-center gap-2.5 rounded-md text-start outline-none data-[state=open]:bg-elevated focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
             :class="hasMultipleAgents ? 'hover:bg-elevated/70' : ''"
             :disabled="!hasMultipleAgents"
-            :aria-label="hasMultipleAgents ? `Switch Agent. ${selectedAgentLabel} selected.` : selectedAgentLabel"
+            :aria-label="
+              hasMultipleAgents
+                ? `Switch Agent. ${selectedAgentLabel} selected.`
+                : selectedAgentLabel
+            "
           >
             <span
               class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5"
@@ -371,7 +400,7 @@ onBeforeUnmount(() => {
             /></span>
             <span v-if="!collapsed" class="grid min-w-0 flex-1 leading-none"
               ><small class="truncate text-[10px] font-bold uppercase tracking-[.12em] text-muted"
-                >ViteHub Console</small
+                >ViteHub</small
               ><strong class="mt-1 truncate text-sm font-semibold text-highlighted">{{
                 selectedAgentLabel
               }}</strong></span
@@ -388,15 +417,6 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
-          <div>
-            <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted"
-              >Agent activity</span
-            >
-            <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Sessions</h1>
-          </div>
-          <span class="text-xs text-muted">{{ invocationItems.length }}</span>
-        </div>
         <div v-if="!collapsed && errorMessage(agentsError)" class="px-3 pb-3">
           <UAlert
             color="error"
@@ -407,13 +427,23 @@ onBeforeUnmount(() => {
             :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadAgents }]"
           />
         </div>
-        <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
+        <div v-if="!collapsed" class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
           <UDashboardSearchButton
-            :collapsed="collapsed"
             block
-            class="w-full bg-transparent ring-default"
+            class="min-w-0 flex-1 bg-transparent ring-0 hover:bg-elevated/60"
             label="Search sessions"
           />
+          <UTooltip text="Refresh sessions">
+            <UButton
+              icon="i-lucide-refresh-cw"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              :loading="list.isLoading.value || detail.isLoading.value"
+              aria-label="Refresh sessions"
+              @click="refresh"
+            />
+          </UTooltip>
         </div>
         <div
           v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
@@ -451,8 +481,8 @@ onBeforeUnmount(() => {
               :text="invocation.title"
               :content="{ side: 'right' }"
               ><UButton
-                icon="i-lucide-bot"
-                color="neutral"
+                :icon="statusIcon(invocation.status)"
+                :color="invocation.status === 'failed' ? 'error' : 'neutral'"
                 :variant="selectedInvocationId === invocation.id ? 'soft' : 'ghost'"
                 block
                 :aria-label="invocation.title"
@@ -493,7 +523,7 @@ onBeforeUnmount(() => {
             syncLabel
           }}</span></template
         >
-        <UTooltip text="Refresh sessions"
+        <UTooltip v-if="collapsed" text="Refresh sessions"
           ><UButton
             aria-label="Refresh sessions"
             color="neutral"
@@ -518,110 +548,168 @@ onBeforeUnmount(() => {
 
     <ConsoleSearch :agent-names="agentNames" :search-base="searchBase" />
 
-    <UDashboardPanel id="agent-session">
-      <div class="min-h-0 flex-1" aria-live="polite">
-        <div
-          v-if="!selectedInvocationId"
-          class="flex h-full items-center justify-center p-8 text-sm text-muted"
+    <UDashboardPanel id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+      <template #header>
+        <UDashboardNavbar
+          :title="selectedTitle"
+          :ui="{ root: 'border-b border-default', title: 'min-w-0 flex-1' }"
         >
-          Select an Agent Invocation to inspect its work.
-        </div>
-        <UEmpty
-          v-else-if="errorMessage(detail.error.value) && !invocationView"
-          class="h-full"
-          icon="i-lucide-cloud-off"
-          title="Could not load this run"
-          :description="errorMessage(detail.error.value)"
-          :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
-        />
-        <div
-          v-else-if="detail.isLoading.value && !invocationView"
-          class="flex h-full items-center justify-center"
-        >
-          <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-        </div>
-        <div v-else-if="invocationView" class="flex h-full min-h-0 flex-col">
-          <UAlert
-            v-if="errorMessage(detail.error.value)"
-            class="m-3 shrink-0"
-            color="error"
-            variant="subtle"
+          <template #title>
+            <div v-if="selectedDisplay" class="flex min-w-0 items-center gap-2 text-sm">
+              <UIcon name="i-lucide-folder" class="size-4 shrink-0 text-muted" />
+              <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{
+                selectedProject
+              }}</span>
+              <span class="text-dimmed" aria-hidden="true">/</span>
+              <strong class="min-w-0 truncate font-medium text-highlighted">{{
+                selectedTitle
+              }}</strong>
+            </div>
+            <span v-else class="text-sm font-medium">{{ selectedTitle }}</span>
+          </template>
+          <template #right>
+            <UTooltip text="Open sessions">
+              <UButton
+                class="xl:hidden"
+                icon="i-lucide-panel-left"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Open sessions"
+                @click="sessionsOpen = true"
+              />
+            </UTooltip>
+            <UTooltip v-if="selectedExternalUrl" text="Open related page">
+              <UButton
+                :to="selectedExternalUrl"
+                target="_blank"
+                icon="i-lucide-external-link"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Open related page"
+              />
+            </UTooltip>
+            <UTooltip text="Refresh session">
+              <UButton
+                icon="i-lucide-refresh-cw"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                :loading="list.isLoading.value || detail.isLoading.value"
+                aria-label="Refresh session"
+                @click="refresh"
+              />
+            </UTooltip>
+            <UTooltip v-if="invocationView" text="Session details">
+              <UButton
+                icon="i-lucide-panel-right"
+                color="neutral"
+                :variant="detailsOpen ? 'soft' : 'ghost'"
+                size="sm"
+                aria-label="Session details"
+                :aria-pressed="detailsOpen"
+                @click="detailsOpen = !detailsOpen"
+              />
+            </UTooltip>
+          </template>
+        </UDashboardNavbar>
+      </template>
+
+      <template #body>
+        <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
+          <div
+            v-if="!selectedInvocationId"
+            class="flex h-full items-center justify-center p-8 text-sm text-muted"
+          >
+            Select an Agent Invocation to inspect its work.
+          </div>
+          <UEmpty
+            v-else-if="errorMessage(detail.error.value) && !invocationView"
+            class="h-full"
             icon="i-lucide-cloud-off"
-            title="Could not refresh this run"
+            title="Could not load this session"
             :description="errorMessage(detail.error.value)"
             :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
           />
-          <USplitter
-            v-if="isDesktop"
-            id="agent-session-layout"
-            :items="splitterItems"
-            class="min-h-0 flex-1"
+          <div
+            v-else-if="detail.isLoading.value && !invocationView"
+            class="flex h-full items-center justify-center"
           >
-            <template #thread
-              ><AgentInvocation :invocation="invocationView" class="h-full"
-                ><template #title>{{ selectedTitle }}</template
-                ><template #actions
-                  ><UTooltip text="Session details"
-                    ><UButton
-                      icon="i-lucide-panel-right"
+            <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+          </div>
+          <div v-else-if="invocationView" class="flex h-full min-h-0 flex-col">
+            <UAlert
+              v-if="errorMessage(detail.error.value)"
+              class="m-3 shrink-0"
+              color="error"
+              variant="subtle"
+              icon="i-lucide-cloud-off"
+              title="Could not refresh this session"
+              :description="errorMessage(detail.error.value)"
+              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
+            />
+            <USplitter
+              v-if="isDesktop && detailsOpen"
+              id="agent-session-layout"
+              auto-save-id="vitehub-agent-session-layout"
+              :items="splitterItems"
+              class="min-h-0 flex-1 overflow-hidden"
+            >
+              <template #thread>
+                <AgentInvocation :header="false" :invocation="invocationView" class="h-full" />
+              </template>
+              <template #details>
+                <AgentInvocationInspector :invocation="invocationView" class="h-full">
+                  <template #actions>
+                    <UButton
+                      icon="i-lucide-panel-right-close"
                       color="neutral"
-                      :variant="detailsOpen ? 'soft' : 'ghost'"
-                      size="sm"
-                      aria-label="Session details"
-                      :aria-pressed="detailsOpen"
-                      @click="detailsOpen = !detailsOpen" /></UTooltip></template></AgentInvocation
-            ></template>
-            <template #details
-              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
-                ><template #actions
-                  ><UButton
-                    icon="i-lucide-panel-right-close"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    aria-label="Close session details"
-                    @click="detailsOpen = false" /></template></AgentInvocationInspector
-            ></template>
-          </USplitter>
-          <AgentInvocation v-else :invocation="invocationView" class="min-h-0 flex-1"
-            ><template #title>{{ selectedTitle }}</template
-            ><template #actions
-              ><div class="flex items-center gap-1">
-                <UButton
-                  icon="i-lucide-panel-left"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Open sessions"
-                  @click="sessionsOpen = true"
-                /><UButton
-                  icon="i-lucide-panel-right"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Session details"
-                  @click="detailsOpen = true"
-                /></div></template
-          ></AgentInvocation>
-          <USlideover
-            v-if="!isDesktop"
-            v-model:open="detailsOpen"
-            side="right"
-            title="Session details"
-            :ui="{ content: 'w-full max-w-sm p-0' }"
-            ><template #content
-              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
-                ><template #actions
-                  ><UButton
-                    icon="i-lucide-x"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    aria-label="Close session details"
-                    @click="detailsOpen = false" /></template></AgentInvocationInspector></template
-          ></USlideover>
+                      variant="ghost"
+                      size="xs"
+                      aria-label="Close session details"
+                      @click="detailsOpen = false"
+                    />
+                  </template>
+                </AgentInvocationInspector>
+              </template>
+              <template #resize-handle>
+                <span
+                  class="pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+                />
+              </template>
+            </USplitter>
+            <AgentInvocation
+              v-else
+              :header="false"
+              :invocation="invocationView"
+              class="min-h-0 flex-1"
+            />
+            <USlideover
+              v-if="!isDesktop"
+              v-model:open="detailsOpen"
+              side="right"
+              title="Session details"
+              :ui="{ content: 'w-full max-w-sm p-0' }"
+            >
+              <template #content>
+                <AgentInvocationInspector :invocation="invocationView" class="h-full">
+                  <template #actions>
+                    <UButton
+                      icon="i-lucide-x"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      aria-label="Close session details"
+                      @click="detailsOpen = false"
+                    />
+                  </template>
+                </AgentInvocationInspector>
+              </template>
+            </USlideover>
+          </div>
         </div>
-      </div>
+      </template>
     </UDashboardPanel>
   </UDashboardGroup>
 </template>

@@ -1,6 +1,12 @@
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
+  agentInvocationContext,
+  agentInvocationExternalUrl,
+  agentInvocationProject,
+  agentInvocationTitle,
+} from "../invocation-display.ts";
+import {
   agentConfigurationSummary,
   channelDeliverySummary,
   invocationActivities,
@@ -10,38 +16,8 @@ import {
   terminalText,
   type InvocationActivity,
 } from "../internal/invocation-activity.ts";
-import { isSafeExternalUrl } from "../internal/url.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
-
-function invocationTitle(invocation: AgentInvocationView): string {
-  const annotated = invocation.annotations?.["github.title"];
-  return invocation.title
-    ?? (typeof annotated === "string" ? annotated : undefined)
-    ?? invocation.agentName
-    ?? "Agent invocation";
-}
-
-function invocationContext(invocation: AgentInvocationView): string {
-  const repository = invocation.annotations?.["github.repository"];
-  const pullRequest = invocation.annotations?.["github.pullRequest"];
-  if (typeof repository === "string" && (typeof pullRequest === "string" || typeof pullRequest === "number")) {
-    return `${repository} · PR #${pullRequest}`;
-  }
-  return invocation.threadId ?? invocation.origin ?? invocation.id;
-}
-
-function invocationRepository(invocation: AgentInvocationView): string | undefined {
-  const repository = invocation.annotations?.["github.repository"];
-  return typeof repository === "string" ? repository : undefined;
-}
-
-function invocationProject(invocation: AgentInvocationView): string {
-  return invocationRepository(invocation)?.split("/").at(-1)
-    ?? invocation.configuration?.workspace?.name
-    ?? invocation.agentName
-    ?? "Workspace";
-}
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   return {
@@ -305,11 +281,6 @@ function activityDetail(activity: InvocationActivity): string | undefined {
   return activity.preview ?? stringAttribute(activity.attributes, "vitehub.activity.detail");
 }
 
-function githubUrl(invocation: AgentInvocationView): string | undefined {
-  const value = stringAttribute(invocation.annotations ?? {}, "github.url");
-  return value && isSafeExternalUrl(value) ? value : undefined;
-}
-
 function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
   const target = activity.attributes["vitehub.inspect.target"];
   if (target !== "workspace" && target !== "agent") return;
@@ -325,7 +296,7 @@ function renderPreparationContext(invocation: AgentInvocationView, url: string |
   const repository = invocation.annotations?.["github.repository"];
   const pullRequest = invocation.annotations?.["github.pullRequest"];
   if (typeof repository !== "string" || (typeof pullRequest !== "number" && typeof pullRequest !== "string")) {
-    return h("code", invocationContext(invocation));
+    return h("code", agentInvocationContext(invocation));
   }
   return h("span", { class: "vh-invocation-preparation__context" }, [
     h("code", repository),
@@ -368,7 +339,7 @@ function renderPreparationGroup(
   invocation: AgentInvocationView,
   inspect: (target: InspectTarget) => void,
 ) {
-  const url = githubUrl(invocation);
+  const url = agentInvocationExternalUrl(invocation);
   const failed = activities.some(activity => activity.status === "failed");
   return h("li", {
     class: "vh-invocation-preparation",
@@ -810,11 +781,11 @@ export const AgentInvocation = defineComponent({
         "data-slot": "invocation",
       }, [
         props.header ? h("header", { class: "vh-invocation-header" }, [
-          h("div", { class: "vh-invocation-header__breadcrumb", title: `${invocationProject(props.invocation)} / ${invocationTitle(props.invocation)}` }, [
+          h("div", { class: "vh-invocation-header__breadcrumb", title: `${agentInvocationProject(props.invocation)} / ${agentInvocationTitle(props.invocation)}` }, [
             h("span", { class: "vh-invocation-header__project-icon" }, [renderFolderIcon()]),
-            h("span", { class: "vh-invocation-header__project" }, invocationProject(props.invocation)),
+            h("span", { class: "vh-invocation-header__project" }, agentInvocationProject(props.invocation)),
             h("span", { "aria-hidden": "true", class: "vh-invocation-header__separator" }, "/"),
-            h("h2", slots.title?.({ invocation: props.invocation }) ?? invocationTitle(props.invocation)),
+            h("h2", slots.title?.({ invocation: props.invocation }) ?? agentInvocationTitle(props.invocation)),
           ]),
           slots.actions?.({ invocation: props.invocation }),
         ]) : null,
@@ -935,7 +906,7 @@ export const AgentInvocationInspector = defineComponent({
         },
         [
           h("header", [
-            h("div", [h("p", invocationProject(props.invocation)), h("h3", "Invocation details")]),
+            h("div", [h("p", agentInvocationProject(props.invocation)), h("h3", "Invocation details")]),
             slots.actions?.({ invocation: props.invocation }),
           ]),
           h("div", { class: "vh-invocation-inspector__content" }, [
@@ -964,9 +935,9 @@ export const AgentInvocationInspector = defineComponent({
                   h("small", duration),
                 ],
               ),
-              h("h4", invocationTitle(props.invocation)),
-              invocationContext(props.invocation) !== props.invocation.id
-                ? h("p", invocationContext(props.invocation))
+              h("h4", agentInvocationTitle(props.invocation)),
+              agentInvocationContext(props.invocation) !== props.invocation.id
+                ? h("p", agentInvocationContext(props.invocation))
                 : null,
               agentName
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [
