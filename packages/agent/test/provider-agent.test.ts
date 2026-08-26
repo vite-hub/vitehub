@@ -116,7 +116,9 @@ describe("Provider Agent Driver", () => {
       settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
     }))
     expect(createProviderRuntime).toHaveBeenCalled()
-    expect(createProviderRuntime.mock.calls.at(-1)![0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    const lastRuntimeCall = createProviderRuntime.mock.lastCall
+    expect(lastRuntimeCall).toBeDefined()
+    expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
   })
 
@@ -125,6 +127,7 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     resolveInstalledCodexExecutable.mockReturnValueOnce(undefined)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))

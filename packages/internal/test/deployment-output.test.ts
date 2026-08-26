@@ -655,7 +655,9 @@ describe("provider deployment outputs", () => {
       },
     })
 
-    const config = await readFile(join(vercelDir, "config.json"), "utf8").then(JSON.parse) as { crons?: unknown, routes?: unknown, version?: unknown }
+    const parsedConfig: unknown = JSON.parse(await readFile(join(vercelDir, "config.json"), "utf8"))
+    // SAFETY: writeProviderDeploymentOutputs writes a JSON object, whose owned properties are asserted below.
+    const config = parsedConfig as { crons?: unknown, routes?: unknown, version?: unknown }
     expect(config.crons).toBeUndefined()
     expect(config.routes).toEqual([{ handle: "filesystem" }, { dest: "/__server", src: "/(.*)" }])
     expect(config.version).toBe(3)

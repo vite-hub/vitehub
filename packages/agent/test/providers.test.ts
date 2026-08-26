@@ -1229,7 +1229,8 @@ describe("agent Vite plugin", () => {
       "linux-arm64": "@openai/codex-linux-arm64",
       "linux-x64": "@openai/codex-linux-x64",
     }
-    const platformPackage = platformPackages[`${process.platform}-${process.arch}`]!
+    const platformPackage = platformPackages[`${process.platform}-${process.arch}`]
+    if (!platformPackage) throw new Error(`Unsupported test platform ${process.platform}/${process.arch}.`)
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-output-"))
     try {
       await mkdir(join(root, "server", "agents", "support"), { recursive: true })
@@ -1244,7 +1245,9 @@ describe("agent Vite plugin", () => {
       const plugin = hubAgent()
       const result = isRuntimeFunction(plugin.config)
         ? await plugin.config.call(
+            // SAFETY: This focused fixture does not read the Vite plugin context.
             {} as never,
+            // SAFETY: This fixture supplies the Nitro fields read by the config hook.
             {
               [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
               nitro: { modules: ["existing"] },
@@ -1253,9 +1256,11 @@ describe("agent Vite plugin", () => {
             { command: "build", mode: "production" },
           )
         : undefined
+      // SAFETY: The fixture above supplies Nitro configuration and the hook preserves it in its result.
       const modules = (result as { nitro: { modules: unknown[] } }).nitro.modules
       expect(modules.slice(1)).toEqual(["existing"])
       let compiled: (() => Promise<void>) | undefined
+      // SAFETY: The ViteHub config hook prepends its Nitro setup module to this array.
       ;(modules[0] as (nitro: unknown) => void)({
         hooks: {
           hook(name: string, callback: () => Promise<void>) {
@@ -1271,7 +1276,8 @@ describe("agent Vite plugin", () => {
       })
       vi.mocked(copyNodeRuntimePackages).mockClear()
 
-      await compiled!()
+      if (!compiled) throw new Error("Expected the Nitro compiled hook to be registered.")
+      await compiled()
 
       expect(copyNodeRuntimePackages).toHaveBeenCalledWith({
         outputNodeModules: join(root, ".output", "server", "node_modules"),
@@ -1283,6 +1289,7 @@ describe("agent Vite plugin", () => {
       })
 
       const unsupportedHook = vi.fn()
+      // SAFETY: The ViteHub config hook prepends its Nitro setup module to this array.
       ;(modules[0] as (nitro: unknown) => void)({
         hooks: { hook: unsupportedHook },
         options: {
@@ -1294,6 +1301,7 @@ describe("agent Vite plugin", () => {
       expect(unsupportedHook).not.toHaveBeenCalled()
 
       const devHook = vi.fn()
+      // SAFETY: The ViteHub config hook prepends its Nitro setup module to this array.
       ;(modules[0] as (nitro: unknown) => void)({
         hooks: { hook: devHook },
         options: {

@@ -1129,13 +1129,16 @@ async function* runProvider<
       await cleanupRoot()
     }
     const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
+    const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
+      cwd: root,
+      environment: providerEnvironment(providerEnvironmentOverrides),
+      provider: options.provider,
+    }
+    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = codexExecutable
+      ? { ...runtimeOptions, settings: { binaryPath: codexExecutable } }
+      : runtimeOptions
     runtime = await waitForProviderOperation(
-      createProviderRuntime({
-        cwd: root,
-        environment: providerEnvironment(providerEnvironmentOverrides),
-        provider: options.provider,
-        ...(codexExecutable ? { settings: { binaryPath: codexExecutable } } : {}),
-      }),
+      createProviderRuntime(configuredRuntimeOptions),
       effectiveSignal,
       async lateRuntime => {
         try {

@@ -13,6 +13,7 @@ const codexPlatformPackages: Record<string, string> = {
 }
 
 function isPackageResolutionMiss(error: unknown): boolean {
+  // SAFETY: Node module resolution failures expose their stable error code through ErrnoException.
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
 }
