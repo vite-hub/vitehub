@@ -76,9 +76,13 @@ async function writeViteHubTypes(options: ViteHubTypesOptions): Promise<void> {
 
 export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plugin &
   ViteHubCliContributingPlugin & {
-    api: { prepareTypes: typeof writeViteHubTypes }
+    api: {
+      prepareTypes: typeof writeViteHubTypes
+      setPrepareSources: (prepareSources: ViteHubTypesPluginOptions["prepareSources"]) => void
+    }
   } {
   let projectRoot: string | undefined
+  let prepareSources = options.prepareSources
   let serverDirs: string[] | undefined
   const refreshGeneratedTypes = async () => {
     if (projectRoot) await writeViteHubTypes({ projectRoot })
@@ -87,7 +91,12 @@ export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plu
   return {
     name: "vite-hub/types",
     enforce: "post",
-    api: { prepareTypes: writeViteHubTypes },
+    api: {
+      prepareTypes: writeViteHubTypes,
+      setPrepareSources(nextPrepareSources) {
+        prepareSources = nextPrepareSources
+      },
+    },
     async config(config) {
       // SAFETY: Vite passes the mutable user config object, which this plugin augments through ViteHub's shared symbols.
       const viteConfig = config as ViteHubPluginConfig
@@ -119,7 +128,7 @@ export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plu
             name: "prepare",
             async run(_args, context) {
               const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
-              if (options.prepareSources) await options.prepareSources({ projectRoot: root, serverDirs })
+              if (prepareSources) await prepareSources({ projectRoot: root, serverDirs })
               else await prepareSourceGeneration({ importBase: "vite-hub/source", projectRoot: root, serverDirs })
               await writeViteHubTypes({ projectRoot: root })
               context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)

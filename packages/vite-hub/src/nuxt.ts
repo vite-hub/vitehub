@@ -611,8 +611,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
-    api?: { prepareTypes?: (options: { projectRoot: string }) => Promise<void> }
+    api?: {
+      prepareTypes?: (options: { projectRoot: string }) => Promise<void>
+      setPrepareSources?: (prepareSources: ((options: {
+        projectRoot: string
+        serverDirs?: string[]
+      }) => Promise<GeneratedSourceHandler[]>) | undefined) => void
+    }
   } | undefined
+  typesPlugin?.api?.setPrepareSources?.(sourcePlugin?.api?.prepareSources)
   await typesPlugin?.api?.prepareTypes?.({ projectRoot })
 
   viteConfig.define = {

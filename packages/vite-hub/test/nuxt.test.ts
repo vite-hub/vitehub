@@ -1091,6 +1091,36 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroConfig.handlers).toEqual([existing, generated])
   })
 
+  it("binds type preparation to the selected Source plugin", async () => {
+    const defaultPrepareSources = vi.fn(async () => [])
+    const selectedPrepareSources = vi.fn(async () => [])
+    const setPrepareSources = vi.fn()
+    mocks.vitehub.mockReturnValue([
+      {
+        api: { prepareSources: defaultPrepareSources },
+        name: "@vite-hub/source/vite",
+      },
+      {
+        api: { prepareTypes: vi.fn(), setPrepareSources },
+        name: "vite-hub/types",
+      },
+    ])
+    const selectedSource = {
+      api: { prepareSources: selectedPrepareSources },
+      name: "@vite-hub/source/vite",
+    }
+    const { nuxt } = createNuxt(false, [selectedSource])
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+
+    expect(selectedPrepareSources).toHaveBeenCalledWith({
+      projectRoot: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
+    expect(defaultPrepareSources).not.toHaveBeenCalled()
+    expect(setPrepareSources).toHaveBeenCalledWith(selectedPrepareSources)
+  })
+
   it("rejects handlers that bypass a generated Collection route", async () => {
     const generated = {
       handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/meals.mjs",
