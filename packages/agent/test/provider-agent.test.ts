@@ -15,7 +15,7 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, withAgentInvocationControlId } from "../src/internal/agent-invocation-control.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -814,9 +814,11 @@ describe("Provider Agent Driver", () => {
       return undefined
     })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = collect(await adapter.stream!(context(threadId) as never))
     const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationControlId(liveContext.runtime, invocationId)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = collect(await adapter.stream!(liveContext as never))
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
     await ready
@@ -886,7 +888,6 @@ describe("Provider Agent Driver", () => {
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
     const directContext = context(threadId)
-    directContext.runtime.run.runId = ""
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(directContext as never)
