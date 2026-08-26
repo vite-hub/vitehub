@@ -17,6 +17,10 @@ interface ViteHubTypesOptions {
   projectRoot: string
 }
 
+interface ViteHubTypesPluginOptions {
+  prepareSources?: (options: { projectRoot: string; serverDirs?: string[] }) => Promise<unknown>
+}
+
 interface ViteHubPluginConfig {
   root?: string
   [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
@@ -70,7 +74,7 @@ async function writeViteHubTypes(options: ViteHubTypesOptions): Promise<void> {
   )
 }
 
-export function viteHubTypesPlugin(): Plugin &
+export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plugin &
   ViteHubCliContributingPlugin & {
     api: { prepareTypes: typeof writeViteHubTypes }
   } {
@@ -115,7 +119,8 @@ export function viteHubTypesPlugin(): Plugin &
             name: "prepare",
             async run(_args, context) {
               const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
-              await prepareSourceGeneration({ importBase: "vite-hub/source", projectRoot: root, serverDirs })
+              if (options.prepareSources) await options.prepareSources({ projectRoot: root, serverDirs })
+              else await prepareSourceGeneration({ importBase: "vite-hub/source", projectRoot: root, serverDirs })
               await writeViteHubTypes({ projectRoot: root })
               context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)
             },

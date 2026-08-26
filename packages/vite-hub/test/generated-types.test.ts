@@ -265,6 +265,22 @@ describe("framework generated types", () => {
     )
   })
 
+  it("preserves a custom framework import base during CLI preparation", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const [source, types] = frameworkHubSource({ importBase: "custom-source" })
+    await configResolved(source!)({ root: viteRoot })
+    await configResolved(types!)({ root: viteRoot })
+    const context = { rootDir: viteRoot, stdout: { write: vi.fn() } } as unknown as ViteHubCliContext
+    await prepareFeature(types! as Plugin & ViteHubCliContributingPlugin).run([], context)
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      'from "custom-source/server"',
+    )
+  })
+
   it("registers server Collections by filename", async () => {
     const { root, viteRoot } = await createNestedProject()
     await mkdir(join(root, "server/collections/admin"), { recursive: true })

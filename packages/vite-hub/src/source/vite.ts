@@ -8,8 +8,9 @@ import type { Plugin } from "vite"
 export * from "@vite-hub/source/vite"
 
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin[] {
+  const source = sourceHubSource({ importBase: "vite-hub/source", ...options })
   return [
-    sourceHubSource({ importBase: "vite-hub/source", ...options }),
-    viteHubTypesPlugin(),
+    source,
+    viteHubTypesPlugin({ prepareSources: source.api.prepareSources }),
   ]
 }

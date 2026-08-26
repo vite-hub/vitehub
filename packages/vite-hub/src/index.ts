@@ -775,8 +775,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }
-  plugins.push(hubSource({ importBase: "vite-hub/source" }))
-  plugins.push(viteHubTypesPlugin())
+  const sourcePlugin = hubSource({ importBase: "vite-hub/source" })
+  plugins.push(sourcePlugin)
+  plugins.push(viteHubTypesPlugin({ prepareSources: sourcePlugin.api.prepareSources }))
   return plugins as PluginOption[]
 }
 
