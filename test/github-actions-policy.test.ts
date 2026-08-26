@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   checkGitHubActionPins,
   findGitHubActionPolicyFiles,
+  inspectGitHubActionReferences,
 } from "../.github/scripts/check-action-pins.mjs"
 
 const repoRoot = resolve(import.meta.dirname, "..")
@@ -62,6 +63,20 @@ describe("GitHub Action pin policy", () => {
     })
 
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
+  it("classifies Windows-style workflow paths", () => {
+    const failures = inspectGitHubActionReferences(
+      ".github\\workflows\\ci.yml",
+      "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n",
+    )
+
+    expect(failures).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("full 40-character commit SHA"),
+        path: ".github\\workflows\\ci.yml",
+      }),
+    ])
   })
 
   it("finds composite actions outside .github/actions", async () => {

@@ -38,6 +38,7 @@ export async function findGitHubActionPolicyFiles(repoRoot) {
 }
 
 export function inspectGitHubActionReferences(path, source) {
+  const normalizedPath = path.replaceAll("\\", "/")
   const lineCounter = new LineCounter()
   const document = parseDocument(source, { lineCounter, schema: "failsafe" })
   const failures = document.errors.map(error => ({
@@ -89,7 +90,7 @@ export function inspectGitHubActionReferences(path, source) {
   const root = document.contents
   if (!isMap(root)) return failures
 
-  if (path.startsWith(".github/workflows/")) {
+  if (normalizedPath.startsWith(".github/workflows/")) {
     const jobs = findPair(root, "jobs")?.value
     if (!isMap(jobs)) return failures
     for (const jobPair of jobs.items) {
