@@ -20,9 +20,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version-file: .tool-versions
+      - uses: ./.github/actions/setup-deno
 
       - name: Fallow dead-code
         shell: bash
