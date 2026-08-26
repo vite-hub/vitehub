@@ -1,5 +1,5 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -11,7 +11,7 @@ import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
-import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
 interface QueueProvisionContributingPlugin {
@@ -87,6 +87,7 @@ function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
 }
 
 function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOptions | undefined, root: string, definitions = discoverQueueDefinitions({ rootDir: root })): Record<string, unknown> {
+  const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
   const nitroHosting = resolveNitroHosting(nitro)
   const providerMismatch = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting
@@ -96,15 +97,15 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
     ? nitro.handlers.filter(handler => handler?.handler !== generatedQueueNitroMiddleware)
     : []
   if (!runtimeEnabled) {
-    registerCloudflareProviderOutput(config, "queue", {})
-    return composeNitroCloudflareProviderOutput(config, { ...nitro, handlers, plugins })
+    contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
+    return composeNitroCloudflareProviderOutput(providerOutput, { ...nitro, handlers, plugins }, value)
   }
   if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
   handlers.unshift({ handler: generatedQueueNitroMiddleware, middleware: true, route: "/**" })
   const queueHosting = resolveQueueHosting(queue, nitro)
   if (queueHosting !== "cloudflare") {
-    registerCloudflareProviderOutput(config, "queue", {})
-    return composeNitroCloudflareProviderOutput(config, { ...nitro, handlers, plugins })
+    contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
+    return composeNitroCloudflareProviderOutput(providerOutput, { ...nitro, handlers, plugins }, value)
   }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
@@ -122,21 +123,22 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
     plugins,
   }
   if (!generated) {
-    registerCloudflareProviderOutput(config, "queue", {})
-    return composeNitroCloudflareProviderOutput(config, baseNitro)
+    contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
+    return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
   }
   const binding = resolvedQueue?.provider === "cloudflare" && typeof resolvedQueue.binding === "string" ? resolvedQueue.binding : undefined
   if (binding && generated.producers.length > 1) {
     throw new Error("A custom Cloudflare queue binding can only be used with one Queue Definition.")
   }
   const generatedProducers = binding ? generated.producers.map(producer => ({ ...producer, binding })) : generated.producers
-  registerCloudflareProviderOutput(config, "queue", {
+  contributeCloudflareProviderOutput(providerOutput, {
+    owner: "queue",
     queues: {
       ...(cloudflareQueues ? { consumers: generated.consumers } : {}),
       producers: generatedProducers,
     },
   })
-  return composeNitroCloudflareProviderOutput(config, baseNitro)
+  return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
 }
 
 export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
@@ -154,7 +156,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let resolveNuxtDefinitions: (() => DiscoveredQueueDefinition[]) | undefined
   let nuxtServerQueueDirs: string[] = []
   let nuxtOwnsCloudflareWorker = false
-  let providerOutput: ComposedProviderOutput | undefined
+  let providerOutput: ProviderOutputCatalog | undefined
   let validatesNitroDefinitions = false
 
   return {
@@ -207,7 +209,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       configuredDefinitions = discoverQueueDefinitions({ rootDir: config.root })
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root, configuredDefinitions)
       ;(config as { nitro?: unknown }).nitro = nitro
-      providerOutput = useComposedProviderOutput(config)
+      providerOutput = useProviderOutputCatalog(config)
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = resolveNitroHosting(nitro)
