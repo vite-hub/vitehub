@@ -84,7 +84,7 @@ export function markdownLinks(markdown) {
       const destination = definitions.get(node.identifier);
       if (destination) links.push(destination);
     }
-    if (node.type === "containerComponent" || node.type === "leafComponent") {
+    if (node.type === "containerComponent" || node.type === "leafComponent" || node.type === "textComponent") {
       const destination = node.fmAttributes?.to ?? node.attributes?.to;
       if (typeof destination === "string") links.push(destination);
     }

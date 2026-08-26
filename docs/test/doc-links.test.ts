@@ -22,6 +22,7 @@ describe("documentation link validation", () => {
 [Reference][guide]
 [Shortcut]
 ![Image](/images/diagram.png)
+:u-button[Guide]{to="/docs/inline"}
 ::card
 ---
 to: /docs/card
@@ -61,8 +62,8 @@ https://vitehub.dev/docs/bare-autolink
       "./guide.md#install",
       "./api_(stable).md",
       "/docs/guide",
-      "/docs/shortcut",
       "/images/diagram.png",
+      "/docs/inline",
       "/docs/card",
       "/docs/card#install",
       "#install",
@@ -157,10 +158,12 @@ https://vitehub.dev/docs/bare-autolink
     ]);
   });
 
-  it("reports missing MDC and HTML routes", () => {
+  it("reports missing inline MDC, block MDC, and HTML routes", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
       "docs/content/docs/index.md": `# Docs
+
+:u-button[Missing]{to="/docs/missing-inline"}
 
 ::card
 ---
@@ -172,6 +175,7 @@ to: /docs/missing-card
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing-inline" does not exist'),
       expect.stringContaining('route "/docs/missing-card" does not exist'),
       expect.stringContaining('route "/docs/missing-html" does not exist'),
     ]);
