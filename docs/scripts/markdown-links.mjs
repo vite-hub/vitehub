@@ -70,7 +70,7 @@ export function markdownLinks(markdown) {
   }
 
   const links = [];
-  for (const match of source.matchAll(/^\s*to:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))/gm)) {
+  for (const match of source.matchAll(/^\s*to:\s*(?:"([^"]+)"|'([^']+)'|(\S+))/gm)) {
     links.push(match[1] ?? match[2] ?? match[3]);
   }
   for (const match of source.matchAll(/<a\s[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
@@ -181,6 +181,7 @@ function splitDestination(destination) {
 export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   const docsRoot = join(repoRoot, "docs");
   const contentRoot = join(docsRoot, "content");
+  const publicRoot = join(docsRoot, "public");
   const contentFiles = walk(contentRoot, (path) => path.endsWith(".md"));
   const readmes = publicReadmes(repoRoot);
   const markdownFiles = [...contentFiles, ...readmes];
@@ -223,6 +224,10 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
           ? normalizeRoute(path)
           : normalizeRoute(new URL(path, `${siteOrigin}${routeBase.endsWith("/") ? routeBase : `${routeBase}/`}`).pathname);
         targetFile = routeFiles.get(targetRoute);
+        if (!targetFile && path.startsWith("/")) {
+          const publicFile = resolve(publicRoot, `.${path}`);
+          if (publicFile.startsWith(`${publicRoot}${sep}`) && existsSync(publicFile)) targetFile = publicFile;
+        }
         if (!targetFile && !knownRoutes.has(targetRoute)) {
           errors.push(`${relative(repoRoot, sourcePath)}: route ${JSON.stringify(targetRoute)} does not exist (${destination})`);
           continue;

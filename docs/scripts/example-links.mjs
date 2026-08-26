@@ -1,5 +1,8 @@
+import { object, safeParse, string } from "valibot";
+
 const defaultTimeoutMs = 8_000;
 const defaultAttempts = 3;
+const repositoryMetadataSchema = object({ default_branch: string() });
 
 function githubRepository(actionUrl) {
   const url = new URL(actionUrl);
@@ -37,11 +40,9 @@ export async function checkExampleLinks(examples, options = {}) {
   const checks = [];
   const request = (url) => {
     const isGitHubApi = new URL(url).hostname === "api.github.com";
-    const headers = {
-      "User-Agent": "vitehub-docs-link-check",
-      ...(isGitHubApi ? { Accept: "application/vnd.github+json" } : {}),
-      ...(isGitHubApi && options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-    };
+    const headers = { "User-Agent": "vitehub-docs-link-check" };
+    if (isGitHubApi) headers.Accept = "application/vnd.github+json";
+    if (isGitHubApi && options.token) headers.Authorization = `Bearer ${options.token}`;
     return fetchWithRetry(url, { ...options, headers });
   };
 
@@ -66,14 +67,14 @@ export async function checkExampleLinks(examples, options = {}) {
     const metadata = await check("default-branch", example.name, apiRoot);
     if (!metadata) continue;
     try {
-      const body = await metadata.json();
-      if (typeof body.default_branch !== "string" || !body.default_branch) {
+      const metadataResult = safeParse(repositoryMetadataSchema, await metadata.json());
+      if (!metadataResult.success || !metadataResult.output.default_branch) {
         failures.push({ category: "default-branch", name: example.name, url: apiRoot, message: "response has no default_branch" });
         continue;
       }
       if (example.kind !== "template") continue;
       const startPath = example.startPath.split("/").map(encodeURIComponent).join("/");
-      await check("start-path", example.name, `${apiRoot}/contents/${startPath}?ref=${encodeURIComponent(body.default_branch)}`);
+      await check("start-path", example.name, `${apiRoot}/contents/${startPath}?ref=${encodeURIComponent(metadataResult.output.default_branch)}`);
     } catch (error) {
       failures.push({ category: "default-branch", name: example.name, url: apiRoot, message: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` });
     }

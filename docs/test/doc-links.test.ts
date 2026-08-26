@@ -26,6 +26,16 @@ describe("documentation link validation", () => {
 to: /docs/card
 ---
 ::
+::card
+---
+to: /docs/card#install
+---
+::
+::card
+---
+to: #install
+---
+::
 <a href="/docs/html">HTML</a>
 
 [guide]: /docs/guide
@@ -37,6 +47,8 @@ to: /docs/card
 \`\`\`
 `)).toEqual([
       "/docs/card",
+      "/docs/card#install",
+      "#install",
       "/docs/html",
       "./guide.md#install",
       "./api_(stable).md",
@@ -72,6 +84,16 @@ to: /docs/card
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [], files: 3 });
   });
 
+  it("accepts root-served public assets", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Logo](/vitehub-logo.svg)",
+      "docs/public/vitehub-logo.svg": "<svg />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
   it("reports missing routes, files, and anchors", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
@@ -104,6 +126,31 @@ to: /docs/missing-card
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs/missing-card" does not exist'),
       expect.stringContaining('route "/docs/missing-html" does not exist'),
+    ]);
+  });
+
+  it("reports missing anchors in unquoted MDC destinations", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": `# Docs
+
+::card
+---
+to: /docs/guide#missing
+---
+::
+
+::card
+---
+to: #also-missing
+---
+::`,
+      "docs/content/docs/guide.md": "# Guide",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining("anchor #missing does not exist"),
+      expect.stringContaining("anchor #also-missing does not exist"),
     ]);
   });
 });
