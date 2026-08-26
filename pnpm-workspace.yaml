@@ -96,7 +96,7 @@ catalogs:
     "@netlify/blobs": ^10.7.5
     "@supabase/storage-js": ^2.105.4
     "@upstash/redis": ^1.38.0
-    "@vercel/blob": ^2.6.1
+    "@vercel/blob": ^2.8.0
     aws4fetch: ^1.0.20
     box-typescript-sdk-gen: ^1.19.1
     dropbox: ^10.34.0
@@ -161,6 +161,7 @@ catalogs:
     picomatch: ^4.0.5
     tinyglobby: ^0.2.17
 overrides:
+  "@vercel/blob>undici": ^6.28.0
   "glob": ^13.0.6
   "parse-url>@types/parse-path": "-"
   "uuid": ^11.1.0
