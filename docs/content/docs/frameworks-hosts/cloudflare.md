@@ -66,11 +66,12 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 
 ## Generated output
 
-Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. A production-shaped build materialises the selected output under `dist`.
+Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. The Cloudflare preset materialises its deployment artifact under `.output/server`.
 
 ```bash [Terminal]
 pnpm build
-find dist -maxdepth 4 -type f | sort
+test -f .output/server/wrangler.json
+find .output -maxdepth 4 -type f | sort
 ```
 
 Generate Agent routes through Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
