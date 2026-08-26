@@ -260,7 +260,7 @@ async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
-async function hmacSha256(secret: string, value: string): Promise<string> {
+async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
   const key = await globalThis.crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -268,7 +268,7 @@ async function hmacSha256(secret: string, value: string): Promise<string> {
     false,
     ["sign"],
   )
-  const signature = await globalThis.crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value))
+  const signature = await globalThis.crypto.subtle.sign("HMAC", key, value)
   return [...new Uint8Array(signature)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
@@ -286,6 +286,7 @@ function webhookVerificationError(message: string): AgentHttpError {
 }
 
 export interface AgentWebhookVerificationOptions {
+  rawBody?: Uint8Array
   requireSecretHeader?: boolean
 }
 
@@ -342,7 +343,8 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     if (registration.signature === "github-sha256") {
-      const expected = `sha256=${await hmacSha256(secretToken, await request.clone().text())}`
+      const body = options.rawBody ? options.rawBody.slice().buffer as ArrayBuffer : await request.clone().arrayBuffer()
+      const expected = `sha256=${await hmacSha256(secretToken, body)}`
       if (await constantTimeEqual(expected, headerValue)) {
         return { registration, verified: true }
       }

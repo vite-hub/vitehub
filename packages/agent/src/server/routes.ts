@@ -63,6 +63,7 @@ import {
 } from "../internal/runtime-value.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
+import { captureAgentInboundBody } from "./request-body.ts"
 import {
   agentChannelDeliveryMessageIdentity,
   agentChannelDeliveryPayloadFingerprint,
@@ -147,6 +148,8 @@ interface AgentRouteRuntimeOptions {
   agentIdentity?: AgentHostIdentity
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
   runtime?: AgentRuntimeName
+  /** Maximum inbound request bytes. Defaults to 1 MiB and cannot exceed 10 MiB. */
+  maxBodyBytes?: number
   waitUntil?: AgentWaitUntil
 }
 
@@ -282,6 +285,8 @@ export interface AgentChannelChatRouteHandlerOptions<TBody extends AgentChannelC
   channelId?: string
   input?: AgentChannelChatRouteInputOptions
   mapInput?: (context: AgentChannelChatRouteMapInputContext<TBody, TAuth>) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
+  /** Maximum inbound request bytes. Defaults to 1 MiB and cannot exceed 10 MiB. */
+  maxBodyBytes?: number
   origin?: string
   resumable?: AgentChannelChatRouteResumableOptions<TBody, TAuth>
 }
@@ -529,7 +534,7 @@ function createRuntimeContext(
   }) as ViteAgentRouteRuntimeContext
 }
 
-function createRuntimeRequest(request: Request, body?: string): Request {
+function createRuntimeRequest(request: Request, body?: string | Uint8Array): Request {
   return new Request(request.url, {
     ...(body ? { body } : {}),
     headers: request.headers,
@@ -870,8 +875,7 @@ function githubInstallationId(payload: unknown): number | undefined {
   return isRuntimeNumber(id) ? id : undefined
 }
 
-async function createAgentWebhookTriggerInput(request: Request, registration: AgentWebhookRegistrationDefinition): Promise<Record<string, unknown>> {
-  const body = await request.clone().text()
+function createAgentWebhookTriggerInput(request: Request, registration: AgentWebhookRegistrationDefinition, body = ""): Record<string, unknown> {
   const payload = parseWebhookPayload(body)
   const headers = requestHeaders(request)
   const webhook = {
@@ -1379,7 +1383,7 @@ async function executeQueuedWebhookDelivery(
       const resolved = await runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
         if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
-        const input = await createAgentWebhookTriggerInput(request, match.registration)
+        const input = createAgentWebhookTriggerInput(request, match.registration, delivery.request.body)
         const replayed = await resolveAgentTriggerInvocationWithResolvedContext(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
           agent as never,
@@ -5916,8 +5920,7 @@ function createHttpChatRunMetadata(
   }
 }
 
-async function parseAgentChannelChatRouteBody(request: Request): Promise<{ body: AgentChannelChatRouteBody; rawBody: string }> {
-  const raw = await request.text()
+function parseAgentChannelChatRouteBody(raw: string): { body: AgentChannelChatRouteBody; rawBody: string } {
   if (!raw.trim()) throw createRouteBodyError("Missing agent chat payload.")
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -6520,7 +6523,9 @@ export function createChannelChatRouteHandler(
         }
         return resumableChatResponse(run)
       }
-      const parsed = await parseAgentChannelChatRouteBody(request)
+      const captured = await captureAgentInboundBody(request, handlerOptions.maxBodyBytes ?? routeOptions.maxBodyBytes)
+      request = captured.request
+      const parsed = parseAgentChannelChatRouteBody(captured.text)
       const agentIdentity = routeAgentIdentity(handlerOptions)
       const agentName = agentIdentity?.name || "agent"
       const auth = await routeOptions.admission?.authenticate?.({
@@ -6533,7 +6538,7 @@ export function createChannelChatRouteHandler(
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
       let context = createRuntimeContext(
-        createRuntimeRequest(request, parsed.rawBody),
+        createRuntimeRequest(request, captured.bytes),
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
@@ -6894,6 +6899,22 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
 
+    let rawBody = ""
+    let rawBodyBytes: Uint8Array = new Uint8Array()
+    if (request.method === "POST") {
+      try {
+        const captured = await captureAgentInboundBody(request, handlerOptions.maxBodyBytes)
+        request = captured.request
+        rawBody = captured.text
+        rawBodyBytes = captured.bytes
+      }
+      catch (error) {
+        const response = toHttpErrorResponse(error)
+        if (response) return response
+        throw error
+      }
+    }
+
     const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
     if (webhookId === undefined) {
       return createBadRequest("Agent webhook route requires a webhook id.")
@@ -6935,6 +6956,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         }
         try {
           await verifyAgentWebhookRequest([registration], request, context, {
+            rawBody: rawBodyBytes,
             requireSecretHeader: true,
           })
         } catch (error) {
@@ -6947,6 +6969,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
         try {
           await verifyAgentWebhookRequest([registration], request, context, {
+            rawBody: rawBodyBytes,
             requireSecretHeader: true,
           })
         } catch (error) {
@@ -6970,7 +6993,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
       if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       await deliveryState.state.connect()
-      const webhookPayload = parseWebhookPayload(await request.clone().text())
+      const webhookPayload = parseWebhookPayload(rawBody)
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
       const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(webhookPayload)
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
@@ -7006,7 +7029,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         const channelDelivery = await resolveChannelDelivery()
         context = withAgentChannelDelivery(context, channelDelivery)
         try {
-          const input = await createAgentWebhookTriggerInput(request, registration)
+          const input = createAgentWebhookTriggerInput(request, registration, rawBody)
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
@@ -7063,7 +7086,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               deliveryId,
               channelDelivery.delivery.id,
               request,
-              await request.clone().text(),
+              rawBody,
               webhookId,
               { ...invocation.webhook, concurrencyLimit },
               webhookState.keyPrefix,
