@@ -3587,6 +3587,19 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
       if (item.done) return
     }
   })()
+  const lazyUsage = () => {
+    const resolve = () => drive().then(() => Reflect.get(result, "usage"))
+    return {
+      catch: (onrejected?: (reason: unknown) => unknown) => resolve().catch(onrejected),
+      finally: (onfinally?: () => void) => resolve().finally(onfinally),
+      // oxlint-disable-next-line unicorn/no-thenable -- Preserve the stream until the caller consumes the Promise-compatible usage accessor.
+      then: <TResult1 = unknown, TResult2 = never>(
+        onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ) => resolve().then(onfulfilled, onrejected),
+      [Symbol.toStringTag]: "Promise",
+    }
+  }
   const driven = {
     [Symbol.asyncIterator]() {
       return driven
@@ -3600,14 +3613,13 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
       return buffered.shift()!
     },
     async return(value?: unknown) {
+      await iterator.return?.(value)
       if (drainTask) await drainTask
-      else await iterator.return?.(value)
       return { done: true as const, value: undefined }
     },
     async throw(error?: unknown) {
-      if (drainTask) await drainTask
-      else if (iterator.throw) return await iterator.throw(error)
-      else await iterator.return?.()
+      if (iterator.throw) return await iterator.throw(error)
+      await iterator.return?.()
       throw error
     },
   }
@@ -3615,7 +3627,7 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
     configurable: true,
     enumerable: true,
     get: key === "usage"
-      ? () => drive().then(() => Reflect.get(result, key))
+      ? lazyUsage
       : () => Reflect.get(result, key),
   }]))
   Object.defineProperties(driven, descriptors)
