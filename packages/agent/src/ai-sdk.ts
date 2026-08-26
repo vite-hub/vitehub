@@ -1991,6 +1991,13 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (!context.output) resolveUsageReady()
       const outputUsageLifecycle: AgentOutputUsageLifecycle = { complete: resolveUsageReady }
       const abortSignal = context.input.abortSignal
+      const streamCancellation = new AbortController()
+      const providerAbortSignal = abortSignal
+        ? AbortSignal.any([abortSignal, streamCancellation.signal])
+        : streamCancellation.signal
+      const cancelProvider = (reason?: unknown) => {
+        if (!streamCancellation.signal.aborted) streamCancellation.abort(reason)
+      }
       let abortListener: (() => void) | undefined
       const detachAbortListener = () => {
         if (!abortListener) return
@@ -2003,6 +2010,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
         started = Promise.resolve(agent.stream({
           ...callInput,
+          abortSignal: providerAbortSignal,
           onEnd: usageCapture.onEnd,
           onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
           onStepEnd: captureStep,
@@ -2066,6 +2074,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             }
           },
           async cancel(reason) {
+            cancelProvider(reason)
             try {
               await (await getReader()).cancel(reason)
             }
@@ -2110,6 +2119,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
               }
             },
             async cancel(reason) {
+              cancelProvider(reason)
               try {
                 // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
                 reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
@@ -2125,6 +2135,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         },
       }) as StreamTextResult<ToolSet, never, never>
       const cancelStarted = async () => {
+        cancelProvider(abortSignal?.reason)
         try {
           const streamed = await start()
           const candidates = [streamed.stream, streamed.fullStream]
