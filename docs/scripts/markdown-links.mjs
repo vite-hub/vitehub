@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 
 const siteOrigin = "https://vitehub.dev";
@@ -70,7 +70,7 @@ export function markdownLinks(markdown) {
   }
 
   const links = [];
-  for (const match of source.matchAll(/^\s*to:\s*(?:"([^"]+)"|'([^']+)'|(\S+))/gm)) {
+  for (const match of source.matchAll(/^\s*to:\s*(?:"([^"]+)"|'([^']+)'|([^#\s]\S*))/gm)) {
     links.push(match[1] ?? match[2] ?? match[3]);
   }
   for (const match of source.matchAll(/<a\s[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
@@ -226,7 +226,9 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
         targetFile = routeFiles.get(targetRoute);
         if (!targetFile && path.startsWith("/")) {
           const publicFile = resolve(publicRoot, `.${path}`);
-          if (publicFile.startsWith(`${publicRoot}${sep}`) && existsSync(publicFile)) targetFile = publicFile;
+          if (publicFile.startsWith(`${publicRoot}${sep}`) && existsSync(publicFile) && statSync(publicFile).isFile()) {
+            targetFile = publicFile;
+          }
         }
         if (!targetFile && !knownRoutes.has(targetRoute)) {
           errors.push(`${relative(repoRoot, sourcePath)}: route ${JSON.stringify(targetRoute)} does not exist (${destination})`);

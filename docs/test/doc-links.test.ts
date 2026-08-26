@@ -36,6 +36,11 @@ to: /docs/card#install
 to: #install
 ---
 ::
+::card
+---
+to: "#install"
+---
+::
 <a href="/docs/html">HTML</a>
 
 [guide]: /docs/guide
@@ -129,7 +134,7 @@ to: /docs/missing-card
     ]);
   });
 
-  it("reports missing anchors in unquoted MDC destinations", () => {
+  it("reports missing anchors in rendered MDC destinations", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
       "docs/content/docs/index.md": `# Docs
@@ -144,13 +149,31 @@ to: /docs/guide#missing
 ---
 to: #also-missing
 ---
+::
+
+::card
+---
+to: "#quoted-missing"
+---
 ::`,
       "docs/content/docs/guide.md": "# Guide",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining("anchor #missing does not exist"),
-      expect.stringContaining("anchor #also-missing does not exist"),
+      expect.stringContaining("anchor #quoted-missing does not exist"),
+    ]);
+  });
+
+  it("does not accept public directories as asset targets", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Images](/images)",
+      "docs/public/images/logo.svg": "<svg />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/images" does not exist'),
     ]);
   });
 });
