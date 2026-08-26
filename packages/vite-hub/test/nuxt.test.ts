@@ -434,6 +434,18 @@ describe("ViteHub Nuxt integration", () => {
       })
     `)
     try {
+      const defaultPlugins = mocks.vitehub()
+      const authConfig = vi.fn((config: { nitro?: { handlers?: unknown[] } }) => ({
+        nitro: {
+          ...config.nitro,
+          handlers: [...(config.nitro?.handlers ?? []), { route: "/api/auth/**" }],
+        },
+      }))
+      mocks.vitehub.mockClear()
+      mocks.vitehub.mockReturnValueOnce([
+        defaultPlugins,
+        { config: authConfig, name: "@vite-hub/auth/vite" },
+      ])
       const production = createNuxt(false)
       Reflect.deleteProperty(production.nuxt.options, "serverDir")
       Object.assign(production.nuxt.options.vite, { root: "frontend" })
@@ -449,6 +461,10 @@ describe("ViteHub Nuxt integration", () => {
       expect(nitroConfig).toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/auth/**" })]),
       })
+      expect(authConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ root: "/tmp/vitehub-nuxt/frontend" }),
+        expect.anything(),
+      )
     }
     finally {
       await rm("/tmp/vitehub-nuxt/frontend", { force: true, recursive: true })

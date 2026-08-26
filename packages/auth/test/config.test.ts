@@ -152,6 +152,19 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
+  it("resolves shorthand authorize callbacks", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  access: { routes: [",
+      "    { authorize, route: '/app/**' },",
+      "  ] },",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: { routes: [{ authorize: true, route: "/app/**" }] },
+    })
+  })
+
   it("does not treat an undefined authorize property as a callback", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [

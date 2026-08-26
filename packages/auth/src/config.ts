@@ -199,9 +199,11 @@ function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRo
   }
 
   const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
-  const authorize = readObjectPropertyValue(routeObject, "authorize")
+  const authorize = readObjectEntries(routeObject).find(entry => entry.key === "authorize")
   return {
-    ...(authorize && !/\bundefined\b/.test(authorize) ? { authorize: true as const } : {}),
+    ...(authorize && (typeof authorize.value === "undefined" || !/\bundefined\b/.test(authorize.value))
+      ? { authorize: true as const }
+      : {}),
     ...(method ? { method } : {}),
     route: resolvedRoute,
   }
