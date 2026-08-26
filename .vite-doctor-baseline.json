@@ -2,6 +2,41 @@
   "version": 1,
   "diagnostics": [
     {
+      "ruleId": "typescript/evidence/no-caller-chosen-result-type",
+      "file": "packages/internal/src/provision.ts",
+      "fingerprint": "286788cd8dabcf42da7f1c36e2dc8c50c1cfe9a69fa7a52ebaaf9f038800a930"
+    },
+    {
+      "ruleId": "typescript/evidence/no-caller-chosen-result-type",
+      "file": "packages/internal/src/provision.ts",
+      "fingerprint": "f936e0ceff5bfe8742f7a74e7b378662d2cdf6b7abcaf630278bfd4f1c8d3367"
+    },
+    {
+      "ruleId": "typescript/evidence/no-caller-chosen-result-type",
+      "file": "packages/internal/src/provision.ts",
+      "fingerprint": "a11ca1e5063740d7bf1a7bcbcc82140c81c9191f412a9fc7db920bb46837de15"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "packages/internal/src/provision.ts",
+      "fingerprint": "f889ff71b448fc866c6e52b25d7b110d0ca89d9970ee6ae9b484c9568039107e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/src/provision.ts",
+      "fingerprint": "bf37d92efb94cd48aa1b792c176aa4b0d94a7739362553678a1aced05541fc58"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/provision.ts",
+      "fingerprint": "e05e1a4993a8b6a3034ecb67bc7d1545cd4d89af454040fa55e791ea8d0413fb"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/provision.ts",
+      "fingerprint": "1ceb1542cb77a649ea627d5620b4522fb9afdfa6867684dae49ccf61dd0b9f82"
+    },
+    {
       "ruleId": "typescript/evidence/no-chained-type-assertions",
       "file": "packages/agent/test/runtime.test.ts",
       "fingerprint": "370c3e9b1c0f4ca6cd45f11c13b36c33922713bc756d9f0f14b5a6f507c2d410"

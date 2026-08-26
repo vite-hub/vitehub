@@ -53,11 +53,12 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
   let cursor: string | undefined
 
   for (let page = 0; page < CLOUDFLARE_R2_BUCKET_LIST_MAX_PAGES; page++) {
+    const query: Record<string, string> = {
+      per_page: CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE,
+    }
+    if (cursor) query.cursor = cursor
     const listed = await request<{ buckets?: CloudflareR2Bucket[] }>("/r2/buckets", {
-      query: {
-        per_page: CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE,
-        ...(cursor ? { cursor } : {}),
-      },
+      query,
     })
     for (const bucket of listed.result?.buckets ?? []) {
       if (bucket.name) names.add(bucket.name)
