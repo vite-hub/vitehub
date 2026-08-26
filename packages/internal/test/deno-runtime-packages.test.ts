@@ -57,6 +57,24 @@ import "real"
 `)).toEqual(["real"])
   })
 
+  it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "Deno.cron\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain("./schedule/deno-cron.mjs")
+    await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toBe("Deno.cron\n")
+    await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      tasks: { start: "deno run -A ./main.ts" },
+    })
+    await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
+  })
+
   it("filters optional packages for Deno runtimes and hoists the selected closure once", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-platforms-"))
     const outputNodeModules = join(root, ".output/node_modules")
@@ -195,7 +213,7 @@ import "real"
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
     expect(deployRunner).toContain('process.env.DENO_DEPLOY_APP || "package-default"')
-    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.mjs", '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
   })
 

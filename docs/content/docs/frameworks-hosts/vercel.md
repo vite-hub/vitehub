@@ -67,6 +67,7 @@ export default defineDatabase({
 For sustained application traffic, Cloudflare recommends a proxy Worker because its built-in D1 REST API is intended primarily for administrative use and shares the global Cloudflare API rate limit. Set `cloudflare.http` to `{ url, authToken }` for an authenticated raw-compatible HTTP(S) proxy. Omitting `cloudflare.http` preserves the hosted libSQL selection even when the Definition includes a D1 database id.
 
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -82,6 +83,7 @@ export default defineConfig({
         },
       },
     }),
+    nitro() as never,
   ],
 })
 ```

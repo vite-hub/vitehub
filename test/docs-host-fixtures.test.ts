@@ -12,7 +12,7 @@ const fixturesRoot = join(repoRoot, "fixtures/docs-hosts")
 const hostFixtures = ["cloudflare", "vercel", "netlify", "deno", "node-self-hosted"] as const
 const hostArtifacts: Record<(typeof hostFixtures)[number], string[]> = {
   cloudflare: [".output/server/wrangler.json"],
-  deno: [".output/server/index.mjs", ".vitehub/schedule/deno-cron.mjs"],
+  deno: [".output/server/index.mjs", ".output/main.ts", ".output/schedule/deno-cron.mjs"],
   netlify: [
     ".netlify/v1/functions/vitehub-agent.mjs",
     ".netlify/v1/functions/vitehub-schedule-heartbeat.mjs",

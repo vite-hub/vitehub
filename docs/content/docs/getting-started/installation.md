@@ -32,12 +32,14 @@ pnpm add vite-hub nitro
 Register the framework integration in Vite.
 
 ```ts [vite.config.ts]
-import { vitehub } from "vite-hub"
+import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
     vitehub({ preset: "node" }),
+    nitro() as never,
   ],
 })
 ```

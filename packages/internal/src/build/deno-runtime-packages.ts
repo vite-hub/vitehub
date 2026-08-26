@@ -1,4 +1,4 @@
-import { access, cp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { access, cp, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -305,7 +305,7 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function denoDeployRunnerSource(deploymentName?: string): string {
+function denoDeployRunnerSource(deploymentName: string | undefined, entrypoint: string): string {
   return `import { spawn } from "node:child_process"
 import { access, cp, mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -315,6 +315,7 @@ import { fileURLToPath } from "node:url"
 const organization = process.env.DENO_DEPLOY_ORG
 const app = process.env.DENO_DEPLOY_APP || ${JSON.stringify(deploymentName)}
 const region = process.env.DENO_DEPLOY_REGION || "global"
+const entrypoint = ${JSON.stringify(entrypoint)}
 
 if (!organization || !app) {
   throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP are required.")
@@ -372,7 +373,7 @@ try {
   await cp(sourceRoot, uploadRoot, { recursive: true })
 
   const common = ["--allow-node-modules", "--org", organization, "--app", app]
-  const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.mjs", "--working-directory", ".", "--region", region, ...common], uploadRoot)
+  const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
   if (creation.code !== 0) {
     const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
     if (deployment.code !== 0) {
@@ -391,6 +392,25 @@ export async function finalizeDenoDeploymentOutput(
 ): Promise<void> {
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
   const serverDir = join(outputDir, "server")
+  const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+  const applicationEntrySource = join(options.rootDir, "main.ts")
+  let entrypoint = "server/index.mjs"
+  let hasSchedule = false
+  try {
+    await access(scheduleSource)
+    hasSchedule = true
+    await access(applicationEntrySource)
+    await mkdir(join(outputDir, "schedule"), { recursive: true })
+    await cp(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"))
+    await cp(applicationEntrySource, join(outputDir, "main.ts"))
+    entrypoint = "main.ts"
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    if (hasSchedule) {
+      throw new Error('Deno Schedule output requires a project-root "main.ts" application entrypoint.', { cause: error })
+    }
+  }
   const packages = await readRuntimePackages(serverDir, options.rootDir)
 
   await copyRuntimePackagesToNodeModules({
@@ -401,7 +421,7 @@ export async function finalizeDenoDeploymentOutput(
 
   const denoConfig = {
     nodeModulesDir: "manual",
-    tasks: { start: "deno run -A ./server/index.mjs" },
+    tasks: { start: `deno run -A ./${entrypoint}` },
   }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
   await writeFile(
@@ -410,5 +430,5 @@ export async function finalizeDenoDeploymentOutput(
     "utf8",
   )
   await writeFile(join(outputDir, "deno.json"), `${JSON.stringify(denoConfig, null, 2)}\n`, "utf8")
-  await writeFile(join(outputDir, "deploy.mjs"), denoDeployRunnerSource(options.deploymentName), "utf8")
+  await writeFile(join(outputDir, "deploy.mjs"), denoDeployRunnerSource(options.deploymentName, entrypoint), "utf8")
 }

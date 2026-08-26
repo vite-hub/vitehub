@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'deno',
+      agent: true,
       kv: {
         driver: 'deno-kv',
       },
