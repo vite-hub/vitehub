@@ -230,6 +230,30 @@ describe("resumable Chat process custody", () => {
     retry.fail(new Error("test cleanup"))
   })
 
+  it("releases and cancels a claim when background ownership registration fails", async () => {
+    const session = await processSession()
+    const cancelled = vi.fn()
+    const claim = expectClaimed(session.claim("message-1"))
+    const duplicate = session.claim("message-1")
+    if (duplicate.kind !== "existing") throw new Error("Expected the active claim.")
+
+    expect(() => claim.complete(
+      new Response(new ReadableStream<Uint8Array>({ cancel: cancelled })),
+      {
+        messageId: "message-1",
+        runId: "run-1",
+        waitUntil: () => {
+          throw new Error("registration failed")
+        },
+      },
+    )).toThrow("registration failed")
+
+    await expect(duplicate.response).rejects.toThrow("registration failed")
+    expect(cancelled).toHaveBeenCalledWith(expect.objectContaining({ message: "registration failed" }))
+    const retry = expectClaimed(session.claim("message-1"))
+    retry.fail(new Error("test cleanup"))
+  })
+
   it("stops active producers, removes both indexes, and leaves no cleanup timer", async () => {
     vi.useFakeTimers()
     const session = await processSession()

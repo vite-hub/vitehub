@@ -221,14 +221,26 @@ export function createResumableChatProcessCustody<TContext>(
         run.statusText = response.statusText
         run.hasBody = Boolean(response.body)
         run.reader = response.body?.getReader()
-        run.setupSettled = true
-        run.resolveReady()
         if (!run.reader) {
+          run.setupSettled = true
+          run.resolveReady()
           closeResumableChatRun(run)
           scheduleCleanup(run)
         } else {
           const consume = consumeRun(run)
-          completion.waitUntil(consume)
+          try {
+            completion.waitUntil(consume)
+            run.setupSettled = true
+            run.resolveReady()
+          } catch (error) {
+            run.setupSettled = true
+            run.setupFailed = true
+            run.setupError = error
+            run.resolveReady()
+            removeRun(run)
+            void run.reader.cancel(error).catch(() => {})
+            throw error
+          }
         }
         return resumableChatResponse(run)
       },
