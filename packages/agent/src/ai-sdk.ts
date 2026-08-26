@@ -1218,7 +1218,8 @@ function withCapturedStreamUsage<T extends {
       },
       async cancel(reason) {
         cancelled = true
-        await wrapped.return?.(reason)
+        complete()
+        void Promise.resolve(wrapped.return?.(reason)).catch(() => undefined)
       },
     }, { highWaterMark: 0 })
   }
