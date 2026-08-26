@@ -23,6 +23,7 @@ describe("documentation link validation", () => {
 [Shortcut]
 ![Image](/images/diagram.png)
 <img data-src="/images/metadata.png" src="/images/html-diagram.png" alt="HTML diagram">
+<img data-note=" src=&quot;/images/decoy.png&quot;" src="/images/actual.png">
 :u-button[Guide]{to="/docs/inline"}
 ::card
 ---
@@ -65,6 +66,7 @@ https://vitehub.dev/docs/bare-autolink
       "/docs/guide",
       "/images/diagram.png",
       "/images/html-diagram.png",
+      "/images/actual.png",
       "/docs/inline",
       "/docs/card",
       "/docs/card#install",
@@ -164,6 +166,30 @@ https://vitehub.dev/docs/bare-autolink
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/images/missing-cover.png" does not exist'),
+    ]);
+  });
+
+  it("parses schema-defined frontmatter links without scanning scalar text", () => {
+    expect(markdownLinks(`---
+image: /images/cover.png
+links:
+  - label: Guide
+    to: /docs/guide
+authors:
+  - name: Writer
+    to: /authors/writer
+    avatar:
+      src: /images/writer.png
+description: |
+  src: /images/not-rendered.png
+  to: /docs/not-rendered
+---
+
+# Post`)).toEqual([
+      "/images/cover.png",
+      "/docs/guide",
+      "/images/writer.png",
+      "/authors/writer",
     ]);
   });
 

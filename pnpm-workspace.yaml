@@ -9,6 +9,7 @@ catalog:
   remark-parse: ^11.0.0
   unified: ^11.0.5
   vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
+  yaml: ^2.9.0
 
 ignoredOptionalDependencies:
   - fallow-type-aware

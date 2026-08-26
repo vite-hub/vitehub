@@ -90,6 +90,9 @@ catalogs:
     vite-doctor:
       specifier: https://pkg.pr.new/vite-doctor@db34a0d
       version: 0.0.6
+    yaml:
+      specifier: ^2.9.0
+      version: 2.9.0
   effect:
     effect:
       specifier: 4.0.0-beta.99
@@ -613,6 +616,9 @@ importers:
       vue-tsc:
         specifier: catalog:tooling
         version: 3.3.7(typescript@6.0.3)
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
 
   packages/agent:
     dependencies:

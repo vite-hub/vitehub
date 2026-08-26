@@ -47,7 +47,8 @@
     "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue-tsc": "catalog:tooling"
+    "vue-tsc": "catalog:tooling",
+    "yaml": "catalog:"
   },
   "engines": {
     "node": ">=24.0.0"

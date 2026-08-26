@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkMdc from "remark-mdc";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { parse as parseYaml } from "yaml";
 
 const siteOrigin = "https://vitehub.dev";
 const contentCollectionPrefixes = new Map([
@@ -55,6 +56,29 @@ function markdownSlug(value) {
     .replace(/^(\d)/, "_$1");
 }
 
+function htmlAttribute(tag, attributeName) {
+  const attributes = tag.slice(tag.search(/\s/));
+  for (const match of attributes.matchAll(/\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
+    if (match[1].toLowerCase() === attributeName) return match[2] ?? match[3] ?? match[4];
+  }
+  return undefined;
+}
+
+function frontmatterLinks(frontmatter) {
+  const value = parseYaml(frontmatter);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const links = [];
+  if (typeof value.image === "string") links.push(value.image);
+  for (const link of value.links ?? []) {
+    if (typeof link?.to === "string") links.push(link.to);
+  }
+  for (const author of value.authors ?? []) {
+    if (typeof author?.avatar?.src === "string") links.push(author.avatar.src);
+    if (typeof author?.to === "string") links.push(author.to);
+  }
+  return links;
+}
+
 export function markdownAnchors(markdown) {
   const anchors = new Set();
   const occurrences = new Map();
@@ -94,17 +118,14 @@ export function markdownLinks(markdown) {
       if (typeof destination === "string") links.push(destination);
     }
     if (node.type === "html" && !node.value.startsWith("<!--")) {
-      for (const match of node.value.matchAll(/<(?:a\b[^>]*?\shref|img\b[^>]*?\ssrc)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
-        links.push(match[1] ?? match[2] ?? match[3]);
+      for (const match of node.value.matchAll(/<(a|img)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
+        const destination = htmlAttribute(match[0], match[1].toLowerCase() === "a" ? "href" : "src");
+        if (destination) links.push(destination);
       }
     }
   });
   const frontmatter = markdown.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/)?.[1];
-  if (frontmatter) {
-    for (const match of frontmatter.matchAll(/^\s*(?:image|src):\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))/gmi)) {
-      links.push(match[1] ?? match[2] ?? match[3]);
-    }
-  }
+  if (frontmatter) links.push(...frontmatterLinks(frontmatter));
   return links;
 }
 
