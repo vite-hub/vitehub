@@ -45,6 +45,28 @@ const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
 const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
 
+function parseObject(value: unknown): Record<string, unknown> {
+  if (!value || Object(value) !== value) throw new Error("Provisioning returned an invalid response.")
+  // SAFETY: The object check establishes the string-keyed JSON object representation.
+  return value as Record<string, unknown>
+}
+
+function parseVercelBlobStoreResponse(value: unknown): VercelBlobStoreResponse {
+  return parseObject(value)
+}
+
+function parseVercelBlobStoresResponse(value: unknown): VercelBlobStoresResponse {
+  return parseObject(value)
+}
+
+function parseVercelBlobStoreCreateResponse(value: unknown): VercelBlobStoreCreateResponse {
+  return parseObject(value)
+}
+
+function parseCloudflareBuckets(value: unknown): { buckets?: CloudflareR2Bucket[] } {
+  return parseObject(value)
+}
+
 function vercelConnectionState(store: VercelBlobStore, projectId: string): "absent" | "equivalent" | "mismatched" {
   const connection = store.projectsMetadata?.find(project => project.projectId === projectId)
   if (!connection) return "absent"
@@ -57,7 +79,7 @@ async function readVercelBlobStore(
   request: ReturnType<typeof createVercelProvisionClient>,
   storeId: string,
 ): Promise<VercelBlobStore> {
-  const response = await request<VercelBlobStoreResponse>(`/storage/stores/${storeId}`)
+  const response = await request(`/storage/stores/${storeId}`, { parse: parseVercelBlobStoreResponse })
   if (!response.store) {
     throw new Error("Vercel Blob provisioning did not return store metadata.")
   }
@@ -81,6 +103,7 @@ async function ensureVercelBlobConnection(
       body: {
         envVarEnvironments: VERCEL_PROJECT_ENVIRONMENTS,
         projectId,
+        type: "integration",
       },
     })
   }
@@ -117,7 +140,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       }
 
       const request = createCloudflareProvisionClient(config, context.fetch)
-      const listed = await request<{ buckets?: CloudflareR2Bucket[] }>("/r2/buckets")
+      const listed = await request("/r2/buckets", { parse: parseCloudflareBuckets })
       const existing = new Set((listed.result?.buckets ?? []).map(bucket => bucket.name).filter((name): name is string => Boolean(name)))
 
       return [...new Set(buckets)].map((bucketName): ProvisionAction => ({
@@ -151,7 +174,7 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
       }
 
       const request = createVercelProvisionClient(config, context.fetch)
-      const listed = await request<VercelBlobStoresResponse>("/v1/storage/stores")
+      const listed = await request("/v1/storage/stores", { parse: parseVercelBlobStoresResponse })
       const existing = (listed.stores ?? []).find(store =>
         (!store.type || store.type === "blob")
         && (store.access ?? "public") === requested.access,
@@ -162,8 +185,9 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
         name: existing?.name ?? VERCEL_BLOB_STORE_NAME,
         exists: Boolean(existing),
         apply: async () => {
-          const store = existing ?? (await request<VercelBlobStoreCreateResponse>("/v1/storage/stores/blob", {
+          const store = existing ?? (await request("/v1/storage/stores/blob", {
             method: "POST",
+            parse: parseVercelBlobStoreCreateResponse,
             body: {
               access: requested.access,
               name: VERCEL_BLOB_STORE_NAME,

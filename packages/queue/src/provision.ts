@@ -9,6 +9,12 @@ interface CloudflareQueue {
   queue_name?: string
 }
 
+function parseQueues(value: unknown): CloudflareQueue[] {
+  if (!Array.isArray(value)) throw new Error("Cloudflare provisioning returned an invalid queue list.")
+  // SAFETY: Queue fields are optional and consumers narrow queue_name before use.
+  return value as CloudflareQueue[]
+}
+
 export function createQueueProvisionStep(resolveRootDir: () => string, resolveNamePrefix: () => string | undefined = () => undefined): ProvisionStep {
   return {
     id: "queue:cloudflare-queues",
@@ -25,7 +31,7 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
       const names = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => getCloudflareQueueName(definition.name, namePrefix))
       if (!names.length) return []
 
-      const listed = await request<CloudflareQueue[]>("/queues")
+      const listed = await request("/queues", { parse: parseQueues })
       const existing = new Set((listed.result ?? []).map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
 
       return names.map((name): ProvisionAction => ({
