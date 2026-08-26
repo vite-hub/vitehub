@@ -21,22 +21,20 @@ Keep the Definition and Runtime Helper host-neutral. Put Cloudflare details in I
 
 ## Provider-owned configuration
 
-The primitive package options select Cloudflare. Each provider field stays with the package that owns the primitive.
+Select the Cloudflare preset in the framework integration. Each primitive still owns its Definitions and Runtime Helpers.
 
 ```ts [vite.config.ts]
-import { hubDb } from '@vite-hub/database/vite'
-import { hubQueue } from '@vite-hub/queue/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubDb(),
-    hubQueue(),
+    vitehub({
+      preset: 'cloudflare',
+      database: true,
+      queue: true,
+    }),
   ],
-  queue: {
-    provider: 'cloudflare',
-    binding: 'JOBS',
-  },
 })
 ```
 

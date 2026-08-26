@@ -22,20 +22,19 @@ ViteHub keeps Agent Definitions, Schedule Definitions, KV Stores, and Runtime He
 The Agent integration selects Deno when generated Agent routes run through `Deno.serve`. Other primitives retain their package-owned runtime options.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
-import { hubKv } from '@vite-hub/kv/vite'
 import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubAgent({ runtime: 'deno' }),
-    hubKv(),
+    vitehub({
+      preset: 'deno',
+      agent: true,
+      kv: { driver: 'deno-kv' },
+    }),
     hubSchedule(),
   ],
-  kv: {
-    driver: 'deno-kv',
-  },
 })
 ```
 

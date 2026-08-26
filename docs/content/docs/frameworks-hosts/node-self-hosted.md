@@ -31,17 +31,19 @@ export async function saveSettings(settings: Record<string, unknown>) {
 ```
 
 ```ts [vite.config.ts]
-import { hubKv } from '@vite-hub/kv/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubKv(),
+    vitehub({
+      preset: 'node',
+      kv: {
+        driver: 'fs-lite',
+        base: '.vitehub/data/kv',
+      },
+    }),
   ],
-  kv: {
-    driver: 'fs-lite',
-    base: '.vitehub/data/kv',
-  },
 })
 ```
 

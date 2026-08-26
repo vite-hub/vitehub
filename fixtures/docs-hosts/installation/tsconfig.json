@@ -1,0 +1,7 @@
+{
+  "include": [
+    "server/**/*.ts",
+    "src/**/*.ts",
+    ".vitehub/types/**/*.d.ts"
+  ]
+}

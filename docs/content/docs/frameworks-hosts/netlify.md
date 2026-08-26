@@ -24,16 +24,17 @@ In a Nuxt app, the source wrapper follows Nuxt's build directory and is normally
 Each active package integration contributes only its owned Netlify output.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
-import { hubBlob } from '@vite-hub/blob/vite'
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubBlob(),
-    hubSchedule(),
-    hubAgent(),
+    vitehub({
+      preset: 'netlify',
+      agent: true,
+      blob: true,
+      schedule: true,
+    }),
   ],
 })
 ```

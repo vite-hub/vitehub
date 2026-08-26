@@ -1,0 +1,19 @@
+[
+  { "page": "getting-started/installation.md", "label": "vite.config.ts", "fixture": "installation/vite.config.ts", "verification": "typecheck" },
+  { "page": "getting-started/installation.md", "label": "nuxt.config.ts", "fixture": "installation/nuxt.config.ts", "verification": "typecheck" },
+  { "page": "getting-started/installation.md", "label": "server/agents/support.ts", "fixture": "installation/server/agents/support.ts", "verification": "typecheck" },
+  { "page": "getting-started/installation.md", "label": "tsconfig.json", "fixture": "installation/tsconfig.json", "verification": "json" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/vite.config.ts", "verification": "build" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "src/database.ts", "fixture": "cloudflare/src/database.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/rate-limit/vite.config.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/workspace/vite.config.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/browser/vite.config.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/vercel.md", "label": "vite.config.ts", "fixture": "vercel/vite.config.ts", "verification": "build" },
+  { "page": "frameworks-hosts/vercel.md", "label": "server/databases/config.ts", "fixture": "vercel/server/databases/config.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/vercel.md", "label": "vite.config.ts", "fixture": "vercel/database/vite.config.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/netlify.md", "label": "vite.config.ts", "fixture": "netlify/vite.config.ts", "verification": "build" },
+  { "page": "frameworks-hosts/deno.md", "label": "vite.config.ts", "fixture": "deno/vite.config.ts", "verification": "build" },
+  { "page": "frameworks-hosts/node-self-hosted.md", "label": "server/settings.ts", "fixture": "node-self-hosted/server/settings.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/node-self-hosted.md", "label": "vite.config.ts", "fixture": "node-self-hosted/vite.config.ts", "verification": "build" },
+  { "page": "frameworks-hosts/node-self-hosted.md", "label": "server/manual-auth-handler.ts", "fixture": "node-self-hosted/server/manual-auth-handler.ts", "verification": "typecheck" }
+]
