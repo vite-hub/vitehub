@@ -1,0 +1,80 @@
+{
+  "examples": [
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "blob",
+      "mode": "build",
+      "outputs": ["dist/server.js", "dist/vite/wrangler.json", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "database",
+      "mode": "build",
+      "outputs": ["dist/server.js", "dist/vite/wrangler.json", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "env",
+      "mode": "build",
+      "outputs": ["dist/server.js", ".vitehub/env/public.mjs"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "kv",
+      "mode": "build",
+      "outputs": ["dist/server.js"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "queue",
+      "mode": "build",
+      "outputs": ["dist/server.js", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "rate-limit",
+      "mode": "build",
+      "outputs": ["dist/server.js", "dist/vite/wrangler.json"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "sandbox",
+      "mode": "build",
+      "outputs": ["dist/server.js", ".vitehub/sandbox/runtime/sandbox-registry.mjs"]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "schedule",
+      "mode": "build",
+      "outputs": [
+        "dist/server.js",
+        "dist/vite/wrangler.json",
+        ".vercel/output/config.json",
+        ".netlify/v1/functions/vitehub-schedule-daily-report.mjs",
+        ".netlify/v1/functions/vitehub-schedule-database-cleanup.mjs"
+      ]
+    },
+    {
+      "artifact": "provider-output",
+      "framework": "vite",
+      "id": "workflow",
+      "mode": "build",
+      "outputs": ["dist/server.js", ".vercel/output/config.json"]
+    },
+    {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "workspace",
+      "mode": "build",
+      "outputs": ["dist/server.js", ".vitehub/types/workspace.d.ts"]
+    }
+  ]
+}

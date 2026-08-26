@@ -14,7 +14,8 @@ import {
   createBackedAgentInvocationController,
   startLiveAgentInvocation,
 } from "./agent-invocation.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput, withAgentInvocationControlId } from "./internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput } from "./internal/agent-invocation-control.ts"
+import { withAgentInvocationResponseOwner } from "./internal/agent-invocation-response-owner.ts"
 import {
   createReactionDeliveryEffectIntent,
   createReplyDeliveryEffectIntent,
@@ -5713,7 +5714,7 @@ function createInlineAgentInvocationController<
     parentAbortSignal: input.abortSignal,
     sendInput: (id, nextInput, options) => sendAgentInvocationInput(id, nextInput, options),
     start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
-      ...withAgentInvocationControlId(context, id),
+      ...withAgentInvocationResponseOwner(context, id),
       run: { ...context.run, runId: runId || id },
     }, { ...input, abortSignal }, {
       kind: "run",

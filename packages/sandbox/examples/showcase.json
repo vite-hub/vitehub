@@ -11,7 +11,7 @@
       "icon": "i-simple-icons-cloudflare",
       "configOverride": "  sandbox: {\n    provider: 'cloudflare',\n  },",
       "configOverrides": {
-        "vite": "  appType: 'custom',\n  build: {\n    rollupOptions: {\n      input: new URL('src/server.ts', import.meta.url).pathname,\n    },\n  },\n  sandbox: {\n    provider: 'cloudflare',\n  },"
+        "vite": "  appType: 'custom',\n  build: {\n    ssr: true,\n    rollupOptions: {\n      input: new URL('src/server.ts', import.meta.url).pathname,\n    },\n  },\n  sandbox: {\n    provider: 'cloudflare',\n  },"
       }
     },
     {
@@ -21,7 +21,7 @@
       "darkInvert": true,
       "configOverride": "  sandbox: {\n    provider: 'vercel',\n  },",
       "configOverrides": {
-        "vite": "  appType: 'custom',\n  build: {\n    rollupOptions: {\n      input: new URL('src/server.ts', import.meta.url).pathname,\n    },\n  },\n  sandbox: {\n    provider: 'vercel',\n  },"
+        "vite": "  appType: 'custom',\n  build: {\n    ssr: true,\n    rollupOptions: {\n      input: new URL('src/server.ts', import.meta.url).pathname,\n    },\n  },\n  sandbox: {\n    provider: 'vercel',\n  },"
       },
       "envOverride": "VERCEL_TOKEN=<vercel-token>\nVERCEL_TEAM_ID=<vercel-team-id>\nVERCEL_PROJECT_ID=<vercel-project-id>"
     }
