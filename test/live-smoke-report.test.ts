@@ -20,6 +20,8 @@ const run = {
   runUrl: "https://github.com/vite-hub/vitehub/actions/runs/12345",
 }
 
+const successfulJobs = { matrixStatus: "success", setupStatus: "success" }
+
 function evidence(provider: "cloudflare" | "vercel", currentStage = "runtime", conclusion = "success") {
   return createStageEvidence({ provider, currentStage, conclusion, ...run })
 }
@@ -70,7 +72,7 @@ describe("live smoke stage evidence", () => {
   it("aggregates both matrix providers and rejects a partial green run", () => {
     const report = aggregateStageEvidence({
       evidence: [evidence("cloudflare"), evidence("vercel", "deploy", "failure")],
-      setupStatus: "success",
+      ...successfulJobs,
       ...run,
     })
 
@@ -82,7 +84,7 @@ describe("live smoke stage evidence", () => {
   })
 
   it("turns missing matrix evidence into an explicit preflight failure", () => {
-    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare")], setupStatus: "success", ...run })
+    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare")], ...successfulJobs, ...run })
 
     expect(report.providers[1]).toMatchObject({
       provider: "vercel",
@@ -100,7 +102,7 @@ describe("live smoke stage evidence", () => {
         createStageEvidence({ provider: "vercel", currentStage: "deploy", conclusion: "failure", ...earlierRun }),
         evidence("vercel"),
       ],
-      setupStatus: "success",
+      ...successfulJobs,
       ...run,
     })
 
@@ -114,8 +116,45 @@ describe("live smoke stage evidence", () => {
     expect(report.providers[1]).not.toHaveProperty("evidenceAttempt")
   })
 
+  it("rejects stale successful evidence when the rerun matrix failed", () => {
+    const earlierRun = { ...run, runAttempt: 1 }
+    const report = aggregateStageEvidence({
+      evidence: [
+        createStageEvidence({ provider: "cloudflare", currentStage: "runtime", conclusion: "success", ...earlierRun }),
+        createStageEvidence({ provider: "vercel", currentStage: "runtime", conclusion: "success", ...earlierRun }),
+      ],
+      matrixStatus: "failure",
+      setupStatus: "success",
+      ...run,
+    })
+
+    expect(report.conclusion).toBe("failure")
+    expect(report.providers.every(provider => provider.reason === "provider job failed without current-attempt stage evidence")).toBe(true)
+  })
+
+  it("preserves an untouched successful provider when a failed job is rerun", () => {
+    const earlierRun = { ...run, runAttempt: 1 }
+    const report = aggregateStageEvidence({
+      evidence: [
+        createStageEvidence({ provider: "cloudflare", currentStage: "runtime", conclusion: "success", ...earlierRun }),
+        createStageEvidence({ provider: "vercel", currentStage: "deploy", conclusion: "failure", ...earlierRun }),
+      ],
+      matrixStatus: "failure",
+      setupStatus: "success",
+      ...run,
+    })
+
+    expect(report.providers[0]).toMatchObject({ provider: "cloudflare", conclusion: "success", evidenceAttempt: 1 })
+    expect(report.providers[1]).toMatchObject({
+      provider: "vercel",
+      currentStage: "preflight",
+      conclusion: "failure",
+      reason: "provider job failed without current-attempt stage evidence",
+    })
+  })
+
   it("attributes a shared setup failure to both provider preflights", () => {
-    const report = aggregateStageEvidence({ evidence: [], setupStatus: "failure", ...run })
+    const report = aggregateStageEvidence({ evidence: [], matrixStatus: "skipped", setupStatus: "failure", ...run })
 
     expect(report.providers.every(provider => provider.currentStage === "preflight")).toBe(true)
     expect(report.providers.every(provider => provider.conclusion === "failure")).toBe(true)
@@ -145,6 +184,7 @@ describe("live smoke stage evidence", () => {
         scriptPath,
         "aggregate",
         "--directory", directory,
+        "--matrix-status", "success",
         "--setup-status", "success",
         "--run-id", run.runId,
         "--run-attempt", String(run.runAttempt),
@@ -181,7 +221,7 @@ describe("scheduled failure issue updates", () => {
     const fixture = githubFixture()
     const report = aggregateStageEvidence({
       evidence: [evidence("cloudflare", "provision", "failure"), evidence("vercel")],
-      setupStatus: "success",
+      ...successfulJobs,
       ...run,
     })
 
@@ -192,7 +232,7 @@ describe("scheduled failure issue updates", () => {
 
   it("comments on the tracked issue for a new failed run", async () => {
     const fixture = githubFixture({ issues: [{ body: "older run", number: 17 }] })
-    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare"), evidence("vercel", "runtime", "failure")], setupStatus: "success", ...run })
+    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare"), evidence("vercel", "runtime", "failure")], matrixStatus: "failure", setupStatus: "success", ...run })
 
     await expect(updateLiveSmokeIssue({ ...fixture, report })).resolves.toEqual({ action: "commented", issueNumber: 17 })
     expect(fixture.api.createComment).toHaveBeenCalledOnce()
@@ -202,7 +242,7 @@ describe("scheduled failure issue updates", () => {
   it("deduplicates a repeated update for the same run attempt", async () => {
     const marker = `<!-- vitehub-live-smoke-run:${run.runId}:${run.runAttempt} -->`
     const fixture = githubFixture({ issues: [{ body: "older run", number: 17 }], comments: [{ body: marker }] })
-    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare", "build", "failure"), evidence("vercel")], setupStatus: "success", ...run })
+    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare", "build", "failure"), evidence("vercel")], matrixStatus: "failure", setupStatus: "success", ...run })
 
     await expect(updateLiveSmokeIssue({ ...fixture, report })).resolves.toEqual({ action: "deduplicated", issueNumber: 17 })
     expect(fixture.api.createComment).not.toHaveBeenCalled()
@@ -211,7 +251,7 @@ describe("scheduled failure issue updates", () => {
 
   it("comments with green evidence and closes the tracked issue", async () => {
     const fixture = githubFixture({ issues: [{ body: "failed run", number: 17 }] })
-    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare"), evidence("vercel")], setupStatus: "success", ...run })
+    const report = aggregateStageEvidence({ evidence: [evidence("cloudflare"), evidence("vercel")], ...successfulJobs, ...run })
 
     await expect(updateLiveSmokeIssue({ ...fixture, report })).resolves.toEqual({ action: "closed", issueNumber: 17 })
     expect(fixture.api.createComment).toHaveBeenCalledOnce()
@@ -243,5 +283,7 @@ describe("live smoke workflow reporting contract", () => {
     expect(workflow).toContain("pattern: live-smoke-evidence-*")
     expect(workflow).not.toContain("timeout-minutes: 30")
     expect(workflow).not.toContain("merge-multiple: true")
+    expect(workflow).toContain("LIVE_SMOKE_MATRIX_STATUS: ${{ needs.live-smoke.result }}")
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
   })
 })

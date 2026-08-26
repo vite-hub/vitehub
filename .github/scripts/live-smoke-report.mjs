@@ -40,7 +40,7 @@ export function createStageEvidence({ provider, currentStage, conclusion, runId,
   return evidence;
 }
 
-export function aggregateStageEvidence({ evidence, setupStatus, runId, runAttempt, runUrl }) {
+export function aggregateStageEvidence({ evidence, setupStatus, matrixStatus, runId, runAttempt, runUrl }) {
   const byProvider = new Map();
   for (const entry of evidence) {
     validateEvidence(entry);
@@ -56,6 +56,8 @@ export function aggregateStageEvidence({ evidence, setupStatus, runId, runAttemp
     }
   }
 
+  const rerunHasKnownFailedProvider = matrixStatus === "failure"
+    && [...byProvider.values()].some(entry => entry.run.attempt < runAttempt && entry.conclusion !== "success");
   const providers = liveSmokeProviders.map((provider) => {
     if (setupStatus !== "success") {
       return createStageEvidence({
@@ -69,7 +71,10 @@ export function aggregateStageEvidence({ evidence, setupStatus, runId, runAttemp
       });
     }
     const entry = byProvider.get(provider);
-    if (entry) {
+    const preservesUntouchedSuccess = entry?.run.attempt < runAttempt
+      && entry.conclusion === "success"
+      && rerunHasKnownFailedProvider;
+    if (entry && !(matrixStatus === "failure" && entry.run.attempt < runAttempt && !preservesUntouchedSuccess)) {
       return entry.run.attempt === runAttempt
         ? entry
         : { ...entry, evidenceAttempt: entry.run.attempt, run: { id: String(runId), attempt: runAttempt, url: runUrl } };
@@ -81,7 +86,9 @@ export function aggregateStageEvidence({ evidence, setupStatus, runId, runAttemp
       runId,
       runAttempt,
       runUrl,
-      reason: "provider stage evidence was not uploaded",
+      reason: matrixStatus === "failure" && entry
+        ? "provider job failed without current-attempt stage evidence"
+        : "provider stage evidence was not uploaded",
     });
   });
 
@@ -245,11 +252,12 @@ function runFromCommandLine(args) {
     });
   }
   if (command === "aggregate") {
-    if (!options.directory || !options["setup-status"]) {
-      throw new Error("aggregate requires --directory and --setup-status");
+    if (!options.directory || !options["setup-status"] || !options["matrix-status"]) {
+      throw new Error("aggregate requires --directory, --setup-status, and --matrix-status");
     }
     return aggregateStageEvidence({
       evidence: readEvidence(resolve(options.directory)),
+      matrixStatus: options["matrix-status"],
       setupStatus: options["setup-status"],
       ...run,
     });
