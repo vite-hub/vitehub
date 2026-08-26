@@ -23,6 +23,7 @@ type PackageManifest = {
   optionalDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
+  repository?: { directory?: string, type?: string, url?: string }
   scripts?: Record<string, string>
 }
 

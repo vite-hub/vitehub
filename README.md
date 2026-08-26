@@ -156,3 +156,7 @@ corepack pnpm exec vp run verify
 ```
 
 `verify` runs the preflight first and includes the native Deno package consumer test. A missing or different Deno version is a contributor setup error, not a ViteHub runtime failure. Package scripts own package-local test, build, and typecheck behavior.
+
+## Project policies
+
+ViteHub is available under the [Apache License 2.0](LICENSE). Report suspected vulnerabilities through the [security policy](SECURITY.md) before sharing details publicly.
