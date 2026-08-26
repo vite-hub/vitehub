@@ -1,12 +1,17 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      undici: new URL("./src/internal/vercel-fetch.ts", import.meta.url).pathname,
+    },
+  },
   pack: {
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
     deps: {
       neverBundle: ["vite", "esbuild"],
-      alwaysBundle: [/^@vite-hub\/internal/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vercel\/blob/],
       onlyBundle: false,
     },
     entry: [

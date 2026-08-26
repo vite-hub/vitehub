@@ -68,18 +68,17 @@
   },
   "dependencies": {
     "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@^11.0.1",
-    "@vercel/blob": "catalog:storage",
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
-    "pathe": "catalog:unjs",
-    "undici": "^6.28.0"
+    "pathe": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vercel/blob": "catalog:storage",
     "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

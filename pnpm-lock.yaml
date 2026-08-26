@@ -770,9 +770,6 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.700.0
         version: 3.1088.0
-      '@vercel/blob':
-        specifier: catalog:storage
-        version: 2.8.0
       '@vite-hub/netlify-blobs-runtime':
         specifier: npm:@netlify/blobs@^11.0.1
         version: '@netlify/blobs@11.0.1'
@@ -794,9 +791,6 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
-      undici:
-        specifier: ^6.28.0
-        version: 6.28.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -807,6 +801,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vercel/blob':
+        specifier: catalog:storage
+        version: 2.8.0
       files-sdk:
         specifier: catalog:storage
         version: 2.1.0(553e05b1306e70e20015eee937197809)

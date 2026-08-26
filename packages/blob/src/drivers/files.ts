@@ -1,6 +1,7 @@
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
+import { createDriver as createNetlifyBlobsDriver } from "./netlify-blobs.ts"
 
 import type {
   BlobDriverAdapter,
@@ -56,8 +57,6 @@ async function createAdapter(options: ResolvedBlobStoreConfig, putOptions: BlobP
       return (await importOptionalPeer<typeof import("files-sdk/hetzner")>("files-sdk/hetzner", options.driver, "files-sdk")).hetzner(options)
     case "minio":
       return (await importOptionalPeer<typeof import("files-sdk/minio")>("files-sdk/minio", options.driver, s3PeerInstall)).minio(options)
-    case "netlify-blobs":
-      return (await importOptionalPeer<typeof import("files-sdk/netlify-blobs")>("files-sdk/netlify-blobs", options.driver, "files-sdk")).netlifyBlobs(options)
     case "onedrive":
       return (await importOptionalPeer<typeof import("files-sdk/onedrive")>("files-sdk/onedrive", options.driver, "files-sdk")).onedrive(options)
     case "s3":
@@ -79,5 +78,6 @@ async function createAdapter(options: ResolvedBlobStoreConfig, putOptions: BlobP
 }
 
 export function createDriver(options: ResolvedBlobStoreConfig): BlobDriverAdapter<ResolvedBlobStoreConfig> {
+  if (options.driver === "netlify-blobs") return createNetlifyBlobsDriver(options)
   return createFilesSdkDriver(options, createAdapter)
 }

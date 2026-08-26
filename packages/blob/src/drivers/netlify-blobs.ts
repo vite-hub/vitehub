@@ -4,6 +4,10 @@ import { toArray } from "@vite-hub/internal/arrays"
 import type { BlobDriverAdapter, BlobObject, BlobPutBody, BlobPutOptions, NetlifyBlobsStoreConfig } from "../types.ts"
 
 type StoredMetadata = {
+  __contentType?: string
+  __lastModified?: number
+  __size?: number
+  __user?: Record<string, string>
   contentType?: string
   customMetadata?: Record<string, string>
   size?: number
@@ -17,19 +21,25 @@ function createStore(options: NetlifyBlobsStoreConfig) {
     token: options.token,
   }
   return options.deployScoped
-    ? getDeployStore(options.name)
+    ? getDeployStore({ ...clientOptions, name: options.name })
     : getStore({ ...clientOptions, name: options.name })
 }
 
 function toBlobObject(pathname: string, etag: string | undefined, metadata: StoredMetadata = {}): BlobObject {
+  const contentType = metadata.__contentType || metadata.contentType
+  const customMetadata = metadata.__user || metadata.customMetadata || {}
+  const size = metadata.__size ?? metadata.size ?? 0
+  const uploadedAt = metadata.__lastModified
+    ? new Date(metadata.__lastModified)
+    : metadata.uploadedAt ? new Date(metadata.uploadedAt) : new Date(0)
   return {
-    contentType: metadata.contentType,
-    customMetadata: metadata.customMetadata || {},
+    contentType,
+    customMetadata,
     httpEtag: etag,
-    httpMetadata: metadata.contentType ? { contentType: metadata.contentType } : {},
+    httpMetadata: contentType ? { contentType } : {},
     pathname,
-    size: metadata.size || 0,
-    uploadedAt: metadata.uploadedAt ? new Date(metadata.uploadedAt) : new Date(0),
+    size,
+    uploadedAt,
   }
 }
 
@@ -45,7 +55,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       const result = await store.getWithMetadata(pathname, { consistency: options.consistency, type: "blob" })
       if (!result) return null
       const metadata = result.metadata as StoredMetadata
-      return new Blob([result.data], { type: metadata.contentType })
+      return new Blob([result.data], { type: metadata.__contentType || metadata.contentType })
     },
     async getArrayBuffer(pathname) {
       const result = await store.getWithMetadata(pathname, { consistency: options.consistency, type: "arrayBuffer" })
@@ -101,11 +111,17 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
             ? body.byteLength
             : Number(putOptions.contentLength) || 0
       const uploadedAt = new Date()
+      const metadata: StoredMetadata = {
+        __contentType: contentType,
+        __lastModified: uploadedAt.getTime(),
+        __size: size,
+        __user: putOptions.customMetadata,
+      }
       const result = await store.set(pathname, body as Parameters<typeof store.set>[1], {
-        metadata: { contentType, customMetadata: putOptions.customMetadata, size, uploadedAt: uploadedAt.toISOString() },
+        metadata,
       })
       return {
-        ...toBlobObject(pathname, result.etag, { contentType, customMetadata: putOptions.customMetadata, size, uploadedAt: uploadedAt.toISOString() }),
+        ...toBlobObject(pathname, result.etag, metadata),
       }
     },
   }
