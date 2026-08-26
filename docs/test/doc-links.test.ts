@@ -21,6 +21,7 @@ describe("documentation link validation", () => {
 [Nested](./api_(stable).md)
 [Reference][guide]
 [Shortcut]
+![Image](/images/diagram.png)
 ::card
 ---
 to: /docs/card
@@ -65,7 +66,19 @@ to: "#install"
       "./api_(stable).md",
       "/docs/guide",
       "/docs/shortcut",
+      "/images/diagram.png",
     ]);
+  });
+
+  it("keeps code spans within rendered blocks and excludes indented code", () => {
+    expect(markdownLinks(`\`first
+
+[Rendered](/docs/rendered)
+
+\`last
+
+    [Indented](/docs/ignored)
+\t[Tabbed](/docs/also-ignored)`)).toEqual(["/docs/rendered"]);
   });
 
   it("matches generated anchors for repeated headings", () => {
@@ -103,6 +116,17 @@ to: "#install"
     });
 
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
+  it("reports missing rendered images", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n![Diagram](/images/missing.png)",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/images/missing.png" does not exist'),
+    ]);
   });
 
   it("reports missing routes, files, and anchors", () => {

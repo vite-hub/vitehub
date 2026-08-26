@@ -32,20 +32,30 @@ function withoutFencedCode(markdown) {
 }
 
 function withoutCode(markdown) {
-  const withoutFences = withoutFencedCode(markdown);
+  const withoutFences = withoutFencedCode(markdown)
+    .split("\n")
+    .map((line) => /^(?: {4}|\t)/.test(line) ? "" : line)
+    .join("\n");
+  return withoutFences.split(/(\n[ \t]*\n)/).map((block, index) => {
+    if (index % 2 === 1) return block;
+    return withoutCodeSpans(block);
+  }).join("");
+}
+
+function withoutCodeSpans(markdown) {
   let result = "";
-  for (let index = 0; index < withoutFences.length;) {
-    if (withoutFences[index] !== "`") {
-      result += withoutFences[index];
+  for (let index = 0; index < markdown.length;) {
+    if (markdown[index] !== "`") {
+      result += markdown[index];
       index += 1;
       continue;
     }
-    const opener = /^`+/.exec(withoutFences.slice(index))[0];
+    const opener = /^`+/.exec(markdown.slice(index))[0];
     let closing = -1;
-    for (let cursor = index + opener.length; cursor < withoutFences.length;) {
-      const next = withoutFences.indexOf("`", cursor);
+    for (let cursor = index + opener.length; cursor < markdown.length;) {
+      const next = markdown.indexOf("`", cursor);
       if (next === -1) break;
-      const delimiter = /^`+/.exec(withoutFences.slice(next))[0];
+      const delimiter = /^`+/.exec(markdown.slice(next))[0];
       if (delimiter.length === opener.length) {
         closing = next;
         break;
@@ -122,10 +132,6 @@ export function markdownLinks(markdown) {
   for (let index = 0; index < source.length; index += 1) {
     const bracket = source.indexOf("[", index);
     if (bracket === -1) break;
-    if (source[bracket - 1] === "!") {
-      index = bracket;
-      continue;
-    }
     const labelEnd = source.indexOf("]", bracket + 1);
     if (labelEnd === -1) break;
     const lineStart = source.lastIndexOf("\n", bracket - 1) + 1;
