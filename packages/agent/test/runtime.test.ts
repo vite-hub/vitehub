@@ -11375,7 +11375,7 @@ describe("agent message protocol", () => {
           // SAFETY: The captured payload comes from the Workflow boundary under test.
           payload: workflowPayload as never,
           provider: "cloudflare",
-        }, runAgentInline)).resolves.toMatchObject({ text: "completed" })
+        }, runAgentInline)).resolves.toBe("completed")
         await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "completed" })
         await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
       }
