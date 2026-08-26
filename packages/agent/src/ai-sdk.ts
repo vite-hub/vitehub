@@ -1203,16 +1203,13 @@ function withCapturedStreamUsage<T extends {
     }, { highWaterMark: 0 })
   }
   const toUIMessageStream = result.toUIMessageStream
-  const stream = result.stream
-  const fullStream = result.fullStream
-  const textStream = result.textStream
-  const hasStream = isAsyncIterable(stream)
-  const hasFullStream = isAsyncIterable(fullStream)
-  const hasTextStream = isAsyncIterable(textStream)
+  const hasStream = "stream" in result
+  const hasFullStream = "fullStream" in result
+  const hasTextStream = "textStream" in result
   if (!hasStream && !hasFullStream && !hasTextStream && !toUIMessageStream) return result
-  const wrappedStream = hasStream ? wrap(() => stream) : undefined
-  const wrappedFullStream = hasFullStream ? wrap(() => fullStream) : undefined
-  const wrappedTextStream = hasTextStream ? wrap(() => textStream) : undefined
+  const wrappedStream = hasStream ? wrap(() => result.stream!) : undefined
+  const wrappedFullStream = hasFullStream ? wrap(() => result.fullStream!) : undefined
+  const wrappedTextStream = hasTextStream ? wrap(() => result.textStream!) : undefined
   return cloneStreamTextResult(result, {
     ...(wrappedStream ? { stream: wrappedStream } : {}),
     ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
@@ -1286,7 +1283,7 @@ function withCapturedStreamUsage<T extends {
           },
         }
       : {}),
-  }, false)
+  })
 }
 
 async function combinedUsageRecord(
