@@ -273,7 +273,7 @@ async function readResponseBytes(response: Response, maxResponseBytes: number, s
     && /^\d+$/.test(declaredLength)
     && BigInt(declaredLength) > BigInt(maxResponseBytes)) {
     const error = responseSizeError(maxResponseBytes)
-    await response.body?.cancel(error).catch(() => {})
+    void response.body.cancel(error).catch(() => {})
     throw error
   }
 
@@ -293,7 +293,7 @@ async function readResponseBytes(response: Response, maxResponseBytes: number, s
       totalBytes += chunk.value.byteLength
       if (totalBytes > maxResponseBytes) {
         const error = responseSizeError(maxResponseBytes)
-        await reader.cancel(error).catch(() => {})
+        void reader.cancel(error).catch(() => {})
         throw error
       }
       chunks.push(chunk.value)

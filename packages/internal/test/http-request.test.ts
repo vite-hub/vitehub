@@ -108,6 +108,25 @@ describe("HTTP request", () => {
     expect(cancel).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    ["declared", { "content-length": "4" }],
+    ["streamed", undefined],
+  ])("reports a %s size failure without waiting for stream cancellation", async (_, headers) => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}))
+    const fetch = vi.fn(async () => new Response(new ReadableStream({
+      cancel,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("1234"))
+      },
+    }), { headers }))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ maxResponseBytes: 3, timeout: 10, url: "https://example.com/large" }))
+      .rejects.toThrow("configured 3-byte limit")
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it("allows an oversized Content-Length on an empty HEAD response", async () => {
     const fetch = vi.fn(async () => new Response(null, {
       headers: { "content-length": "4" },
