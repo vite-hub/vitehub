@@ -3,10 +3,10 @@ import { resolve } from "node:path"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import {
   composeNitroCloudflareProviderOutput,
-  registerCloudflareProviderOutput,
-  registerProviderRuntimeModules,
+  contributeCloudflareProviderOutput,
+  contributeProviderRuntime,
   shouldSkipViteProviderBuild,
-  useComposedProviderOutput,
+  useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -17,7 +17,7 @@ import { discoverRateLimitCatalog } from "./discovery.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { createCloudflareRateLimitBindings, resolveRateLimitNamespace, writeRateLimitProviderOutput } from "./internal/provider-output.ts"
 
-import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
 
@@ -46,21 +46,23 @@ function mergeNitroConfig(
   provider: "cloudflare" | "memory" | undefined,
   nitroCloudflare: boolean,
 ): Record<string, unknown> {
+  const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
   if (!plugins.includes(generatedNitroPlugin)) plugins.unshift(generatedNitroPlugin)
   const baseNitro = { ...nitro, plugins }
   if (!nitroCloudflare || provider !== "cloudflare" || declarations.length === 0) {
-    registerCloudflareProviderOutput(config, "rate-limit", {})
-    return composeNitroCloudflareProviderOutput(config, baseNitro)
+    contributeCloudflareProviderOutput(providerOutput, { owner: "rate-limit" })
+    return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
   }
   if (!namespace) {
     throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
   }
-  registerCloudflareProviderOutput(config, "rate-limit", {
+  contributeCloudflareProviderOutput(providerOutput, {
+    owner: "rate-limit",
     rateLimits: createCloudflareRateLimitBindings(declarations, namespace),
   })
-  return composeNitroCloudflareProviderOutput(config, baseNitro)
+  return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
 }
 
 function renderRuntimeInstaller(
@@ -107,7 +109,7 @@ function resolveNitroHosting(nitro: unknown): string | undefined {
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
   const importBase = (options as InternalRateLimitModuleOptions).importBase ?? packageName
   let rateLimit: RateLimitModuleOptions = options
-  let composedOutput: ComposedProviderOutput | undefined
+  let composedOutput: ProviderOutputCatalog | undefined
   let declarations: RateLimitDeclaration[] = []
   let declarationFiles = new Set<string>()
   let cloudflareOwnedByNitro = false
@@ -154,7 +156,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     async configResolved(config) {
       resolved = config
       rateLimit = config.rateLimit ?? rateLimit
-      composedOutput = useComposedProviderOutput(config)
+      composedOutput = useProviderOutputCatalog(config)
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const nitroCloudflare = resolveNitroHosting(configuredNitro) === "cloudflare"
@@ -177,7 +179,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true)),
         writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeConfig, importBase, false)),
       ])
-      registerProviderRuntimeModules(composedOutput, "rate-limit", { cloudflare: runtimeFile })
+      contributeProviderRuntime(composedOutput, { owner: "rate-limit", runtimeModules: { cloudflare: runtimeFile } })
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
