@@ -32,13 +32,13 @@ export function assertBuildWarningBudget(output) {
   const newMissingIcons = new Set();
 
   for (const line of stripVTControlCharacters(output).split(/\r?\n/)) {
-    const normalizedLine = line.toLowerCase().replace(/\s+/g, " ");
+    const normalizedLine = normalizeWarningText(line);
     const warningWithoutToken = buildWarningBudget.find(entry => entry.warningTokenRequired === false && normalizedLine.includes(normalizeWarningText(entry.text)));
     if (warningWithoutToken) {
       counts.set(warningWithoutToken.name, (counts.get(warningWithoutToken.name) ?? 0) + 1);
       continue;
     }
-    if (!/\b(?:warn(?:ing)?|[a-z]+warning)\b/i.test(line)) continue;
+    if (!/^\s*(?:\[warn(?:ing)?\]|warn(?:ing)?\b|\(node:\d+\)\s+[a-z]+warning:|[a-z]+warning:)/i.test(line)) continue;
     const iconMatch = /\[Icon] failed to load icon [`'"]?([^`'"\s]+)[`'"]?/i.exec(line);
     if (iconMatch) {
       if (!allowedMissingIcons.includes(iconMatch[1])) newMissingIcons.add(iconMatch[1]);
@@ -63,7 +63,7 @@ export function assertBuildWarningBudget(output) {
 }
 
 function normalizeWarningText(text) {
-  return text.toLowerCase().replace(/\s+/g, " ");
+  return text.toLowerCase().replace(/[`'"]/g, "").replace(/\s+/g, " ");
 }
 
 export async function runDocsBuild() {

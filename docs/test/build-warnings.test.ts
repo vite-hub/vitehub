@@ -33,9 +33,20 @@ describe("docs build warning budget", () => {
       "[warn] [docus] AI assistant disabled: missing AI binding",
       "[warn] [PLUGIN_TIMINGS] render pages took 1s",
       "[warn] [Icon] failed to load icon `simple-icons:pnpm`",
+      "[warn] [nitro] [cloudflare] Wrangler config `assets`set by config or modules is overridden and will be ignored.",
     ].join("\n")
 
     expect(() => assertBuildWarningBudget(warnings)).not.toThrow()
+  })
+
+  it("ignores warning words in filenames and wrapped warning details", () => {
+    const output = [
+      "- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.",
+      "node_modules/.cache/nuxt/Warning-f4QGoboQ.js 1.74 kB",
+      "├─ .output/server/chunks/build/Warning-f4QGoboQ.mjs (1.06 kB)",
+    ].join("\n")
+
+    expect(() => assertBuildWarningBudget(output)).not.toThrow()
   })
 
   it("rejects lowercase logger warnings and standard Node warnings", () => {
