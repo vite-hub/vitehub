@@ -52,6 +52,7 @@ import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
+import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
 import {
   isRuntimeBigInt,
   isRuntimeBoolean,
@@ -64,6 +65,7 @@ import {
 } from "../internal/runtime-value.ts"
 import { createAgentWebhookQueue, hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
+import { captureAgentInboundBody } from "./request-body.ts"
 import {
   agentChannelDeliveryMessageIdentity,
   agentChannelDeliveryPayloadFingerprint,
@@ -132,6 +134,7 @@ import type {
 import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
+import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -148,6 +151,8 @@ interface AgentRouteRuntimeOptions {
   agentIdentity?: AgentHostIdentity
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
   runtime?: AgentRuntimeName
+  /** Maximum inbound request bytes. Defaults to 1 MiB and cannot exceed 10 MiB. */
+  maxBodyBytes?: number
   waitUntil?: AgentWaitUntil
 }
 
@@ -283,6 +288,8 @@ export interface AgentChannelChatRouteHandlerOptions<TBody extends AgentChannelC
   channelId?: string
   input?: AgentChannelChatRouteInputOptions
   mapInput?: (context: AgentChannelChatRouteMapInputContext<TBody, TAuth>) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
+  /** Maximum inbound request bytes. Defaults to 1 MiB and cannot exceed 10 MiB. */
+  maxBodyBytes?: number
   origin?: string
   resumable?: AgentChannelChatRouteResumableOptions<TBody, TAuth>
 }
@@ -530,7 +537,7 @@ function createRuntimeContext(
   }) as ViteAgentRouteRuntimeContext
 }
 
-function createRuntimeRequest(request: Request, body?: string): Request {
+function createRuntimeRequest(request: Request, body?: string | Uint8Array): Request {
   return new Request(request.url, {
     ...(body ? { body } : {}),
     headers: request.headers,
@@ -871,8 +878,7 @@ function githubInstallationId(payload: unknown): number | undefined {
   return isRuntimeNumber(id) ? id : undefined
 }
 
-async function createAgentWebhookTriggerInput(request: Request, registration: AgentWebhookRegistrationDefinition): Promise<Record<string, unknown>> {
-  const body = await request.clone().text()
+function createAgentWebhookTriggerInput(request: Request, registration: AgentWebhookRegistrationDefinition, body = ""): Record<string, unknown> {
   const payload = parseWebhookPayload(body)
   const headers = requestHeaders(request)
   const webhook = {
@@ -1380,7 +1386,7 @@ async function executeQueuedWebhookDelivery(
       const resolved = await runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
         if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
-        const input = await createAgentWebhookTriggerInput(request, match.registration)
+        const input = createAgentWebhookTriggerInput(request, match.registration, delivery.request.body)
         const replayed = await resolveAgentTriggerInvocationWithResolvedContext(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
           agent as never,
@@ -5917,8 +5923,7 @@ function createHttpChatRunMetadata(
   }
 }
 
-async function parseAgentChannelChatRouteBody(request: Request): Promise<{ body: AgentChannelChatRouteBody; rawBody: string }> {
-  const raw = await request.text()
+function parseAgentChannelChatRouteBody(raw: string): { body: AgentChannelChatRouteBody; rawBody: string } {
   if (!raw.trim()) throw createRouteBodyError("Missing agent chat payload.")
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -6101,128 +6106,21 @@ function agentChatFetchErrorResponse(error: unknown): Response {
   return toHttpErrorResponse(error, error instanceof TypeError ? 400 : 500)!
 }
 
-const resumableChatDefaultTtlMs = 10 * 60 * 1000
-const resumableChatDiscoveryAttempts = 30
-const resumableChatDiscoveryIntervalMs = 100
-
-interface ResumableChatRun {
-  chunks: Uint8Array[]
-  done: boolean
-  error?: unknown
-  hasBody: boolean
-  headers: Headers
-  invocationKey: string
-  latestKey: string
-  reader?: ReadableStreamDefaultReader<Uint8Array>
-  ready: Promise<void>
-  resolveReady: () => void
-  setupError?: unknown
-  status: number
-  statusText: string
-  subscribers: Set<ReadableStreamDefaultController<Uint8Array>>
-}
-
-function resumableChatKey(...parts: string[]): string {
-  return JSON.stringify(parts)
-}
-
-function resumableChatResponse(run: ResumableChatRun): Response {
-  if (!run.hasBody) {
-    return new Response(null, {
-      headers: run.headers,
-      status: run.status,
-      statusText: run.statusText,
-    })
-  }
-  let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined
-  return new Response(new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of run.chunks) controller.enqueue(chunk)
-      if (run.error) controller.error(run.error)
-      else if (run.done) controller.close()
-      else {
-        subscriber = controller
-        run.subscribers.add(controller)
-      }
-    },
-    cancel() {
-      if (subscriber) run.subscribers.delete(subscriber)
-    },
-  }), {
-    headers: run.headers,
-    status: run.status,
-    statusText: run.statusText,
-  })
-}
-
-async function resumableChatOwner(
-  config: AgentChannelChatRouteResumableOptions | undefined,
-  context: AgentChannelChatRouteResumableContext,
-): Promise<string> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route options can arrive from untyped JavaScript, so validate the public runtime boundary before invocation.
-  if (!config || typeof config !== "object" || typeof config.owner !== "function") {
-    throw new TypeError("[vitehub] Resumable web chat requires route.resumable.owner().")
-  }
-  if (config.scope !== "process") {
-    throw new TypeError('[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.')
-  }
-  const owner = await config.owner(context)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript owner callbacks can violate the declared return type at this public runtime boundary.
-  if (typeof owner !== "string" || !owner.trim()) {
-    throw new TypeError("[vitehub] Resumable web chat owner must be a non-empty string.")
-  }
-  return owner.trim()
-}
-
-function closeResumableChatRun(run: ResumableChatRun, error?: unknown): void {
-  if (run.done) return
-  run.done = true
-  run.error = error
-  for (const subscriber of run.subscribers) {
-    if (error) subscriber.error(error)
-    else subscriber.close()
-  }
-  run.subscribers.clear()
-}
-
-function scheduleResumableChatRunCleanup(
-  run: ResumableChatRun,
-  resumable: AgentChannelChatRouteResumableOptions,
-  resumableRuns: Map<string, ResumableChatRun>,
-  latestResumableRuns: Map<string, ResumableChatRun>,
-): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript route options can violate the declared numeric type at this public runtime boundary.
-  const ttlMs = typeof resumable.ttlMs === "number" && resumable.ttlMs > 0 ? resumable.ttlMs : resumableChatDefaultTtlMs
-  const cleanup = setTimeout(() => {
-    resumableRuns.delete(run.invocationKey)
-    if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
-  }, ttlMs)
-  cleanup.unref?.()
-}
-
-async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key: string): Promise<ResumableChatRun | undefined> {
-  for (let attempt = 0; attempt < resumableChatDiscoveryAttempts; attempt++) {
-    const run = runs.get(key)
-    if (run) return run
-    await new Promise<void>(resolve => setTimeout(resolve, resumableChatDiscoveryIntervalMs))
-  }
-}
-
 export function createChannelChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
 ): AgentChannelChatRouteHandler {
   const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
-  const resumableRuns = new Map<string, ResumableChatRun>()
-  const latestResumableRuns = new Map<string, ResumableChatRun>()
+  const resumableCustody = routeOptions.resumable
+    ? createResumableChatProcessCustody<AgentChannelChatRouteResumableContext>(routeOptions.resumable)
+    : undefined
   const handler: AgentChannelChatRouteHandler = async (request, handlerOptions = {}) => {
-    const resumable = routeOptions.resumable
-    if (request.method !== "POST" && (!resumable || (request.method !== "GET" && request.method !== "DELETE"))) {
+    if (request.method !== "POST" && (!resumableCustody || (request.method !== "GET" && request.method !== "DELETE"))) {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
     }
 
     let delivery: AgentChannelDeliveryTracker | undefined
-    let claimedRun: ResumableChatRun | undefined
+    let resumableClaim: ResumableChatProcessClaim | undefined
     try {
       if (request.method !== "POST") {
         const searchParams = new URL(request.url).searchParams
@@ -6243,32 +6141,31 @@ export function createChannelChatRouteHandler(
           request,
         })
         if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
-        const owner = await resumableChatOwner(resumable, {
-          agentName,
-          // SAFETY: false is rejected immediately above.
-          auth: auth as never,
-          body,
-          event: handlerOptions.event,
-          rawBody: "",
-          request,
-        })
-        const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", owner, id)
-        const run = request.method === "DELETE"
-          ? resumableRuns.get(resumableChatKey(latestKey, messageId!))
-          : latestResumableRuns.get(latestKey) || await waitForResumableChatRun(latestResumableRuns, latestKey)
-        if (!run) return new Response(null, { status: 204 })
-        await run.ready
-        if (run.setupError) throw run.setupError
+        const session = await resumableCustody!.session(
+          {
+            agentName,
+            // SAFETY: false is rejected immediately above.
+            auth: auth as never,
+            body,
+            event: handlerOptions.event,
+            rawBody: "",
+            request,
+          },
+          {
+            agentName,
+            channelId: routeOptions.channelId || "http",
+            chatId: id,
+          },
+        )
         if (request.method === "DELETE") {
-          if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
-          resumableRuns.delete(run.invocationKey)
-          closeResumableChatRun(run)
-          await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+          await session.stop(messageId!)
           return new Response(null, { status: 204 })
         }
-        return resumableChatResponse(run)
+        return await session.latest() || new Response(null, { status: 204 })
       }
-      const parsed = await parseAgentChannelChatRouteBody(request)
+      const captured = await captureAgentInboundBody(request, handlerOptions.maxBodyBytes ?? routeOptions.maxBodyBytes)
+      request = captured.request
+      const parsed = parseAgentChannelChatRouteBody(captured.text)
       const agentIdentity = routeAgentIdentity(handlerOptions)
       const agentName = agentIdentity?.name || "agent"
       const auth = await routeOptions.admission?.authenticate?.({
@@ -6281,7 +6178,7 @@ export function createChannelChatRouteHandler(
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
       let context = createRuntimeContext(
-        createRuntimeRequest(request, parsed.rawBody),
+        createRuntimeRequest(request, captured.bytes),
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
@@ -6308,38 +6205,19 @@ export function createChannelChatRouteHandler(
         rawBody: parsed.rawBody,
         request,
       }
-      const resumableOwner = resumable ? await resumableChatOwner(resumable, inputContext) : undefined
+      const resumableSession = resumableCustody
+        ? await resumableCustody.session(inputContext, {
+            agentName,
+            channelId: routeOptions.channelId || "http",
+            chatId: optionalBodyString(body.id, "id") || "default",
+          })
+        : undefined
       const admittedInput = mergeAgentChannelChatRouteInput(trustedInput, await routeOptions.admission?.context?.(inputContext))
       let triggerInput = mergeAgentChannelChatRouteInput(admittedInput, await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }))
-      if (resumableOwner) {
-        const chatId = optionalBodyString(body.id, "id") || "default"
-        const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", resumableOwner, chatId)
-        const invocationKey = resumableChatKey(latestKey, resumableMessageId || "default")
-        const existingRun = resumableRuns.get(invocationKey)
-        if (existingRun) {
-          await existingRun.ready
-          if (existingRun.setupError) throw existingRun.setupError
-          return resumableChatResponse(existingRun)
-        }
-        let resolveReady!: () => void
-        const ready = new Promise<void>((resolve) => {
-          resolveReady = resolve
-        })
-        claimedRun = {
-          chunks: [],
-          done: false,
-          hasBody: false,
-          headers: new Headers(),
-          invocationKey,
-          latestKey,
-          ready,
-          resolveReady,
-          status: 200,
-          statusText: "",
-          subscribers: new Set(),
-        }
-        resumableRuns.set(invocationKey, claimedRun)
-        latestResumableRuns.set(latestKey, claimedRun)
+      if (resumableSession) {
+        const claim = resumableSession.claim(resumableMessageId || "default")
+        if (claim.kind === "existing") return await claim.response
+        resumableClaim = claim
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
       const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
@@ -6444,49 +6322,14 @@ export function createChannelChatRouteHandler(
       )
       if (approvalCustody) result = approvalCustody.observe(result)
       const response = await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
-      if (!claimedRun || !resumable) return response
-
-      const headers = new Headers(response.headers)
-      headers.set("x-vitehub-message-id", resumableMessageId || "")
-      headers.set("x-vitehub-run-id", triggerInput.run?.runId || "")
-      headers.delete("content-length")
-      claimedRun.headers = headers
-      claimedRun.status = response.status
-      claimedRun.statusText = response.statusText
-      claimedRun.hasBody = Boolean(response.body)
-      claimedRun.reader = response.body?.getReader()
-      claimedRun.resolveReady()
-      if (!claimedRun.reader) {
-        closeResumableChatRun(claimedRun)
-        scheduleResumableChatRunCleanup(claimedRun, resumable, resumableRuns, latestResumableRuns)
-      } else {
-        const run = claimedRun
-        const consume = (async () => {
-          try {
-            while (!run.done) {
-              const chunk = await run.reader!.read()
-              if (chunk.done) break
-              const value = chunk.value.slice()
-              run.chunks.push(value)
-              for (const subscriber of run.subscribers) subscriber.enqueue(value)
-            }
-            closeResumableChatRun(run)
-          } catch (error) {
-            closeResumableChatRun(run, error)
-          } finally {
-            scheduleResumableChatRunCleanup(run, resumable, resumableRuns, latestResumableRuns)
-          }
-        })()
-        context.waitUntil(consume)
-      }
-      return resumableChatResponse(claimedRun)
+      if (!resumableClaim) return response
+      return resumableClaim.complete(response, {
+        messageId: resumableMessageId,
+        runId: triggerInput.run?.runId,
+        waitUntil: promise => context.waitUntil(promise),
+      })
     } catch (error) {
-      if (claimedRun) {
-        claimedRun.setupError = error
-        claimedRun.resolveReady()
-        resumableRuns.delete(claimedRun.invocationKey)
-        if (latestResumableRuns.get(claimedRun.latestKey) === claimedRun) latestResumableRuns.delete(claimedRun.latestKey)
-      }
+      resumableClaim?.fail(error)
       if (delivery) {
         await settleChannelDeliveryInvocation(delivery, "failed", "failed", {
           error: channelDeliveryError(error),
@@ -6537,6 +6380,22 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
 
+    let rawBody = ""
+    let rawBodyBytes: Uint8Array = new Uint8Array()
+    if (request.method === "POST") {
+      try {
+        const captured = await captureAgentInboundBody(request, handlerOptions.maxBodyBytes)
+        request = captured.request
+        rawBody = captured.text
+        rawBodyBytes = captured.bytes
+      }
+      catch (error) {
+        const response = toHttpErrorResponse(error)
+        if (response) return response
+        throw error
+      }
+    }
+
     const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
     if (webhookId === undefined) {
       return createBadRequest("Agent webhook route requires a webhook id.")
@@ -6578,6 +6437,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         }
         try {
           await verifyAgentWebhookRequest([registration], request, context, {
+            rawBody: rawBodyBytes,
             requireSecretHeader: true,
           })
         } catch (error) {
@@ -6590,6 +6450,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
         try {
           await verifyAgentWebhookRequest([registration], request, context, {
+            rawBody: rawBodyBytes,
             requireSecretHeader: true,
           })
         } catch (error) {
@@ -6613,7 +6474,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
       if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       await deliveryState.state.connect()
-      const webhookPayload = parseWebhookPayload(await request.clone().text())
+      const webhookPayload = parseWebhookPayload(rawBody)
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
       const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(webhookPayload)
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
@@ -6649,7 +6510,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         const channelDelivery = await resolveChannelDelivery()
         context = withAgentChannelDelivery(context, channelDelivery)
         try {
-          const input = await createAgentWebhookTriggerInput(request, registration)
+          const input = createAgentWebhookTriggerInput(request, registration, rawBody)
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
@@ -6706,7 +6567,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               deliveryId,
               channelDelivery.delivery.id,
               request,
-              await request.clone().text(),
+              rawBody,
               webhookId,
               { ...invocation.webhook, concurrencyLimit },
               webhookState.keyPrefix,

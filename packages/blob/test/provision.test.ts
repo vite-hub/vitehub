@@ -8,26 +8,55 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status })
 }
 
+function mockFetch(implementation: (input: string | URL | Request, init?: RequestInit) => Promise<Response>): typeof globalThis.fetch {
+  return vi.fn(implementation)
+}
+
+async function captureError(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise
+  }
+  catch (error) {
+    if (error instanceof Error) return error
+    throw error
+  }
+  throw new Error("Expected promise to reject.")
+}
+
 describe("blob cloudflare provision step", () => {
   const env = { CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "token", BLOB_BUCKET_NAME: "assets" }
 
-  it("does not create an existing R2 bucket", async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+  function context(fetchImpl: typeof globalThis.fetch): ProvisionContext {
+    return { env, fetch: fetchImpl, logger: { log: () => {}, warn: () => {} } }
+  }
+
+  async function plan(fetchImpl: typeof globalThis.fetch) {
+    return await createBlobCloudflareProvisionStep(() => ({ driver: "cloudflare-r2", bucketName: "assets" })).plan(context(fetchImpl))
+  }
+
+  it("finds an existing R2 bucket on the second cursor page", async () => {
+    const urls: URL[] = []
+    const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") throw new Error("must not create existing bucket")
-      return jsonResponse({ success: true, result: { buckets: [{ name: "assets" }] } })
+      const url = new URL(String(input))
+      urls.push(url)
+      return url.searchParams.get("cursor") === "next-page"
+        ? jsonResponse({ success: true, result: { buckets: [{ name: "assets" }] } })
+        : jsonResponse({ success: true, result: { buckets: [{ name: "other" }] }, result_info: { cursor: "next-page" } })
     })
 
-    const context: ProvisionContext = { env, fetch: fetchImpl, logger: { log: () => {}, warn: () => {} } }
-    const actions = await createBlobCloudflareProvisionStep(() => ({ driver: "cloudflare-r2", bucketName: "assets" })).plan(context)
+    const actions = await plan(fetchImpl)
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
     await actions[0]!.apply()
-    expect(fetchImpl.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false)
+    expect(urls).toHaveLength(2)
+    expect(urls[0]!.searchParams.get("per_page")).toBe("1000")
+    expect(urls[1]!.searchParams.get("cursor")).toBe("next-page")
   })
 
   it("creates a missing R2 bucket", async () => {
     const posted: unknown[] = []
-    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+    const fetchImpl = mockFetch(async (_input: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         posted.push(JSON.parse(String(init.body)))
         return jsonResponse({ success: true, result: {} })
@@ -35,11 +64,138 @@ describe("blob cloudflare provision step", () => {
       return jsonResponse({ success: true, result: { buckets: [] } })
     })
 
-    const context: ProvisionContext = { env, fetch: fetchImpl, logger: { log: () => {}, warn: () => {} } }
-    const actions = await createBlobCloudflareProvisionStep(() => ({ driver: "cloudflare-r2", bucketName: "assets" })).plan(context)
+    const actions = await plan(fetchImpl)
     expect(actions[0]!.exists).toBe(false)
     await actions[0]!.apply()
     expect(posted).toEqual([{ name: "assets" }])
+  })
+
+  it("rejects a repeated R2 pagination cursor", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse({
+      success: true,
+      result: { buckets: [] },
+      result_info: { cursor: "repeated" },
+    }))
+
+    await expect(plan(fetchImpl)).rejects.toThrow("repeated pagination cursor")
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it("continues R2 bucket pagination beyond 100 pages", async () => {
+    let calls = 0
+    const fetchImpl = mockFetch(async () => {
+      calls++
+      return jsonResponse({
+        success: true,
+        result: { buckets: calls === 101 ? [{ name: "assets" }] : [] },
+        result_info: calls === 101 ? undefined : { cursor: `cursor-${calls}` },
+      })
+    })
+
+    const actions = await plan(fetchImpl)
+    expect(actions[0]!.exists).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(101)
+  })
+
+  it("accepts Cloudflare's duplicate-bucket error only after the exact R2 bucket becomes visible", async () => {
+    const requests: Array<{ method: string | undefined, url: URL }> = []
+    const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      requests.push({ method: init?.method, url })
+      if (url.pathname.endsWith("/r2/buckets/assets")) {
+        return jsonResponse({ success: true, result: { name: "assets" } })
+      }
+      if (init?.method === "POST") {
+        return jsonResponse({ errors: [{ code: 10004, message: "bucket already exists" }], success: false }, 400)
+      }
+      return jsonResponse({ success: true, result: { buckets: [] } })
+    })
+
+    const actions = await plan(fetchImpl)
+    await expect(actions[0]!.apply()).resolves.toEqual({})
+    expect(requests.map(request => [request.method, request.url.pathname])).toEqual([
+      ["GET", "/client/v4/accounts/acc/r2/buckets"],
+      ["POST", "/client/v4/accounts/acc/r2/buckets"],
+      ["GET", "/client/v4/accounts/acc/r2/buckets/assets"],
+    ])
+  })
+
+  it("does not treat another Cloudflare 400 response as a duplicate bucket", async () => {
+    const fetchImpl = mockFetch(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return jsonResponse({ errors: [{ code: 10005, message: "provider-secret" }], success: false }, 400)
+      }
+      return jsonResponse({ success: true, result: { buckets: [] } })
+    })
+
+    const actions = await plan(fetchImpl)
+    const error = await captureError(actions[0]!.apply())
+    expect(error.message).toContain("POST /r2/buckets (400)")
+    expect(error.message).not.toContain("provider-secret")
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves a create conflict when the exact R2 read returns a different bucket", async () => {
+    const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith("/r2/buckets/assets")) {
+        return jsonResponse({ success: true, result: { name: "different" } })
+      }
+      if (init?.method === "POST") return jsonResponse({ success: false }, 409)
+      return jsonResponse({ success: true, result: { buckets: [] } })
+    })
+
+    const actions = await plan(fetchImpl)
+    await expect(actions[0]!.apply()).rejects.toThrow("POST /r2/buckets (409)")
+  })
+
+  it("rejects a create conflict when the exact R2 bucket cannot be read", async () => {
+    const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith("/r2/buckets/assets")) {
+        return jsonResponse({ errors: [{ message: "provider-secret" }], success: false }, 403)
+      }
+      if (init?.method === "POST") return jsonResponse({ success: false }, 409)
+      return jsonResponse({ success: true, result: { buckets: [] } })
+    })
+
+    const actions = await plan(fetchImpl)
+    const error = await captureError(actions[0]!.apply())
+    expect(error.message).toContain("GET /r2/buckets/assets (403)")
+    expect(error.message).not.toContain("provider-secret")
+  })
+
+  it("propagates a redacted R2 authentication error", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse({
+      errors: [{ message: "invalid token token" }],
+      success: false,
+    }, 401))
+
+    const error = await captureError(plan(fetchImpl))
+    expect(error.message).toContain("GET /r2/buckets (401)")
+    expect(error.message).not.toContain("token")
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it("reuses the R2 bucket on repeated provision", async () => {
+    let exists = false
+    let creates = 0
+    const fetchImpl = mockFetch(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        creates++
+        exists = true
+        return jsonResponse({ success: true, result: { name: "assets" } })
+      }
+      return jsonResponse({ success: true, result: { buckets: exists ? [{ name: "assets" }] : [] } })
+    })
+
+    const first = await plan(fetchImpl)
+    expect(first[0]!.exists).toBe(false)
+    await first[0]!.apply()
+    const second = await plan(fetchImpl)
+    expect(second[0]!.exists).toBe(true)
+    await second[0]!.apply()
+    expect(creates).toBe(1)
   })
 })
 
