@@ -224,6 +224,20 @@ describe("HTTP request", () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it("stops the request timeout before asynchronous response schema validation", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true })))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ timeout: 1, url: "https://example.com/schema" }, {
+      schema: {
+        "~standard": {
+          validate: async value => new Promise(resolve => setTimeout(() => resolve({ value }), 10)),
+        },
+      },
+    })).resolves.toMatchObject({ data: { ok: true } })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("normalizes safe outbound defaults", () => {
     expect(normalizeHttpRequest({ url: "https://example.com" })).toMatchObject({
       maxResponseBytes: defaultHttpMaxResponseBytes,

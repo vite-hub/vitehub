@@ -118,7 +118,7 @@ function fetchWithRetry<TOutput>(
   schema: StandardSchemaV1<TOutput> | undefined,
 ): Effect.Effect<{ data: unknown, response: Response }, EffectBoundaryFailure> {
   const attempts = definition.method === "GET" || definition.method === "HEAD" ? 2 : 1
-  const attempt = fetchOnce(definition, responseType, schema)
+  const attempt = fetchOnce(definition, responseType)
   const timed = Effect.timeoutOrElse(attempt, {
     duration: definition.timeout,
     orElse: () => Effect.fail(new HttpAttemptFailure({
@@ -130,14 +130,19 @@ function fetchWithRetry<TOutput>(
     times: attempts - 1,
     while: error => error.retryable,
   }).pipe(
+    Effect.flatMap(({ data, response }) => schema
+      ? Effect.tryPromise({
+          catch: cause => new HttpAttemptFailure({ cause, retryable: false }),
+          try: async () => ({ data: await parseStandardSchema(schema, data, "HTTP response"), response }),
+        })
+      : Effect.succeed({ data, response })),
     Effect.mapError(error => new EffectBoundaryFailure({ cause: error.cause })),
   )
 }
 
-function fetchOnce<TOutput>(
+function fetchOnce(
   definition: NormalizedHttpRequest,
   responseType: InternalHttpResponseType,
-  schema: StandardSchemaV1<TOutput> | undefined,
 ): Effect.Effect<{ data: unknown, response: Response }, HttpAttemptFailure> {
   return Effect.acquireUseRelease(
     Effect.sync(() => new AbortController()),
@@ -155,7 +160,7 @@ function fetchOnce<TOutput>(
       },
     }).pipe(
       Effect.flatMap((response) => {
-        if (response.ok) return decodeHttpResponse(response, responseType, schema, definition.maxResponseBytes, controller.signal)
+        if (response.ok) return decodeHttpResponse(response, responseType, definition.maxResponseBytes, controller.signal)
         const cause = new HttpStatusError(response.status)
         return cancelResponseBody(response).pipe(
           Effect.andThen(Effect.fail(new HttpAttemptFailure({
@@ -178,20 +183,15 @@ function cancelResponseBody(response: Response): Effect.Effect<void> {
     : Effect.void
 }
 
-function decodeHttpResponse<TOutput>(
+function decodeHttpResponse(
   response: Response,
   responseType: InternalHttpResponseType,
-  schema: StandardSchemaV1<TOutput> | undefined,
   maxResponseBytes: number,
   signal: AbortSignal,
 ): Effect.Effect<{ data: unknown, response: Response }, HttpAttemptFailure> {
   return Effect.tryPromise({
     catch: cause => new HttpAttemptFailure({ cause, retryable: false }),
-    try: async () => {
-      const decoded = await decodeResponse(response, responseType, maxResponseBytes, signal)
-      const data = schema ? await parseStandardSchema(schema, decoded, "HTTP response") : decoded
-      return { data, response }
-    },
+    try: async () => ({ data: await decodeResponse(response, responseType, maxResponseBytes, signal), response }),
   }).pipe(
     Effect.onInterrupt(() => cancelResponseBody(response)),
   )
