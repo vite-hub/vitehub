@@ -1,4 +1,4 @@
-import { getDeployStore, getStore } from "@netlify/blobs"
+import { getDeployStore, getStore } from "@vite-hub/netlify-blobs-runtime"
 import { toArray } from "@vite-hub/internal/arrays"
 
 import type { BlobDriverAdapter, BlobObject, BlobPutBody, BlobPutOptions, NetlifyBlobsStoreConfig } from "../types.ts"
@@ -42,7 +42,10 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       await Promise.all(toArray(pathnames).map(pathname => store.delete(pathname)))
     },
     async get(pathname) {
-      return await store.get(pathname, { consistency: options.consistency, type: "blob" })
+      const result = await store.getWithMetadata(pathname, { consistency: options.consistency, type: "blob" })
+      if (!result) return null
+      const metadata = result.metadata as StoredMetadata
+      return new Blob([result.data], { type: metadata.contentType })
     },
     async getArrayBuffer(pathname) {
       const result = await store.getWithMetadata(pathname, { consistency: options.consistency, type: "arrayBuffer" })
@@ -53,13 +56,29 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       return result ? toBlobObject(pathname, result.etag, result.metadata as StoredMetadata) : null
     },
     async list(listOptions = {}) {
-      const result = await store.list({
+      const pages = store.list({
         directories: listOptions.folded,
+        paginate: true,
         prefix: listOptions.prefix,
       })
       const offset = Number.parseInt(listOptions.cursor || "0") || 0
       const limit = listOptions.limit ?? 1000
-      const selected = result.blobs.slice(offset, offset + limit)
+      const selected: Array<{ etag: string, key: string }> = []
+      const folders = new Set<string>()
+      let seen = 0
+      let hasMore = false
+      for await (const page of pages) {
+        for (const directory of page.directories) folders.add(directory)
+        for (const blob of page.blobs) {
+          if (seen++ < offset) continue
+          if (selected.length === limit) {
+            hasMore = true
+            break
+          }
+          selected.push(blob)
+        }
+        if (hasMore) break
+      }
       const blobs = await Promise.all(selected.map(async ({ etag, key }) => {
         const metadata = await store.getMetadata(key, { consistency: options.consistency })
         return toBlobObject(key, etag, metadata?.metadata as StoredMetadata | undefined)
@@ -67,9 +86,9 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       const nextOffset = offset + selected.length
       return {
         blobs,
-        cursor: nextOffset < result.blobs.length ? String(nextOffset) : undefined,
-        folders: listOptions.folded ? result.directories : undefined,
-        hasMore: nextOffset < result.blobs.length,
+        cursor: hasMore ? String(nextOffset) : undefined,
+        folders: listOptions.folded ? [...folders] : undefined,
+        hasMore,
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {

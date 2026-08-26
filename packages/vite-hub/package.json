@@ -167,7 +167,7 @@
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@microsoft/microsoft-graph-client": "catalog:storage",
-    "@netlify/blobs": "catalog:storage",
+    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@^11.0.1",
     "@supabase/storage-js": "catalog:storage",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
