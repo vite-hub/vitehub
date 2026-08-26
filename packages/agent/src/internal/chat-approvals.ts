@@ -105,7 +105,7 @@ function uiApprovalPart(
   if (part.state !== "approval-requested" && part.state !== "approval-responded") return
   const approval = part.approval
   if (!isRecord(approval) || !isRuntimeString(approval.id)) return
-  return { approval, record: part }
+  return { approval: { ...approval, id: approval.id }, record: part }
 }
 
 export function resolveAgentChatApprovalTtl(maximumTtlMs?: number): number {
