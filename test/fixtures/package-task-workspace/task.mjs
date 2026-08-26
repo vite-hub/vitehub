@@ -9,6 +9,12 @@ const failures = new Map(
     .filter(Boolean)
     .map(entry => entry.split("=")),
 )
+const buildFailures = new Map(
+  (process.env.VITEHUB_FIXTURE_BUILD_FAILURES ?? "")
+    .split(",")
+    .filter(Boolean)
+    .map(entry => entry.split("=")),
+)
 const signals = new Set((process.env.VITEHUB_FIXTURE_SIGNALS ?? "").split(",").filter(Boolean))
 
 function record(event) {
@@ -30,4 +36,4 @@ if (phase === "test" && signals.has(name)) {
 }
 
 record("end")
-process.exit(phase === "test" ? Number(failures.get(name) ?? 0) : 0)
+process.exit(Number((phase === "build" ? buildFailures : failures).get(name) ?? 0))

@@ -60,7 +60,7 @@ describe("package task runner", () => {
   it("aggregates independent failures, skips dependents, and builds the diamond once", async () => {
     const result = await runFixture(
       ["@fixture/app", "@fixture/core", "@vite-hub/env", "@vite-hub/markdown-template", "@vite-hub/runtime"],
-      { VITEHUB_FIXTURE_DELAY: "30", VITEHUB_FIXTURE_FAILURES: "@vite-hub/env=3,@vite-hub/markdown-template=7" },
+      { VITEHUB_FIXTURE_DELAY: "500", VITEHUB_FIXTURE_FAILURES: "@vite-hub/env=3,@vite-hub/markdown-template=7" },
     )
 
     expect(result.code).toBe(1)
@@ -110,6 +110,19 @@ describe("package task runner", () => {
       "test:start:@fixture/serial-b",
       "test:end:@fixture/serial-b",
     ])
+  })
+
+  it("skips a package test and its dependents after its build fails", async () => {
+    const result = await runFixture(
+      ["@fixture/app", "@vite-hub/env"],
+      { VITEHUB_FIXTURE_BUILD_FAILURES: "@vite-hub/env=5" },
+    )
+
+    expect(result.code).toBe(5)
+    expect(result.summary).toContain("| @vite-hub/env | failed (exit 5) | skipped: build did not pass |")
+    expect(result.summary).toContain("| @fixture/app | skipped: dependency @vite-hub/env did not pass | skipped: build did not pass |")
+    expect(result.log).not.toContain("test:start:@vite-hub/env")
+    expect(result.log).not.toContain("test:start:@fixture/app")
   })
 
   it("propagates a package signal as the aggregate exit status", async () => {
