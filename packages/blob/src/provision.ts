@@ -58,6 +58,7 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
     }
     if (cursor) query.cursor = cursor
     const listed = await request<{ buckets?: CloudflareR2Bucket[] }>("/r2/buckets", {
+      parse: parseCloudflareBuckets,
       query,
     })
     for (const bucket of listed.result?.buckets ?? []) {
@@ -84,7 +85,9 @@ async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, buc
     const duplicate = error instanceof ProvisionRequestError
       && (error.status === 409 || (error.status === 400 && error.codes.includes(10004)))
     if (!duplicate) throw error
-    const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`)
+    const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`, {
+      parse: parseCloudflareBucket,
+    })
     if (existing.result?.name !== bucketName) throw error
   }
 }
@@ -108,6 +111,10 @@ function parseVercelBlobStoreCreateResponse(value: unknown): VercelBlobStoreCrea
 }
 
 function parseCloudflareBuckets(value: unknown): { buckets?: CloudflareR2Bucket[] } {
+  return parseObject(value)
+}
+
+function parseCloudflareBucket(value: unknown): CloudflareR2Bucket {
   return parseObject(value)
 }
 
