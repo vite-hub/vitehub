@@ -51,6 +51,7 @@ async function runFixture(packages: string[], env: NodeJS.ProcessEnv = {}) {
     return { ...result, code: 0, log: await readFile(log, "utf8"), summary: await readFile(summary, "utf8") }
   }
   catch (error) {
+    // SAFETY: execFile rejects with an ExecFileException augmented with the captured output.
     const failure = error as Error & { code: number, stderr: string, stdout: string }
     return { code: failure.code, stderr: failure.stderr, stdout: failure.stdout, log: await readFile(log, "utf8"), summary: await readFile(summary, "utf8") }
   }
