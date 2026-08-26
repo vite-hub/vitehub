@@ -10,6 +10,13 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = join(repoRoot, "fixtures/docs-hosts")
 const hostFixtures = ["cloudflare", "vercel", "netlify", "deno", "node-self-hosted"] as const
+const hostArtifacts: Record<(typeof hostFixtures)[number], string> = {
+  cloudflare: ".output/server/wrangler.json",
+  deno: ".vitehub/agent/deno-server.ts",
+  netlify: ".netlify/v1/functions/vitehub-agent.mjs",
+  "node-self-hosted": "dist/index.html",
+  vercel: ".vercel/output/config.json",
+}
 
 interface SnippetContract {
   fixture: string
@@ -76,7 +83,10 @@ describe("host documentation fixtures", () => {
           VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host,
         })
 
-        await expect(readFile(join(appRoot, "dist/index.html"), "utf8"), `${host} should emit a Vite application`).resolves.toContain("/assets/")
+        await expect(
+          readFile(join(appRoot, hostArtifacts[host]), "utf8"),
+          `${host} should emit its documented deployment artifact`,
+        ).resolves.not.toHaveLength(0)
       }
     }
     finally {
@@ -94,5 +104,10 @@ describe("host documentation fixtures", () => {
     expect(builtHosts).toEqual([...hostFixtures].sort())
     expect(contracts.filter(contract => contract.verification === "json")).toHaveLength(1)
     expect(contracts.every(contract => !contract.fixture.startsWith("../") && !contract.page.startsWith("../"))).toBe(true)
+
+    for (const contract of contracts.filter(contract => contract.verification === "json")) {
+      const source = await readFile(join(fixturesRoot, contract.fixture), "utf8")
+      expect(() => JSON.parse(source), contract.fixture).not.toThrow()
+    }
   })
 })
