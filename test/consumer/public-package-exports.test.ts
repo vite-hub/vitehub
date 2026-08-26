@@ -221,12 +221,20 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
   const modules = publicPackageExportContracts.filter(contract =>
     contract.packageName === packageName && contract.target.endsWith(".js"),
   )
-  const source = modules.map((contract, index) => [
-    `import type * as Export${index} from ${JSON.stringify(contract.specifier)}`,
-    `type Contract${index} = typeof Export${index}`,
-    `declare const contract${index}: Contract${index}`,
-    `void contract${index}`,
-  ].join("\n")).join("\n")
+  const ambientModules: Record<string, string> = {
+    "@vite-hub/blob": "#vitehub/blob/config",
+    "@vite-hub/kv": "#vitehub/kv/config",
+  }
+  const ambientModule = ambientModules[packageName]
+  const source = [
+    ...modules.map((contract, index) => [
+      `import type * as Export${index} from ${JSON.stringify(contract.specifier)}`,
+      `type Contract${index} = typeof Export${index}`,
+      `declare const contract${index}: Contract${index}`,
+      `void contract${index}`,
+    ].join("\n")),
+    ...(ambientModule ? [`import type * as AmbientModule from ${JSON.stringify(ambientModule)}`, "void (undefined as unknown as typeof AmbientModule)"] : []),
+  ].join("\n")
   await writeFile(join(runnerDir, "exports.ts"), `${source}\n`, "utf8")
   const sourcePath = join(runnerDir, "exports.ts")
   const options: ts.CompilerOptions = {
