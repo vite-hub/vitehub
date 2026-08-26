@@ -1,5 +1,3 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
-
 import { executeHttpRequest } from "../src/http-request.ts"
 
 afterEach(() => {
