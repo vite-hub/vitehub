@@ -3,7 +3,11 @@ import { isDeepStrictEqual } from "node:util"
 import { mergeProviderOutputConfig } from "./provider-output-config.ts"
 import type { CloudflareProviderOutputValue, ProviderOutputCatalog } from "./provider-output-catalog.ts"
 
-const providerOutputCatalogByNitroValue = new WeakMap<object, ProviderOutputCatalog>()
+const providerOutputCatalogRegistry = globalThis as typeof globalThis & {
+  __vitehubProviderOutputCatalogsByNitroValue?: WeakMap<object, ProviderOutputCatalog>
+}
+const providerOutputCatalogByNitroValue = providerOutputCatalogRegistry.__vitehubProviderOutputCatalogsByNitroValue
+  ??= new WeakMap<object, ProviderOutputCatalog>()
 
 function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
