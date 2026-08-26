@@ -98,15 +98,16 @@ describe("createEmail", () => {
       unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" },
     })
 
-    expect(driver.send).toHaveBeenCalledWith(expect.objectContaining({
+    const preparedMessage = vi.mocked(driver.send).mock.calls[0]![0]
+    expect(preparedMessage).toEqual(expect.objectContaining({
       headers: expect.objectContaining({
         "List-Unsubscribe": "<https://example.com/unsubscribe>, <mailto:leave@example.com>",
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
       }),
-      personalizations: undefined,
       subject: "Personal welcome",
       to: "jane@example.com",
-    }), expect.anything())
+    }))
+    expect(preparedMessage).not.toHaveProperty("personalizations")
   })
 
   it("serializes concurrent initialization for an eager driver", async () => {

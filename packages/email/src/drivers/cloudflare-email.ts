@@ -47,6 +47,7 @@ function bodyPart(message: EmailMessage): { contentType: string, lines: string[]
     return {
       contentType: `multipart/alternative; boundary="${boundary}"`,
       lines: [
+        "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=utf-8",
         "Content-Transfer-Encoding: 8bit",
@@ -63,8 +64,13 @@ function bodyPart(message: EmailMessage): { contentType: string, lines: string[]
   }
   return {
     contentType: message.html !== undefined ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
-    lines: [message.html ?? message.text ?? ""],
+    lines: ["Content-Transfer-Encoding: 8bit", "", message.html ?? message.text ?? ""],
   }
+}
+
+function headerValue(headers: Record<string, string> | undefined, name: string): string | undefined {
+  const normalizedName = name.toLowerCase()
+  return Object.entries(headers ?? {}).find(([header]) => header.toLowerCase() === normalizedName)?.[1]
 }
 
 function rawMessage(message: EmailMessage, id: string): string {
@@ -80,14 +86,13 @@ function rawMessage(message: EmailMessage, id: string): string {
     "MIME-Version: 1.0",
     ...Object.entries(message.headers ?? {}).filter(([name]) => name.toLowerCase() !== "message-id").map(([name, value]) => `${safeHeader(name)}: ${safeHeader(value)}`),
   ]
-  if (!message.attachments?.length) return [...headers, `Content-Type: ${body.contentType}`, "", ...body.lines].join("\r\n")
+  if (!message.attachments?.length) return [...headers, `Content-Type: ${body.contentType}`, ...body.lines].join("\r\n")
   return [
     ...headers,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     "",
     `--${boundary}`,
     `Content-Type: ${body.contentType}`,
-    "",
     ...body.lines,
     ...message.attachments.map(value => attachmentPart(boundary, value)),
     `--${boundary}--`,
@@ -111,7 +116,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         ]
         if (!from || recipients.length === 0) return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "from and to are required.") }
         if (recipients.length > 1) return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email supports exactly one envelope recipient per message.") }
-        const id = message.headers?.["Message-ID"] ?? `<${crypto.randomUUID()}@vitehub.email>`
+        const id = headerValue(message.headers, "message-id") ?? `<${crypto.randomUUID()}@vitehub.email>`
         const raw = rawMessage(message, id)
         await options.binding.send(new Constructor(addressValue(from).email, addressValue(recipients[0]!).email, raw))
         return { data: { at: new Date(), driver: "cloudflare-email", id }, error: null }

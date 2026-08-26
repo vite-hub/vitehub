@@ -21,6 +21,10 @@ resend({ apiKey: "re_secret" }) satisfies EmailDriver
 const _lazyDriver = (() => resend({ apiKey: "re_secret" })) satisfies EmailDriverFactory
 declare const message: EmailMessage
 
+// @ts-expect-error Email messages have one envelope sender.
+const multipleSenders: EmailMessage = { from: ["first@example.com", "second@example.com"], subject: "Hello", to: "reader@example.com" }
+void multipleSenders
+
 hubEmail({ driver: "resend" })
 // @ts-expect-error Email requires a configured provider.
 hubEmail()
@@ -38,6 +42,7 @@ it("exports the portable Email contract", () => {
   expectTypeOf(email.send).parameters.toEqualTypeOf<[message: EmailMessage]>()
   expectTypeOf(email.send).returns.toEqualTypeOf<Promise<EmailSendResult>>()
   expectTypeOf(message.to).toEqualTypeOf<EmailAddressList>()
+  expectTypeOf(message.from).toEqualTypeOf<EmailAddress>()
 })
 
 it("exports Markdown and test helpers from dedicated entrypoints", () => {

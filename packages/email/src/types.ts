@@ -58,7 +58,7 @@ export interface EmailUnsubscribeOptions {
 }
 
 export interface EmailMessage {
-  from: EmailAddressList
+  from: EmailAddress
   to: EmailAddressList
   cc?: EmailAddressList
   bcc?: EmailAddressList

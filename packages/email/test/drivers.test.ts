@@ -130,6 +130,28 @@ describe("Cloudflare Email driver", () => {
     expect(Constructor.mock.calls[0]![2]).toContain("aGVsbG8=")
   })
 
+  it.each([
+    ["text", "Gr\u00fc\u00dfe", "text/plain"],
+    ["html", "<p>Gr\u00fc\u00dfe</p>", "text/html"],
+  ] as const)("declares UTF-8 transfer encoding for attached %s bodies", async (field, content, contentType) => {
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
+
+    await driver.send({ ...message, html: undefined, text: undefined, [field]: content }, context)
+
+    const raw = Constructor.mock.calls[0]![2] as string
+    expect(raw).toContain(`Content-Type: ${contentType}; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${content}`)
+  })
+
+  it("preserves a case-insensitive custom message ID", async () => {
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
+
+    await expect(driver.send({ ...message, headers: { "message-id": "<stable@example.com>" } }, context))
+      .resolves.toMatchObject({ data: { id: "<stable@example.com>" }, error: null })
+    expect(Constructor.mock.calls[0]![2]).toContain("Message-ID: <stable@example.com>")
+  })
+
   it("folds attachment base64 and escapes quoted filenames", async () => {
     const Constructor = vi.fn()
     const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
