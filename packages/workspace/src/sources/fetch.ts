@@ -52,6 +52,7 @@ type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof 
 export interface FetchSourceCredentialOptions {
   cookies?: Record<string, string>
   headers?: Record<string, string>
+  maxResponseBytes?: number
   timeout?: number
 }
 
@@ -85,6 +86,7 @@ export interface FetchSourceOptions<TResponse = unknown, TOutput = TResponse> ex
   cookies?: Record<string, string>
   headers?: Record<string, string>
   method?: FetchSourceMethod
+  maxResponseBytes?: number
   query?: Record<string, unknown>
   querySchema?: FetchSourceStandardJsonSchemaV1<Record<string, unknown>>
   request?: FetchSourceRequest
@@ -333,6 +335,7 @@ async function defaultFetchSourceRequest(
       ...additions?.headers,
     },
     method,
+    maxResponseBytes: additions?.maxResponseBytes ?? options.maxResponseBytes,
     query,
     timeout: additions?.timeout ?? options.timeout,
   }
