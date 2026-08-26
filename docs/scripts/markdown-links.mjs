@@ -79,7 +79,7 @@ function frontmatterLinks(frontmatter) {
   return links;
 }
 
-export function markdownAnchors(markdown) {
+export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const anchors = new Set();
   const occurrences = new Map();
   visit(parseMarkdown(markdown), (node) => {
@@ -92,7 +92,7 @@ export function markdownAnchors(markdown) {
       occurrences.set(rawBase, count);
       rawAnchor = `${rawBase}-${count}`;
     }
-    const anchor = markdownSlug(rawAnchor);
+    const anchor = renderer === "github" ? rawAnchor : markdownSlug(rawAnchor);
     if (!anchor) return;
     anchors.add(anchor);
     occurrences.set(rawAnchor, 0);
@@ -219,7 +219,12 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   for (const route of routeFiles.keys()) {
     if (route !== "/") knownRoutes.add(`/raw${route}.md`);
   }
-  const anchors = new Map(markdownFiles.map((path) => [path, markdownAnchors(readFileSync(path, "utf8"))]));
+  const anchors = new Map(markdownFiles.map((path) => [
+    path,
+    markdownAnchors(readFileSync(path, "utf8"), {
+      renderer: path.startsWith(`${contentRoot}${sep}`) ? "mdc" : "github",
+    }),
+  ]));
   const errors = [];
   let checked = 0;
 

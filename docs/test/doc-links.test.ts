@@ -114,6 +114,22 @@ https://vitehub.dev/docs/bare-autolink
     expect([...markdownAnchors("Install\n---")]).toEqual(["install"]);
   });
 
+  it("uses GitHub anchors for public package READMEs", () => {
+    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B", { renderer: "github" })]).toEqual([
+      "123-start",
+      "--trim--",
+      "a---b",
+    ]);
+
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "packages/example/package.json": JSON.stringify({ name: "example" }),
+      "packages/example/README.md": "# Example\n\n[Numeric](#123-start)\n\n## 123 start",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
   it("accepts relative routes and anchors across docs and public package READMEs", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
