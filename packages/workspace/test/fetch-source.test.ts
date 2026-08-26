@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, fetch, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createWorkspaceSourceRequestExecution } from "../src/sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
@@ -132,7 +132,7 @@ describe("fetch sources", () => {
 
   it("enforces response limits for request-only fetch Sources", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
-    const execution = createWorkspaceSourceRequestExecution(defineWorkspace({
+    registerWorkspace("fetch-request-bounded", defineWorkspace({
       sources: {
         status: fetch({
           maxResponseBytes: 4,
@@ -142,6 +142,8 @@ describe("fetch sources", () => {
       },
       store: { provider: "memory" },
     }))
+    const definition = await resolveRegisteredWorkspaceDefinition("fetch-request-bounded")
+    const execution = createWorkspaceSourceRequestExecution(definition)
 
     await expect(execution?.executeSourceRequest({
       method: "GET",
