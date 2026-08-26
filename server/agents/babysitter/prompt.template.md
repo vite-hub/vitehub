@@ -22,6 +22,15 @@ Choose one result.
 
 This pass may post only the direction comment, one review request, or a comment required to coordinate the authorized branch change.
 
+## Final response
+
+Begin the final response with exactly one of these invisible disposition markers:
+
+- `<!-- babysitter:disposition:park -->` after pushing a repair, while checks or reviews are pending, or after recording a current external blocker. A later GitHub state change will wake the next pass.
+- `<!-- babysitter:disposition:retry -->` when actionable work remains but this pass made no authorized GitHub state change that can wake the next pass. Use retry when a failed check remains unfixed, including when local validation or diagnosis could not complete.
+
+If the pull request was merged or closed, use `park`; its terminal GitHub state takes precedence. After the marker, return a compact maintainer update with the outcome, change made, focused validation, and current blocker or next gate.
+
 ## Merge gate
 
 Refresh the head, checks, review threads, Codex signals, and Pullfrog state immediately before merging. Merge only when:

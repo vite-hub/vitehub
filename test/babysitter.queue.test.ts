@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  completedPassFingerprint,
   defaultMaxOwners,
   type PullRequest,
   pullRequestFingerprint,
@@ -95,6 +96,44 @@ test('parks every successful open pass until its observed state changes', () => 
 
   assert.equal(successfulPassFingerprint('vite-hub/vitehub', current), pullRequestFingerprint('vite-hub/vitehub', current))
   assert.equal(successfulPassFingerprint('vite-hub/vitehub', { ...current, state: 'MERGED' }), undefined)
+})
+
+test('completes only an explicitly parkable pass', () => {
+  const current = pullRequest(1)
+
+  assert.equal(
+    completedPassFingerprint(
+      'vite-hub/vitehub',
+      current,
+      '<!-- babysitter:disposition:park -->\nWaiting for exact-head checks.',
+    ),
+    pullRequestFingerprint('vite-hub/vitehub', current),
+  )
+  assert.equal(
+    completedPassFingerprint(
+      'vite-hub/vitehub',
+      current,
+      '<!-- babysitter:disposition:retry -->\nRequired CI still fails.',
+    ),
+    undefined,
+  )
+  assert.equal(
+    completedPassFingerprint(
+      'vite-hub/vitehub',
+      current,
+      { text: '<!-- babysitter:disposition:park -->\nWaiting for exact-head review.' },
+    ),
+    pullRequestFingerprint('vite-hub/vitehub', current),
+  )
+  assert.equal(completedPassFingerprint('vite-hub/vitehub', current, 'Unchanged.'), undefined)
+  assert.equal(
+    completedPassFingerprint(
+      'vite-hub/vitehub',
+      { ...current, state: 'MERGED' },
+      '<!-- babysitter:disposition:park -->',
+    ),
+    undefined,
+  )
 })
 
 test('wakes a parked pass for reviewer activity', () => {

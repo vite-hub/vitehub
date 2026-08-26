@@ -1,8 +1,10 @@
 import { createError, defineEventHandler, getRouterParam } from 'h3'
 import { invocations } from '../../invocations.ts'
+import { decodeInvocationRouteId, resolveBabysitterInvocation } from '../../invocation-lookup.ts'
 
 export default defineEventHandler(async (event) => {
-  const invocation = await invocations.get(getRouterParam(event, 'id') || '')
+  const id = decodeInvocationRouteId(getRouterParam(event, 'id') || '')
+  const invocation = await resolveBabysitterInvocation(invocations, id)
   if (!invocation) throw createError({ status: 404, statusText: 'Invocation not found' })
   const { observations, ...summary } = invocation
   return { invocation: summary, observations }

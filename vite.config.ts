@@ -8,6 +8,8 @@ import { defaultMaxOwners } from './server/babysitter.queue.ts'
 import appConfig from './app/app.config.ts'
 
 export default defineConfig({
+  optimizeDeps: { exclude: ['vue-router'] },
+  resolve: { dedupe: ['vue', 'vue-router'] },
   env: {
     server: {
       babysitter: {

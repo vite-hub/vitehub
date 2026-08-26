@@ -13,11 +13,11 @@ import {
 } from './babysitter.operations.ts'
 import {
   type PullRequest,
+  completedPassFingerprint,
   resolveMaxOwners,
   resolveRepositories,
   runPullRequestJobs,
   selectPullRequestJobs,
-  successfulPassFingerprint,
 } from './babysitter.queue.ts'
 
 const pullRequestFields = 'body,comments,headRefName,headRefOid,headRepository,isDraft,mergeStateStatus,number,reviewDecision,reviews,state,statusCheckRollup,title,updatedAt,url'
@@ -53,7 +53,7 @@ export default defineSchedule({
         })
         try {
           const token = await githubToken({ refresh: true, repository })
-          await withPullRequestCheckout(repository, pullRequest, token, async checkout => {
+          const passResult = await withPullRequestCheckout(repository, pullRequest, token, async checkout => {
             const context = {
               pullRequestHead: pullRequest.headRefOid,
               pullRequestNumber: pullRequest.number,
@@ -63,7 +63,7 @@ export default defineSchedule({
               pullRequestTitle: pullRequest.title,
               pullRequestUrl: pullRequest.url,
             }
-            await runScheduledAgent(createBabysitterAgent(checkout, token), {
+            return await runScheduledAgent(createBabysitterAgent(checkout, token), {
               ...schedule,
               runId,
             }, {
@@ -85,10 +85,13 @@ export default defineSchedule({
           })
 
           const current = await readPullRequest(repository, pullRequest.number)
-          const fingerprint = successfulPassFingerprint(repository, current)
+          const fingerprint = completedPassFingerprint(repository, current, passResult)
           if (fingerprint) {
             const [error] = await kv.set(job.completionKey, fingerprint)
             if (error) throw error
+          }
+          else if (current.state === 'OPEN') {
+            outcome = 'retry'
           }
         }
         catch (error) {

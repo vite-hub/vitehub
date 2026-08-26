@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
+const completionPolicyVersion = '2'
+const parkDisposition = '<!-- babysitter:disposition:park -->'
 
 export type PullRequest = {
   body: string
@@ -84,9 +86,25 @@ export async function runPullRequestJobs(
 }
 
 export function pullRequestFingerprint(repository: string, pullRequest: PullRequest) {
-  return createHash('sha256').update(repository).update(JSON.stringify(pullRequest)).digest('hex').slice(0, 16)
+  return createHash('sha256')
+    .update(completionPolicyVersion)
+    .update(repository)
+    .update(JSON.stringify(pullRequest))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+export function completedPassFingerprint(repository: string, pullRequest: PullRequest, result: unknown) {
+  return passResultText(result)?.split(/\r?\n/).includes(parkDisposition)
+    ? successfulPassFingerprint(repository, pullRequest)
+    : undefined
 }
 
 export function successfulPassFingerprint(repository: string, pullRequest: PullRequest) {
   return pullRequest.state === 'OPEN' ? pullRequestFingerprint(repository, pullRequest) : undefined
+}
+
+function passResultText(result: unknown) {
+  if (typeof result === 'string') return result
+  if (result && typeof result === 'object' && 'text' in result && typeof result.text === 'string') return result.text
 }

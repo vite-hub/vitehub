@@ -2,14 +2,12 @@
 import { AgentInvocation, AgentInvocationInspector, AgentInvocationList, type AgentInvocationConfiguration, type AgentInvocationListItem, type AgentInvocationView } from '@vite-hub/ui'
 import { useAgentInvocation, useAgentInvocations } from 'vite-hub/agent/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { syncFreshness } from './freshness'
 import { invocationContext, invocationProject, invocationSummary, invocationTitle } from './invocation-display'
 
 import type { SplitterItem } from '@nuxt/ui'
 import type { AgentInvocationRecordStatus } from 'vite-hub/agent'
 
-const selectedId = ref<string>()
-const lastSuccessfulPollAt = ref<Date>()
+const selectedId = ref<string | undefined>(typeof window === 'undefined' ? undefined : new URLSearchParams(window.location.search).get('invocation') || undefined)
 const nowMs = ref(Date.now())
 const query = ref('')
 const debouncedQuery = ref('')
@@ -25,7 +23,6 @@ const request = async <T,>(path: string, options: { signal?: AbortSignal }) => {
   const response = await fetch(path, { signal: options.signal })
   if (!response.ok) throw new Error(`Invocation request failed with status ${response.status}.`)
   const result = await response.json() as T
-  lastSuccessfulPollAt.value = new Date()
   return result
 }
 
@@ -55,7 +52,7 @@ const sessionItems = computed<AgentInvocationListItem[]>(() => invocations.value
   title: invocationTitle(invocation),
   updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
 })))
-const matchingDetail = computed(() => selected.value?.id === selectedId.value ? selected.value : undefined)
+const matchingDetail = computed(() => selected.value)
 const pullRequestUrl = computed(() => {
   const value = matchingDetail.value?.annotations?.['github.url']
   return typeof value === 'string' ? value : undefined
@@ -70,10 +67,6 @@ const splitterItems: SplitterItem[] = [
   { id: 'thread', slot: 'thread', minSize: 520, defaultSize: 820, sizeUnit: 'px', class: 'min-h-0 min-w-0 overflow-hidden' },
   { id: 'details', slot: 'details', minSize: 320, maxSize: 520, defaultSize: 380, sizeUnit: 'px', class: 'min-h-0 min-w-0 overflow-hidden' },
 ]
-const syncState = computed(() => syncFreshness(lastSuccessfulPollAt.value?.valueOf(), nowMs.value))
-const syncStale = computed(() => syncState.value.stale)
-const syncLabel = computed(() => syncState.value.label)
-
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
@@ -96,6 +89,11 @@ function loadOlder() {
 
 function selectInvocation(id: string) {
   selectedId.value = id
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href)
+    url.searchParams.set('invocation', id)
+    window.history.replaceState(window.history.state, '', url)
+  }
   sessionsOpen.value = false
 }
 
@@ -116,9 +114,14 @@ function updateDesktop(event?: MediaQueryListEvent) {
 }
 
 watch(invocations, (next) => {
-  if (!next.length) selectedId.value = undefined
-  else if (!selectedId.value || !next.some(invocation => invocation.id === selectedId.value)) selectedId.value = next[0]!.id
+  if (!next.length) return
+  if (!selectedId.value) selectInvocation(next[0]!.id)
+  else if (!next.some(invocation => invocation.id === selectedId.value) && !loadingDetail.value && !selected.value) selectInvocation(next[0]!.id)
 }, { immediate: true })
+
+watch(selected, (next) => {
+  if (next && selectedId.value !== next.id) selectInvocation(next.id)
+})
 
 watch(query, (value) => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -151,13 +154,13 @@ onBeforeUnmount(() => {
         :min-size="13"
         :max-size="22"
         :menu="{ title: 'Babysitter sessions', description: 'Browse read-only Agent Invocations.' }"
-        :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
+        :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'px-2 py-1' }"
         collapsible
         resizable
       >
         <template #header="{ collapsed }">
           <button type="button" class="flex min-w-0 items-center gap-2.5 rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-primary" @click="sessionsCollapsed = false">
-            <span class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5" aria-hidden="true"><i class="h-2/3 bg-inverted" /><i class="h-full bg-primary" /><i class="h-4/5 bg-inverted" /></span>
+            <span class="flex size-7 shrink-0 items-center justify-center" aria-hidden="true"><UIcon name="i-lucide-box" class="size-4 text-muted" /></span>
             <span v-if="!collapsed" class="grid min-w-0 leading-none"><small class="text-[10px] font-bold uppercase tracking-[.12em] text-muted">ViteHub</small><strong class="mt-1 truncate text-sm font-semibold text-highlighted">Babysitter</strong></span>
           </button>
         </template>
@@ -192,9 +195,9 @@ onBeforeUnmount(() => {
         </template>
 
         <template #footer="{ collapsed, collapse }">
-          <template v-if="!collapsed"><span class="flex items-center gap-1.5 text-xs text-muted"><UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only</span><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-dimmed'">{{ syncLabel }}</span></template>
-          <UTooltip v-if="collapsed" text="Refresh sessions"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs" :disabled="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" /></UTooltip>
-          <UButton class="max-lg:hidden" :class="collapsed ? '' : 'ml-1'" :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" color="neutral" variant="ghost" size="xs" :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'" @click="collapse(!collapsed)" />
+          <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
+            <UButton class="max-lg:hidden" :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" color="neutral" variant="ghost" size="xs" :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'" @click="collapse(!collapsed)" />
+          </UTooltip>
         </template>
       </UDashboardSidebar>
 

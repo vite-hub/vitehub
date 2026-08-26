@@ -40,3 +40,11 @@ test('waits for Codex and Pullfrog to finish before merging', async () => {
   assert.match(prompt, /While the run is queued or running, stop unchanged/)
   assert.match(prompt, /A failed or cancelled run, or a review for another head, blocks the merge/)
 })
+
+test('returns a machine-readable completion disposition', async () => {
+  const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
+
+  assert.match(prompt, /<!-- babysitter:disposition:park -->/)
+  assert.match(prompt, /<!-- babysitter:disposition:retry -->/)
+  assert.match(prompt, /failed check remains unfixed/)
+})
