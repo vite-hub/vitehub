@@ -1,6 +1,7 @@
 import {
   createCloudflareProvisionClient,
   createVercelProvisionClient,
+  ProvisionRequestError,
   resolveCloudflareProvisionConfig,
   resolveVercelProvisionConfig,
 } from "@vite-hub/internal/provision"
@@ -19,8 +20,13 @@ interface VercelBlobStore {
   access?: "private" | "public"
   id?: string
   name?: string
-  projectsMetadata?: Array<{ projectId?: string }>
+  projectsMetadata?: VercelBlobProjectMetadata[]
   type?: string
+}
+
+interface VercelBlobProjectMetadata {
+  environments?: string[]
+  projectId?: string
 }
 
 interface VercelBlobStoresResponse {
@@ -31,9 +37,63 @@ interface VercelBlobStoreCreateResponse {
   store?: VercelBlobStore
 }
 
+interface VercelBlobStoreResponse {
+  store?: VercelBlobStore
+}
+
 const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
 const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
+
+function vercelConnectionState(store: VercelBlobStore, projectId: string): "absent" | "equivalent" | "mismatched" {
+  const connection = store.projectsMetadata?.find(project => project.projectId === projectId)
+  if (!connection) return "absent"
+  return VERCEL_PROJECT_ENVIRONMENTS.every(environment => connection.environments?.includes(environment))
+    ? "equivalent"
+    : "mismatched"
+}
+
+async function readVercelBlobStore(
+  request: ReturnType<typeof createVercelProvisionClient>,
+  storeId: string,
+): Promise<VercelBlobStore> {
+  const response = await request<VercelBlobStoreResponse>(`/storage/stores/${storeId}`)
+  if (!response.store) {
+    throw new Error("Vercel Blob provisioning did not return store metadata.")
+  }
+  return response.store
+}
+
+async function ensureVercelBlobConnection(
+  request: ReturnType<typeof createVercelProvisionClient>,
+  storeId: string,
+  projectId: string,
+): Promise<void> {
+  const state = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
+  if (state === "equivalent") return
+  if (state === "mismatched") {
+    throw new Error("Vercel Blob is connected to the project without all required environments.")
+  }
+
+  try {
+    await request(`/v1/storage/stores/${storeId}/connections`, {
+      method: "POST",
+      body: {
+        envVarEnvironments: VERCEL_PROJECT_ENVIRONMENTS,
+        projectId,
+      },
+    })
+  }
+  catch (error) {
+    if (!(error instanceof ProvisionRequestError) || error.status !== 400) throw error
+    const current = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
+    if (current === "equivalent") return
+    if (current === "mismatched") {
+      throw new Error("Vercel Blob is connected to the project without all required environments.")
+    }
+    throw error
+  }
+}
 
 function resolvedStores(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
   const config = resolveBlobViteConfig(options, { env })
@@ -113,16 +173,7 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
           if (!store?.id) {
             throw new Error("Vercel Blob provisioning did not return a store id.")
           }
-          if (!store.projectsMetadata?.some(project => project.projectId === projectId)) {
-            await request(`/v1/storage/stores/${store.id}/connections`, {
-              method: "POST",
-              body: {
-                envVarEnvironments: VERCEL_PROJECT_ENVIRONMENTS,
-                projectId,
-                type: "integration",
-              },
-            })
-          }
+          await ensureVercelBlobConnection(request, store.id, projectId)
           return {}
         },
       }]

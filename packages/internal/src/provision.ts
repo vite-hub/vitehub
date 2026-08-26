@@ -72,6 +72,16 @@ interface ProvisionRequestOptions {
 
 export type ProvisionRequest = <T>(path: string, options?: ProvisionRequestOptions) => Promise<T>
 
+export class ProvisionRequestError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "ProvisionRequestError"
+    this.status = status
+  }
+}
+
 // Minimal JSON REST client for provisioning. Uses the provided fetch; no SDK dependency.
 function createJsonClient(baseURL: string, headers: Record<string, string>, fetchImpl: typeof globalThis.fetch, baseQuery?: Record<string, string>): ProvisionRequest {
   return async function request<T>(path: string, options: ProvisionRequestOptions = {}): Promise<T> {
@@ -86,7 +96,7 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
     }
     const response = await fetchImpl(url, init)
     if (!response.ok) {
-      throw new Error(`Provision request failed: ${options.method ?? "GET"} ${path} (${response.status}).`)
+      throw new ProvisionRequestError(`Provision request failed: ${options.method ?? "GET"} ${path} (${response.status}).`, response.status)
     }
     return await response.json() as T
   }
