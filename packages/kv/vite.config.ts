@@ -9,6 +9,15 @@ export default defineConfig({
       onlyBundle: false,
     },
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
+    plugins: [{
+      name: "kv-virtual-declarations",
+      generateBundle(_options, bundle) {
+        const chunk = bundle["virtual.d.ts"]
+        if (chunk?.type === "chunk") {
+          chunk.code = `/// <reference path="./virtual-module.d.ts" />\n${chunk.code}`
+        }
+      },
+    }],
     entry: ["src/errors.ts", "src/index.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
     exports: {
       inlinedDependencies: false,

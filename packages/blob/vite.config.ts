@@ -9,6 +9,15 @@ export default defineConfig({
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
+    plugins: [{
+      name: "blob-virtual-declarations",
+      generateBundle(_options, bundle) {
+        const chunk = bundle["virtual.d.ts"]
+        if (chunk?.type === "chunk") {
+          chunk.code = `/// <reference path="./virtual-module.d.ts" />\n${chunk.code}`
+        }
+      },
+    }],
     entry: [
       "src/config.ts",
       "src/content-type.ts",

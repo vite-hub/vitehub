@@ -55,7 +55,6 @@
     "lib0": "catalog:realtime",
     "marked": "catalog:realtime",
     "pathe": "catalog:unjs",
-    "prosemirror-transform": "catalog:realtime",
     "y-protocols": "catalog:realtime",
     "y-websocket": "catalog:realtime",
     "yjs": "catalog:realtime"
