@@ -986,7 +986,6 @@ describe("agent Vite plugin", () => {
   })
 
   it("publishes the conventional Netlify chat path", async () => {
-    const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const previousHosting = process.env.VITEHUB_HOSTING
     process.env.VITEHUB_HOSTING = "netlify"
@@ -1003,9 +1002,6 @@ describe("agent Vite plugin", () => {
         resolve: { alias: [] }
         root: string
       }) => Promise<void>
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      vi.mocked(writeProviderDeploymentOutputs).mockClear()
-
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
@@ -1017,19 +1013,10 @@ describe("agent Vite plugin", () => {
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain('const chatRoutePattern = new RegExp("^/api/_vitehub/agents/[^/]+/chat$")')
       expect(wrapper).toContain("createChannelChatRouteHandler")
-      expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(
-        expect.objectContaining({
-          netlify: expect.objectContaining({
-            functions: [
-              expect.objectContaining({
-                config: expect.objectContaining({
-                  path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
-                }),
-              }),
-            ],
-          }),
-        }),
-      )
+      const generated = await readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")
+      expect(generated).toContain('"path": [')
+      expect(generated).toContain('"/api/_vitehub/agents/:agent/chat"')
+      expect(generated).toContain('"/api/_vitehub/agents/:agent/webhooks/:webhook"')
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
@@ -1106,7 +1093,6 @@ describe("agent Vite plugin", () => {
   })
 
   it("cleans stale Netlify agent output when generated routes are disabled", async () => {
-    const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-cleanup-"))
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -1121,7 +1107,9 @@ describe("agent Vite plugin", () => {
         resolve: { alias: [] }
         root: string
       }) => Promise<void>
-      vi.mocked(writeProviderDeploymentOutputs).mockClear()
+      const staleFunction = join(root, ".netlify/v1/functions/vitehub-agent.mjs")
+      await mkdir(join(root, ".netlify/v1/functions"), { recursive: true })
+      await writeFile(staleFunction, "export default {}\n", "utf8")
 
       await configResolved({
         build: { outDir: "dist/client" },
@@ -1131,15 +1119,7 @@ describe("agent Vite plugin", () => {
       })
       await runProviderOutputHooks(plugin)
 
-      expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
-        cleanup: {
-          netlify: {
-            functionNames: ["vitehub-agent"],
-          },
-        },
-        clientOutDir: "dist/client",
-        rootDir: root,
-      })
+      await expect(readFile(staleFunction, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
