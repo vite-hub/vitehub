@@ -7,7 +7,9 @@
     "backend_family": "",
     "completeness": "complete"
   },
-  "unused_files": [],
+  "unused_files": [
+    "test/fixtures/package-task-workspace/task.mjs"
+  ],
   "unused_exports": [],
   "unused_types": [],
   "private_type_leaks": [],
