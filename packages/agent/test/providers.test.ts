@@ -8040,7 +8040,11 @@ describe("server helpers", () => {
 
     try {
       stop = handler.resume(options)
-      const first = await handler(request("delivery-1"), "github", options)
+      const first = await withDeadline(
+        handler(request("delivery-1"), "github", options),
+        3_000,
+        "First queued webhook admission did not finish.",
+      )
       await expect(first.json()).resolves.toEqual({
         accepted: true,
         duplicate: false,
@@ -8245,8 +8249,10 @@ describe("server helpers", () => {
         },
         method: "POST",
       })
+    const waitUntilTasks: Promise<unknown>[] = []
     const options = {
       agentName: "review",
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
       webhookState: (context: { request?: Request }) => {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         const tenant = context.request?.headers.get("x-tenant") as keyof typeof stateUrls
@@ -8283,6 +8289,7 @@ describe("server helpers", () => {
     } finally {
       releases.splice(0).forEach((release) => release())
       await Promise.all(runCompleted.slice(0, startedRuns).map(({ promise }) => promise))
+      await withDeadline(Promise.all(waitUntilTasks), 3_000, "State-scoped webhook queue executions did not settle.")
       await Promise.all(states.map((state) => state.disconnect().catch(() => undefined)))
       await rm(stateDir, { force: true, recursive: true })
     }
