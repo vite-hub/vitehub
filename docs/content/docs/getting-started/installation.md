@@ -21,10 +21,12 @@ first call.
 
 ## Install the framework distribution
 
-Add `vite-hub` to an existing Vite application.
+Add `vite-hub` and Nitro to an existing Vite application. Raw Vite applications
+register Nitro's Vite integration for framework preset builds. Nuxt provides its
+own Nitro integration.
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub nitro
 ```
 
 Register the framework integration in Vite.

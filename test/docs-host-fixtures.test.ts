@@ -18,7 +18,10 @@ const hostArtifacts: Record<(typeof hostFixtures)[number], string[]> = {
     ".netlify/v1/functions/vitehub-schedule-heartbeat.mjs",
   ],
   "node-self-hosted": [".output/server/index.mjs"],
-  vercel: [".vercel/output/config.json"],
+  vercel: [
+    ".vercel/output/config.json",
+    ".vercel/output/functions/__server.func/index.mjs",
+  ],
 }
 
 interface SnippetContract {
