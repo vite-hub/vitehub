@@ -31,7 +31,7 @@ function resolveEmailDriver(source: EmailDriverSource): Promise<EmailDriver> {
 export function createEmail(options: EmailDefinition): EmailClient {
   if (!options || typeof options !== "object" || !("driver" in options)) throw new TypeError("`createEmail()` expects an object with a driver.")
   if (typeof options.driver !== "function") assertEmailDriver(options.driver)
-  let initialized = false
+  let initialization: Promise<void> | undefined
 
   return {
     async send(message: EmailMessage): Promise<EmailSendResult> {
@@ -39,9 +39,12 @@ export function createEmail(options: EmailDefinition): EmailClient {
       try {
         const driver = await resolveEmailDriver(options.driver)
         driverName = driver.name
-        if (typeof options.driver === "function" || !initialized) {
+        if (typeof options.driver === "function") {
           await driver.initialize?.()
-          if (typeof options.driver !== "function") initialized = true
+        }
+        else {
+          initialization ??= Promise.resolve(driver.initialize?.())
+          await initialization
         }
         const result = await driver.send(message, { attempt: 1, driver: driver.name, meta: {}, signal: undefined, stream: message.stream })
         if (result.error) throw result.error

@@ -77,6 +77,24 @@ describe("createEmail", () => {
     expect(initialize).toHaveBeenCalledOnce()
   })
 
+  it("serializes concurrent initialization for an eager driver", async () => {
+    let finishInitialization: (() => void) | undefined
+    const initialize = vi.fn(() => new Promise<void>((resolve) => {
+      finishInitialization = resolve
+    }))
+    const driver = fixtureDriver()
+    const client = createEmail({ driver: { ...driver, initialize } })
+
+    const first = client.send(message)
+    const second = client.send(message)
+    await vi.waitFor(() => expect(initialize).toHaveBeenCalledOnce())
+    expect(driver.send).not.toHaveBeenCalled()
+
+    finishInitialization!()
+    await Promise.all([first, second])
+    expect(driver.send).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     ["INVALID_OPTIONS", "EMAIL_NOT_CONFIGURED"],
     ["AUTH", "EMAIL_AUTHENTICATION"],

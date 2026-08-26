@@ -68,6 +68,31 @@ describe("Cloudflare Email driver", () => {
     expect(send).toHaveBeenCalledOnce()
   })
 
+  it("sends to every envelope recipient", async () => {
+    const send = vi.fn()
+    const Constructor = vi.fn(function (this: Record<string, unknown>, from: string, to: string, raw: string) {
+      Object.assign(this, { from, raw, to })
+    })
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never })
+
+    await driver.send({
+      ...message,
+      bcc: "audit@example.com",
+      cc: { email: "reviewer@example.com", name: "Reviewer" },
+      to: ["maxi@example.com", "team@example.com"],
+    }, context)
+
+    expect(Constructor.mock.calls.map(([, to]) => to)).toEqual([
+      "maxi@example.com",
+      "team@example.com",
+      "reviewer@example.com",
+      "audit@example.com",
+    ])
+    expect(send).toHaveBeenCalledTimes(4)
+    expect(Constructor.mock.calls[0]![2]).toContain("Cc: Reviewer <reviewer@example.com>")
+    expect(Constructor.mock.calls[0]![2]).not.toContain("Bcc:")
+  })
+
   it("rejects header injection before sending", async () => {
     const send = vi.fn()
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })

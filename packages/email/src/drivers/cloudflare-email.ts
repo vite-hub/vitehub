@@ -71,10 +71,15 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
     async send(message) {
       try {
         const from = addresses(message.from)[0]
-        const to = addresses(message.to)[0]
-        if (!from || !to) return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "from and to are required.") }
+        const recipients = [
+          ...addresses(message.to),
+          ...(message.cc ? addresses(message.cc) : []),
+          ...(message.bcc ? addresses(message.bcc) : []),
+        ]
+        if (!from || recipients.length === 0) return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "from and to are required.") }
         const id = message.headers?.["Message-ID"] ?? `<${crypto.randomUUID()}@vitehub.email>`
-        await options.binding.send(new Constructor(addressValue(from).email, addressValue(to).email, rawMessage(message, id)))
+        const raw = rawMessage(message, id)
+        await Promise.all(recipients.map(recipient => options.binding.send(new Constructor(addressValue(from).email, addressValue(recipient).email, raw))))
         return { data: { at: new Date(), driver: "cloudflare-email", id }, error: null }
       }
       catch (cause) {
