@@ -19,6 +19,18 @@ const operations: CheckoutOperations = {
   runCommand: promisify(execFile) as RunCommand,
 }
 
+export function createCheckoutGitEnvironment(checkout: string) {
+  return {
+    GIT_DIR: join(checkout, '.git'),
+    GIT_WORK_TREE: '.',
+  }
+}
+
+export async function readWorkspacePaths(checkout: string, runCommand: RunCommand = operations.runCommand) {
+  const result = await runCommand('git', ['-C', checkout, 'ls-tree', '-r', '--name-only', '-z', 'HEAD'])
+  return result.stdout.split('\0').filter(Boolean)
+}
+
 export async function withPullRequestCheckout<T>(
   repository: string,
   pullRequest: PullRequest,

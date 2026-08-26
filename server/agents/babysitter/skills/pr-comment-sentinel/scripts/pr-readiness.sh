@@ -128,7 +128,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-viewer="${BABYSITTER_GITHUB_LOGIN:-$(gh api user --jq .login)}"
+viewer="$(gh api user --jq .login)"
 gh pr view "$pr" --repo "$repo" --json number,title,author,createdAt,headRefOid,isDraft,mergeStateStatus > "$tmp/pr.json"
 head_sha="$(jq -r '.headRefOid' "$tmp/pr.json")"
 [ -n "$expected_head" ] || expected_head="$head_sha"

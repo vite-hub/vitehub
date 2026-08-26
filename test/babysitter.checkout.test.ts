@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import test from 'node:test'
-import { withPullRequestCheckout } from '../server/babysitter.checkout.ts'
+import { createCheckoutGitEnvironment, readWorkspacePaths, withPullRequestCheckout } from '../server/babysitter.checkout.ts'
 import type { PullRequest } from '../server/babysitter.queue.ts'
+
+const exec = promisify(execFile)
 
 test('launches the owner without installing consumer dependencies', async () => {
   const checkout = '/tmp/babysitter-checkout-test'
@@ -9,6 +16,7 @@ test('launches the owner without installing consumer dependencies', async () => 
   let launched = false
   let removed = false
   const pullRequest: PullRequest = {
+    baseRefName: 'main',
     body: '',
     comments: [],
     headRefName: 'feature',
@@ -48,4 +56,40 @@ test('launches the owner without installing consumer dependencies', async () => 
   assert.equal(launched, true)
   assert.equal(removed, true)
   assert.equal(commands.some(command => command.startsWith('corepack ')), false)
+})
+
+test('keeps the prepared checkout head and remote in the provider worktree', async () => {
+  const checkout = await mkdtemp(join(tmpdir(), 'babysitter-git-checkout-'))
+  const provider = await mkdtemp(join(tmpdir(), 'babysitter-git-provider-'))
+  try {
+    await exec('git', ['init', '-q'], { cwd: checkout })
+    await writeFile(join(checkout, 'tracked.txt'), 'original\n')
+    await exec('git', ['add', 'tracked.txt'], { cwd: checkout })
+    await exec('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial'], { cwd: checkout })
+    await exec('git', ['remote', 'add', 'origin', 'https://github.com/example/repo.git'], { cwd: checkout })
+    const expectedHead = (await exec('git', ['rev-parse', 'HEAD'], { cwd: checkout })).stdout.trim()
+    await writeFile(join(provider, 'tracked.txt'), 'changed\n')
+
+    const env = { ...process.env, ...createCheckoutGitEnvironment(checkout) }
+    assert.equal((await exec('git', ['rev-parse', 'HEAD'], { cwd: provider, env })).stdout.trim(), expectedHead)
+    assert.equal((await exec('git', ['remote', 'get-url', 'origin'], { cwd: provider, env })).stdout.trim(), 'https://github.com/example/repo.git')
+    assert.equal((await exec('git', ['status', '--short'], { cwd: provider, env })).stdout.trim(), 'M tracked.txt')
+  }
+  finally {
+    await Promise.all([
+      rm(checkout, { force: true, recursive: true }),
+      rm(provider, { force: true, recursive: true }),
+    ])
+  }
+})
+
+test('reads the materialized workspace manifest without loading file contents', async () => {
+  const commands: string[] = []
+  const paths = await readWorkspacePaths('/tmp/workspace', async (file, args) => {
+    commands.push([file, ...args].join(' '))
+    return { stdout: 'README.md\0src/index.ts\0' }
+  })
+
+  assert.deepEqual(paths, ['README.md', 'src/index.ts'])
+  assert.deepEqual(commands, ['git -C /tmp/workspace ls-tree -r --name-only -z HEAD'])
 })

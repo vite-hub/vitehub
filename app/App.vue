@@ -1,29 +1,40 @@
 <script setup lang="ts">
-import { AgentInvocation, AgentInvocationInspector, AgentInvocationList, type AgentInvocationConfiguration, type AgentInvocationListItem, type AgentInvocationView } from '@vite-hub/ui'
+import { AgentInvocationList, type AgentInvocationConfiguration, type AgentInvocationListItem, type AgentInvocationView } from '@vite-hub/ui'
 import { useAgentInvocation, useAgentInvocations } from 'vite-hub/agent/vue'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { invocationContext, invocationProject, invocationSummary, invocationTitle } from './invocation-display'
+import ProviderLogo from './components/ProviderLogo.vue'
+import SessionInspector from './components/SessionInspector.vue'
+import SessionThread from './components/SessionThread.vue'
+import HealthPage from './components/HealthPage.vue'
 
 import type { SplitterItem } from '@nuxt/ui'
 import type { AgentInvocationRecordStatus } from 'vite-hub/agent'
 
-const selectedId = ref<string | undefined>(typeof window === 'undefined' ? undefined : new URLSearchParams(window.location.search).get('invocation') || undefined)
+const linkedInvocationId = typeof window === 'undefined' ? undefined : new URLSearchParams(window.location.search).get('invocation') || undefined
+const selectedId = ref<string | undefined>(linkedInvocationId)
 const nowMs = ref(Date.now())
 const query = ref('')
 const debouncedQuery = ref('')
 const sessionsOpen = ref(false)
 const sessionsCollapsed = ref(false)
 const detailsOpen = ref(false)
-const useDesktopInspector = ref(false)
+const inspectorMaximized = ref(false)
+const activePage = ref<'health' | 'sessions'>('sessions')
+type InspectorTab = 'details' | 'trace' | 'workspace'
+const inspectorTab = ref<InspectorTab>('details')
+const inspectorOpenViews = ref<InspectorTab[]>(['details'])
+const inspectorOpenPaths = ref<string[]>([])
+const inspectorSelectedPath = ref<string>()
+const inspectorActiveSurface = ref('view:details')
+const sessionThread = ref<InstanceType<typeof SessionThread>>()
 let clock: ReturnType<typeof setInterval> | undefined
-let media: MediaQueryList | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const request = async <T,>(path: string, options: { signal?: AbortSignal }) => {
   const response = await fetch(path, { signal: options.signal })
   if (!response.ok) throw new Error(`Invocation request failed with status ${response.status}.`)
-  const result = await response.json() as T
-  return result
+  return await response.json() as T
 }
 
 const listQuery = computed(() => ({
@@ -47,6 +58,9 @@ const sessionItems = computed<AgentInvocationListItem[]>(() => invocations.value
   description: invocation.error?.message ? invocationSummary(invocation) : undefined,
   id: invocation.id,
   project: invocationProject(invocation),
+  provider: typeof invocation.annotations?.['agent.model.provider'] === 'string'
+    ? invocation.annotations['agent.model.provider']
+    : undefined,
   startedAt: invocation.startedAt,
   status: invocation.status,
   title: invocationTitle(invocation),
@@ -64,8 +78,8 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   return { ...matchingDetail.value, ...(configuration ? { configuration } : {}), observations: observations.value }
 })
 const splitterItems: SplitterItem[] = [
-  { id: 'thread', slot: 'thread', minSize: 520, defaultSize: 820, sizeUnit: 'px', class: 'min-h-0 min-w-0 overflow-hidden' },
-  { id: 'details', slot: 'details', minSize: 320, maxSize: 520, defaultSize: 380, sizeUnit: 'px', class: 'min-h-0 min-w-0 overflow-hidden' },
+  { id: 'thread', slot: 'thread', minSize: 220, defaultSize: 680, sizeUnit: 'px', class: 'min-h-0 min-w-0 overflow-hidden' },
+  { id: 'details', slot: 'details', minSize: 300, maxSize: 1080, defaultSize: 560, sizeUnit: 'px', class: 'min-h-0 min-w-0 overflow-hidden' },
 ]
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
@@ -88,13 +102,54 @@ function loadOlder() {
 }
 
 function selectInvocation(id: string) {
+  activePage.value = 'sessions'
   selectedId.value = id
   if (typeof window !== 'undefined') {
     const url = new URL(window.location.href)
     url.searchParams.set('invocation', id)
-    window.history.replaceState(window.history.state, '', url)
+    window.history.replaceState(null, '', url)
   }
   sessionsOpen.value = false
+}
+
+function toggleInspector(target: 'details' | 'agent' | 'trace' | 'workspace') {
+  const view: InspectorTab = target === 'agent' ? 'details' : target
+  if (!inspectorOpenViews.value.includes(view)) inspectorOpenViews.value = [...inspectorOpenViews.value, view]
+  inspectorTab.value = view
+  inspectorSelectedPath.value = undefined
+  inspectorActiveSurface.value = `view:${view}`
+  detailsOpen.value = true
+}
+
+function showHealth() {
+  activePage.value = 'health'
+  detailsOpen.value = false
+  inspectorMaximized.value = false
+  sessionsOpen.value = false
+}
+
+function showSessions() {
+  activePage.value = 'sessions'
+}
+
+function toggleRightPanel() {
+  detailsOpen.value = !detailsOpen.value
+  if (detailsOpen.value && !inspectorActiveSurface.value) {
+    if (!inspectorOpenViews.value.includes(inspectorTab.value)) inspectorOpenViews.value = [...inspectorOpenViews.value, inspectorTab.value]
+    inspectorActiveSurface.value = `view:${inspectorTab.value}`
+  }
+  if (!detailsOpen.value) inspectorMaximized.value = false
+}
+
+function closeInspector() {
+  detailsOpen.value = false
+  inspectorMaximized.value = false
+}
+
+async function focusTraceActivity(activityId: string) {
+  if (inspectorMaximized.value) inspectorMaximized.value = false
+  await nextTick()
+  sessionThread.value?.focusActivity(activityId)
 }
 
 function errorMessage(error: unknown) {
@@ -109,18 +164,21 @@ function statusIcon(status: AgentInvocationRecordStatus) {
   return 'i-lucide-clock-3'
 }
 
-function updateDesktop(event?: MediaQueryListEvent) {
-  useDesktopInspector.value = event?.matches ?? media?.matches ?? false
-}
-
 watch(invocations, (next) => {
-  if (!next.length) return
-  if (!selectedId.value) selectInvocation(next[0]!.id)
-  else if (!next.some(invocation => invocation.id === selectedId.value) && !loadingDetail.value && !selected.value) selectInvocation(next[0]!.id)
+  if (next.length && !selectedId.value) selectedId.value = next[0]!.id
 }, { immediate: true })
 
 watch(selected, (next) => {
   if (next && selectedId.value !== next.id) selectInvocation(next.id)
+})
+
+watch(selectedId, () => {
+  inspectorTab.value = 'details'
+  inspectorOpenViews.value = ['details']
+  inspectorOpenPaths.value = []
+  inspectorSelectedPath.value = undefined
+  inspectorActiveSurface.value = 'view:details'
+  inspectorMaximized.value = false
 })
 
 watch(query, (value) => {
@@ -129,16 +187,12 @@ watch(query, (value) => {
 })
 
 onMounted(() => {
-  media = window.matchMedia('(min-width: 1280px)')
-  updateDesktop()
-  media.addEventListener('change', updateDesktop)
   clock = setInterval(() => { nowMs.value = Date.now() }, 1_000)
 })
 
 onBeforeUnmount(() => {
   if (clock) clearInterval(clock)
   if (searchTimer) clearTimeout(searchTimer)
-  media?.removeEventListener('change', updateDesktop)
 })
 </script>
 
@@ -168,7 +222,6 @@ onBeforeUnmount(() => {
         <template #default="{ collapsed }">
           <div v-if="!collapsed" class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
             <UInput v-model="query" class="min-w-0 flex-1" icon="i-lucide-search" placeholder="Search sessions" size="sm" variant="none" :ui="{ base: 'bg-transparent hover:bg-elevated/60 focus:bg-elevated/60' }" />
-            <UTooltip text="Refresh sessions"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :disabled="loadingList || loadingDetail" aria-label="Refresh sessions" @click="refresh()" /></UTooltip>
           </div>
           <div v-if="!collapsed && listErrorMessage" class="px-2"><UAlert color="error" variant="subtle" icon="i-lucide-cloud-off" title="Could not load sessions" :description="listErrorMessage" /></div>
           <div v-else-if="!collapsed && loadingList && invocations.length === 0" class="grid gap-px px-2"><USkeleton v-for="index in 4" :key="index" class="h-[4.875rem] rounded-md" /></div>
@@ -185,56 +238,38 @@ onBeforeUnmount(() => {
             :items="sessionItems"
             :loading="loadingMore"
             :now="nowMs"
-            :selected-id="selectedId"
+            :selected-id="activePage === 'sessions' ? selectedId : undefined"
             @end-reached="loadOlder()"
             @select="selectInvocation($event.id)"
           >
             <template #empty><UEmpty class="px-3" icon="i-lucide-message-square-dashed" :title="debouncedQuery ? 'No matching sessions' : 'No sessions yet'" :description="debouncedQuery ? 'Try a different search.' : 'The first Agent Invocation will appear here.'" /></template>
-            <template #harness="{ item }"><span v-if="item.agent" :title="`Agent: ${item.agent}`"><UIcon name="i-lucide-bot" class="size-3.5" /><span class="sr-only">Agent {{ item.agent }}</span></span></template>
+            <template #harness="{ item }"><ProviderLogo :provider="item.provider" /></template>
           </AgentInvocationList>
         </template>
 
         <template #footer="{ collapsed, collapse }">
-          <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
-            <UButton class="max-lg:hidden" :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" color="neutral" variant="ghost" size="xs" :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'" @click="collapse(!collapsed)" />
-          </UTooltip>
+          <div class="flex items-center gap-1">
+            <UTooltip :text="activePage === 'health' ? 'Back to sessions' : 'Health'" :content="{ side: 'top' }">
+              <UButton :icon="activePage === 'health' ? 'i-lucide-arrow-left' : 'i-lucide-chart-no-axes-column'" color="neutral" variant="ghost" size="xs" :aria-label="activePage === 'health' ? 'Back to sessions' : 'Health'" @click="activePage === 'health' ? showSessions() : showHealth()" />
+            </UTooltip>
+            <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
+              <UButton class="max-lg:hidden" :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" color="neutral" variant="ghost" size="xs" :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'" @click="collapse(!collapsed)" />
+            </UTooltip>
+          </div>
         </template>
       </UDashboardSidebar>
 
-      <UDashboardPanel id="babysitter-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
-        <template #header>
-          <UDashboardNavbar :title="invocationView ? invocationTitle(invocationView) : 'Babysitter'" :ui="{ root: 'border-b border-default', title: 'min-w-0 flex-1' }">
-            <template #title>
-              <div v-if="invocationView" class="flex min-w-0 items-center gap-2 text-sm">
-                <UIcon name="i-lucide-folder" class="size-4 shrink-0 text-muted" />
-                <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{ invocationProject(invocationView) }}</span>
-                <span class="text-dimmed" aria-hidden="true">/</span>
-                <strong class="min-w-0 truncate font-medium text-highlighted">{{ invocationTitle(invocationView) }}</strong>
-              </div>
-              <span v-else class="text-sm font-medium">Babysitter</span>
-            </template>
-            <template #right>
-              <UTooltip v-if="pullRequestUrl" text="Open pull request"><UButton :to="pullRequestUrl" target="_blank" icon="i-simple-icons-github" color="neutral" variant="ghost" size="sm" aria-label="Open pull request" /></UTooltip>
-              <UTooltip text="Refresh session"><UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :disabled="loadingList || loadingDetail" aria-label="Refresh session" @click="refresh()" /></UTooltip>
-              <UTooltip v-if="invocationView" text="Session details"><UButton icon="i-lucide-panel-right" color="neutral" :variant="detailsOpen ? 'soft' : 'ghost'" size="sm" aria-label="Session details" :aria-pressed="detailsOpen" @click="detailsOpen = !detailsOpen" /></UTooltip>
-            </template>
-          </UDashboardNavbar>
-        </template>
-
+      <UDashboardPanel id="babysitter-session" :ui="{ body: 'min-h-0 overflow-hidden !gap-0 !p-0 sm:!gap-0 sm:!p-0' }">
         <template #body>
-          <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
-            <UEmpty v-if="detailErrorMessage" class="h-full" icon="i-lucide-cloud-off" title="Could not load this session" :description="detailErrorMessage" :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]" />
-            <div v-else-if="loadingDetail && !invocationView" class="flex h-full items-center justify-center"><UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" /></div>
-            <template v-else-if="invocationView">
-              <USplitter v-if="useDesktopInspector && detailsOpen" id="babysitter-session-layout" auto-save-id="babysitter-session-layout" :items="splitterItems" class="h-full min-h-0 overflow-hidden">
-                <template #thread><AgentInvocation :header="false" :invocation="invocationView" class="h-full" /></template>
-                <template #details><AgentInvocationInspector :invocation="invocationView" class="h-full"><template #actions><UButton icon="i-lucide-panel-right-close" color="neutral" variant="ghost" size="xs" aria-label="Close session details" @click="detailsOpen = false" /></template></AgentInvocationInspector></template>
+          <div class="h-full min-h-0 overflow-hidden">
+            <HealthPage v-if="activePage === 'health'" />
+            <SessionInspector v-else-if="detailsOpen && inspectorMaximized && invocationView" v-model:active-surface="inspectorActiveSurface" v-model:open-paths="inspectorOpenPaths" v-model:open-views="inspectorOpenViews" v-model:selected-path="inspectorSelectedPath" v-model:tab="inspectorTab" :invocation="invocationView" :maximized="true" class="h-full" @close="closeInspector" @focus-activity="focusTraceActivity" @toggle-maximized="inspectorMaximized = false" />
+            <USplitter v-else-if="detailsOpen && invocationView" id="babysitter-session-layout" auto-save-id="babysitter-session-layout-v2" :items="splitterItems" class="h-full min-h-0 overflow-hidden">
+                <template #thread><SessionThread ref="sessionThread" :details-open="detailsOpen" :error-message="detailErrorMessage" :inspector-tab="inspectorTab" :invocation="invocationView" :loading="loadingDetail" :pull-request-url="pullRequestUrl" @inspect="toggleInspector" @refresh="refresh" @toggle-panel="toggleRightPanel" /></template>
+                <template #details><SessionInspector v-model:active-surface="inspectorActiveSurface" v-model:open-paths="inspectorOpenPaths" v-model:open-views="inspectorOpenViews" v-model:selected-path="inspectorSelectedPath" v-model:tab="inspectorTab" :invocation="invocationView" class="h-full" @close="closeInspector" @focus-activity="focusTraceActivity" @toggle-maximized="inspectorMaximized = true" /></template>
                 <template #resize-handle><span class="pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary" /></template>
-              </USplitter>
-              <AgentInvocation v-else :header="false" :invocation="invocationView" class="h-full" />
-              <USlideover v-if="!useDesktopInspector" v-model:open="detailsOpen" side="right" :ui="{ content: 'w-full max-w-sm p-0' }"><template #content><AgentInvocationInspector :invocation="invocationView" class="h-full"><template #actions><UButton icon="i-lucide-x" color="neutral" variant="ghost" size="xs" aria-label="Close session details" @click="detailsOpen = false" /></template></AgentInvocationInspector></template></USlideover>
-            </template>
-            <div v-else class="flex h-full items-center justify-center text-sm text-muted">Select a session to inspect its work.</div>
+            </USplitter>
+            <SessionThread v-else ref="sessionThread" :details-open="detailsOpen" :error-message="detailErrorMessage" :inspector-tab="inspectorTab" :invocation="invocationView" :loading="loadingDetail" :pull-request-url="pullRequestUrl" @inspect="toggleInspector" @refresh="refresh" @toggle-panel="toggleRightPanel" />
           </div>
         </template>
       </UDashboardPanel>

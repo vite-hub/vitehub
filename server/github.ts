@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { createAppAuth } from '@octokit/auth-app'
 
 type Secret = { unseal: () => string }
 
@@ -12,10 +11,11 @@ export type GitHubAuthenticationEnv = {
   token?: Secret
 }
 
-type GitHubAppAuth = ReturnType<typeof createAppAuth>
+type CreateAppAuth = typeof import('@octokit/auth-app').createAppAuth
+type GitHubAppAuth = ReturnType<CreateAppAuth>
 
 type GitHubTokenProviderOptions = {
-  createAuth?: typeof createAppAuth
+  loadCreateAuth?: () => Promise<CreateAppAuth>
   readCliToken?: () => Promise<string>
   readEnv: () => GitHubAuthenticationEnv | Promise<GitHubAuthenticationEnv>
 }
@@ -32,7 +32,7 @@ export const githubBotLogin = 'vitehub-bot[bot]'
 export const githubBotEmail = '320448255+vitehub-bot[bot]@users.noreply.github.com'
 
 export function createGitHubTokenProvider({
-  createAuth = createAppAuth,
+  loadCreateAuth = async () => (await import('@octokit/auth-app')).createAppAuth,
   readCliToken = async () => (await exec('gh', ['auth', 'token'])).stdout,
   readEnv,
 }: GitHubTokenProviderOptions) {
@@ -61,6 +61,7 @@ export function createGitHubTokenProvider({
         || cached.appId !== numericAppId
         || cached.installationId !== numericInstallationId
         || cached.privateKey !== privateKey) {
+        const createAuth = await loadCreateAuth()
         cached = {
           appId: numericAppId,
           auth: createAuth({ appId: numericAppId, privateKey }),
@@ -77,7 +78,11 @@ export function createGitHubTokenProvider({
 }
 
 export const githubToken = createGitHubTokenProvider({
-  readEnv: async () => (await import('#vitehub/env/server')).useServerEnv().github,
+  readEnv: async () => {
+    // SAFETY: vite.config.ts declares this server-only env shape; deployment compilation regenerates its typed module.
+    const environment = (await import('#vitehub/env/server')).useServerEnv() as unknown as { github: GitHubAuthenticationEnv }
+    return environment.github
+  },
 })
 
 export async function runGitHub(args: string[], options: GitHubCommandOptions = {}) {
@@ -96,6 +101,7 @@ export function githubAgentEnvironment(token: string) {
   return {
     BABYSITTER_GITHUB_LOGIN: githubBotLogin,
     GH_TOKEN: token,
+    GITHUB_TOKEN: token,
     GIT_AUTHOR_EMAIL: githubBotEmail,
     GIT_AUTHOR_NAME: githubBotLogin,
     GIT_COMMITTER_EMAIL: githubBotEmail,

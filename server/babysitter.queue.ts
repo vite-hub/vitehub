@@ -1,12 +1,19 @@
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
-const completionPolicyVersion = '2'
+export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v3'
 const parkDisposition = '<!-- babysitter:disposition:park -->'
 
+export type PullRequestFeedback = {
+  comments: { count: number, latestId: string | null }
+  reviews: { count: number, latestId: string | null }
+}
+
 export type PullRequest = {
+  baseRefName: string
   body: string
   comments: unknown
+  feedback?: PullRequestFeedback
   headRefName: string
   headRefOid: string
   headRepository: { nameWithOwner: string } | null
@@ -15,6 +22,7 @@ export type PullRequest = {
   number: number
   reviewDecision: string | null
   reviews: unknown
+  requiredStatusCheckRollup?: unknown
   state: string
   statusCheckRollup: unknown
   title: string
@@ -49,10 +57,14 @@ export async function selectPullRequestJobs(
   repositories: string[],
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
   readCompletion: (key: string) => Promise<string | null>,
+  policyFingerprint: string,
 ) {
   const byRepository = await Promise.all(repositories.map(async (repository) => {
     try {
-      return (await listPullRequests(repository)).map(pullRequest => ({ pullRequest, repository }))
+      const pullRequests = await listPullRequests(repository)
+      return pullRequests
+        .filter(pullRequest => !hasOpenStackParent(pullRequest, pullRequests))
+        .map(pullRequest => ({ pullRequest, repository }))
     }
     catch (error) {
       console.error(new Error(`Failed to list pull requests for ${repository}.`, { cause: error }))
@@ -64,14 +76,25 @@ export async function selectPullRequestJobs(
   ).flat()
 
   const jobs = await Promise.all(candidates.map(async ({ pullRequest, repository }) => {
-    const fingerprint = pullRequestFingerprint(repository, pullRequest)
+    const fingerprint = pullRequestFingerprint(repository, pullRequest, policyFingerprint)
     const key = `babysitter/${repository}/pull-requests/${pullRequest.number}`
-    return await readCompletion(key) === fingerprint
+    const completionFingerprint = successfulPassFingerprint(repository, pullRequest, policyFingerprint)
+    const completed = completionFingerprint ? await readCompletion(key) : null
+    const previousCompletionFingerprint = completionFingerprint
+      ? pullRequestFingerprint(repository, { ...pullRequest, statusCheckRollup: pullRequestCheckState(pullRequest.statusCheckRollup) }, policyFingerprint)
+      : undefined
+    return completionFingerprint && (completed === completionFingerprint || completed === previousCompletionFingerprint || completed === fingerprint)
       ? undefined
       : { completionKey: key, fingerprint, pullRequest, repository }
   }))
 
   return jobs.filter((job): job is PullRequestJob => job !== undefined)
+}
+
+function hasOpenStackParent(pullRequest: PullRequest, pullRequests: PullRequest[]) {
+  return pullRequests.some(parent => parent.number !== pullRequest.number
+    && parent.state === 'OPEN'
+    && parent.headRefName === pullRequest.baseRefName)
 }
 
 export async function runPullRequestJobs(
@@ -85,26 +108,134 @@ export async function runPullRequestJobs(
   }))
 }
 
-export function pullRequestFingerprint(repository: string, pullRequest: PullRequest) {
-  return createHash('sha256')
-    .update(completionPolicyVersion)
-    .update(repository)
-    .update(JSON.stringify(pullRequest))
-    .digest('hex')
-    .slice(0, 16)
+export function createPolicyFingerprint(...policy: string[]) {
+  return createHash('sha256').update(JSON.stringify(policy)).digest('hex').slice(0, 16)
 }
 
-export function completedPassFingerprint(repository: string, pullRequest: PullRequest, result: unknown) {
+export function pullRequestFingerprint(repository: string, pullRequest: PullRequest, policyFingerprint: string) {
+  return fingerprintPullRequestState(repository, pullRequest, policyFingerprint)
+}
+
+export function successfulPassFingerprint(
+  repository: string,
+  pullRequest: PullRequest,
+  policyFingerprint: string,
+  observedPullRequest: PullRequest = pullRequest,
+) {
+  if (pullRequest.state !== 'OPEN') return undefined
+  const completedPullRequest = observedPullRequest.headRefOid === pullRequest.headRefOid
+    ? observedPullRequest
+    : pullRequest
+  const visibleCheckState = pullRequestCheckState(completedPullRequest.statusCheckRollup)
+  const requiredCheckState = completedPullRequest.requiredStatusCheckRollup === undefined
+    ? undefined
+    : pullRequestCheckState(completedPullRequest.requiredStatusCheckRollup, 'passed')
+  const repositoryCheckState = pullRequestRepositoryCheckState(repository, completedPullRequest.statusCheckRollup)
+  const checkState = requiredCheckState === undefined
+    ? visibleCheckState
+    : {
+        repository: repositoryCheckState,
+        required: requiredCheckState,
+        visibleFailure: visibleCheckState === 'failed',
+      }
+  const completionState: Record<string, unknown> = {
+    ...completedPullRequest,
+    comments: completedPullRequest.feedback?.comments ?? feedbackCollectionState(completedPullRequest.comments),
+    requiredStatusCheckRollup: checkState,
+    reviews: completedPullRequest.feedback?.reviews ?? feedbackCollectionState(completedPullRequest.reviews),
+    statusCheckRollup: checkState,
+  }
+  delete completionState.feedback
+  delete completionState.updatedAt
+  return fingerprintPullRequestState(repository, completionState, policyFingerprint)
+}
+
+export function completedPassFingerprint(
+  repository: string,
+  pullRequest: PullRequest,
+  policyFingerprint: string,
+  result: unknown,
+  observedPullRequest: PullRequest = pullRequest,
+) {
   return passResultText(result)?.split(/\r?\n/).includes(parkDisposition)
-    ? successfulPassFingerprint(repository, pullRequest)
+    ? successfulPassFingerprint(repository, pullRequest, policyFingerprint, observedPullRequest)
     : undefined
-}
-
-export function successfulPassFingerprint(repository: string, pullRequest: PullRequest) {
-  return pullRequest.state === 'OPEN' ? pullRequestFingerprint(repository, pullRequest) : undefined
 }
 
 function passResultText(result: unknown) {
   if (typeof result === 'string') return result
   if (result && typeof result === 'object' && 'text' in result && typeof result.text === 'string') return result.text
+}
+
+function feedbackCollectionState(value: unknown) {
+  if (!Array.isArray(value)) return value
+  const latest = value.at(-1)
+  return {
+    count: value.length,
+    latestId: latest && typeof latest === 'object'
+      ? String((latest as Record<string, unknown>).id ?? (latest as Record<string, unknown>).url ?? '') || null
+      : null,
+  }
+}
+
+function fingerprintPullRequestState(repository: string, state: unknown, policyFingerprint: string) {
+  return createHash('sha256').update(policyFingerprint).update(repository).update(JSON.stringify(state)).digest('hex').slice(0, 16)
+}
+
+export function pullRequestCheckState(statusCheckRollup: unknown, empty: 'passed' | 'pending' = 'pending'): 'failed' | 'passed' | 'pending' {
+  if (!Array.isArray(statusCheckRollup) || statusCheckRollup.length === 0) return empty
+  const failedConclusions = new Set(['ACTION_REQUIRED', 'CANCELLED', 'FAILURE', 'STALE', 'STARTUP_FAILURE', 'TIMED_OUT'])
+  let pending = false
+  for (const value of statusCheckRollup) {
+    if (!value || typeof value !== 'object') {
+      pending = true
+      continue
+    }
+    const { bucket, conclusion, state, status } = value as Record<string, unknown>
+    if (bucket === 'fail' || bucket === 'cancel') return 'failed'
+    if (bucket === 'pending') {
+      pending = true
+      continue
+    }
+    if (bucket === 'pass' || bucket === 'skipping') continue
+    if (state === 'ERROR' || state === 'FAILURE' || status === 'COMPLETED' && typeof conclusion === 'string' && failedConclusions.has(conclusion)) return 'failed'
+    if (status === 'COMPLETED') {
+      if (typeof conclusion !== 'string' || !conclusion) pending = true
+    }
+    else if (status !== undefined || state !== 'SUCCESS') pending = true
+  }
+  return pending ? 'pending' : 'passed'
+}
+
+function pullRequestRepositoryCheckState(repository: string, statusCheckRollup: unknown) {
+  if (!Array.isArray(statusCheckRollup)) return pullRequestCheckState(statusCheckRollup)
+  return pullRequestCheckState(statusCheckRollup.filter(check => isRepositoryCheck(repository, check)), 'passed')
+}
+
+function isRepositoryCheck(repository: string, value: unknown) {
+  if (!value || typeof value !== 'object') return true
+  const { detailsUrl, workflow, workflowName } = value as Record<string, unknown>
+  if ((typeof workflowName === 'string' && workflowName) || (typeof workflow === 'string' && workflow)) return true
+  if (typeof detailsUrl !== 'string' || !detailsUrl) return true
+  try {
+    const url = new URL(detailsUrl)
+    return url.hostname === 'github.com' && url.pathname.startsWith(`/${repository}/actions/`)
+  }
+  catch {
+    return true
+  }
+}
+
+export function parseRequiredChecks(stdout: string, stderr: string): unknown[] | undefined {
+  if (stdout.trim()) {
+    try {
+      const checks: unknown = JSON.parse(stdout)
+      return Array.isArray(checks) ? checks : undefined
+    }
+    catch {
+      return undefined
+    }
+  }
+  const message = stderr.trim()
+  return /^no (?:required )?checks reported on the '.+' branch$/.test(message) ? [] : undefined
 }
