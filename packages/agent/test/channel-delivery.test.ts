@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver } from "../src/internal/channel-delivery.ts"
 
 import type { Lock, StateAdapter } from "chat"
 
@@ -79,6 +79,52 @@ function stateAdapter(): StateAdapter {
 }
 
 describe("Agent Channel delivery journal", () => {
+  it("normalizes omitted Workflow capabilities before resuming delivery", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      channelId: "telegram",
+      provider: "telegram",
+      scope: "chat:support:telegram",
+      sourceId: "workflow-normalized-capabilities",
+    })
+    detachAgentChannelDelivery(delivery)
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    setAgentChannelDeliveryWorkflowResolver(async (_agent, context) => {
+      expect(context.capabilities).toEqual({})
+      return await resumeAgentChannelDelivery(state, delivery.delivery.id)
+    })
+
+    try {
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "workflow-normalized-capabilities",
+        name: "support",
+        payload: {
+          input: {
+            context: {
+              "vitehub.channelDelivery": {
+                channelId: "telegram",
+                deliveryId: delivery.delivery.id,
+                provider: "telegram",
+                state: "chat",
+              },
+            },
+          },
+          requestUrl: "https://example.com",
+        },
+        provider: "cloudflare",
+      }, async (_agent, context) => {
+        expect(context.capabilities).toEqual({})
+        return "completed"
+      })).resolves.toBe("completed")
+    }
+    finally {
+      setAgentChannelDeliveryWorkflowResolver(async () => undefined)
+      info.mockRestore()
+    }
+  })
+
   it("resumes Workflow custody through the installed host State owner", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()

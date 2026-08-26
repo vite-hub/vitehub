@@ -1,5 +1,5 @@
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { createExecutionContext, getViteHubErrorShape } from "@vite-hub/runtime"
 
 import { createAgentRuntimeContext } from "./context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
@@ -310,10 +310,10 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   if (payload.requestUrl) runtimeInput.request = new Request(payload.requestUrl)
   if (runId) runtimeInput.run = { origin: `workflow:${context.provider}`, ...payload.run, runId }
   if (payload.trace) runtimeInput.trace = payload.trace
-  let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>(runtimeInput)
+  let runtimeContext = createExecutionContext(createAgentRuntimeContext<TRuntimeConfig>(runtimeInput))
   if (payload.run?.runId && payload.run.runId !== runId) {
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    ;(runtimeContext as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
+    ;(runtimeContext as unknown as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
   }
 
   Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, {
