@@ -63,9 +63,13 @@ import { defineWorkspace } from "vite-hub/workspace"
 ```
 
 Install third-party model providers and chat adapters separately. Built-in coding
-providers use the provider runtime pinned by ViteHub. The distribution includes
-the Workflow DevKit runtime and builders for Vercel Workflow; install other
-provider SDKs only when you use them.
+providers use the provider runtime pinned by ViteHub, but ViteHub does not install
+the large Codex native binary for applications that do not use it. Add
+`@openai/codex@0.149.1` when you select the Codex Driver. Self-hosted Node builds
+on macOS and Linux then package only the build host's OS/CPU payload; build on
+the same OS and CPU architecture as the deployment host. The distribution includes the
+Workflow DevKit runtime and builders for Vercel Workflow; install other provider
+SDKs only when you use them.
 
 Until T3 publishes the provider runtime on npm, pnpm consumers using a built-in coding provider must set `blockExoticSubdeps: false` in `pnpm-workspace.yaml`; ViteHub pins an exact pkg.pr.new tarball rather than a moving branch.
 
