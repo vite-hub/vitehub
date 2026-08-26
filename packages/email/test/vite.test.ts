@@ -155,6 +155,13 @@ describe("hubEmail", () => {
     expect(source).not.toContain("fileURLToPath(import.meta.url)")
   })
 
+  it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
+    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
+
+    await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("requires a Cloudflare hosting provider")
+  })
+
   it("generates exact virtual module types for discovered Email templates", async () => {
     const root = await createTempProject()
     const template = join(root, "server", "emails", "monthly-recap.md")

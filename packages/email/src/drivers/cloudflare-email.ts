@@ -27,6 +27,10 @@ function foldBase64(value: string): string {
   return value.match(/.{1,76}/g)?.join("\r\n") ?? ""
 }
 
+function encodedBody(value: string): string[] {
+  return ["Content-Transfer-Encoding: base64", "", foldBase64(stringToBase64(value))]
+}
+
 function attachmentPart(boundary: string, value: EmailAttachment): string {
   const content = foldBase64(typeof value.content === "string" ? stringToBase64(value.content) : bytesToBase64(value.content))
   const filename = quotedParameter(value.filename)
@@ -50,21 +54,17 @@ function bodyPart(message: EmailMessage): { contentType: string, lines: string[]
         "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=utf-8",
-        "Content-Transfer-Encoding: 8bit",
-        "",
-        message.text,
+        ...encodedBody(message.text),
         `--${boundary}`,
         "Content-Type: text/html; charset=utf-8",
-        "Content-Transfer-Encoding: 8bit",
-        "",
-        message.html,
+        ...encodedBody(message.html),
         `--${boundary}--`,
       ],
     }
   }
   return {
     contentType: message.html !== undefined ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
-    lines: ["Content-Transfer-Encoding: 8bit", "", message.html ?? message.text ?? ""],
+    lines: encodedBody(message.html ?? message.text ?? ""),
   }
 }
 
@@ -100,6 +100,13 @@ function rawMessage(message: EmailMessage, id: string): string {
   ].join("\r\n")
 }
 
+const transportOwnedHeaders = new Set(["from", "to", "cc", "bcc", "reply-to", "subject", "mime-version", "content-type", "content-transfer-encoding"])
+
+function rejectTransportOwnedHeaders(headers: Record<string, string> | undefined): void {
+  const header = Object.keys(headers ?? {}).find(name => transportOwnedHeaders.has(name.toLowerCase()))
+  if (header) throw emailProviderError("cloudflare-email", "INVALID_OPTIONS", `Cloudflare Email owns the ${header} header.`)
+}
+
 export default function cloudflareEmailDriver(options: CloudflareEmailDriverOptions): EmailDriver {
   requiredOption("cloudflare-email", options?.binding, "binding")
   const Constructor = options.EmailMessage ?? (globalThis as typeof globalThis & { EmailMessage?: CloudflareEmailMessageConstructor }).EmailMessage
@@ -108,6 +115,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
     name: "cloudflare-email",
     async send(message) {
       try {
+        rejectTransportOwnedHeaders(message.headers)
         const from = addresses(message.from)[0]
         const recipients = [
           ...addresses(message.to),

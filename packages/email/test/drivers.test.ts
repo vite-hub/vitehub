@@ -153,14 +153,25 @@ describe("Cloudflare Email driver", () => {
   it.each([
     ["text", "Gr\u00fc\u00dfe", "text/plain"],
     ["html", "<p>Gr\u00fc\u00dfe</p>", "text/html"],
-  ] as const)("declares UTF-8 transfer encoding for attached %s bodies", async (field, content, contentType) => {
+  ] as const)("base64-encodes attached UTF-8 %s bodies", async (field, content, contentType) => {
     const Constructor = vi.fn()
     const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
 
     await driver.send({ ...message, html: undefined, text: undefined, [field]: content }, context)
 
     const raw = Constructor.mock.calls[0]![2] as string
-    expect(raw).toContain(`Content-Type: ${contentType}; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${content}`)
+    expect(raw).toContain(`Content-Type: ${contentType}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${Buffer.from(content).toString("base64")}`)
+  })
+
+  it("folds long message bodies into transport-safe lines", async () => {
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
+
+    await driver.send({ ...message, attachments: undefined, html: undefined, text: "x".repeat(1000) }, context)
+
+    const raw = Constructor.mock.calls[0]![2] as string
+    const encoded = raw.split("Content-Transfer-Encoding: base64\r\n\r\n")[1] ?? ""
+    expect(encoded.split("\r\n").every(line => line.length <= 76)).toBe(true)
   })
 
   it("preserves a case-insensitive custom message ID", async () => {
@@ -192,6 +203,15 @@ describe("Cloudflare Email driver", () => {
     const send = vi.fn()
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })
     await expect(driver.send({ ...message, subject: "Hello\r\nBcc: attacker@example.com" }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it.each(["Content-Type", "mime-version", "From", "Subject"])("rejects the transport-owned %s header", async (header) => {
+    const send = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })
+
+    await expect(driver.send({ ...message, headers: { [header]: "custom" } }, context))
       .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
     expect(send).not.toHaveBeenCalled()
   })

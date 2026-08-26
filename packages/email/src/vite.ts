@@ -395,6 +395,9 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const configRecord = config as Record<string, unknown>
       const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
       cloudflare = hosting === "cloudflare"
+      if (cloudflareEmail && !cloudflare) {
+        throw new TypeError('[vitehub] Email driver "cloudflare-email" requires a Cloudflare hosting provider.')
+      }
       vercel = hosting === "vercel"
         || internalOptions.workflowProvider === "vercel"
         || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
