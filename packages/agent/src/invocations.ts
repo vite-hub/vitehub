@@ -23,6 +23,13 @@ const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
+const CANONICAL_TRACE_ATTRIBUTE_KEYS = new Set([
+  "vitehub.activity.owner",
+  "vitehub.activity.phase",
+  "vitehub.payload.summary",
+  "vitehub.payload.value",
+  "vitehub.payload.visibility",
+])
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
@@ -303,16 +310,32 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
     truncated: false,
   }
   const payload = boundedObservationPayload(observation.payload, payloadBudget)
-  if (observation.attributes && Object.keys(observation.attributes).length > MAX_OBSERVATION_ATTRIBUTES) {
+  const canonicalAttributes: Record<string, unknown> = {}
+  if (observation.activity) {
+    canonicalAttributes["vitehub.activity.owner"] = observation.activity.owner
+    canonicalAttributes["vitehub.activity.phase"] = observation.activity.phase
+  }
+  if (payload) {
+    canonicalAttributes["vitehub.payload.visibility"] = payload.visibility
+    if (payload.visibility === "public") canonicalAttributes["vitehub.payload.value"] = payload.value
+    if (payload.visibility === "summary") canonicalAttributes["vitehub.payload.summary"] = payload.summary
+  }
+  const ordinaryAttributes = Object.entries(observation.attributes || {})
+    .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+  const ordinaryAttributeLimit = MAX_OBSERVATION_ATTRIBUTES - Object.keys(canonicalAttributes).length
+  if (ordinaryAttributes.length > ordinaryAttributeLimit) {
     budget.truncated = true
   }
-  let attributes = observation.attributes
-    ? Object.fromEntries(Object.entries(observation.attributes)
-        .slice(0, MAX_OBSERVATION_ATTRIBUTES)
+  let attributes = observation.attributes || Object.keys(canonicalAttributes).length
+    ? {
+        ...Object.fromEntries(ordinaryAttributes
+          .slice(0, ordinaryAttributeLimit)
         .flatMap(([key, value]) => {
           if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
           return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]
-        }))
+        })),
+        ...canonicalAttributes,
+      }
     : undefined
   if (payloadBudget.truncated) budget.truncated = true
   if (budget.truncated) {

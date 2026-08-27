@@ -239,6 +239,30 @@ describe("Agent Invocations", () => {
     expect(String((observation?.payload as { value?: { files?: string } })?.value?.files).length).toBeLessThan(100_000)
   })
 
+  it("preserves canonical trace attributes when bounding invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-trace-attributes"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`ordinary.${index}`, index])),
+      name: "workspace.materialized",
+      payload: { summary: "Workspace ready", visibility: "summary" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-trace-attributes"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes).toMatchObject({
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+      "vitehub.observation.truncated": true,
+      "vitehub.payload.summary": "Workspace ready",
+      "vitehub.payload.visibility": "summary",
+    })
+  })
+
   it("keeps resolved instructions out of metadata-only invocation journals", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
