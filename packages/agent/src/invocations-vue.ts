@@ -311,7 +311,7 @@ export function useAgentInvocations(
         .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
       pendingDepartureIds = new Set(result.pendingDepartureIds ?? pendingDepartureIds);
       invocations.value = [...result.invocations, ...retained];
-      if (retained.length === 0) cursor.value = result.cursor;
+      cursor.value = result.cursor;
     },
     clear() {
       invocations.value = [];

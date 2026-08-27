@@ -207,7 +207,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("keeps lazy-loaded pages when polling refreshes the first page", async () => {
+  it("keeps lazy-loaded pages and refreshes their pagination frontier when polling", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ request }))!;
@@ -223,7 +223,20 @@ describe("Agent Invocation Vue composables", () => {
     await refresh;
 
     expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
-    expect(resource.cursor.value).toBe("page-3");
+    expect(resource.cursor.value).toBe("new-page-2");
+
+    const refreshedPage = resource.loadMore();
+    expect(calls[3]!.path).toContain("cursor=new-page-2");
+    calls[3]!.resolve({ invocations: [record("inv-1"), record("inv-transitioned")] });
+    await refreshedPage;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual([
+      "inv-3",
+      "inv-2",
+      "inv-1",
+      "inv-0",
+      "inv-transitioned",
+    ]);
     scope.stop();
   });
 
