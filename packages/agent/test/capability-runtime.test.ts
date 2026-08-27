@@ -858,7 +858,7 @@ describe("agent capability runtime", () => {
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
-        access({ workspace: { defaultScope: "all", scopes: { all: { all: true, role: "admin" } } } }),
+        access({ workspace: { resolve: { role: "admin", scope: "all" }, scopes: { all: { all: true } } } }),
         defineCapability({
           id: "review",
           workspace: {
@@ -1675,7 +1675,7 @@ describe("agent capability runtime", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
-    const resolvedWorkspace = resolved.workspace as ReturnType<typeof writableWorkspace>
+    const resolvedWorkspace = resolved.workspace as unknown as ReturnType<typeof writableWorkspace>
     await resolvedWorkspace.fs.writeFile("artifacts/review.md", "ok")
     expect(workspace.fs.writeFile).toHaveBeenCalledWith("artifacts/review.md", "ok", undefined)
     expect(resolvedWorkspace.tools.write).toEqual(expect.any(Function))
