@@ -6,15 +6,33 @@ type Frontmatter = Record<string, string>;
 type Fence = {
   length: number;
   marker: string;
+  quoteDepth: number;
 };
 
 function fenceRun(line: string) {
-  return line.match(/^\s*(?:>\s*)*(?:(?:[-+*]|\d+[.)])\s+)?(```+|~~~+)/)?.[1];
+  let rest = line;
+  let quoteDepth = 0;
+
+  while (true) {
+    const container = rest.match(/^[ \t]*(?:(>)|(?:[-+*]|\d+[.)])[ \t]+)/);
+    if (!container) break;
+    if (container[1]) quoteDepth += 1;
+    rest = rest.slice(container[0].length);
+  }
+
+  const run = rest.match(/^[ \t]*(```+|~~~+)/)?.[1];
+  return run ? { quoteDepth, run } : null;
 }
 
 function closesFence(line: string, fence: Fence) {
-  const run = line.match(/^\s*(?:>\s*)*(```+|~~~+)\s*$/)?.[1];
-  return run?.[0] === fence.marker && run.length >= fence.length;
+  const parsed = fenceRun(line);
+  return parsed?.quoteDepth === fence.quoteDepth
+    && parsed.run[0] === fence.marker
+    && parsed.run.length >= fence.length;
+}
+
+function leadingQuoteDepth(line: string) {
+  return (line.match(/^[ \t]*(?:>[ \t]*)+/)?.[0].match(/>/g) || []).length;
 }
 
 function splitFrontmatter(source: string): { body: string, frontmatter: Frontmatter } {
@@ -96,18 +114,33 @@ function rewriteLinks(source: string) {
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
     const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
-    const run = fenceRun(line);
+    const parsedFence = fenceRun(line);
 
-    if (!fence && run) {
+    if (!fence && parsedFence) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
-      fence = { length: run.length, marker: run[0]! };
+      fence = {
+        length: parsedFence.run.length,
+        marker: parsedFence.run[0]!,
+        quoteDepth: parsedFence.quoteDepth,
+      };
       continue;
     }
 
     if (fence) {
-      output.push(lineWithEnding);
-      if (closesFence(line, fence)) fence = null;
+      if (leadingQuoteDepth(line) < fence.quoteDepth) {
+        fence = null;
+      } else {
+        output.push(lineWithEnding);
+        if (closesFence(line, fence)) fence = null;
+        continue;
+      }
+    }
+
+    if (!line.trim()) {
+      outsideFence += lineWithEnding;
+      output.push(rewriteOutside());
+      outsideFence = "";
       continue;
     }
 
@@ -191,19 +224,27 @@ function cardListsOutsideFences(source: string) {
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
     const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
-    const run = fenceRun(line);
+    const parsedFence = fenceRun(line);
 
-    if (!fence && run) {
+    if (!fence && parsedFence) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
-      fence = { length: run.length, marker: run[0]! };
+      fence = {
+        length: parsedFence.run.length,
+        marker: parsedFence.run[0]!,
+        quoteDepth: parsedFence.quoteDepth,
+      };
       continue;
     }
 
     if (fence) {
-      output.push(lineWithEnding);
-      if (closesFence(line, fence)) fence = null;
-      continue;
+      if (leadingQuoteDepth(line) < fence.quoteDepth) {
+        fence = null;
+      } else {
+        output.push(lineWithEnding);
+        if (closesFence(line, fence)) fence = null;
+        continue;
+      }
     }
 
     outsideFence += lineWithEnding;
@@ -253,14 +294,23 @@ function stripPresentationDirectives(source: string) {
     const structuralIndent: number = fence?.indent ?? Math.min(leadingColumns, structuralDepth * 2);
     const deindented = removeIndentation(originalLine, structuralIndent);
 
+    if (fence && leadingQuoteDepth(deindented) < fence.quoteDepth) fence = null;
+
     if (!fence && leadingColumns >= structuralDepth * 2 + 4) {
       output.push(deindented);
       continue;
     }
 
-    const run = fenceRun(deindented);
-    if (run) {
-      if (!fence) fence = { indent: structuralIndent, length: run.length, marker: run[0]! };
+    const parsedFence = fenceRun(deindented);
+    if (parsedFence) {
+      if (!fence) {
+        fence = {
+          indent: structuralIndent,
+          length: parsedFence.run.length,
+          marker: parsedFence.run[0]!,
+          quoteDepth: parsedFence.quoteDepth,
+        };
+      }
       else if (closesFence(deindented, fence)) fence = null;
       output.push(deindented);
       continue;

@@ -215,6 +215,15 @@ describe("writeDocsArtifacts", () => {
         "> [blockquote literal](/docs/blockquote-literal)",
         "> ~~~",
         "",
+        "- > ```md",
+        "  > [list blockquote literal](/docs/list-blockquote-literal)",
+        "  > ```",
+        "",
+        "> ```md",
+        "> [unclosed blockquote literal](/docs/unclosed-blockquote-literal)",
+        "",
+        "[rendered after unclosed blockquote](/docs/after-unclosed-blockquote)",
+        "",
         "::steps",
         "  ::tabs",
         "    :::tabs-item{label=\"Example\"}",
@@ -291,6 +300,9 @@ describe("writeDocsArtifacts", () => {
         "  ```",
       ].join("\n"));
       expect(raw).toContain("> ~~~md\n> [blockquote literal](/docs/blockquote-literal)\n> ~~~");
+      expect(raw).toContain("- > ```md\n  > [list blockquote literal](/docs/list-blockquote-literal)\n  > ```");
+      expect(raw).toContain("> ```md\n> [unclosed blockquote literal](/docs/unclosed-blockquote-literal)");
+      expect(raw).toContain("[rendered after unclosed blockquote](https://vitehub.dev/docs/after-unclosed-blockquote)");
       expect(raw).toContain([
         "### Example",
         "",
