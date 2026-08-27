@@ -399,39 +399,43 @@ function metadataAttributes(attributes: Record<string, unknown> | undefined): Re
 }
 
 function normalizedTraceActivity(activity: TraceActivityContext | undefined): TraceActivityContext | undefined {
-  if (!activity || !hasRuntimeType(activity, "object") || Array.isArray(activity)) return
-  if (activity.owner !== "agent" && activity.owner !== "vitehub") return
-  if (!["delivery", "execution", "setup", "teardown"].includes(activity.phase)) return
-  return { owner: activity.owner, phase: activity.phase }
+  if (!activity || !hasRuntimeType(activity, "object")) return
+  try {
+    if (Array.isArray(activity)) return
+    const owner = Object.getOwnPropertyDescriptor(activity, "owner")
+    const phase = Object.getOwnPropertyDescriptor(activity, "phase")
+    if (!owner || !("value" in owner) || !phase || !("value" in phase)) return
+    if (owner.value !== "agent" && owner.value !== "vitehub") return
+    if (!["delivery", "execution", "setup", "teardown"].includes(phase.value)) return
+    return { owner: owner.value, phase: phase.value }
+  }
+  catch {
+    return
+  }
 }
 
 function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
-  if (!payload || !hasRuntimeType(payload, "object") || Array.isArray(payload)) return payload === undefined ? undefined : { visibility: "private" }
-  let visibility: PropertyDescriptor | undefined
+  if (payload === undefined) return
+  if (!payload || !hasRuntimeType(payload, "object")) return { visibility: "private" }
   try {
-    visibility = Object.getOwnPropertyDescriptor(payload, "visibility")
-  }
-  catch {
-    return { visibility: "private" }
-  }
-  if (!visibility || !("value" in visibility)) return { visibility: "private" }
-  if (visibility.value === "public") {
-    try {
+    if (Array.isArray(payload)) return { visibility: "private" }
+    const visibility = Object.getOwnPropertyDescriptor(payload, "visibility")
+    if (!visibility || !("value" in visibility)) return { visibility: "private" }
+    if (visibility.value === "public") {
       const value = Object.getOwnPropertyDescriptor(payload, "value")
       if (value && "value" in value) return { value: value.value, visibility: "public" }
     }
-    catch {}
-  }
-  if (visibility.value === "summary") {
-    try {
+    if (visibility.value === "summary") {
       const summary = Object.getOwnPropertyDescriptor(payload, "summary")
       if (summary && "value" in summary && hasRuntimeType(summary.value, "string")) {
         return { summary: summary.value, visibility: "summary" }
       }
     }
-    catch {}
+    if (visibility.value === "redacted") return { visibility: "redacted" }
   }
-  if (visibility.value === "redacted") return { visibility: "redacted" }
+  catch {
+    return { visibility: "private" }
+  }
   return { visibility: "private" }
 }
 
@@ -439,18 +443,19 @@ function traceEventAttributes(
   event: Pick<TraceEvent, "activity" | "attributes" | "payload">,
   content: TraceEventContentPolicy,
 ): Record<string, unknown> | undefined {
-  const attributes = content === "metadata" ? metadataAttributes(event.attributes) : event.attributes
+  const source = { ...event.attributes }
+  delete source["vitehub.activity.owner"]
+  delete source["vitehub.activity.phase"]
+  delete source["vitehub.payload.summary"]
+  delete source["vitehub.payload.value"]
+  delete source["vitehub.payload.visibility"]
+  const attributes = content === "metadata" ? metadataAttributes(source) : source
   const next: Record<string, unknown> = { ...attributes }
-  delete next["vitehub.activity.owner"]
-  delete next["vitehub.activity.phase"]
   if (event.activity) {
     next["vitehub.activity.owner"] = event.activity.owner
     next["vitehub.activity.phase"] = event.activity.phase
   }
   if (event.payload) {
-    delete next["vitehub.payload.summary"]
-    delete next["vitehub.payload.value"]
-    delete next["vitehub.payload.visibility"]
     next["vitehub.payload.visibility"] = event.payload.visibility
     if (event.payload.visibility === "public") next["vitehub.payload.value"] = event.payload.value
     if (event.payload.visibility === "summary") next["vitehub.payload.summary"] = event.payload.summary

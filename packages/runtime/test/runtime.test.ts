@@ -431,6 +431,68 @@ describe("@vite-hub/runtime", () => {
     expect(log.entries().map(event => event.attributes)).toEqual([undefined, undefined])
   })
 
+  it("rejects untyped activity accessors without invoking them", async () => {
+    const log = createTraceEventLog()
+    const changingActivity = {
+      get owner() {
+        throw new Error("owner must not be read")
+      },
+      get phase() {
+        throw new Error("phase must not be read")
+      },
+    }
+    const revokedActivity = Proxy.revocable({}, {})
+    revokedActivity.revoke()
+
+    // SAFETY: The fixtures prove runtime normalization for JavaScript and untyped producers.
+    await log.append({ activity: changingActivity as never, name: "accessor", type: "lifecycle" })
+    // SAFETY: The fixture proves runtime normalization for a revoked untyped proxy.
+    await log.append({ activity: revokedActivity.proxy as never, name: "revoked", type: "lifecycle" })
+
+    expect(log.entries().map(event => event.activity)).toEqual([undefined, undefined])
+    expect(log.entries().map(event => event.attributes)).toEqual([undefined, undefined])
+  })
+
+  it("removes spoofed payload attributes without a payload descriptor", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: {
+        "vitehub.payload.summary": "spoofed summary",
+        "vitehub.payload.value": "spoofed value",
+        "vitehub.payload.visibility": "public",
+      },
+      name: "custom.event",
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]?.attributes).toBeUndefined()
+    expect(log.entries()[0]?.payload).toBeUndefined()
+  })
+
+  it("does not mark regenerated payload attributes as omitted", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      name: "custom.event",
+      payload: { value: "public value", visibility: "public" },
+      trace: { id: "run-1" },
+      type: "lifecycle",
+    })
+
+    const records = traceEventsToOpenTelemetryLogRecords(log.entries(), { content: "metadata" })
+    expect(records[0]?.attributes).toMatchObject({
+      "vitehub.payload.value": "public value",
+      "vitehub.payload.visibility": "public",
+    })
+    expect(records[0]?.attributes?.["content.omitted"]).toBeUndefined()
+
+    const spans = traceEventsToOpenTelemetrySpans(log.entries(), { content: "metadata" })
+    expect(spans[0]?.events[0]?.attributes).toMatchObject({
+      "vitehub.payload.value": "public value",
+      "vitehub.payload.visibility": "public",
+    })
+    expect(spans[0]?.events[0]?.attributes?.["content.omitted"]).toBeUndefined()
+  })
+
   it("falls back to private without invoking hostile payload descriptors", async () => {
     const log = createTraceEventLog()
     const accessorPayload = Object.defineProperty({}, "visibility", {
@@ -443,11 +505,21 @@ describe("@vite-hub/runtime", () => {
         throw new Error("descriptor must not be inspected")
       },
     })
+    const revokedPayload = Proxy.revocable({}, {})
+    revokedPayload.revoke()
 
+    // SAFETY: The fixtures prove runtime normalization for JavaScript and untyped producers.
     await log.append({ name: "accessor", payload: accessorPayload as never, type: "lifecycle" })
+    // SAFETY: The fixture proves runtime normalization for a hostile untyped proxy.
     await log.append({ name: "proxy", payload: proxyPayload as never, type: "lifecycle" })
+    // SAFETY: The fixture proves runtime normalization for a revoked untyped proxy.
+    await log.append({ name: "revoked", payload: revokedPayload.proxy as never, type: "lifecycle" })
 
     expect(log.entries()).toEqual([
+      expect.objectContaining({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      }),
       expect.objectContaining({
         attributes: { "vitehub.payload.visibility": "private" },
         payload: { visibility: "private" },

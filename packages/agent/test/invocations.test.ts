@@ -236,7 +236,7 @@ describe("Agent Invocations", () => {
     const observation = (await invocations.getByRunId("bounded-public-payload"))?.observations
       .find(entry => entry.name === "workspace.materialized")
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
-    expect(String((observation?.payload as { value?: { files?: string } })?.value?.files).length).toBeLessThan(100_000)
+    expect(JSON.stringify(observation?.payload).length).toBeLessThan(100_000)
   })
 
   it("preserves canonical trace attributes when bounding invocation observations", async () => {
