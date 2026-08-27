@@ -440,11 +440,20 @@ describe("@vite-hub/runtime", () => {
     })
 
     returned.payload = { value: { files: ["returned-secret.txt"] }, visibility: "public" }
+    const returnedValue = returned.attributes!["vitehub.payload.value"] as { files: string[] }
+    returnedValue.files.push("returned-secret.txt")
     observed!.payload = { value: { files: ["observed-secret.txt"] }, visibility: "public" }
+    const observedValue = observed!.attributes!["vitehub.payload.value"] as { files: string[] }
+    observedValue.files.push("observed-secret.txt")
     const listed = log.entries()
     listed[0]!.payload = { value: { files: ["listed-secret.txt"] }, visibility: "public" }
+    const listedValue = listed[0]!.attributes!["vitehub.payload.value"] as { files: string[] }
+    listedValue.files.push("listed-secret.txt")
 
-    expect(log.entries()[0]?.payload).toEqual({ value: { files: ["before.txt"] }, visibility: "public" })
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.value": { files: ["before.txt"] } },
+      payload: { value: { files: ["before.txt"] }, visibility: "public" },
+    })
   })
 
   it("falls back to private when a public payload value cannot be snapshotted", async () => {

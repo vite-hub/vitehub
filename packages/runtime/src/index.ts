@@ -556,9 +556,18 @@ export async function emitTraceEvent<TContext extends RuntimeHostContext<any>>(
 export function createTraceEventLog(options: TraceEventLogOptions = {}): TraceEventLog {
   const content = options.content || "metadata"
   const entries: TraceEventLogEntry[] = []
+  const cloneAttributes = (attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+    if (!attributes) return undefined
+    const cloned = { ...attributes }
+    if ("vitehub.payload.value" in cloned) {
+      cloned["vitehub.payload.value"] = structuredClone(cloned["vitehub.payload.value"])
+    }
+    return cloned
+  }
   const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => ({
     ...entry,
     ...(entry.activity ? { activity: structuredClone(entry.activity) } : {}),
+    ...(entry.attributes ? { attributes: cloneAttributes(entry.attributes) } : {}),
     ...(entry.payload ? { payload: structuredClone(entry.payload) } : {}),
   })
   return {
