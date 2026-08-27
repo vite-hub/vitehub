@@ -176,6 +176,36 @@ describe("Agent telemetry", () => {
     })
   })
 
+  it("does not encode inherited sparse-array values as public OTLP data", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const inherited = "prototype secret"
+    Object.defineProperty(Array.prototype, 0, { configurable: true, value: inherited, writable: true })
+
+    try {
+      await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+        agent: {},
+        records: [{
+          attributes: { "vitehub.payload.value": Array(1) },
+          eventName: "workspace.materialized",
+          spanId: "0123456789abcdef",
+          time: "2026-01-01T00:00:00.001Z",
+          traceId: "0123456789abcdef0123456789abcdef",
+        }],
+        runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+        signal: "logs",
+      })
+    }
+    finally {
+      delete Array.prototype[0]
+    }
+
+    const body = String(fetch.mock.calls[0]![1]?.body)
+    expect(body).not.toContain(inherited)
+    expect(JSON.parse(body).resourceLogs[0].scopeLogs[0].logRecords[0].attributes[0].value)
+      .toEqual({ arrayValue: { values: [{ stringValue: "undefined" }] } })
+  })
+
   it("treats partially accepted OTLP logs as failed delivery", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({
       partialSuccess: { rejectedLogRecords: "1" },

@@ -171,6 +171,40 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
   })
 
+  it("handles journal normalization rejection while the wrapped trace log is pending", async () => {
+    let releaseAppend!: () => void
+    const appendPending = new Promise<void>(resolve => { releaseAppend = resolve })
+    const traceLog = {
+      append: vi.fn(async (event: Record<string, unknown>) => {
+        await appendPending
+        return { ...event, timestamp: new Date().toISOString() }
+      }),
+      entries: () => [],
+    }
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    // SAFETY: This fixture supplies a valid custom Trace Event Log with a deliberately pending append.
+    const journal = await bindAgentInvocations(invocations, { ...runtime("pending-malformed-trace"), traceLog } as never)
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+
+    try {
+      const appended = journal.context.traceLog?.append({
+        name: "malformed",
+        timestamp: new Date(Number.NaN),
+        type: "run",
+      } as never)
+      await new Promise(resolve => setImmediate(resolve))
+      expect(unhandled).not.toHaveBeenCalled()
+      releaseAppend()
+      await expect(appended).resolves.toMatchObject({ name: "malformed" })
+    }
+    finally {
+      releaseAppend()
+      process.off("unhandledRejection", unhandled)
+    }
+  })
+
   it("isolates invocation persistence from a rejecting caller trace log", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const traceLog = {

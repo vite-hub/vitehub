@@ -736,7 +736,8 @@ function journalTraceLog(
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
-      const safeEntryPromise = createTraceEventLog({ content }).append(event)
+      const safeEntryPromise = Promise.resolve(createTraceEventLog({ content }).append(event))
+      void safeEntryPromise.catch(() => {})
       const metadataContentValues = new Map<string, unknown>()
       for (const key of metadataContent) {
         try {

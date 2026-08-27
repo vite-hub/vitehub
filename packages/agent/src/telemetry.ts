@@ -51,7 +51,13 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
     const nextAncestors = new Set(ancestors)
     nextAncestors.add(value)
     if (Array.isArray(value)) {
-      return { arrayValue: { values: Array.from(value, child => otlpAnyValue(child, nextAncestors)) } }
+      return {
+        arrayValue: {
+          values: Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index)
+            ? otlpAnyValue(value[index], nextAncestors)
+            : { stringValue: "undefined" }),
+        },
+      }
     }
     if (value instanceof Map) {
       return {
