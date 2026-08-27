@@ -104,8 +104,11 @@ export async function writeRateLimitProviderOutput(options: {
   previousDeclarations?: RateLimitDeclaration[]
   provider: "cloudflare" | "memory"
   rootDir: string
+  signal?: AbortSignal
 }, write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs): Promise<void> {
+  options.signal?.throwIfAborted()
   const state = await readOutputState(options.rootDir)
+  options.signal?.throwIfAborted()
   const currentBindings = options.declarations.map(declaration => getCloudflareRateLimitBindingName(declaration.name))
   const previousBindings = options.previousDeclarations?.map(declaration => getCloudflareRateLimitBindingName(declaration.name)) ?? []
   const ownership = {
@@ -140,7 +143,9 @@ export async function writeRateLimitProviderOutput(options: {
         rootDir: options.rootDir,
       })
     }
+    options.signal?.throwIfAborted()
     await writeOutputState(options.rootDir, [])
+    options.signal?.throwIfAborted()
     await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }
@@ -160,7 +165,9 @@ export async function writeRateLimitProviderOutput(options: {
       },
       rootDir: options.rootDir,
     })
+    options.signal?.throwIfAborted()
     await writeOutputState(options.rootDir, currentBindings, true)
+    options.signal?.throwIfAborted()
     await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }
@@ -175,6 +182,8 @@ export async function writeRateLimitProviderOutput(options: {
     },
     rootDir: options.rootDir,
   })
+  options.signal?.throwIfAborted()
   await writeOutputState(options.rootDir, [])
+  options.signal?.throwIfAborted()
   await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
 }

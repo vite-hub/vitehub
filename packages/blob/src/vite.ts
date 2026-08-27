@@ -336,7 +336,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         contributeProviderDeploymentOutput(providerOutput, {
           owner: "blob",
           rootDir,
-          write: async ({ write }) => {
+          write: async ({ signal, write }) => {
             await generateProviderOutputs({
               blob,
               clientOutDir,
@@ -345,6 +345,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
               providerOutput,
               rootDir,
               serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
+              signal,
             }, write)
           },
         })

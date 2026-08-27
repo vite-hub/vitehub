@@ -220,7 +220,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         contributeProviderDeploymentOutput(composedOutput, {
           owner: "rate-limit",
           rootDir: config.root,
-          write: async ({ write }) => {
+          write: async ({ signal, write }) => {
             await writeRateLimitProviderOutput({
               clientOutDir: config.build.outDir,
               cloudflareOwnedByNitro,
@@ -229,7 +229,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
               previousDeclarations,
               provider,
               rootDir: config.root,
+              signal,
             }, write)
+            signal.throwIfAborted()
             previousDeclarations = declarations
           },
         })
