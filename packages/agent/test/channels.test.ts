@@ -285,6 +285,7 @@ describe("agent channels", () => {
     try {
       const { telegram } = await import("../src/channels.ts")
       const channel = telegram()
+      vi.stubGlobal("process", undefined)
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const context = {
         cloudflare: {
@@ -312,6 +313,7 @@ describe("agent channels", () => {
       await expect(Promise.resolve(webhooks.secretToken({ cloudflare: { env: {} } } as never))).resolves.toBeUndefined()
     }
     finally {
+      vi.unstubAllGlobals()
       vi.doUnmock("@chat-adapter/telegram")
       vi.resetModules()
     }

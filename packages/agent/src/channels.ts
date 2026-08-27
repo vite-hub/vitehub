@@ -871,20 +871,21 @@ function runtimeEnv<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentCallbackContext<TRuntimeConfig>,
 ): unknown {
   return context.cloudflare?.env?.[name]
-    ?? (hasRuntimeType(process, "object") && process?.env ? process.env[name] : undefined)
+    ?? globalThis.process?.env?.[name]
 }
 
 const serverEnvModuleId = "#vitehub/env/server"
 
 async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
-  const fallback = hasRuntimeType(process, "object") && process?.env
+  const processEnv = globalThis.process?.env
+  const fallback = processEnv
     ? {
-        appId: process.env.GITHUB_APP_ID,
-        appInstallationId: process.env.GITHUB_APP_INSTALLATION_ID,
-        appPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
-        appPrivateKeyPath: process.env.GITHUB_APP_PRIVATE_KEY_PATH,
-        token: process.env.VITEHUB_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
-        webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
+        appId: processEnv.GITHUB_APP_ID,
+        appInstallationId: processEnv.GITHUB_APP_INSTALLATION_ID,
+        appPrivateKey: processEnv.GITHUB_APP_PRIVATE_KEY,
+        appPrivateKeyPath: processEnv.GITHUB_APP_PRIVATE_KEY_PATH,
+        token: processEnv.VITEHUB_GITHUB_TOKEN || processEnv.GH_TOKEN || processEnv.GITHUB_TOKEN,
+        webhookSecret: processEnv.GITHUB_WEBHOOK_SECRET,
       }
     : {}
   try {
