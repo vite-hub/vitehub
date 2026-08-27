@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
+import { normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceRequestExecution } from "../src/sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -27,6 +28,15 @@ afterEach(() => {
 })
 
 describe("fetch sources", () => {
+  it("identifies explicit and resolved fetch Sources by provider", async () => {
+    expect(fetch({ url: "https://status.example.com/health" })).toMatchObject({ name: "fetch" })
+    expect(normalizeWorkspaceSources({ status: { url: "https://status.example.com/health" } })[0]?.source).toMatchObject({ name: "fetch" })
+
+    const source = fetch(() => ({ url: "https://status.example.com/health" }))
+    expect(source).toMatchObject({ name: "fetch" })
+    await expect(source.resolve?.({} as never)).resolves.toMatchObject({ name: "fetch" })
+  })
+
   it("exports one live JSON source without writing to the store on read", async () => {
     const request = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({ ignored: true, status: "ok" }))
