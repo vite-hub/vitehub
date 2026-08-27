@@ -135,6 +135,7 @@ function nitroOptions(nuxt: ReturnType<typeof createNuxt>["nuxt"]): Record<strin
 
 describe("ViteHub Nuxt integration", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs()
     mocks.objectHook.mockClear()
     mocks.agentHook.mockClear()
     mocks.agentWorkflowRegistryTransform.mockClear()
@@ -341,6 +342,9 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
+    expect(development.nuxt.options.vite.plugins).toContainEqual(
+      expect.objectContaining({ name: "vite-hub/console-cli" }),
+    )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `const vitehubConsoleInvocations = installConsoleInvocations("/tmp/vitehub-nuxt")`,
     )
@@ -373,6 +377,31 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
+  })
+
+  it("loads Console fixtures in Nuxt development and rejects them in production", async () => {
+    const fixture = "/tmp/vitehub-nuxt/console.fixture.json"
+    await mkdir("/tmp/vitehub-nuxt", { recursive: true })
+    await writeFile("/tmp/vitehub-nuxt/package.json", "{}\n")
+    await writeFile(fixture, JSON.stringify({ invocations: [], version: 1 }))
+    vi.stubEnv("VITEHUB_CONSOLE_FIXTURE", fixture)
+    try {
+      const development = createNuxt(true)
+      await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+        `installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)})`,
+      )
+
+      const production = createNuxt(false)
+      await expect(viteHubNuxtModule({ console: { exposure: "host-managed" }, preset: "node" }, production.nuxt))
+        .rejects.toThrow("Console fixture mode is development-only")
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(fixture, { force: true })
+      await rm("/tmp/vitehub-nuxt/package.json", { force: true })
+    }
   })
 
   it("rejects non-Node production console storage while preserving development", async () => {

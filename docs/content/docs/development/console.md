@@ -69,6 +69,51 @@ Restart the development server after changing the option. Open `http://localhost
 
 If `console` is omitted or set to `false`, ViteHub does not register a Console page, API handler, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
 
+## Develop against a fixture
+
+Use `vitehub console dev` when Console work needs the same Agent Invocations on every restart. The command validates a versioned JSON fixture, then starts the development command after `--` with an in-memory Console journal. It does not write `.vitehub/data/console.sqlite`.
+
+```bash [Terminal]
+pnpm vitehub console dev \
+  --fixture test/fixtures/console.fixture.json \
+  -- pnpm dev
+```
+
+Fixture paths resolve from the Vite project root. Put records in oldest-to-newest order so the generated journal cursors produce the expected newest-first session list. A version 1 fixture contains complete `AgentInvocationRecord` values. `cursor` is optional because fixture mode assigns one from the array order.
+
+```json [test/fixtures/console.fixture.json]
+{
+  "version": 1,
+  "invocations": [
+    {
+      "id": "fixture_support_reply",
+      "traceId": "fixture_trace_support",
+      "agentName": "support",
+      "status": "completed",
+      "createdAt": "2026-08-27T10:00:00.000Z",
+      "updatedAt": "2026-08-27T10:00:02.000Z",
+      "completedAt": "2026-08-27T10:00:02.000Z",
+      "observations": [
+        {
+          "name": "agent.message",
+          "type": "run",
+          "sequence": 1,
+          "timestamp": "2026-08-27T10:00:01.000Z",
+          "attributes": {
+            "message.role": "assistant",
+            "message.content": "Your fixture is ready."
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The wrapper preserves the child command's exit status. Invalid arguments, unreadable files, malformed JSON, unsupported fixture versions, duplicate invocation ids, and invalid records print a diagnostic to stderr and return status `1` without starting the development command. Fixture mode is development-only, and a production build rejects the fixture environment before it generates server output.
+
+Fixtures often contain prompts and model output. Use synthetic or scrubbed records before committing them.
+
 ## Protect both route groups
 
 The Console registers the page under `/_vitehub/**` and its read API under `/api/_vitehub/console/**`. A production build rejects bare `console: true` so these inspection routes cannot be exposed accidentally.

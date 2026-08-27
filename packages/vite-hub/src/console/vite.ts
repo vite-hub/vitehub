@@ -7,9 +7,12 @@ import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 
 import { serializeConsoleRefresh } from "./refresh.ts"
+import { createConsoleCliNamespace } from "./cli.ts"
+import { consoleFixtureEnvironmentVariable, readConsoleFixture } from "./fixture.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -83,11 +86,13 @@ export function assertConsoleProductionAccess(
   }
 }
 
-function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[]): string {
+function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[], fixture?: string): string {
   return [
-    `import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`,
+    `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
-    `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
+    fixture
+      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)})`
+      : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
     `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
     "",
@@ -98,8 +103,9 @@ async function writeConsoleNitroPlugin(
   file: string,
   projectRoot: string,
   agents: readonly ConsoleAgentEntry[],
+  fixture?: string,
 ): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, agents)
+  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture)
   if (await readFile(file, "utf8").catch(() => undefined) === contents) return
   await mkdir(resolve(file, ".."), { recursive: true })
   await writeFile(file, contents, "utf8")
@@ -121,6 +127,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let projectRoot: string | undefined
   let root: string | undefined
   let serverDirs: string[] | undefined
+  let fixture: string | undefined
 
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
@@ -128,10 +135,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       generatedPlugin,
       projectRoot,
       discoverAgentDefinitionEntries(root, serverDirs),
+      fixture,
     )
   })
 
-  return {
+  const plugin: Plugin & ViteHubCliContributingPlugin = {
     name: "vite-hub/console",
     async config(config, environment) {
       root = resolve(config.root || process.cwd())
@@ -149,8 +157,17 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         preset: options.preset,
       })
       projectRoot = resolveViteHubProjectRoot(root)
+      const configuredFixture = process.env[consoleFixtureEnvironmentVariable]
+      fixture = undefined
+      if (configuredFixture) {
+        if (environment.command === "build") {
+          throw new Error("[vitehub] Console fixture mode is development-only.")
+        }
+        fixture = resolve(projectRoot, configuredFixture)
+        readConsoleFixture(fixture)
+      }
       generatedPlugin = resolve(root, generatedConsolePlugin)
-      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root))
+      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root), fixture)
 
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
       const consoleConfig = viteConfig as typeof viteConfig & { nitro?: ConsoleNitroConfig }
@@ -199,7 +216,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       server.watcher.on("change", refresh)
       server.watcher.on("unlink", refresh)
     },
+    vitehub: {
+      cli: {
+        namespaces: [createConsoleCliNamespace()],
+      },
+    },
   }
+  return plugin
 }
 
 function normalizeModuleId(id: string): string {

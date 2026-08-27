@@ -13,9 +13,10 @@ import { createServer } from "vite"
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
+import { consoleFixtureEnvironmentVariable, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
-import { createConsoleInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
+import { createConsoleFixtureInvocations, createConsoleInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -67,6 +68,59 @@ afterEach(() => {
 })
 
 describe("Agent invocation console", () => {
+  it("loads versioned invocation fixtures into an in-memory journal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-"))
+    try {
+      const file = join(root, "console.fixture.json")
+      await writeFile(file, JSON.stringify({
+        invocations: [{
+          agentName: "support",
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id: "fixture-invocation",
+          observations: [{
+            attributes: { "message.content": "Fixture reply", "message.role": "assistant" },
+            name: "agent.message",
+            sequence: 1,
+            timestamp: "2026-08-27T10:00:01.000Z",
+            type: "run",
+          }],
+          status: "completed",
+          traceId: "fixture-trace",
+          updatedAt: "2026-08-27T10:00:01.000Z",
+        }],
+        version: 1,
+      }))
+
+      const invocations = createConsoleFixtureInvocations(file)
+
+      await expect(invocations.get("fixture-invocation")).resolves.toMatchObject({
+        agentName: "support",
+        observations: [expect.objectContaining({ name: "agent.message" })],
+      })
+      await expect(invocations.list()).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "fixture-invocation" })],
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects malformed and duplicate fixture records", () => {
+    expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
+    expect(() => parseConsoleFixture({
+      invocations: [0, 1].map(() => ({
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id: "duplicate",
+        observations: [],
+        status: "completed",
+        traceId: "trace",
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      })),
+      version: 1,
+    })).toThrow("duplicate invocation id")
+  })
+
   it("serializes generated Agent registry refreshes", async () => {
     const releases: Array<() => void> = []
     const started: number[] = []
@@ -230,6 +284,32 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
 
       expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub" }))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("generates a fixture-backed journal only for development servers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-host-"))
+    try {
+      const fixture = join(root, "console.fixture.json")
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(fixture, JSON.stringify({ invocations: [], version: 1 }))
+      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
+
+      const generated = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
+      expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)})`)
+
+      await expect(Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }]))
+        .rejects.toThrow("Console fixture mode is development-only")
     }
     finally {
       await rm(root, { force: true, recursive: true })

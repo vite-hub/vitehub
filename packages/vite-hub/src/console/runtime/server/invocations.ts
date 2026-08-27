@@ -3,15 +3,24 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
-import { defineAgentInvocations } from "@vite-hub/agent/server"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import {
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
   resolveConsoleInvocationsRoot,
 } from "../../internal.ts"
+import { readConsoleFixture } from "../../fixture.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
+
+const consoleMetadataContent = [
+  "input.messages",
+  "input.prompt",
+  "message.content",
+  "result.text",
+  "vitehub.activity.progress",
+] as const
 
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
@@ -72,11 +81,30 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
   })
 }
 
+export function createConsoleFixtureInvocations(file: string): AgentInvocations {
+  const fixture = readConsoleFixture(file)
+  const store = createMemoryAgentInvocationStore()
+  for (const record of fixture.invocations) {
+    const { cursor: _cursor, ...input } = record
+    store.create(input)
+  }
+  return defineAgentInvocations({ metadataContent: consoleMetadataContent, store })
+}
+
 export function installConsoleInvocations(projectRoot: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const installed = resolveConsoleInvocations()
   if (installed && resolveConsoleInvocationsRoot() === resolvedRoot) return installed
   const invocations = createConsoleInvocations(resolvedRoot)
+  installConsoleInvocationFallback(invocations, resolvedRoot)
+  return invocations
+}
+
+export function installConsoleFixtureInvocations(projectRoot: string, file: string): AgentInvocations {
+  const resolvedRoot = resolve(projectRoot)
+  const installed = resolveConsoleInvocations()
+  if (installed && resolveConsoleInvocationsRoot() === resolvedRoot) return installed
+  const invocations = createConsoleFixtureInvocations(file)
   installConsoleInvocationFallback(invocations, resolvedRoot)
   return invocations
 }
