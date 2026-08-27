@@ -24,7 +24,6 @@ describe("public package export contracts", () => {
       "node-import",
       "provider-specific",
       "static-asset",
-      "type-only",
     ]))
   })
 

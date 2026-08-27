@@ -17,8 +17,8 @@ declare module "#vitehub/database/databases" {
 
 declare module "#vitehub/database/definition-defaults" {
   const defaults: {
-    cloudflare?: import("./types.ts").CloudflareD1BindingConfig
-    connection?: import("./types.ts").DatabaseConnectionConfig
+    cloudflare?: import("./index.js").CloudflareD1BindingConfig
+    connection?: import("./index.js").DatabaseConnectionConfig
   }
   export default defaults
 }

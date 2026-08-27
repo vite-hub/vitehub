@@ -6,7 +6,6 @@ export type PublicPackageExportKind
     | "node-import"
     | "provider-specific"
     | "static-asset"
-    | "type-only"
 
 export interface PublicPackageExportContract {
   kind: PublicPackageExportKind
@@ -22,11 +21,6 @@ export interface PublicPackageBinContract {
   packageName: string
   target: string
 }
-
-const typeOnlyExports = new Set([
-  "@vite-hub/agent/cloudflare/state",
-  "vite-hub/_internal/agent/cloudflare/state",
-])
 
 const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/agent/eval", ["evalite", "vitest"]],
@@ -76,7 +70,6 @@ function exportKind(packageName: string, subpath: string, specifier: string, tar
   if (target.endsWith(".css") || target.endsWith(".json") || subpath === "./package.json" || subpath === "./tsconfig") {
     return "static-asset"
   }
-  if (typeOnlyExports.has(specifier)) return "type-only"
   if (packageName === "@vite-hub/cli" && subpath === ".") return "cli"
   if (/(?:^|\/)(?:cloudflare|vercel|netlify|upstash|drivers?|providers?|hosted)(?:\/|-|$)/.test(subpath)) {
     return "provider-specific"

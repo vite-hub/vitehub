@@ -128,8 +128,16 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
   return parse(array(string()), value)
 }
 
-async function importSpecifiers(appDir: string, specifiers: readonly string[]) {
+async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
   const script = [
+    ...(withCloudflareHost
+      ? [
+          'const { registerHooks } = await import("node:module")',
+          "registerHooks({ resolve(specifier) {",
+          '  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }',
+          "} })",
+        ]
+      : []),
     "const specifiers = JSON.parse(process.argv[1])",
     "const failures = []",
     "for (const specifier of specifiers) {",
@@ -173,12 +181,15 @@ async function importPackagesWithoutRootFallback(
       const packageDirName = packageNameParts.at(-1)
       if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
       await symlink(packageRoot, join(linkDir, packageDirName), "dir")
-      await importSpecifiers(runnerDir, publicPackageExportContracts
+      const importableContracts = publicPackageExportContracts
         .filter(contract => contract.packageName === info.packageName
           && isJavaScriptModule(contract.target)
-          && contract.kind !== "type-only"
           && (includeOptionalPeers || contract.optionalPeers.length === 0))
+      const cloudflareContracts = importableContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
+      await importSpecifiers(runnerDir, importableContracts
+        .filter(contract => !cloudflareContracts.includes(contract))
         .map(contract => contract.specifier))
+      await importSpecifiers(runnerDir, cloudflareContracts.map(contract => contract.specifier), true)
       await typecheckPackageExports(info.packageName, packageRoot, runnerDir, includeOptionalPeers)
     })
   }
@@ -315,7 +326,7 @@ async function typecheckPackageModuleGroup(
     strict: true,
     target: ts.ScriptTarget.ESNext,
     typeRoots: packageName === "@vite-hub/agent"
-      ? [join(packageRoot, "node_modules/@types"), resolve(runnerDir, "../..", "node_modules/@types")]
+      ? [resolve(packageRoot, "../../@types"), resolve(runnerDir, "../..", "node_modules/@types")]
       : undefined,
     types: packageName === "@vite-hub/agent" ? ["json-schema", "mdast", "node"] : ["node"],
   }
@@ -410,27 +421,34 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
 
       const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
       await assertResolution(appDir, optionalPeers, false)
-      await importSpecifiers(appDir, publicPackageExportContracts
-        .filter(contract => contract.packageName !== "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
+      const absentPeerContracts = publicPackageExportContracts
+        .filter(contract => contract.packageName !== "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.optionalPeers.length === 0)
+      const absentCloudflareContracts = absentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
+      await importSpecifiers(appDir, absentPeerContracts
+        .filter(contract => !absentCloudflareContracts.includes(contract))
         .map(contract => contract.specifier))
+      await importSpecifiers(appDir, absentCloudflareContracts.map(contract => contract.specifier), true)
       await importPackagesWithoutRootFallback(appDir, false, packageName => packageName !== "@vite-hub/ui")
       await addRequiredVue(appDir)
       await importSpecifiers(appDir, publicPackageExportContracts
-        .filter(contract => contract.packageName === "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
+        .filter(contract => contract.packageName === "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.optionalPeers.length === 0)
         .map(contract => contract.specifier))
       await importPackagesWithoutRootFallback(appDir, false, packageName => packageName === "@vite-hub/ui")
 
       expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
-      await importSpecifiers(appDir, publicPackageExportContracts
-        .filter(contract => isJavaScriptModule(contract.target) && contract.kind !== "type-only")
+      const presentPeerContracts = publicPackageExportContracts
+        .filter(contract => isJavaScriptModule(contract.target))
+      const presentCloudflareContracts = presentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
+      await importSpecifiers(appDir, presentPeerContracts
+        .filter(contract => !presentCloudflareContracts.includes(contract))
         .map(contract => contract.specifier))
+      await importSpecifiers(appDir, presentCloudflareContracts.map(contract => contract.specifier), true)
       await importPackagesWithoutRootFallback(appDir, true)
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
-      const typeOnlyContracts = publicPackageExportContracts.filter(contract => contract.kind === "type-only")
-      const resolved = await resolveSpecifiers(appDir, [...staticContracts, ...typeOnlyContracts].map(contract => contract.specifier))
+      const resolved = await resolveSpecifiers(appDir, staticContracts.map(contract => contract.specifier))
       for (const [index, url] of resolved.entries()) {
-        const contract = [...staticContracts, ...typeOnlyContracts][index]!
+        const contract = staticContracts[index]!
         const path = fileURLToPath(url)
         expect(existsSync(path), `${contract.specifier} should resolve from the installed package`).toBe(true)
         expect((await readFile(path)).byteLength, `${contract.specifier} should not publish an empty asset`).toBeGreaterThan(0)
