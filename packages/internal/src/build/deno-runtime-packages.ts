@@ -83,6 +83,14 @@ function maskInertImportText(source: string): string {
     return text.replace(/[^\n]/g, " ")
   }
 
+  function maskLiteralOperand(text: string): string {
+    const masked = maskLiteralText(text)
+    const lastLineCharacter = masked.search(/[^\n](?=\n*$)/)
+    return lastLineCharacter === -1
+      ? masked
+      : masked.slice(0, lastLineCharacter) + "0" + masked.slice(lastLineCharacter + 1)
+  }
+
   function scanTemplate(): void {
     output += " "
     index++
@@ -93,7 +101,7 @@ function maskInertImportText(source: string): string {
         index = end
       }
       else if (source[index] === "`") {
-        output += " "
+        output += "0"
         index++
         return
       }
@@ -154,7 +162,7 @@ function maskInertImportText(source: string): string {
           else if (source[end] === "\n" || source[end] === "\r") break
           else end++
         }
-        output += maskLiteralText(source.slice(index, end))
+        output += maskLiteralOperand(source.slice(index, end))
         index = end
         continue
       }
@@ -171,7 +179,7 @@ function maskInertImportText(source: string): string {
           else if (source[end++] === character) break
         }
         const literal = source.slice(index, end)
-        output += keep ? literal : maskLiteralText(literal)
+        output += keep ? literal : maskLiteralOperand(literal)
         index = end
         continue
       }
@@ -413,8 +421,10 @@ function assertSupportedApplicationEntryImports(source: string): void {
     if (specifier === "./schedule/deno-cron.mjs" || specifier === "./server/index.mjs") continue
     throw new Error(`Deno application entrypoint contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
   }
-  const remaining = executableSource.replaceAll(/import\s*\(\s*new URL\(\s*["']\.\/(?:schedule\/deno-cron\.mjs|server\/index\.mjs)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, "")
-  if (/\bimport\s*\(\s*[^"'\s]/.test(remaining)) {
+  const remaining = executableSource
+    .replaceAll(/import\s*\(\s*new URL\(\s*["']\.\/(?:schedule\/deno-cron\.mjs|server\/index\.mjs)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, "")
+    .replaceAll(/import\s*\(\s*["'][^"']*["']\s*\)/g, "")
+  if (/\bimport\s*\(/.test(remaining)) {
     throw new Error("Deno application entrypoint contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.")
   }
 }
@@ -532,7 +542,7 @@ export async function finalizeDenoDeploymentOutput(
     const temporaryApplicationOutput = `${applicationOutput}.vitehub-tmp`
     try {
       await bundleEsmEntry(applicationEntrySource, temporaryApplicationOutput, {
-        external: [...builtinModuleNames, "./schedule/*", "./server/*"],
+        external: [...builtinModuleNames, "./schedule/deno-cron.mjs", "./server/index.mjs"],
         alias: options.alias,
         format: "esm",
         packages: "external",

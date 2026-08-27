@@ -70,6 +70,11 @@ import "real"
 `)).toEqual(["real"])
   })
 
+  it("finds imports after division by masked literals", () => {
+    expect(collectDenoRuntimePackageNames('const ratio="1"/2;import("real-package")')).toEqual(["real-package"])
+    expect(collectDenoRuntimePackageNames('const ratio=/1//2;import("real-package")')).toEqual(["real-package"])
+  })
+
   it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -79,8 +84,9 @@ import "real"
     await writeFile(join(root, "server/schedules/heartbeat.ts"), 'import { randomUUID } from "crypto"\nexport default { run() { return `heartbeat-${randomUUID()}` } }\n', "utf8")
     await writeFile(join(root, ".vitehub/schedule/registry.mjs"), 'export default { heartbeat: () => import("../../server/schedules/heartbeat.ts") }\n', "utf8")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import registry from "./registry.mjs"\nglobalThis.schedule = registry.heartbeat\n', "utf8")
-    await writeFile(join(root, "instrumentation.ts"), 'globalThis.instrumented = "application-helper"\n', "utf8")
-    await writeFile(join(root, "main.ts"), 'import "./instrumentation.ts"\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server/instrumentation.ts"), 'globalThis.instrumented = "application-helper"\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'import "./server/instrumentation.ts"\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
@@ -121,6 +127,19 @@ import "real"
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'const base = import.meta.url\nawait import(new URL("./helper.ts", base).href)\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+      "unsupported computed import",
+    )
+  })
+
+  it("rejects computed imports whose first operand is a string literal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-string-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./helper.ts".slice(0))\n', "utf8")
 
     await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
       "unsupported computed import",
