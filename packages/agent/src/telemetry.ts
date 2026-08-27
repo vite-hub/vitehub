@@ -22,7 +22,7 @@ type OtlpAnyValue =
 
 const retryableStatuses = new Set([429, 502, 503, 504])
 
-function otlpAnyValue(value: unknown): OtlpAnyValue {
+function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyValue {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
@@ -42,11 +42,42 @@ function otlpAnyValue(value: unknown): OtlpAnyValue {
     for (const byte of bytes) binary += String.fromCharCode(byte)
     return { bytesValue: btoa(binary) }
   }
-  if (Array.isArray(value)) return { arrayValue: { values: value.map(otlpAnyValue) } }
+  if (value instanceof Date) return { stringValue: value.toISOString() }
+  if (value instanceof RegExp) return { stringValue: String(value) }
   if (value && hasRuntimeType(value, "object")) {
+    if (ancestors.has(value)) return { stringValue: "[Circular]" }
+    const nextAncestors = new Set(ancestors)
+    nextAncestors.add(value)
+    if (Array.isArray(value)) {
+      return { arrayValue: { values: Array.from(value, child => otlpAnyValue(child, nextAncestors)) } }
+    }
+    if (value instanceof Map) {
+      return {
+        kvlistValue: {
+          values: [...value].map(([key, child]) => ({ key: String(key), value: otlpAnyValue(child, nextAncestors) })),
+        },
+      }
+    }
+    if (value instanceof Set) {
+      return { arrayValue: { values: [...value].map(child => otlpAnyValue(child, nextAncestors)) } }
+    }
+    if (value instanceof Error) {
+      return {
+        kvlistValue: {
+          values: [
+            { key: "name", value: { stringValue: value.name } },
+            { key: "message", value: { stringValue: value.message } },
+          ],
+        },
+      }
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== null && prototype !== Object.prototype) {
+      return { stringValue: Object.prototype.toString.call(value) }
+    }
     return {
       kvlistValue: {
-        values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child) }]),
+        values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child, nextAncestors) }]),
       },
     }
   }

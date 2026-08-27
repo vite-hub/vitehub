@@ -233,14 +233,18 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-attribute-count"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
-    const attributes = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`key-${index}`, index]))
+    const attributes = Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`key-${index}`, index]))
     await journal.context.traceLog?.append({ attributes, name: "tool.finish", type: "run" })
+    const exactLimitAttributes = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`exact-${index}`, index]))
+    await journal.context.traceLog?.append({ attributes: exactLimitAttributes, name: "tool.exact-limit", type: "run" })
     await journal.finish("completed")
 
-    const observation = (await invocations.getByRunId("bounded-attribute-count"))?.observations
-      .find(entry => entry.name === "tool.finish")
+    const observations = (await invocations.getByRunId("bounded-attribute-count"))?.observations
+    const observation = observations?.find(entry => entry.name === "tool.finish")
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
     expect(Object.keys(observation?.attributes || {})).toHaveLength(32)
+    const exactLimitObservation = observations?.find(entry => entry.name === "tool.exact-limit")
+    expect(exactLimitObservation?.attributes).toEqual(exactLimitAttributes)
   })
 
   it("bounds public trace payloads before persisting invocation observations", async () => {

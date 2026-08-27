@@ -133,6 +133,47 @@ describe("Agent telemetry", () => {
     })
   })
 
+  it("safely encodes structured public payload values as OTLP/HTTP JSON", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const cyclic: { self?: unknown } = {}
+    cyclic.self = cyclic
+
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: {
+          "vitehub.payload.value": {
+            cyclic,
+            date: new Date("2026-01-01T00:00:00.000Z"),
+            map: new Map([["status", "ready"]]),
+            set: new Set(["first", "second"]),
+          },
+        },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+    const payload = body.resourceLogs[0].scopeLogs[0].logRecords[0].attributes
+      .find((attribute: { key: string }) => attribute.key === "vitehub.payload.value").value
+    expect(payload).toMatchObject({
+      kvlistValue: {
+        values: [
+          { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
+          { key: "date", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
+          { key: "map", value: { kvlistValue: { values: [{ key: "status", value: { stringValue: "ready" } }] } } },
+          { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
+        ],
+      },
+    })
+  })
+
   it("treats partially accepted OTLP logs as failed delivery", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({
       partialSuccess: { rejectedLogRecords: "1" },

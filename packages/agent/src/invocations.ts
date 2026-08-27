@@ -402,7 +402,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
   const ordinaryAttributes = Object.entries(observation.attributes || {})
     .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
   const ordinaryAttributeLimit = MAX_OBSERVATION_ATTRIBUTES - Object.keys(canonicalAttributes).length
-  if (ordinaryAttributes.length > 0 && ordinaryAttributes.length >= ordinaryAttributeLimit) {
+  if (ordinaryAttributes.length > ordinaryAttributeLimit) {
     budget.truncated = true
   }
   let attributes = observation.attributes || Object.keys(canonicalAttributes).length
