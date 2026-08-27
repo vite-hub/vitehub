@@ -25,4 +25,5 @@ export {
 } from "./core/registry.ts"
 export type * from "./core/types.ts"
 export type { SourceErrorCode } from "./core/errors.ts"
+export { sourceIgnores } from "./ignores.ts"
 export { custom } from "./sources/custom.ts"

@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@nuxt/content": "catalog:nuxt",
+    "@nuxt/icon": "^2.5.0",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/ui": "workspace:*",
     "@vueuse/core": "catalog:ui",

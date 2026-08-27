@@ -8166,8 +8166,6 @@ describe("server helpers", () => {
       webhookState: state,
     }
     let stop: () => void | Promise<void> = () => undefined
-    vi.useFakeTimers()
-
     try {
       stop = handler.resume(options)
       const first = await handler(request("delivery-1"), "github", options)
@@ -8184,7 +8182,7 @@ describe("server helpers", () => {
       const waitUntilCount = waitUntilTasks.length
       const steering = handler(request("delivery-2"), "github", options)
       await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
-      await vi.advanceTimersByTimeAsync(1_100)
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_100))
       const concurrentDelivery = await handler(request("delivery-6"), "github", options)
       expect(concurrentDelivery.status).toBe(503)
       await expect(concurrentDelivery.json()).resolves.toEqual({
@@ -8283,7 +8281,6 @@ describe("server helpers", () => {
       releaseSteer()
       releases.splice(0).forEach((release) => release())
       await stopping
-      vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
