@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { mkdirSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -10,6 +11,7 @@ import {
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
   resolveConsoleInvocationsIdentity,
+  resolveConsoleInvocationsRevision,
 } from "../../internal.ts"
 import { readConsoleFixture } from "../../fixture.ts"
 
@@ -96,13 +98,14 @@ export function installConsoleInvocations(projectRoot: string): AgentInvocations
   return invocations
 }
 
-export function installConsoleFixtureInvocations(projectRoot: string, file: string): AgentInvocations {
+export function installConsoleFixtureInvocations(projectRoot: string, file: string, _generatedRevision?: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const resolvedFile = resolve(file)
   const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile)
+  const revision = createHash("sha256").update(readFileSync(resolvedFile)).digest("hex")
   const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsIdentity() === identity) return installed
+  if (installed && resolveConsoleInvocationsIdentity() === identity && resolveConsoleInvocationsRevision(identity) === revision) return installed
   const invocations = createConsoleFixtureInvocations(resolvedFile)
-  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
+  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity, revision)
   return invocations
 }

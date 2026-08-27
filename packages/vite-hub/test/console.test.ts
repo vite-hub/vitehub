@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
@@ -67,6 +67,7 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
+  Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -162,11 +163,19 @@ describe("Agent invocation console", () => {
       const file = join(root, "fixture.json")
       await writeFile(file, JSON.stringify(fixture("first")))
       const first = installConsoleFixtureInvocations(root, file)
+      const existingRealm = {
+        process,
+        [consoleInvocationsIdentityKey]: `fixture:${root}:${file}`,
+        [consoleInvocationsIdentityRootKey]: root,
+        [consoleInvocationsRootKey]: root,
+      }
 
       await writeFile(file, JSON.stringify(fixture("second")))
       const second = installConsoleFixtureInvocations(root, file)
 
       expect(second).not.toBe(first)
+      expect(resolveConsoleInvocations(existingRealm)).toBe(second)
+      expect(Reflect.get(process, consoleInvocationsRegistryKey).size).toBe(1)
       await expect(second.list()).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "second" })],
       })
@@ -401,7 +410,18 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
 
       const generated = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
-      expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)})`)
+      expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)}, `)
+
+      let refresh: (() => Promise<void>) | undefined
+      const configureServerHook = plugin.configureServer
+      if (!configureServerHook) throw new TypeError("Expected a configureServer hook.")
+      const configureServer = typeof configureServerHook === "function" ? configureServerHook : configureServerHook.handler
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This focused watcher fixture implements the only configureServer member the Console plugin reads.
+      await Reflect.apply(configureServer, {}, [{ watcher: { on: (_event: string, callback: () => Promise<void>) => { refresh = callback } } } as never])
+      await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
+      await refresh?.()
+      const refreshed = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
+      expect(refreshed).not.toBe(generated)
 
       await expect(Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }]))
         .rejects.toThrow("Console fixture mode is development-only")

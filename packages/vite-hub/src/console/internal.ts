@@ -1,6 +1,3 @@
-import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
-
 import type { AgentInvocations } from "@vite-hub/agent"
 
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
@@ -10,6 +7,7 @@ export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.
 export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
+export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 
 type ConsoleInvocationsByRoot = {
   get(key: string): AgentInvocations | undefined
@@ -36,8 +34,17 @@ export type ConsoleInvocationScope = {
 
 export function createConsoleInvocationsIdentity(projectRoot: string, fixture?: string): string {
   if (!fixture) return `sqlite:${projectRoot}`
-  const revision = createHash("sha256").update(readFileSync(fixture)).digest("hex")
-  return `fixture:${projectRoot}:${fixture}:${revision}`
+  return `fixture:${projectRoot}:${fixture}`
+}
+
+export function resolveConsoleInvocationsRevision(
+  identity: string,
+  scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+): string | undefined {
+  const registry = processRegistry(scope)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const revisions = registry?.[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  return revisions?.get(identity)
 }
 
 function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {
@@ -89,6 +96,7 @@ export function installConsoleInvocationFallback(
   projectRoot: string,
   scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
   identity = projectRoot,
+  revision?: string,
 ): void {
   scope[consoleInvocationsKey] = invocations
   scope[consoleInvocationsRootKey] = projectRoot
@@ -105,6 +113,13 @@ export function installConsoleInvocationFallback(
       ?? new Map<string, string>()
     identities.set(projectRoot, identity)
     registry[consoleInvocationsRootIdentityRegistryKey] = identities
+    if (revision) {
+      // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+      const revisions = registry[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+        ?? new Map<string, string>()
+      revisions.set(identity, revision)
+      registry[consoleInvocationsRevisionRegistryKey] = revisions
+    }
     registry[consoleInvocationsKey] = invocations
   }
 }
