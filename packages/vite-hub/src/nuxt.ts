@@ -206,6 +206,7 @@ async function installConsole(
   fixture?: string,
   serverDirs?: string[],
   installInvocations = true,
+  writeGeneratedPlugin = true,
 ): Promise<void> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -257,9 +258,8 @@ async function installConsole(
       fixture,
     )
   })
-  // Nitro runs in another runtime realm, so install a second journal instance over the same project SQLite file.
-  await refreshAgentDefinitions()
-  if (nuxt.options.dev) {
+  if (writeGeneratedPlugin) await refreshAgentDefinitions()
+  if (nuxt.options.dev && writeGeneratedPlugin) {
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
     // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
     const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: () => Promise<void>) => void) | undefined
@@ -509,6 +509,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       viteRoot,
       resolvedFixture,
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      !nuxt.options.vitehubCliDiscovery,
       !nuxt.options.vitehubCliDiscovery,
     )
   }

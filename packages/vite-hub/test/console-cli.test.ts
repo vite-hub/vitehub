@@ -198,6 +198,23 @@ describe("Console fixture CLI", () => {
     })).toThrow("invocations[0].agentName must be at most 512 characters")
   })
 
+  it("rejects fixture Agent names that cannot be URL-encoded", () => {
+    expect(() => parseConsoleFixture({
+      invocations: [
+        {
+          agentName: "support-\uD800",
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id: "fixture-invocation",
+          observations: [],
+          status: "completed",
+          traceId: "fixture-trace",
+          updatedAt: "2026-08-27T10:01:00.000Z",
+        },
+      ],
+      version: 1,
+    })).toThrow("invocations[0].agentName must contain well-formed Unicode")
+  })
+
   it("rejects arrays for every record-shaped fixture field", () => {
     const invocation = {
       agentName: "support",

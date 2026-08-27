@@ -115,6 +115,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       serverDir: "/tmp/vitehub-nuxt/custom-server",
       srcDir: "/tmp/vitehub-nuxt/app",
       vite: { plugins },
+      vitehubCliDiscovery: undefined as true | undefined,
     },
   }
   return {
@@ -415,6 +416,10 @@ describe("ViteHub Nuxt integration", () => {
   it("does not open Console storage during CLI discovery", async () => {
     const root = "/tmp/vitehub-nuxt-cli-discovery"
     await rm(root, { force: true, recursive: true })
+    const generatedPlugin = resolve(root, ".vitehub/nitro/console/plugin.mjs")
+    const activeFixturePlugin = "// active fixture plugin\n"
+    await mkdir(resolve(generatedPlugin, ".."), { recursive: true })
+    await writeFile(generatedPlugin, activeFixturePlugin)
     const development = createNuxt(true)
     development.nuxt.options.rootDir = root
     development.nuxt.options.buildDir = resolve(root, ".nuxt")
@@ -425,6 +430,7 @@ describe("ViteHub Nuxt integration", () => {
       await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
       await expect(readFile(resolve(root, ".vitehub/data/console.sqlite")))
         .rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(activeFixturePlugin)
       expect(development.nuxt.options.vite.plugins).toContainEqual(
         expect.objectContaining({ name: "vite-hub/console-cli" }),
       )

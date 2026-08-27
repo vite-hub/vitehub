@@ -70,6 +70,7 @@ function optionalTimestamp(value: unknown, path: string): string | undefined {
 
 function agentName(value: unknown, path: string): string {
   const resolved = requiredString(value, path).trim()
+  assertWellFormedUnicode(resolved, path)
   if (resolved.length > maximumAgentNameLength) {
     throw new TypeError(
       `[vitehub] Console fixture ${path} must be at most ${maximumAgentNameLength} characters.`,
@@ -241,13 +242,17 @@ function invocationId(value: unknown, path: string): string {
   if (id === "." || id === "..") {
     throw new TypeError(`[vitehub] Console fixture ${path} must not be a dot segment.`)
   }
+  assertWellFormedUnicode(id, path)
+  return id
+}
+
+function assertWellFormedUnicode(value: string, path: string): void {
   try {
-    encodeURIComponent(id)
+    encodeURIComponent(value)
   }
   catch {
     throw new TypeError(`[vitehub] Console fixture ${path} must contain well-formed Unicode.`)
   }
-  return id
 }
 
 export function parseConsoleFixture(value: unknown): ConsoleFixture {
