@@ -3603,7 +3603,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
 
 function toAgentRunResultWithInheritedProperties(result: object): AgentRunResult {
   const normalized = toAgentRunResult(result)
-  for (const key of ["artifacts", "finishReason", "usage", "usageRecord", "warnings"] as const) {
+  for (const key of ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"] as const) {
     if (normalized[key] !== undefined || !Reflect.has(result, key)) continue
     try {
       normalized[key] = Reflect.get(result, key) as never
@@ -3728,6 +3728,9 @@ function resultWithStreamedTextAndUsage(
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
+    const mergedUsageRecord = normalized.usageRecord || streamedUsageRecord
+      ? { ...streamedUsageRecord, ...normalized.usageRecord }
+      : undefined
     return {
       ...normalized,
       raw: result,
@@ -3735,9 +3738,7 @@ function resultWithStreamedTextAndUsage(
       ...(normalized.usage !== undefined || streamedUsageRecord?.usage !== undefined
         ? { usage: normalized.usage ?? streamedUsageRecord?.usage }
         : {}),
-      ...(normalized.usageRecord !== undefined || streamedUsageRecord !== undefined
-        ? { usageRecord: normalized.usageRecord ?? streamedUsageRecord }
-        : {}),
+      ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }
   }
   return resultWithUsageRecord(resultWithStreamedText(result, text), streamedUsageRecord)

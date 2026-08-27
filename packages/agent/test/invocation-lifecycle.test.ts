@@ -341,7 +341,11 @@ describe("Agent Invocation Interface lifecycle", () => {
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
-      result: { raw, usage, usageRecord },
+      result: {
+        raw,
+        usage,
+        usageRecord: { ...usageRecord, model: "provider/model" },
+      },
     })
   })
 
@@ -389,8 +393,12 @@ describe("Agent Invocation Interface lifecycle", () => {
         return [{ message: "provider warning" }]
       }
 
+      get text() {
+        return "provider answer"
+      }
+
       async *[Symbol.asyncIterator]() {
-        yield { text: "answer", type: "text-delta" }
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
       }
     }
     const raw = Object.preventExtensions(new RawStream())
@@ -406,7 +414,8 @@ describe("Agent Invocation Interface lifecycle", () => {
       result: {
         finishReason: "stop",
         raw,
-        text: "answer",
+        text: "provider answer",
+        usage: { totalTokens: 2 },
         warnings: [{ message: "provider warning" }],
       },
     })
