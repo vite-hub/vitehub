@@ -154,6 +154,19 @@ describe("built-in Agent Driver selection", () => {
     });
   });
 
+  it("accepts sealed Codex credentials implemented by a class instance", () => {
+    class SecretEnv {
+      unseal() {
+        return "{}";
+      }
+    }
+    const credentials = new SecretEnv();
+
+    expect(normalizeAgentDriver({
+      driver: { credentials, kind: "codex" },
+    })).toMatchObject({ credentials, kind: "provider", provider: "codex" });
+  });
+
   it.each([
     [{ kind: "claude-code", credentials: "{}" }, "does not support Codex option: credentials"],
     [{ kind: "claude-code", model: "claude", reasoningEffort: "high" }, "does not support Codex option: reasoningEffort"],

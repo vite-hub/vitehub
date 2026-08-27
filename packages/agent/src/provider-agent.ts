@@ -1076,8 +1076,16 @@ async function* runProvider<
   }
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
-    deferredRuntimeCleanup = cleanup
     observeLateCleanup(cleanup)
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    deferredRuntimeCleanup = Promise.race([
+      cleanup,
+      new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+    ]).finally(async () => {
+      if (timeout) clearTimeout(timeout)
+      await cleanupCredentialHome()
+    })
+    observeLateCleanup(deferredRuntimeCleanup)
   }
   const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
     workspaceCleanupDeferred = true

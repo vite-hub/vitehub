@@ -147,7 +147,9 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     throw new TypeError(`[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.`)
   }
   const credentials = value.credentials
-  const credentialObject = isConfigurationObject(credentials) ? credentials : undefined
+  const credentialObject = typeof credentials === "object" && credentials !== null
+    ? credentials as { resolve?: unknown, unseal?: unknown }
+    : undefined
   if (credentials !== undefined
     && !isRuntimeString(credentials)
     && !isRuntimeFunction(credentials)
