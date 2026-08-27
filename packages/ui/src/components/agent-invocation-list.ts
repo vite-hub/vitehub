@@ -183,11 +183,9 @@ export const AgentInvocationList = defineComponent({
       () => props.selectedId,
       () => props.items.find(item => item.id === props.selectedId)?.status,
     ], ([selectedId, status], [previousSelectedId, previousStatus]) => {
-      if ((selectedId === previousSelectedId && status === previousStatus)
-        || status === undefined
-        || status === "running"
-        || status === "pending") return;
-      doneOpen.value = true;
+      if ((selectedId === previousSelectedId && status === previousStatus) || status === undefined || status === "running") return;
+      if (status === "pending") queuedOpen.value = true;
+      else doneOpen.value = true;
     });
     onMounted(() => {
       requestMoreAutomatically();

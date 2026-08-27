@@ -465,6 +465,63 @@ describe("Agent invocation console", () => {
     expect(last.cursor).toBeUndefined()
   })
 
+  it("caps composite console pages at the invocation list maximum", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 240; index++) {
+      const status = index % 2 === 0 ? "pending" : "completed"
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=1000"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(100)
+    expect(result.cursor).toBeDefined()
+  })
+
+  it("deduplicates an invocation that becomes terminal between lifecycle reads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "transitioning",
+      observations: [],
+      status: "pending",
+      traceId: "trace-transitioning",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const list = store.list.bind(store)
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        await store.update("transitioning", {
+          status: "completed",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations.map(invocation => invocation.id)).toEqual(["transitioning"])
+  })
+
   it("continues active pagination after terminal sessions are exhausted", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [index, status] of (["completed", "pending", "pending", "pending"] as const).entries()) {

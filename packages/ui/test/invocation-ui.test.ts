@@ -215,6 +215,26 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
   });
 
+  it("reopens Queued for each newly selected pending session", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [
+          { id: "first", status: "pending", title: "First" },
+          { id: "second", status: "pending", title: "Second" },
+        ],
+        selectedId: "first",
+      },
+    });
+    const queued = wrapper.get('details[data-group="queued"]');
+    if (!(queued.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    queued.element.open = false;
+    await queued.trigger("toggle");
+
+    await wrapper.setProps({ selectedId: "second" });
+
+    expect(wrapper.get('details[data-group="queued"]').attributes("open")).toBe("");
+  });
+
   it("opens Done when the selected terminal session arrives", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: { items: [], selectedId: "done" },

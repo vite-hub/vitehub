@@ -2,7 +2,7 @@ import { getConsoleInvocations } from "./invocations.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
-import type { AgentInvocationListResult } from "@vite-hub/agent"
+import type { AgentInvocationListOptions, AgentInvocationListResult, AgentInvocationRecordStatus } from "@vite-hub/agent"
 
 interface ConsoleInvocationCursor {
   active?: string | null
@@ -10,20 +10,24 @@ interface ConsoleInvocationCursor {
 }
 
 const defaultListLimit = 50
+const maximumListLimit = 100
 
 function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   if (!value) return {}
   try {
-    const cursor = JSON.parse(value) as unknown
-    if (
-      typeof cursor !== "object"
-      || cursor === null
-      || Array.isArray(cursor)
-      || !("active" in cursor || "terminal" in cursor)
-      || ("active" in cursor && cursor.active !== null && typeof cursor.active !== "string")
-      || ("terminal" in cursor && cursor.terminal !== null && typeof cursor.terminal !== "string")
-    ) throw new TypeError()
-    return cursor as ConsoleInvocationCursor
+    const parsed: unknown = JSON.parse(value)
+    if (Object(parsed) !== parsed || Array.isArray(parsed)) throw new TypeError()
+    const hasActive = Reflect.has(parsed, "active")
+    const hasTerminal = Reflect.has(parsed, "terminal")
+    if (!hasActive && !hasTerminal) throw new TypeError()
+    const active = Reflect.get(parsed, "active")
+    const terminal = Reflect.get(parsed, "terminal")
+    if ((hasActive && active !== null && String(active) !== active)
+      || (hasTerminal && terminal !== null && String(terminal) !== terminal)) throw new TypeError()
+    const cursor: ConsoleInvocationCursor = {}
+    if (hasActive) cursor.active = active === null ? null : String(active)
+    if (hasTerminal) cursor.terminal = terminal === null ? null : String(terminal)
+    return cursor
   }
   catch {
     throw Object.assign(new Error("Invalid invocation cursor"), {
@@ -36,6 +40,18 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
 function encodeCursor(cursor: ConsoleInvocationCursor): string | undefined {
   if (!("active" in cursor || "terminal" in cursor)) return
   return JSON.stringify(cursor)
+}
+
+async function listLifecyclePage(
+  status: readonly AgentInvocationRecordStatus[],
+  limit: number,
+  cursor: string | null | undefined,
+  agentName: string | undefined,
+): Promise<AgentInvocationListResult> {
+  const options: AgentInvocationListOptions = { limit, status }
+  if (agentName) options.agentName = agentName
+  if (cursor) options.cursor = cursor
+  return getConsoleInvocations().list(options)
 }
 
 const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocationListResult> = async (event) => {
@@ -74,8 +90,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       statusMessage: "Invalid invocation limit",
     })
   }
-  const pageLimit = limit ?? defaultListLimit
-  const listOptions = agentName ? { agentName } : {}
+  const pageLimit = Math.min(limit ?? defaultListLimit, maximumListLimit)
   const emptyPage: AgentInvocationListResult = { invocations: [] }
   const initialPage = !("active" in cursor || "terminal" in cursor)
   const hasTerminalPage = initialPage || "terminal" in cursor
@@ -85,38 +100,24 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       ? Math.ceil(pageLimit / 2)
       : pageLimit
   const active = activeLimit > 0 && (initialPage || "active" in cursor)
-    ? await getConsoleInvocations().list({
-        ...listOptions,
-        ...(cursor.active ? { cursor: cursor.active } : {}),
-        limit: activeLimit,
-        status: ["pending", "running"],
-      })
+    ? await listLifecyclePage(["pending", "running"], activeLimit, cursor.active, agentName)
     : emptyPage
   const terminalLimit = pageLimit - active.invocations.length
   const terminal = terminalLimit > 0 && hasTerminalPage
-    ? await getConsoleInvocations().list({
-        ...listOptions,
-        ...(cursor.terminal ? { cursor: cursor.terminal } : {}),
-        limit: terminalLimit,
-        status: ["cancelled", "completed", "failed"],
-      })
+    ? await listLifecyclePage(["cancelled", "completed", "failed"], terminalLimit, cursor.terminal, agentName)
     : emptyPage
-  const nextCursor = encodeCursor({
-    ...(active.cursor
-      ? { active: active.cursor }
-      : activeLimit === 0 && cursor.active
-        ? { active: cursor.active }
-        : {}),
-    ...(terminal.cursor
-      ? { terminal: terminal.cursor }
-      : terminalLimit === 0 && hasTerminalPage
-        ? { terminal: cursor.terminal ?? null }
-        : {}),
-  })
-  return {
-    ...(nextCursor ? { cursor: nextCursor } : {}),
-    invocations: [...active.invocations, ...terminal.invocations],
+  const next: ConsoleInvocationCursor = {}
+  if (active.cursor) next.active = active.cursor
+  else if (activeLimit === 0 && cursor.active) next.active = cursor.active
+  if (terminal.cursor) next.terminal = terminal.cursor
+  else if (terminalLimit === 0 && hasTerminalPage) next.terminal = cursor.terminal ?? null
+  const nextCursor = encodeCursor(next)
+  const activeIds = new Set(active.invocations.map(invocation => invocation.id))
+  const result: AgentInvocationListResult = {
+    invocations: [...active.invocations, ...terminal.invocations.filter(invocation => !activeIds.has(invocation.id))],
   }
+  if (nextCursor) result.cursor = nextCursor
+  return result
 }
 
 export default invocationsHandler
