@@ -30,11 +30,12 @@ async function availablePort() {
   await once(server, "listening")
 
   const address = server.address()
-  if (!address) throw new Error("Could not allocate an Agent example test port")
+  // SAFETY: a TCP server listening on an IP address returns AddressInfo; the port guard rejects other shapes.
+  const portAddress = address as AddressInfo | null
+  if (!portAddress || !Number.isInteger(portAddress.port)) throw new Error("Could not allocate an Agent example test port")
 
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
-  // SAFETY: listening with a TCP host and port makes net.Server return an AddressInfo object.
-  return (address as AddressInfo).port
+  return portAddress.port
 }
 
 describe("offline Agent Vite example", () => {

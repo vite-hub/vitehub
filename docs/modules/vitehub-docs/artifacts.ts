@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import {
   array,
@@ -53,7 +53,7 @@ function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
   }
 
   for (const existingPath of listFiles(rawOutputDir, ".md")) {
-    if (!expectedPaths.has(existingPath)) unlinkSync(existingPath);
+    if (!expectedPaths.has(existingPath)) rmSync(existingPath, { force: true });
   }
 }
 

@@ -53,6 +53,42 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("rewrites links whose labels contain balanced brackets", () => {
+    expect(toRawMarkdown([
+      "[API [beta]](/docs/api)",
+      "![Diagram [dark]](/images/dark.png)",
+      "\\[Escaped [label]](/docs/escaped)",
+    ].join("\n"))).toBe([
+      "[API [beta]](https://vitehub.dev/docs/api)",
+      "![Diagram [dark]](https://vitehub.dev/images/dark.png)",
+      "\\[Escaped [label]](/docs/escaped)",
+      "",
+    ].join("\n"));
+  });
+
+  it("keeps list-prefixed fence markers literal inside fenced examples", () => {
+    expect(toRawMarkdown([
+      "```md",
+      "- ```",
+      "[Literal link](/docs/literal)",
+      "::warning",
+      "Literal directive.",
+      "::",
+      "```",
+      "[Rendered link](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "```md",
+      "- ```",
+      "[Literal link](/docs/literal)",
+      "::warning",
+      "Literal directive.",
+      "::",
+      "```",
+      "[Rendered link](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
   it("builds a docs manifest from the unified content tree only", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const docsRoot = resolve(rootDir, "docs");

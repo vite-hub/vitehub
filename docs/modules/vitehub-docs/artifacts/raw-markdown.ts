@@ -40,7 +40,8 @@ function fenceRun(line: string) {
 
 function closesFence(line: string, fence: Fence) {
   const parsed = fenceRun(line);
-  return parsed?.quoteDepth === fence.quoteDepth
+  return parsed?.listIndent === null
+    && parsed.quoteDepth === fence.quoteDepth
     && parsed.run[0] === fence.marker
     && parsed.run.length >= fence.length
     && /^[ \t]*$/.test(parsed.rest);
@@ -81,12 +82,37 @@ function absoluteUrl(value: string) {
   return value.startsWith("/") && !value.startsWith("//") ? `${siteOrigin}${value}` : value;
 }
 
+function rewriteInlineMarkdownLinks(line: string) {
+  let cursor = 0;
+  let output = "";
+
+  for (let opening = 0; opening < line.length; opening += 1) {
+    if (line[opening] !== "[" || isEscaped(line, opening)) continue;
+
+    let depth = 1;
+    let closing = opening + 1;
+    for (; closing < line.length && depth > 0; closing += 1) {
+      if (isEscaped(line, closing)) continue;
+      if (line[closing] === "[") depth += 1;
+      else if (line[closing] === "]") depth -= 1;
+    }
+    if (depth !== 0 || line[closing] !== "(") continue;
+
+    const targetStart = closing + 1;
+    let targetEnd = targetStart;
+    while (targetEnd < line.length && !/[\s)]/.test(line[targetEnd]!)) targetEnd += 1;
+    if (targetEnd === targetStart || !line.includes(")", targetEnd)) continue;
+
+    output += line.slice(cursor, targetStart) + absoluteUrl(line.slice(targetStart, targetEnd));
+    cursor = targetEnd;
+    opening = line.indexOf(")", targetEnd);
+  }
+
+  return output + line.slice(cursor);
+}
+
 function rewriteMarkdownLinks(line: string) {
-  const inlineLinks = line.replace(/(!?\[[^\]]*\]\()([^\s)]+)([^)]*\))/g, (_match, opening: string, target: string, closing: string, offset: number) => {
-    const bracketOffset = offset + (opening.startsWith("!") ? 1 : 0);
-    if (isEscaped(line, bracketOffset)) return _match;
-    return `${opening}${absoluteUrl(target)}${closing}`;
-  });
+  const inlineLinks = rewriteInlineMarkdownLinks(line);
 
   return inlineLinks.replace(
     /^([ \t]{0,3}\[[^\]]+\]:[ \t]*<?)(\/(?!\/)[^\s>]*)(>?(?:[ \t]+.*)?)$/gm,
