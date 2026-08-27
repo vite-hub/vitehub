@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
+import { array, object, parse, picklist, string } from "valibot"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "..")
@@ -31,6 +32,17 @@ interface SnippetContract {
   verification: "build" | "json" | "typecheck"
 }
 
+const snippetContractsSchema = array(object({
+  fixture: string(),
+  label: string(),
+  page: string(),
+  verification: picklist(["build", "json", "typecheck"]),
+}))
+
+function parseSnippetContracts(source: string): SnippetContract[] {
+  return parse(snippetContractsSchema, JSON.parse(source))
+}
+
 async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.ProcessEnv = {}) {
   try {
     return await execFileAsync(command, args, {
@@ -40,6 +52,7 @@ async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.
     })
   }
   catch (error) {
+    // SAFETY: Node's promisified execFile rejects with Error fields for captured process output.
     const failure = error as Error & { stderr?: string, stdout?: string }
     throw new Error(`${command} ${args.join(" ")} failed\n${failure.stdout || ""}${failure.stderr || ""}`, { cause: error })
   }
@@ -151,7 +164,7 @@ describe("host documentation fixtures", () => {
   }, 120_000)
 
   it("declares exactly one representative build per documented host", async () => {
-    const contracts = JSON.parse(await readFile(join(fixturesRoot, "manifest.json"), "utf8")) as SnippetContract[]
+    const contracts = parseSnippetContracts(await readFile(join(fixturesRoot, "manifest.json"), "utf8"))
     const builtHosts = contracts
       .filter(contract => contract.verification === "build")
       .map(contract => contract.fixture.split("/")[0])

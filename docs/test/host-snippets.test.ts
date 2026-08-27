@@ -2,16 +2,17 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
+import { array, object, parse, picklist, string } from "valibot"
 
 const docsRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = resolve(import.meta.dirname, "../../fixtures/docs-hosts")
 
-interface SnippetContract {
-  fixture: string
-  label: string
-  page: string
-  verification: "build" | "json" | "typecheck"
-}
+const snippetContractsSchema = array(object({
+  fixture: string(),
+  label: string(),
+  page: string(),
+  verification: picklist(["build", "json", "typecheck"]),
+}))
 
 function normalize(source: string) {
   return source.trim().replaceAll("\r\n", "\n")
@@ -25,7 +26,7 @@ function sourceBlocks(source: string) {
 }
 
 async function readContracts() {
-  return JSON.parse(await readFile(resolve(fixturesRoot, "manifest.json"), "utf8")) as SnippetContract[]
+  return parse(snippetContractsSchema, JSON.parse(await readFile(resolve(fixturesRoot, "manifest.json"), "utf8")))
 }
 
 describe("launch-critical documentation snippets", () => {

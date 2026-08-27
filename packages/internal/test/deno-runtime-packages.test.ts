@@ -62,8 +62,36 @@ describe("Deno deployment output", () => {
   })
 
   it("finds literal dynamic imports with attributes", () => {
-    expect(collectDenoRuntimePackageNames('await import("data-package", { with: { type: "json" } })'))
-      .toEqual(["data-package"])
+    expect(collectDenoRuntimePackageNames(`
+await import("data-package", { with: { type: "json" } })
+await import("identifier-options", importOptions)
+await import("function-options", createImportOptions())
+`)).toEqual(["data-package", "function-options", "identifier-options"])
+  })
+
+  it("ignores import-shaped member calls", () => {
+    expect(collectDenoRuntimePackageNames('loader.import("member-data", { with: { type: "json" } })'))
+      .toEqual([])
+  })
+
+  it("stages literal imports with expression options without resolving member calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-options-"))
+    await writeRuntimePackage(root, "data-package")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), `
+const importOptions = { with: { type: "json" } }
+const loader = { import: () => {} }
+loader.import("member-data", importOptions)
+await import("data-package", importOptions)
+`, "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/data-package/marker"), "utf8")).resolves.toBe("data-package")
+    expect(existsSync(join(root, ".output/node_modules/member-data"))).toBe(false)
   })
 
   it("ignores import comments", () => {
@@ -87,6 +115,7 @@ if (ready) {} /import\("after-block"\)/.test(value)
 switch (value) {} /import\("after-switch"\)/.test(value)
 try {} catch (error) {} /import\("after-catch"\)/.test(value)
 block: {} /import("after-labeled-block")/.test(value)
+label: { if (ready) {} } /import("after-nested-labeled-block")/.test(value)
 try {} catch {} /import("after-optional-catch")/.test(value)
 while (ready) /require\("after-condition"\)/.test(value)
 try {} finally {} /import\("after-finally"\)/.test(value)

@@ -11,7 +11,6 @@ const builtinModuleNames = new Set([
   ...builtinModules.map((name) => `node:${name}`),
 ])
 const runtimeExtensions = new Set([".cjs", ".js", ".mjs", ".ts"])
-const literalDynamicImportPattern = /\bimport\s*\(\s*["']([^"']+)["']\s*(?:,\s*\{(?:[^{}]|\{[^{}]*\})*\}\s*)?\)/g
 const denoRuntimeTargets = [
   { cpu: "arm64", libc: "glibc", os: "linux" },
   { cpu: "x64", libc: "glibc", os: "linux" },
@@ -67,7 +66,6 @@ function collectImportedPackageNames(source: string): Set<string> {
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
-    literalDynamicImportPattern,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -75,7 +73,48 @@ function collectImportedPackageNames(source: string): Set<string> {
       if (name) names.add(name)
     }
   }
+  for (const { specifier } of findLiteralDynamicImports(executableSource)) {
+    const name = packageNameFromSpecifier(specifier)
+    if (name) names.add(name)
+  }
   return names
+}
+
+interface LiteralDynamicImport {
+  end: number
+  specifier: string
+  start: number
+}
+
+function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
+  const imports: LiteralDynamicImport[] = []
+  for (const match of source.matchAll(/(?:^|[^\w$.])import\s*\(\s*(["'])/g)) {
+    const start = match.index! + match[0].indexOf("import")
+    const quote = match[1]!
+    const literalStart = match.index! + match[0].length - 1
+    let literalEnd = literalStart + 1
+    while (literalEnd < source.length) {
+      if (source[literalEnd] === "\\") literalEnd += 2
+      else if (source[literalEnd++] === quote) break
+    }
+    if (source[literalEnd - 1] !== quote) continue
+    let cursor = literalEnd
+    while (/\s/.test(source[cursor] || "")) cursor++
+    if (source[cursor] !== ")" && source[cursor] !== ",") continue
+    let depth = 1
+    while (cursor < source.length && depth > 0) {
+      if (source[cursor] === "(") depth++
+      else if (source[cursor] === ")") depth--
+      cursor++
+    }
+    if (depth !== 0) continue
+    imports.push({
+      end: cursor,
+      specifier: source.slice(literalStart + 1, literalEnd - 1),
+      start,
+    })
+  }
+  return imports
 }
 
 function maskInertImportText(source: string): string {
@@ -205,9 +244,24 @@ function canStartRegexLiteral(output: string): boolean {
   if (endsWithDeclaration(prefix)) return true
   if (/\b(?:catch|if|for|switch|while|with)\s*\([^;{}]*\)\s*(?:\{[^{}]*\})?$/.test(prefix)) return true
   if (/\b(?:catch|do|else|finally|try)\s*\{[^{}]*\}$/.test(prefix)) return true
-  if (/(?:^|[;\n{}])\s*[\w$]+\s*:\s*\{[^{}]*\}$/.test(prefix)) return true
+  if (endsWithStatementBlock(prefix)) return true
   if (/(?:^|[;{}])\s*\{[^{}]*\}$/.test(prefix)) return true
   return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(prefix)
+}
+
+function endsWithStatementBlock(source: string): boolean {
+  if (!source.endsWith("}")) return false
+  let depth = 1
+  let bodyStart = source.length - 1
+  while (bodyStart > 0 && depth > 0) {
+    bodyStart--
+    if (source[bodyStart] === "}") depth++
+    else if (source[bodyStart] === "{") depth--
+  }
+  if (depth !== 0) return false
+  const header = source.slice(0, bodyStart).trimEnd()
+  return /(?:^|[;{}\n])\s*[\w$]+\s*:$/.test(header)
+    || /\bcatch(?:\s*\([^;{}]*\))?$/.test(header)
 }
 
 function endsWithDeclaration(source: string): boolean {
@@ -479,10 +533,12 @@ function assertSupportedRelocatedImports(source: string, outputName: string, all
     if (allowedLocalImports.includes(specifier)) continue
     throw new Error(`Deno ${outputName} contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
   }
-  const remaining = executableSource
+  let remaining = executableSource
     .replaceAll(/import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, specifier: string) => allowedLocalImports.includes(specifier) ? "" : expression)
-    .replaceAll(literalDynamicImportPattern, "")
-  if (/\bimport\s*\(/.test(remaining)) {
+  for (const literalImport of findLiteralDynamicImports(remaining).reverse()) {
+    remaining = remaining.slice(0, literalImport.start) + " ".repeat(literalImport.end - literalImport.start) + remaining.slice(literalImport.end)
+  }
+  if (/(?:^|[^\w$.])import\s*\(/.test(remaining)) {
     throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
   }
 }
