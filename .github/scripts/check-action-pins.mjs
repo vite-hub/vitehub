@@ -109,7 +109,7 @@ export function inspectGitHubActionReferences(path, source) {
       const aliasComment = jobPair.value?.comment ?? ""
       const job = isAlias(jobPair.value) ? jobPair.value.resolve(document) : jobPair.value
       if (!isMap(job)) continue
-      inspectUses(findPair(job, "uses"), aliasComment || job.comment || "")
+      inspectUses(findPair(job, "uses"), aliasComment || job.comment || jobs.comment || "")
       inspectSteps(findPair(job, "steps")?.value)
     }
   }

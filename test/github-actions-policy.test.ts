@@ -152,6 +152,15 @@ describe("GitHub Action pin policy", () => {
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("allows a pinned reusable workflow with an enclosing jobs version comment", async () => {
+    const reference = "owner/repo/.github/workflows/build.yml@1234567890abcdef1234567890abcdef12345678"
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs: { call: { uses: "${reference}" } } # v1.2.3\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
   it("allows pinned action references through YAML aliases", async () => {
     const reference = pinnedCheckout.split(" #")[0]
     const root = await createFixture({
