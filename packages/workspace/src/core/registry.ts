@@ -12,6 +12,7 @@ export type WorkspaceRegistry = Record<string, () => Promise<WorkspaceRegistryMo
 const workspaceRegistryStateKey = Symbol.for("vitehub.workspace.registryState")
 
 interface WorkspaceRegistryState {
+  loadGenerations: Map<string, number>
   loadedDefinitions: Map<string, WorkspaceDefinition>
   loaders: WorkspaceRegistry
   registeredDefinitions: Map<string, WorkspaceDefinition>
@@ -22,10 +23,12 @@ type WorkspaceRegistryGlobal = typeof globalThis & Record<symbol, WorkspaceRegis
 function workspaceRegistryState(): WorkspaceRegistryState {
   const scope = globalThis as WorkspaceRegistryGlobal
   scope[workspaceRegistryStateKey] ??= {
+    loadGenerations: new Map<string, number>(),
     loadedDefinitions: new Map<string, WorkspaceDefinition>(),
     loaders: runtimeRegistry,
     registeredDefinitions: new Map<string, WorkspaceDefinition>(),
   }
+  scope[workspaceRegistryStateKey].loadGenerations ??= new Map<string, number>()
   return scope[workspaceRegistryStateKey]
 }
 
@@ -105,9 +108,13 @@ async function resolveWorkspaceDefinition(name: string): Promise<WorkspaceDefini
 
   const load = state.loaders[name]
   if (!load) throw workspaceNotFoundError(name)
+  const generation = (state.loadGenerations.get(name) ?? 0) + 1
+  state.loadGenerations.set(name, generation)
   const mod = await load()
   const definition = normalizeWorkspaceDefinition(name, mod.default)
-  state.loadedDefinitions.set(name, definition)
+  if (state.loadGenerations.get(name) === generation && state.loaders[name] === load) {
+    state.loadedDefinitions.set(name, definition)
+  }
   return definition
 }
 

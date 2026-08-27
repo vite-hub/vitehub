@@ -118,7 +118,7 @@ function materializationPathMatches(path: string, options: WorkspaceMaterializeS
   return pathContains(requested, path)
 }
 
-function materializesCompleteSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
+export function materializesCompleteSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
   const requested = normalizeWorkspacePath(options?.path || "")
   return !requested || Boolean(source.mountPath && pathContains(requested, source.mountPath))
 }

@@ -6,7 +6,7 @@ import {
   registerWorkspace,
   useWorkspace,
 } from "../src/runtime.ts"
-import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
+import { resetWorkspaceRegistry, resolveRegisteredWorkspaceDefinition, setWorkspaceRegistry } from "../src/core/registry.ts"
 
 import type { SourceContext, WorkspaceSourceItem } from "../src/index.ts"
 
@@ -57,6 +57,54 @@ describe("Workspace runtime preparation", () => {
     await loaderStarted
     await expect(preparation.stop()).resolves.toBeUndefined()
     await expect(started).resolves.toMatchObject({ status: "stopped" })
+    resetWorkspaceRegistry()
+  })
+
+  it("does not let an abandoned registry load replace a restarted definition", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let firstStarted!: () => void
+    const firstLoading = new Promise<void>((resolve) => { firstStarted = resolve })
+    let firstFinished!: () => void
+    const firstLoaded = new Promise<void>((resolve) => { firstFinished = resolve })
+    let attempts = 0
+    const definition = (rootDir: string) => ({
+      rootDir,
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          async getItems() { return [{ content: "# Ready", key: "ready.md" }] },
+          async getItem(key: string) { return { content: "# Ready", key } },
+          async getKeys() { return ["ready.md"] },
+        }),
+      },
+      store: { provider: "memory" as const },
+    })
+    setWorkspaceRegistry({
+      [name]: async () => {
+        attempts++
+        if (attempts === 1) {
+          firstStarted()
+          await firstBlocked
+          firstFinished()
+          return { default: definition("first") }
+        }
+        return { default: definition("second") }
+      },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await firstLoading
+    await preparation.stop()
+    const restarted = preparation.start()
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    releaseFirst()
+    await firstLoaded
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(resolveRegisteredWorkspaceDefinition(name)).resolves.toMatchObject({ rootDir: "second" })
+    await preparation.stop()
     resetWorkspaceRegistry()
   })
 

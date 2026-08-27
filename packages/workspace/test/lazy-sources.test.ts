@@ -924,6 +924,44 @@ describe("lazy sources", () => {
     expect(getItems).toHaveBeenCalledTimes(2)
   })
 
+  it("treats a Source mount request as complete across views", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => { started = resolve })
+    const getItems = vi.fn(async () => {
+      started()
+      await blocked
+      return [{ key: "a.md", content: "# A\n" }]
+    })
+    const definition = {
+      name: "startup-mount-wide-coordination",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          getItems,
+          async getItem(key: string) { return { key, content: "# A\n" } },
+          async getKeys() { return ["a.md"] },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store)
+    const second = createWorkspaceSourceView(definition, store)
+    const active = first.materializeSources({ path: "docs" })
+    await materializing
+    const read = second.readFile("docs/a.md", { encoding: "utf8" })
+    await Promise.resolve()
+    expect(getItems).toHaveBeenCalledOnce()
+
+    release()
+    await active
+    await expect(read).resolves.toBe("# A\n")
+    const third = createWorkspaceSourceView(definition, store)
+    await expect(third.glob("docs/**")).resolves.toEqual([expect.objectContaining({ path: "docs/a.md" })])
+    expect(getItems).toHaveBeenCalledOnce()
+  })
+
   it("serializes path-scoped materialization only with matching Sources", async () => {
     let releaseAssets!: () => void
     const assetsBlocked = new Promise<void>((resolve) => {

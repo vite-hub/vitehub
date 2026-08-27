@@ -6,6 +6,7 @@ import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath
 import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   hasCurrentSourceSnapshot,
+  materializesCompleteSource,
   materializeWorkspaceSources,
   readResolvedSourceFile,
   searchMaterializedStore,
@@ -196,22 +197,22 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}) {
     const requestedPath = normalizeWorkspacePath(options.path || "")
-    const sourceKeys = sources
+    const selectedSources = sources
       .filter(source => (!options.sources?.length || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
-      .map(source => source.key)
-    const predecessors = sourceKeys.flatMap((sourceKey) => {
-      const pending = pendingBySource.get(sourceKey)
+    const predecessors = selectedSources.flatMap((source) => {
+      const pending = pendingBySource.get(source.key)
       return pending ? [pending.tail] : []
     })
     const previous = waitForMaterialization(Promise.all(predecessors), options.abortSignal)
     const current = (async () => {
       await previous
       const result = await materializeWorkspaceSources(definition, store, options)
-      if (!options.path) {
-        for (const source of result.sources) {
-          if (source.status === "ready") {
-            materializedSources.add(source.source)
-            if (sources.find(item => item.key === source.source)?.materialize === "startup") completedSources.add(source.source)
+      for (const sourceResult of result.sources) {
+        const source = sources.find(item => item.key === sourceResult.source)
+        if (sourceResult.status === "ready" && source && materializesCompleteSource(source, options)) {
+          materializedSources.add(source.key)
+          if (source.materialize === "startup") {
+            completedSources.add(source.key)
           }
         }
       }
@@ -224,10 +225,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       () => undefined,
       async () => { await Promise.allSettled(predecessors) },
     )
-    const entry = { fullSource: !options.path, promise: current, tail }
-    for (const sourceKey of sourceKeys) pendingBySource.set(sourceKey, entry)
+    const entries = new Map(selectedSources.map(source => [source.key, {
+      fullSource: materializesCompleteSource(source, options),
+      promise: current,
+      tail,
+    }]))
+    for (const [sourceKey, entry] of entries) pendingBySource.set(sourceKey, entry)
     void tail.then(() => {
-      for (const sourceKey of sourceKeys) {
+      for (const [sourceKey, entry] of entries) {
         if (pendingBySource.get(sourceKey) === entry) pendingBySource.delete(sourceKey)
       }
     })
