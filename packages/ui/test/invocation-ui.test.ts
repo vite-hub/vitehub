@@ -647,6 +647,24 @@ describe("Agent Invocation UI", () => {
     await deepPayload.trigger("toggle");
     await deepPayload.get('input[type="search"]').setValue("visible boundary");
     expect(deepPayload.text()).toContain("$.nested");
+
+    const searchWrapper = mount(AgentInvocation, { props: { invocation: {
+      ...invocation,
+      observations: [{ attributes: {
+        "tool.id": "inspect",
+        "tool.input": { empty: {}, matches: Object.fromEntries(Array.from({ length: 501 }, (_, index) => [`match${index}`, "needle"])) },
+        "tool.name": "inspect",
+      }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const }],
+      status: "running" as const,
+    } } });
+    const searchPayload = searchWrapper.get(".vh-invocation-event__payload");
+    (searchPayload.element as HTMLDetailsElement).open = true;
+    await searchPayload.trigger("toggle");
+    await searchPayload.get('input[type="search"]').setValue("empty");
+    expect(searchPayload.text()).toContain("$.empty");
+    await searchPayload.get('input[type="search"]').setValue("needle");
+    expect(searchPayload.findAll(".vh-invocation-payload__matches li")).toHaveLength(501);
+    expect(searchPayload.text()).toContain("More matches hidden. Refine your search.");
   });
 
   it("renders unsafe payloads before a tool reaches a terminal state", () => {

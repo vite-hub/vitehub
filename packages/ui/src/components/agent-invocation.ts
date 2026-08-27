@@ -148,21 +148,23 @@ function matchingPayloadRows(
   value: unknown,
   query: string,
   path = "$",
-  rows: Array<{ path: string; value: string }> = [],
+  result: { rows: Array<{ path: string; value: string }>; truncated: boolean } = { rows: [], truncated: false },
   depth = 0,
 ) {
-  if (rows.length >= 500) return rows;
-  if (typeof value !== "object" || value === null) {
-    const label = jsonValueLabel(value);
-    if (`${path} ${label}`.toLocaleLowerCase().includes(query)) rows.push({ path, value: label });
-    return rows;
+  const label = jsonValueLabel(value);
+  if (`${path} ${label}`.toLocaleLowerCase().includes(query)) {
+    if (result.rows.length >= 500) {
+      result.truncated = true;
+      return result;
+    }
+    result.rows.push({ path, value: label });
   }
-  if (depth >= 12) return rows;
+  if (typeof value !== "object" || value === null || depth >= 12) return result;
   for (const [key, item] of Object.entries(value)) {
-    matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, rows, depth + 1);
-    if (rows.length >= 500) break;
+    matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, result, depth + 1);
+    if (result.truncated) break;
   }
-  return rows;
+  return result;
 }
 
 function renderPayloadTree(
@@ -235,7 +237,7 @@ const InvocationPayload = defineComponent({
     const structured = computed(() => typeof normalized.value === "object" && normalized.value !== null);
     const matches = computed(() => query.value
       ? matchingPayloadRows(normalized.value, query.value.toLocaleLowerCase())
-      : []);
+      : { rows: [], truncated: false });
     const rawMatches = computed(() => {
       if (!query.value) return text.value;
       const normalizedQuery = query.value.toLocaleLowerCase();
@@ -293,11 +295,14 @@ const InvocationPayload = defineComponent({
         ]),
         h("span", { "aria-live": "polite", class: "vh-visually-hidden", role: "status" }, copyFailed.value ? `${props.label} could not be copied` : copied.value ? `${props.label} copied` : ""),
         query.value && structured.value && mode.value === "tree"
-          ? matches.value.length
-            ? h("ol", { class: "vh-invocation-payload__matches" }, matches.value.map(match => h("li", [
-                h("code", match.path),
-                h("code", match.value),
-              ])))
+          ? matches.value.rows.length
+            ? h("ol", { class: "vh-invocation-payload__matches" }, [
+                ...matches.value.rows.map(match => h("li", [
+                  h("code", match.path),
+                  h("code", match.value),
+                ])),
+                matches.value.truncated ? h("li", "More matches hidden. Refine your search.") : null,
+              ])
             : h("p", { class: "vh-invocation-payload__empty" }, "No matching fields")
           : structured.value && mode.value === "tree"
             ? h("ul", { class: "vh-invocation-payload__tree" }, [renderPayloadTree(normalized.value)])
