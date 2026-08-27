@@ -4904,8 +4904,11 @@ async function handleChatSdkMessage(
           steerStartOwnershipLost = true
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
         }
+        const workflowStartInput = workflowInputHasParsedMessageMeta
+          ? restoreParsedAgentMessageMeta(workflowInput)
+          : workflowInput
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+        await runAgent(agent as never, workflowRunContext as never, workflowStartInput as never)
         durableHandoff = true
         if (steerStartOwnershipLost && steerLock && !(await state.state.extendLock(steerLock, steerTtlMs))) {
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")

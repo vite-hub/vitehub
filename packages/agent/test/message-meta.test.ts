@@ -204,6 +204,15 @@ describe("Agent message metadata", () => {
       return "ok"
     })
     const agent = defineAgent({
+      capabilities: ({ input }) => {
+        expect(input.context?.channel).toEqual({ meta: { audience: "technical" } })
+        expect(input.context?.invoker).toEqual({
+          id: "chat:user-1",
+          kind: "chat",
+          meta: { audience: "technical", email: "user@example.com" },
+        })
+        return []
+      },
       driver: { run },
       invoker: { resolve },
       messages: { meta: metaSchema },
