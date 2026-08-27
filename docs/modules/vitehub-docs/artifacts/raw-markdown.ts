@@ -97,11 +97,27 @@ function rewriteInlineMarkdownLinks(line: string) {
     if (depth !== 0 || line[closing] !== "(") continue;
 
     const targetStart = closing + 1;
-    let targetEnd = targetStart;
-    while (targetEnd < line.length && !/[\s)]/.test(line[targetEnd]!)) targetEnd += 1;
+    const angleDestination = line[targetStart] === "<";
+    let targetEnd = targetStart + (angleDestination ? 1 : 0);
+    if (angleDestination) {
+      while (targetEnd < line.length && line[targetEnd] !== ">" && line[targetEnd] !== "\n") targetEnd += 1;
+      if (line[targetEnd] !== ">") continue;
+    } else {
+      let parentheses = 0;
+      while (targetEnd < line.length) {
+        const character = line[targetEnd]!;
+        if (character === "(" && !isEscaped(line, targetEnd)) parentheses += 1;
+        else if (character === ")" && !isEscaped(line, targetEnd)) {
+          if (parentheses === 0) break;
+          parentheses -= 1;
+        } else if (/\s/.test(character) && parentheses === 0) break;
+        targetEnd += 1;
+      }
+    }
     if (targetEnd === targetStart || !line.includes(")", targetEnd)) continue;
 
-    output += line.slice(cursor, targetStart) + absoluteUrl(line.slice(targetStart, targetEnd));
+    const destinationStart = targetStart + (angleDestination ? 1 : 0);
+    output += line.slice(cursor, destinationStart) + absoluteUrl(line.slice(destinationStart, targetEnd));
     cursor = targetEnd;
     opening = line.indexOf(")", targetEnd);
   }
@@ -114,8 +130,33 @@ function rewriteMarkdownLinks(line: string) {
 }
 
 function referenceContainer(line: string) {
-  const match = line.match(/^(?:(?:[ \t]{0,3}>[ \t]?)+)?(?:[ \t]{0,3}(?:[-+*]|\d+[.)])[ \t]+)?/);
-  return match?.[0] || "";
+  let rest = line;
+  let prefix = "";
+  while (true) {
+    const match = rest.match(/^[ \t]{0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])[ \t]+)/);
+    if (!match) return prefix;
+    prefix += match[0];
+    rest = rest.slice(match[0].length);
+  }
+}
+
+function validReferenceLabel(label: string) {
+  let characters = 0;
+  for (let index = 0; index < label.length; index += 1) {
+    if (label[index] === "\\") index += 1;
+    else if (label[index] === "[") return false;
+    characters += 1;
+  }
+  return characters > 0 && characters <= 999;
+}
+
+function validReferenceSuffix(suffix: string) {
+  if (!suffix) return true;
+  const trimmed = suffix.trimStart();
+  if (trimmed.length === suffix.length) return false;
+  const delimiters: Record<string, string> = { "\"": "\"", "'": "'", "(": ")" };
+  const close = delimiters[trimmed[0]!];
+  return Boolean(close && trimmed.length >= 2 && trimmed.endsWith(close));
 }
 
 function rewriteReferenceDefinitions(source: string) {
@@ -124,11 +165,12 @@ function rewriteReferenceDefinitions(source: string) {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
     const container = referenceContainer(line);
-    const definition = line.slice(container.length).match(/^([ \t]{0,3})(\[(?:\\.|[^\\\]])+\]:)([ \t]*)(.*)$/);
+    const definition = line.slice(container.length).match(/^([ \t]{0,3})\[((?:\\.|[^\\\]])+)\]:([ \t]*)(.*)$/);
     if (!definition) continue;
+    if (!validReferenceLabel(definition[2]!)) continue;
 
     let destinationLine = index;
-    let destinationPrefix = `${container}${definition[1]}${definition[2]}${definition[3]}`;
+    let destinationPrefix = `${container}${definition[1]}[${definition[2]}]:${definition[3]}`;
     let destinationAndTitle = definition[4]!;
 
     if (!destinationAndTitle) {
@@ -144,11 +186,12 @@ function rewriteReferenceDefinitions(source: string) {
     }
 
     const angleDestination = destinationAndTitle.match(/^<([^<>\n]*)>([ \t]*(?:["'(].*)?)$/);
-    const bareDestination = destinationAndTitle.match(/^([^\s<>]+)([ \t]*(?:["'(].*)?)$/);
+    const bareDestination = destinationAndTitle.match(/^((?:\\.|[^\s<>\\()]|\((?:\\.|[^\\()])*\))+)([ \t]*.*)$/);
     const destination = angleDestination?.[1] ?? bareDestination?.[1];
     if (!destination?.startsWith("/") || destination.startsWith("//")) continue;
 
     const suffix = (angleDestination ?? bareDestination)![2]!;
+    if (!validReferenceSuffix(suffix)) continue;
     lines[destinationLine] = angleDestination
       ? `${destinationPrefix}<${absoluteUrl(destination)}>${suffix}`
       : `${destinationPrefix}${absoluteUrl(destination)}${suffix}`;
@@ -197,8 +240,7 @@ function rewriteInlineLinks(source: string) {
     const marker = opening[0];
     const closingPattern = new RegExp(`(?<!\`)${marker}(?!\`)`, "g");
     closingPattern.lastIndex = openingIndex + marker.length;
-    let closing = closingPattern.exec(source);
-    while (closing && isEscaped(source, closing.index)) closing = closingPattern.exec(source);
+    const closing = closingPattern.exec(source);
     if (!closing) continue;
 
     protectedSource += source.slice(offset, openingIndex);
@@ -221,6 +263,7 @@ function rewriteLinks(source: string) {
   let htmlEnd: RegExp | null = null;
   let listIndent: number | null = null;
   let listQuotePrefix = "";
+  let paragraphOpen = false;
   const protectedLines: string[] = [];
   const rewriteOutside = () => rewriteReferenceDefinitions(rewriteInlineLinks(outsideFence)).replace(
     /\0INDENT(\d+)\0/g,
@@ -240,16 +283,20 @@ function rewriteLinks(source: string) {
 
     const htmlLine = withoutBlockquoteContainers(line);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
-    if (!fence && nextHtmlEnd) {
+    const typeSevenHtml = nextHtmlEnd?.source === "^\\s*$"
+      && !/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(htmlLine);
+    if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen)) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
+      paragraphOpen = false;
       continue;
     }
 
     if (!fence && parsedFence) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
+      paragraphOpen = false;
       fence = {
         length: parsedFence.run.length,
         listIndent: parsedFence.listIndent,
@@ -301,6 +348,7 @@ function rewriteLinks(source: string) {
     }
 
     outsideFence += lineWithEnding;
+    paragraphOpen = true;
   }
 
   output.push(rewriteOutside());

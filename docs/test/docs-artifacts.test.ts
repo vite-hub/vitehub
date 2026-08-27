@@ -61,6 +61,9 @@ describe("writeDocsArtifacts", () => {
       "  </docs/continued>",
       "[malformed]: </docs/malformed",
       "    [literal]: /docs/code",
+      "- > [nested]: /docs/nested",
+      "[unterminated]: /docs/no \"title",
+      "[a[b]: /docs/no",
     ].join("\n"))).toBe([
       "> [quote\\]d]: https://vitehub.dev/docs/quoted",
       "- [listed]: https://vitehub.dev/docs/listed",
@@ -68,8 +71,30 @@ describe("writeDocsArtifacts", () => {
       "  <https://vitehub.dev/docs/continued>",
       "[malformed]: </docs/malformed",
       "    [literal]: /docs/code",
+      "- > [nested]: https://vitehub.dev/docs/nested",
+      "[unterminated]: /docs/no \"title",
+      "[a[b]: /docs/no",
       "",
     ].join("\n"));
+  });
+
+  it("handles inline destination and code-span grammar boundaries", () => {
+    expect(toRawMarkdown([
+      "[Guide](</docs/getting started>)",
+      "`[literal](/docs/literal)\\` [rendered](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "[Guide](<https://vitehub.dev/docs/getting started>)",
+      "`[literal](/docs/literal)\\` [rendered](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
+  it("does not start type-7 HTML blocks inside paragraphs", () => {
+    expect(toRawMarkdown([
+      "Paragraph",
+      "<custom-tag>",
+      "[rendered](/docs/rendered)",
+    ].join("\n"))).toContain("[rendered](https://vitehub.dev/docs/rendered)");
   });
 
   it("keeps protected indented code separate from following references", () => {
