@@ -494,7 +494,7 @@ describe("Agent Invocation UI", () => {
           attributes: {
             "tool.id": "query",
             "tool.name": "database_query",
-            "tool.output": { rows: 1, summary: "Returned 1 row." },
+            "tool.output": "  Returned 1 row.\n",
           },
           name: "agent.tool.finish",
           sequence: 4,
@@ -515,7 +515,7 @@ describe("Agent Invocation UI", () => {
         preview: "Materialized repository (12 files).",
         startedAt: "2026-08-22T00:00:00.250Z",
       }),
-      expect.objectContaining({ durationMs: 1_000 }),
+      expect.objectContaining({ durationMs: 1_000, startedAt: "2026-08-22T00:00:01.000Z" }),
     ]);
 
     const thread = mount(AgentInvocation, { props: { invocation } });
@@ -524,7 +524,7 @@ describe("Agent Invocation UI", () => {
       "Output",
     ]);
     expect(thread.text()).toContain("Private query omitted.");
-    expect(thread.text()).toContain("Returned 1 row.");
+    expect(thread.findAll(".vh-invocation-event__payload pre").at(-1)!.element.textContent).toBe("  Returned 1 row.\n");
 
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     const rows = inspector.findAll(".vh-invocation-timeline__row");
@@ -544,7 +544,7 @@ describe("Agent Invocation UI", () => {
       createdAt: "2026-08-22T00:00:00.000Z",
       id: "trace-boundaries",
       observations: [{
-        attributes: { "tool.id": "terminal", "tool.name": "finish" },
+        attributes: { "tool.durationMs": 1_000, "tool.id": "terminal", "tool.name": "finish" },
         name: "agent.tool.finish",
         sequence: 1,
         timestamp: "2026-08-22T00:01:59.999Z",
@@ -558,7 +558,7 @@ describe("Agent Invocation UI", () => {
 
     const row = mount(AgentInvocationInspector, { props: { invocation } })
       .get(".vh-invocation-timeline__row");
-    expect(row.text()).toContain("+2m 0s");
+    expect(row.text()).toContain("+1m 59s · 1s");
     expect(row.get(".vh-invocation-timeline__track span").attributes("style"))
       .toContain("left: 98.5%");
   });

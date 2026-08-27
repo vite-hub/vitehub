@@ -326,7 +326,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
 
 function renderEventPayload(label: string, value: unknown) {
   if (value === undefined) return null;
-  const text = stringAttribute({ value }, "value") ?? JSON.stringify(value, null, 2);
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   return h("section", { class: "vh-invocation-event__payload" }, [
     h("strong", label),
     h("pre", text),

@@ -349,6 +349,9 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const durationMs = numericAttribute(attributes, "tool.durationMs")
         ?? (Number.isFinite(observedDuration) ? Math.max(0, observedDuration) : undefined);
       const started = /\.(request|start|started)$/.test(first.name);
+      const terminalStartedAt = !started && endedAt && durationMs !== undefined
+        ? new Date(Date.parse(endedAt) - durationMs).toISOString()
+        : undefined;
       const unfinishedTerminalStatus = started
         && invocation.status !== "pending"
         && invocation.status !== "running"
@@ -366,7 +369,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         patches,
         paths,
         sequence: first.sequence,
-        startedAt: first.timestamp,
+        startedAt: terminalStartedAt ?? first.timestamp,
         ...(numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") !== undefined
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
