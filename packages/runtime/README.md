@@ -117,15 +117,16 @@ stream them by itself.
 
 ### Execution authority and public errors
 
-`ExecutionAuthority` describes the filesystem, network, environment,
-credentials, process, and isolation properties reported by a resolved execution
-surface. It does not enforce them. `unknown` means the provider did not prove a
-dimension; it never means `none`. An isolation label such as `container` or
-`microvm` is not a security rank.
+`ExecutionAuthority` is an immutable snapshot of the filesystem, network,
+environment, credentials, process, and isolation properties reported when an
+execution surface is resolved. It describes those properties; it does not enforce
+them. `unknown` means the provider did not prove a dimension; it never means
+`none`. An isolation label such as `container` or `microvm` is not a security rank.
 
-`ViteHubError` snapshots and freezes JSON-safe public `details` at construction.
-Those details are intended for serialization, so never put secrets in them. A
-`cause` is excluded from `toJSON()`, but remains available to code and loggers
+`ViteHubError` snapshots its JSON-safe public `name`, `code`, `message`, `details`,
+and `requestId` at construction, and freezes the serialized snapshot and its
+details. Never put secrets in those fields; keep raw provider failures in `cause`.
+A `cause` is excluded from `toJSON()`, but remains available to code and loggers
 that inspect the Error instance.
 
 ## Public entry points
