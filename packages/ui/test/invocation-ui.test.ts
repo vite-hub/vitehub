@@ -1460,7 +1460,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toBeUndefined();
   });
 
-  it("keeps filling visible lifecycle groups without draining collapsed terminal pages", async () => {
+  it("continues through one hidden-only page without draining collapsed terminal pages", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
         hasMore: false,
@@ -1487,7 +1487,17 @@ describe("Agent Invocation UI", () => {
         { id: "older", status: "completed", title: "Older" },
       ],
     });
-    expect(wrapper.emitted("endReached")).toHaveLength(1);
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+        { id: "oldest", status: "completed", title: "Oldest" },
+      ],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
 
     await wrapper.setProps({
       items: [
@@ -1495,8 +1505,36 @@ describe("Agent Invocation UI", () => {
         { id: "queued", status: "pending", title: "Queued" },
         { id: "done", status: "completed", title: "Done" },
         { id: "older", status: "completed", title: "Older" },
+        { id: "oldest", status: "completed", title: "Oldest" },
       ],
     });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+  });
+
+  it("rechecks pagination when visible membership changes at the same count", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [{ id: "first", status: "running", title: "First" }],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({
+      items: [
+        { id: "first", status: "completed", title: "First" },
+        { id: "second", status: "running", title: "Second" },
+      ],
+    });
+
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 

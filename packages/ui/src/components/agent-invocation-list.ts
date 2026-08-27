@@ -145,7 +145,8 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
-    const automaticallyRequestedVisibleLength = ref<number>();
+    const automaticallyRequestedVisibleKey = ref<string>();
+    const continuedHiddenPageForVisibleKey = ref<string>();
     const queuedOpen = ref(true);
     const doneOpen = ref(props.items.some(item => item.id === props.selectedId
       && item.status !== "running"
@@ -158,11 +159,15 @@ export const AgentInvocationList = defineComponent({
         { collapsible: true, defaultOpen: false, items: sorted.filter(item => item.status !== "running" && item.status !== "pending"), key: "done", label: "Done" },
       ].filter(group => group.items.length > 0);
     });
-    const visibleLength = computed(() => props.items.filter((item) => {
+    const visibleItems = computed(() => props.items.filter((item) => {
       if (item.status === "running") return true;
       if (item.status === "pending") return queuedOpen.value;
       return doneOpen.value;
-    }).length);
+    }));
+    const activeKey = computed(() => props.items
+      .filter(item => item.status === "running" || item.status === "pending")
+      .map(item => `${item.id}:${item.status}`)
+      .join("\0"));
     let resizeObserver: ResizeObserver | undefined;
     const requestMoreIfNeeded = () => {
       const element = viewport.value;
@@ -177,11 +182,15 @@ export const AgentInvocationList = defineComponent({
     };
     const requestMoreAutomatically = () => {
       const hasCollapsedGroup = Boolean(viewport.value?.querySelector("details:not([open])"));
-      if (hasCollapsedGroup && (!visibleLength.value || automaticallyRequestedVisibleLength.value === visibleLength.value)) return;
-      if (requestMoreIfNeeded()) automaticallyRequestedVisibleLength.value = visibleLength.value;
+      const key = activeKey.value;
+      if (hasCollapsedGroup && (!visibleItems.value.length || (automaticallyRequestedVisibleKey.value === key && continuedHiddenPageForVisibleKey.value === key))) return;
+      if (requestMoreIfNeeded()) {
+        continuedHiddenPageForVisibleKey.value = automaticallyRequestedVisibleKey.value === key ? key : undefined;
+        automaticallyRequestedVisibleKey.value = key;
+      }
     };
-    watch([() => props.items.length, visibleLength, () => props.hasMore, () => props.loading], ([length, visible], [previous, previousVisible]) => {
-      if (length < previous || visible < previousVisible) requestedLength.value = undefined;
+    watch([() => props.items.length, activeKey, () => props.hasMore, () => props.loading], ([length, key], [previous, previousKey]) => {
+      if (length < previous || (length === previous && key !== previousKey)) requestedLength.value = undefined;
       requestMoreAutomatically();
     }, { flush: "post" });
     watch(() => props.retryKey, () => {
