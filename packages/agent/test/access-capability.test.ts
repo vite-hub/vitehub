@@ -496,7 +496,7 @@ describe("access capability", () => {
     const base = createWorkspace()
     const createSession = () => ({
       glob: vi.fn(async () => []),
-    } as unknown as WorkspaceSession)
+    } as WorkspaceSession)
     const fsSession = createSession()
     const facadeSession = createSession()
     const workspace = {
@@ -506,7 +506,7 @@ describe("access capability", () => {
         startSession: vi.fn(async () => fsSession),
       },
       startSession: vi.fn(async () => facadeSession),
-    } as unknown as ReadonlyWorkspaceFacade
+    } as ReadonlyWorkspaceFacade
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
@@ -575,7 +575,7 @@ describe("access capability", () => {
       readonly #value = "workspace"
 
       async startSession() {
-        return new Session() as unknown as WorkspaceSession
+        return new Session() as WorkspaceSession
       }
 
       prototypeValue() {
@@ -585,7 +585,7 @@ describe("access capability", () => {
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
-    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, new Workspace() as unknown as ReadonlyWorkspaceFacade)
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, new Workspace() as ReadonlyWorkspaceFacade)
     const workspace = resolved.workspace as ReadonlyWorkspaceFacade & Workspace & {
       fs: ReadonlyWorkspaceFacade["fs"] & Files
       startSession(): Promise<WorkspaceSession & Session>
@@ -608,7 +608,7 @@ describe("access capability", () => {
       async glob() {
         return []
       },
-    }) as unknown as WorkspaceSession
+    }) as WorkspaceSession
     const fs = Object.freeze({
       ...base.fs,
       async startSession() {
@@ -621,7 +621,7 @@ describe("access capability", () => {
       async startSession() {
         return session
       },
-    }) as unknown as ReadonlyWorkspaceFacade
+    }) as ReadonlyWorkspaceFacade
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],

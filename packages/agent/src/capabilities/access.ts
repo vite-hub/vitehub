@@ -261,14 +261,11 @@ interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string>
   scope: string
 }
 
-function setWorkspaceOverride<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-  workspace: ReadonlyWorkspaceFacade<Name>,
+function setWorkspaceOverride<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentCapabilityRuntimeContext<TRuntimeConfig, WorkspaceName>,
+  workspace: ReadonlyWorkspaceFacade,
 ): void {
-  const override = (context as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & Partial<WorkspaceOverrideRuntime<Name>>)[workspaceOverrideSymbol]
+  const override = (context as AgentCapabilityRuntimeContext<TRuntimeConfig, WorkspaceName> & Partial<WorkspaceOverrideRuntime<WorkspaceName>>)[workspaceOverrideSymbol]
   if (!override) {
     throw new Error("[vitehub] access() could not apply Workspace Scope.")
   }
@@ -284,14 +281,11 @@ async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
 
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-  TInputContext extends object = Record<string, unknown>,
-  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, WorkspaceName, string, Record<string, unknown>> = AccessWorkspaceOptions<TRuntimeConfig, WorkspaceName, string, Record<string, unknown>>,
+>(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, Record<string, unknown>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
->(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, Name>
+>(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>
 export function access(options: AccessCapabilityOptions): AgentCapabilityDefinition {
   if (!options || typeof options !== "object") {
     throw new TypeError("[vitehub] access() requires options.")
@@ -550,14 +544,14 @@ function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
     || hasNonEmptyScopeGrant(value)
 }
 
-function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
+function normalizeSelection(value: unknown): NormalizedWorkspaceScopeSelection | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
   const candidate = value as { role?: unknown, scope?: unknown }
   if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
   return {
     ...(hasInlineScopeDefinition(value as Record<string, unknown>)
-      ? { definition: value as AccessWorkspaceScopeDefinition<TSourceName> }
+      ? { definition: value as AccessWorkspaceScopeDefinition }
       : {}),
     ...(typeof candidate.role === "string" && candidate.role.trim() ? { role: candidate.role } : {}),
     scope: candidate.scope,
