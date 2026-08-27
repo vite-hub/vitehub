@@ -3745,7 +3745,7 @@ function resultWithStreamedTextAndUsage(
           ...(mergedUsage ? { usage: mergedUsage } : {}),
         }
       : undefined
-    return {
+    const finishResult = {
       ...normalized,
       raw: result,
       ...(text ? { text } : {}),
@@ -3754,6 +3754,11 @@ function resultWithStreamedTextAndUsage(
         : {}),
       ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }
+    Object.defineProperty(finishResult, Symbol.asyncIterator, {
+      configurable: true,
+      value: () => result[Symbol.asyncIterator](),
+    })
+    return finishResult
   }
   return resultWithUsageRecord(resultWithStreamedText(result, text), streamedUsageRecord)
 }

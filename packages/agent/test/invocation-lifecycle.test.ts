@@ -258,6 +258,7 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0]).toMatchObject({
+      invocation: { resultKind: "stream" },
       result: {
         raw,
         text: "Final answer.",
