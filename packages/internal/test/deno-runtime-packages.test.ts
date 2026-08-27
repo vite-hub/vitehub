@@ -63,7 +63,7 @@ import "real"
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
-    await writeFile(join(root, "server/schedules/heartbeat.ts"), 'import { randomUUID } from "node:crypto"\nexport default { run() { return `heartbeat-${randomUUID()}` } }\n', "utf8")
+    await writeFile(join(root, "server/schedules/heartbeat.ts"), 'import { randomUUID } from "crypto"\nexport default { run() { return `heartbeat-${randomUUID()}` } }\n', "utf8")
     await writeFile(join(root, ".vitehub/schedule/registry.mjs"), 'export default { heartbeat: () => import("../../server/schedules/heartbeat.ts") }\n', "utf8")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import registry from "./registry.mjs"\nglobalThis.schedule = registry.heartbeat\n', "utf8")
     await writeFile(join(root, "instrumentation.ts"), 'globalThis.instrumented = "application-helper"\n', "utf8")
@@ -77,7 +77,7 @@ import "real"
     expect(applicationBundle).toContain("./schedule/deno-cron.mjs")
     const scheduleBundle = await readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")
     expect(scheduleBundle).toContain("heartbeat")
-    expect(scheduleBundle).toContain('from "node:crypto"')
+    expect(scheduleBundle).toContain('from "crypto"')
     expect(scheduleBundle).not.toContain("./registry.mjs")
     expect(scheduleBundle).not.toContain("../../server/schedules/heartbeat.ts")
     await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
