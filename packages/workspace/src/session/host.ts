@@ -82,8 +82,11 @@ function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
   return run
 }
 
-async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: readonly T[], visit: (value: T) => Promise<U>, signal?: AbortSignal) {
-  const inspect = resolveHostInspectionLimiter(host)
+function inspectHost<T>(host: WorkspaceSessionHost, inspect: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return resolveHostInspectionLimiter(host)(inspect, signal)
+}
+
+async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: readonly T[], visit: (value: T) => Promise<U>, _signal?: AbortSignal) {
   const results = new Array<U>(values.length)
   let next = 0
   let failed = false
@@ -95,7 +98,7 @@ async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: read
         const index = next++
         if (index >= values.length) return
         try {
-          results[index] = await inspect(async () => failed ? undefined as U : await visit(values[index]!), signal)
+          results[index] = failed ? undefined as U : await visit(values[index]!)
         }
         catch (error) {
           if (!failed) failure = error
@@ -203,7 +206,7 @@ function isSafeHostSymlink(root: string, path: string, target: string) {
 
 async function isHostPath(host: WorkspaceSessionHost, path: string, flag: "-d" | "-L", abortSignal?: AbortSignal) {
   abortSignal?.throwIfAborted()
-  return (await host.exec("test", [flag, path], { signal: abortSignal })).code === 0
+  return (await inspectHost(host, async () => await host.exec("test", [flag, path], { signal: abortSignal }), abortSignal)).code === 0
 }
 
 async function assertHostWorkspaceRoot(host: WorkspaceSessionHost, root: string, abortSignal?: AbortSignal) {
@@ -215,7 +218,8 @@ async function ensureHostWorkspaceRoot(host: WorkspaceSessionHost, root: string,
   const symlink = await isHostPath(host, root, "-L", abortSignal)
   const directory = !symlink && await isHostPath(host, root, "-d", abortSignal)
   if (directory) return false
-  if (symlink || await host.files.exists(root, { signal: abortSignal })) await host.files.remove(root, { recursive: false, signal: abortSignal })
+  if (symlink || await inspectHost(host, async () => await host.files.exists(root, { signal: abortSignal }), abortSignal))
+    await host.files.remove(root, { recursive: false, signal: abortSignal })
   await host.files.mkdir(root, { recursive: true, signal: abortSignal })
   await assertHostWorkspaceRoot(host, root, abortSignal)
   return true
@@ -269,7 +273,7 @@ async function ensureHostParent(host: WorkspaceSessionHost, path: string, abortS
 }
 
 async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, path: string, abortSignal?: AbortSignal): Promise<string> {
-  const result = await host.exec("readlink", [fromHostPath(root, path)], { cwd: root, signal: abortSignal })
+  const result = await inspectHost(host, async () => await host.exec("readlink", [fromHostPath(root, path)], { cwd: root, signal: abortSignal }), abortSignal)
   if (result.code !== 0)
     throw workspaceError(`[vitehub] Failed to read workspace symlink: ${path}.`, {
       cause: new Error(result.stderr || "readlink failed"),
@@ -286,8 +290,8 @@ async function writeHostSymlink(host: WorkspaceSessionHost, root: string, path: 
 
 async function readHostFile(host: WorkspaceSessionHost, root: string, path: string, abortSignal?: AbortSignal): Promise<WorkspaceFile | undefined> {
   await assertHostWorkspaceRoot(host, root, abortSignal)
-  if (!await host.files.exists(path, { signal: abortSignal })) return undefined
-  const content = await host.files.read(path, { signal: abortSignal })
+  if (!await inspectHost(host, async () => await host.files.exists(path, { signal: abortSignal }), abortSignal)) return undefined
+  const content = await inspectHost(host, async () => await host.files.read(path, { signal: abortSignal }), abortSignal)
   return content ? { content, path: fromHostPath(root, path) } : undefined
 }
 
@@ -302,7 +306,7 @@ async function removeHostGitMetadata(host: WorkspaceSessionHost, root: string, s
   for (let index = 0; index < directories.length; index++) {
     signal?.throwIfAborted()
     const directory = directories[index]!
-    for (const entry of await host.files.list(toHostPath(root, directory), { signal })) {
+    for (const entry of await inspectHost(host, async () => await host.files.list(toHostPath(root, directory), { signal }), signal)) {
       const path = fromHostPath(root, entry.path)
       const gitRoot = gitMetadataRoot(path)
       if (gitRoot) {
@@ -330,7 +334,7 @@ async function listHostEntries(
   const workspacePath = normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })
   if (isExcludedWorkspacePath(workspacePath, excluded)) return []
   const hostExcluded = excluded.map(item => toHostPath(root, normalizeWorkspacePath(item)))
-  const listed = await host.files.list(toHostPath(root, workspacePath), { exclude: hostExcluded, recursive, signal: abortSignal })
+  const listed = await inspectHost(host, async () => await host.files.list(toHostPath(root, workspacePath), { exclude: hostExcluded, recursive, signal: abortSignal }), abortSignal)
   const entries = listed
     .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))
     .filter(({ workspaceEntry }) => !isExcludedWorkspacePath(workspaceEntry.path, excluded) && (!include || include(workspaceEntry)))
@@ -338,7 +342,7 @@ async function listHostEntries(
     abortSignal?.throwIfAborted()
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
     if (executable !== undefined) return workspaceEntry
-    const probe = await host.exec("test", ["-x", workspaceEntry.path], { cwd: root, signal: abortSignal })
+    const probe = await inspectHost(host, async () => await host.exec("test", ["-x", workspaceEntry.path], { cwd: root, signal: abortSignal }), abortSignal)
     return probe.code === 0
       ? { ...workspaceEntry, metadata: { ...workspaceEntry.metadata, gitMode: "100755" } }
       : workspaceEntry
@@ -362,7 +366,7 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
   abortSignal?.throwIfAborted()
   if (await isHostPath(host, root, "-L", abortSignal))
     throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
-  if (!await host.files.exists(root, { signal: abortSignal })) {
+  if (!await inspectHost(host, async () => await host.files.exists(root, { signal: abortSignal }), abortSignal)) {
     return { contents: new Map<string, Uint8Array | string>(), snapshot: await createSnapshotFromEntries([], name) }
   }
   const entries = await listHostEntries(host, root, "", true, undefined, false, [], abortSignal)
@@ -376,7 +380,7 @@ async function captureHostEntriesState(host: WorkspaceSessionHost, root: string,
     if (entry.type !== "file") return entry
     const content = isGitSymlinkEntry(entry)
       ? await readHostSymlinkTarget(host, root, toHostPath(root, entry.path), abortSignal)
-      : await host.files.read(toHostPath(root, entry.path), { signal: abortSignal })
+      : await inspectHost(host, async () => await host.files.read(toHostPath(root, entry.path), { signal: abortSignal }), abortSignal)
     if (content === null) throw workspaceError(`[vitehub] Workspace host file disappeared while snapshotting: ${entry.path}.`)
     contents.set(entry.path, content)
     return {
@@ -396,7 +400,7 @@ async function captureExcludedHostState(host: WorkspaceSessionHost, root: string
   abortSignal?.throwIfAborted()
   if (await isHostPath(host, root, "-L", abortSignal))
     throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
-  if (!await host.files.exists(root, { signal: abortSignal })) return await captureHostEntriesState(host, root, [], "host-excluded", abortSignal)
+  if (!await inspectHost(host, async () => await host.files.exists(root, { signal: abortSignal }), abortSignal)) return await captureHostEntriesState(host, root, [], "host-excluded", abortSignal)
   const entries = await listHostEntries(host, root, "", true, entry => isInsideExcludedWriteBackPath(entry.path, excluded), true, [], abortSignal)
   return await captureHostEntriesState(host, root, entries, "host-excluded", abortSignal)
 }
@@ -507,7 +511,7 @@ async function restoreAttachedHost(
 
 async function resetHostWorkspaceRoot(host: WorkspaceSessionHost, root: string, abortSignal?: AbortSignal) {
   if (await ensureHostWorkspaceRoot(host, root, abortSignal)) return
-  for (const entry of await host.files.list(root, { signal: abortSignal })) {
+  for (const entry of await inspectHost(host, async () => await host.files.list(root, { signal: abortSignal }), abortSignal)) {
     abortSignal?.throwIfAborted()
     await removeHostPath(host, root, entry.path, true, abortSignal)
   }
@@ -585,7 +589,7 @@ async function extractRevisionArchive(
   await host.files.write(archive, materialization.archive, { signal })
   await host.files.mkdir(staging, { recursive: true, signal })
   try {
-    const listed = await host.exec("tar", ["-tzf", archive], { signal })
+    const listed = await inspectHost(host, async () => await host.exec("tar", ["-tzf", archive], { signal }), signal)
     if (listed.code !== 0) {
       throw workspaceError(`[vitehub] Failed to inspect Workspace revision ${materialization.revision}: ${listed.stderr || "tar failed"}`)
     }
@@ -600,7 +604,7 @@ async function extractRevisionArchive(
     if (extracted.code !== 0) {
       throw workspaceError(`[vitehub] Failed to extract Workspace revision ${materialization.revision}: ${extracted.stderr || "tar failed"}`)
     }
-    const roots = (await host.files.list(staging, { signal })).filter(entry => entry.type === "directory")
+    const roots = (await inspectHost(host, async () => await host.files.list(staging, { signal }), signal)).filter(entry => entry.type === "directory")
     if (roots.length !== 1) {
       throw workspaceError(`[vitehub] Workspace revision archive must contain one repository root.`)
     }
@@ -609,10 +613,10 @@ async function extractRevisionArchive(
     let validSource = true
     for (const component of archiveRoot.split("/").filter(Boolean)) {
       source = posix.join(source, component)
-      if ((await host.exec("test", ["-L", source], { signal })).code === 0) {
+      if ((await inspectHost(host, async () => await host.exec("test", ["-L", source], { signal }), signal)).code === 0) {
         throw workspaceError(`[vitehub] Workspace revision archive root must not contain symlinks: ${materialization.root}.`)
       }
-      if ((await host.exec("test", ["-d", source], { signal })).code !== 0) {
+      if ((await inspectHost(host, async () => await host.exec("test", ["-d", source], { signal }), signal)).code !== 0) {
         validSource = false
         break
       }
@@ -631,7 +635,7 @@ async function extractRevisionArchive(
     else {
       for (const path of paths) {
         const selected = posix.join(source, path)
-        if (!await host.files.exists(selected, { signal })) continue
+        if (!await inspectHost(host, async () => await host.files.exists(selected, { signal }), signal)) continue
         const destination = toHostPath(root, posix.dirname(path) === "." ? "" : posix.dirname(path))
         await host.files.mkdir(destination, { recursive: true, signal })
         const copied = await host.exec("cp", ["-a", selected, destination], { signal })
@@ -963,7 +967,7 @@ export async function createHostedWorkspaceSession(
       const hits: WorkspaceSearchHit[] = []
       for (const entry of filterSessionEntries(await listHostEntries(host, root, "", true), sessionPaths).filter(item => item.type === "file")) {
         if (scopedSearchRoots.length && !scopedSearchRoots.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
-        const content = await host.files.read(toHostPath(root, entry.path))
+        const content = await inspectHost(host, async () => await host.files.read(toHostPath(root, entry.path)))
         if (content === null) continue
         const text = new TextDecoder().decode(content)
         hits.push(...searchText(entry.path, text, { ...scoped, limit: limit - hits.length }))

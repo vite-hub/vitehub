@@ -1513,6 +1513,8 @@ describe("workspace host sessions", () => {
     const docs = workspace()
     const host = Object.assign(memoryHost(), { inspectionConcurrency: 1 })
     const exec = host.exec.bind(host)
+    const exists = host.files.exists.bind(host.files)
+    const list = host.files.list.bind(host.files)
     const read = host.files.read.bind(host.files)
     let active = 0
     let maximum = 0
@@ -1527,10 +1529,12 @@ describe("workspace host sessions", () => {
         active--
       }
     }
-    host.exec = async (command, args, options) => command === "test" && args?.[0] === "-x"
+    host.exec = async (command, args, options) => command === "test"
       ? await inspect(async () => await exec(command, args, options))
       : await exec(command, args, options)
-    host.files.read = async path => await inspect(async () => await read(path))
+    host.files.exists = async (path, options) => await inspect(async () => await exists(path, options))
+    host.files.list = async (path, options) => await inspect(async () => await list(path, options))
+    host.files.read = async (path, options) => await inspect(async () => await read(path, options))
     for (let index = 0; index < 8; index++) await docs.writeFile(`files/${index}.txt`, String(index))
     await docs.snapshot({ name: "baseline" })
 
@@ -1539,6 +1543,8 @@ describe("workspace host sessions", () => {
     await Promise.all([
       session.diff(),
       session.list("", { recursive: true }),
+      session.readFile("files/0.txt"),
+      session.search({ pattern: "0" }),
     ])
     await session.close()
 
@@ -1600,11 +1606,10 @@ describe("workspace host sessions", () => {
     const abort = new AbortController()
     const reason = new Error("inspection expired")
     const second = session.diff({ abortSignal: abort.signal })
-    await vi.waitFor(() => expect(lists).toBe(2))
     abort.abort(reason)
 
     await expect(second).rejects.toBe(reason)
-    expect(reads).toBe(1)
+    expect({ lists, reads }).toEqual({ lists: 1, reads: 1 })
     release()
     await first
     await session.close()
