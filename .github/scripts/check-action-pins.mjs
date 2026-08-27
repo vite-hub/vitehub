@@ -98,7 +98,9 @@ export function inspectGitHubActionReferences(path, source) {
   const root = document.contents
   if (!isMap(root)) return failures
 
-  if (!/(?:^|\/)action\.ya?ml$/.test(normalizedPath) && normalizedPath.startsWith(".github/workflows/")) {
+  const isDirectWorkflow = /^\.github\/workflows\/[^/]+\.ya?ml$/.test(normalizedPath)
+  const isActionManifest = /(?:^|\/)action\.ya?ml$/.test(normalizedPath) && !isDirectWorkflow
+  if (!isActionManifest && normalizedPath.startsWith(".github/workflows/")) {
     const jobs = findPair(root, "jobs")?.value
     if (!isMap(jobs)) return failures
     for (const jobPair of jobs.items) {

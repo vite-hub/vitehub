@@ -107,6 +107,19 @@ describe("GitHub Action pin policy", () => {
     ])
   })
 
+  it("classifies a direct workflow named action.yml as a workflow", async () => {
+    const root = await createFixture({
+      ".github/workflows/action.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n",
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("full 40-character commit SHA"),
+        path: ".github/workflows/action.yml",
+      }),
+    ])
+  })
+
   it("follows symlinked composite action manifests", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "steps:\n  - uses: ./tools/setup\n",
