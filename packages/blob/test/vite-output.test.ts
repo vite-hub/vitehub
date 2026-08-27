@@ -1050,7 +1050,7 @@ describe("Vite provider outputs", () => {
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
 
-    expect(runtimeContents).toContain("drivers/minio")
+    expect(runtimeContents).toContain("drivers/files")
     expect(runtimeContents).toContain("\"driver\": \"minio\"")
     expect(runtimeContents).toContain("\"endpoint\": \"http://minio:9000\"")
     expect(runtimeContents).toContain("resolveRuntimeMinioBlobStore")

@@ -1,6 +1,6 @@
 export async function importOptionalPeer<T>(id: string, driver: string, installId = id): Promise<T> {
   try {
-    return await import(id) as T
+    return await import(/* @vite-ignore */ id) as T
   }
   catch (error) {
     if (isMissingPeerError(error, id)) {

@@ -20,10 +20,10 @@ index 34a1b3a6440b2781c8e76d084e06198fe876d847..5cdbe84ecf58261085dc1fd81e29c017
 +      async pull(controller) {
 +        const result = await iterator.next();
 +        if (result.done) controller.close();
-+        else controller.enqueue(result.value);
++        else controller.enqueue(result.value instanceof Uint8Array ? new Uint8Array(result.value) : result.value);
 +      },
 +      async cancel(reason) {
-+        value.destroy(reason instanceof Error ? reason : void 0);
++        value.destroy(reason);
 +        await iterator.return?.();
 +      }
 +    });

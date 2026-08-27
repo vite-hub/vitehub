@@ -20,6 +20,21 @@ describe("optional peer imports", () => {
       .rejects.toThrow("The \"s3\" blob driver requires files-sdk. Install it with: pnpm add files-sdk")
   })
 
+  it("keeps optional imports native so bundled closures stay provider-neutral", async () => {
+    const source = await readFile(new URL("../src/internal/optional-peer.ts", import.meta.url), "utf8")
+
+    expect(source).toContain("import(/* @vite-ignore */ id)")
+    expect(source).not.toContain("node:module")
+  })
+
+  it("patches Vercel stream byte ownership and cancellation", async () => {
+    const closure = (await readLocalClosure(new URL(import.meta.resolve("@vercel/blob")))).join("\n")
+
+    expect(closure).toContain("new Uint8Array(result.value)")
+    expect(closure).toContain("value.destroy(reason)")
+    expect(closure).not.toContain("reason instanceof Error ? reason : void 0")
+  })
+
   it("ships the patched Vercel Blob runtime through the public driver", async () => {
     const built = await readFile(new URL("../dist/drivers/vercel.js", import.meta.url), "utf8")
 

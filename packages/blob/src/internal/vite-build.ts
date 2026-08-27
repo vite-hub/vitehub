@@ -95,23 +95,23 @@ interface CloudflareBlobConfig {
 }
 
 const driverModules = {
-  akamai: "drivers/akamai",
-  azure: "drivers/azure",
-  box: "drivers/box",
-  "cloudflare-r2": "drivers/cloudflare",
-  "digitalocean-spaces": "drivers/digitalocean-spaces",
-  dropbox: "drivers/dropbox",
+  akamai: "drivers/files",
+  azure: "drivers/files",
+  box: "drivers/files",
+  "cloudflare-r2": "drivers/files",
+  "digitalocean-spaces": "drivers/files",
+  dropbox: "drivers/files",
   fs: "drivers/fs",
-  gcs: "drivers/gcs",
-  "google-drive": "drivers/google-drive",
-  hetzner: "drivers/hetzner",
-  minio: "drivers/minio",
+  gcs: "drivers/files",
+  "google-drive": "drivers/files",
+  hetzner: "drivers/files",
+  minio: "drivers/files",
   "netlify-blobs": "drivers/netlify-blobs",
-  onedrive: "drivers/onedrive",
-  s3: "drivers/s3",
-  storj: "drivers/storj",
-  supabase: "drivers/supabase",
-  uploadthing: "drivers/uploadthing",
+  onedrive: "drivers/files",
+  s3: "drivers/files",
+  storj: "drivers/files",
+  supabase: "drivers/files",
+  uploadthing: "drivers/files",
   "vercel-blob": "drivers/vercel-bundled",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
@@ -551,12 +551,6 @@ function shouldCreateProviderOutput(blob: BlobModuleOptions | ResolvedBlobModule
   return !hasExplicitFsStore(blob)
 }
 
-function hasFilesSdkStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
-  const resolved = resolveBlobConfig(blob, "vercel")
-  return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
-    .some(store => store.driver !== "fs" && store.driver !== "netlify-blobs" && store.driver !== "vercel-blob")
-}
-
 function hasSiblingVercelRuntime(providerOutput: ProviderOutputCatalog | undefined): boolean {
   return hasProviderRuntimeModule(providerOutput, "vercel", { except: "blob" })
 }
@@ -586,7 +580,6 @@ function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModu
   const resolved = resolveBlobConfig(blob, "vercel")
   const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
   if (stores.some(store => store.driver === "netlify-blobs")) packages.add("@vite-hub/netlify-blobs-runtime")
-  if (hasFilesSdkStore(blob)) packages.add("files-sdk")
   for (const store of stores) {
     for (const name of filesSdkDriverPeers[store.driver] ?? []) {
       packages.add(name)
