@@ -60,7 +60,7 @@ export async function searchDocs() {
     }),
   });
 
-  return shell.exec("rg auth docs", { cwd: workspaceMountPoint });
+  return shell.exec("rg auth .", { cwd: workspaceMountPoint });
 }
 ```
 
