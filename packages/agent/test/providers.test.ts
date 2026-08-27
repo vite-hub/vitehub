@@ -14331,7 +14331,11 @@ describe("server helpers", () => {
       expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91106", "91107", "91108"])
     } finally {
       if (replacementWaiting) replacement.reject(Object.assign(new Error("Test cleanup released the replacement Workflow."), { status: 503 }))
-      if (replacementHandler) await replacementHandler.catch(() => undefined)
+      if (replacementHandler) {
+        await withDeadline(replacementHandler.catch(() => undefined), 3_000, "Replacement webhook cleanup did not finish.").catch(
+          () => undefined,
+        )
+      }
       resetWorkflowRuntime()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
