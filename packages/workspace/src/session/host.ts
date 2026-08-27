@@ -82,14 +82,30 @@ function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
   return run
 }
 
-function inspectHost<T>(host: WorkspaceSessionHost, inspect: () => Promise<T>, signal?: AbortSignal, assertActive?: () => void): Promise<T> {
+function inspectHost<T>(
+  host: WorkspaceSessionHost,
+  inspect: () => Promise<T>,
+  signal?: AbortSignal,
+  batch?: { assertActive: () => void, fail: (error: unknown) => void },
+): Promise<T> {
   return resolveHostInspectionLimiter(host)(async () => {
-    assertActive?.()
-    return await inspect()
+    batch?.assertActive()
+    try {
+      return await inspect()
+    }
+    catch (error) {
+      batch?.fail(error)
+      throw error
+    }
   }, signal)
 }
 
-async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: readonly T[], visit: (value: T, assertActive: () => void) => Promise<U>, _signal?: AbortSignal) {
+async function mapHostInspections<T, U>(
+  host: WorkspaceSessionHost,
+  values: readonly T[],
+  visit: (value: T, batch: { assertActive: () => void, fail: (error: unknown) => void }) => Promise<U>,
+  _signal?: AbortSignal,
+) {
   const results = new Array<U>(values.length)
   let next = 0
   let failed = false
@@ -97,6 +113,11 @@ async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: read
   const assertActive = () => {
     if (failed) throw failure
   }
+  const fail = (error: unknown) => {
+    if (!failed) failure = error
+    failed = true
+  }
+  const batch = { assertActive, fail }
   const workers = Array.from(
     { length: Math.min(values.length, resolveHostInspectionConcurrency(host)) },
     async () => {
@@ -104,11 +125,10 @@ async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: read
         const index = next++
         if (index >= values.length) return
         try {
-          results[index] = await visit(values[index]!, assertActive)
+          results[index] = await visit(values[index]!, batch)
         }
         catch (error) {
-          if (!failed) failure = error
-          failed = true
+          fail(error)
         }
       }
     },
@@ -278,13 +298,15 @@ async function ensureHostParent(host: WorkspaceSessionHost, path: string, abortS
     await host.files.mkdir(parent, { recursive: true, signal: abortSignal })
 }
 
-async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, path: string, abortSignal?: AbortSignal, assertActive?: () => void): Promise<string> {
-  const result = await inspectHost(host, async () => await host.exec("readlink", [fromHostPath(root, path)], { cwd: root, signal: abortSignal }), abortSignal, assertActive)
-  if (result.code !== 0)
-    throw workspaceError(`[vitehub] Failed to read workspace symlink: ${path}.`, {
-      cause: new Error(result.stderr || "readlink failed"),
-    })
-  return result.stdout.replace(/\n$/, "")
+async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, path: string, abortSignal?: AbortSignal, batch?: { assertActive: () => void, fail: (error: unknown) => void }): Promise<string> {
+  return await inspectHost(host, async () => {
+    const result = await host.exec("readlink", [fromHostPath(root, path)], { cwd: root, signal: abortSignal })
+    if (result.code !== 0)
+      throw workspaceError(`[vitehub] Failed to read workspace symlink: ${path}.`, {
+        cause: new Error(result.stderr || "readlink failed"),
+      })
+    return result.stdout.replace(/\n$/, "")
+  }, abortSignal, batch)
 }
 
 async function writeHostSymlink(host: WorkspaceSessionHost, root: string, path: string, target: string, abortSignal?: AbortSignal) {
@@ -344,11 +366,11 @@ async function listHostEntries(
   const entries = listed
     .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))
     .filter(({ workspaceEntry }) => !isExcludedWorkspacePath(workspaceEntry.path, excluded) && (!include || include(workspaceEntry)))
-  const resolved = await mapHostInspections(host, entries, async ({ executable, workspaceEntry }, assertActive) => {
+  const resolved = await mapHostInspections(host, entries, async ({ executable, workspaceEntry }, batch) => {
     abortSignal?.throwIfAborted()
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
     if (executable !== undefined) return workspaceEntry
-    const probe = await inspectHost(host, async () => await host.exec("test", ["-x", workspaceEntry.path], { cwd: root, signal: abortSignal }), abortSignal, assertActive)
+    const probe = await inspectHost(host, async () => await host.exec("test", ["-x", workspaceEntry.path], { cwd: root, signal: abortSignal }), abortSignal, batch)
     return probe.code === 0
       ? { ...workspaceEntry, metadata: { ...workspaceEntry.metadata, gitMode: "100755" } }
       : workspaceEntry
@@ -381,13 +403,16 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
 
 async function captureHostEntriesState(host: WorkspaceSessionHost, root: string, entries: WorkspaceEntry[], name?: string, abortSignal?: AbortSignal) {
   const contents = new Map<string, Uint8Array | string>()
-  const files = await mapHostInspections(host, entries, async (entry, assertActive) => {
+  const files = await mapHostInspections(host, entries, async (entry, batch) => {
     abortSignal?.throwIfAborted()
     if (entry.type !== "file") return entry
     const content = isGitSymlinkEntry(entry)
-      ? await readHostSymlinkTarget(host, root, toHostPath(root, entry.path), abortSignal, assertActive)
-      : await inspectHost(host, async () => await host.files.read(toHostPath(root, entry.path), { signal: abortSignal }), abortSignal, assertActive)
-    if (content === null) throw workspaceError(`[vitehub] Workspace host file disappeared while snapshotting: ${entry.path}.`)
+      ? await readHostSymlinkTarget(host, root, toHostPath(root, entry.path), abortSignal, batch)
+      : await inspectHost(host, async () => {
+          const content = await host.files.read(toHostPath(root, entry.path), { signal: abortSignal })
+          if (content === null) throw workspaceError(`[vitehub] Workspace host file disappeared while snapshotting: ${entry.path}.`)
+          return content
+        }, abortSignal, batch)
     contents.set(entry.path, content)
     return {
       ...entry,
