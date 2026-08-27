@@ -30,6 +30,9 @@ describe("release workflow authority", () => {
     expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
     expect(publishNpm).not.toContain("contents: write")
     expect(publishNpm).toContain("voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0")
+    expect(publishNpm).toContain(
+      'node-version: "24"\n          working-directory: release-workspace\n          run-install: false\n          cache: false',
+    )
     expect(publishNpm).not.toContain("voidzero-dev/setup-vp@v1")
 
     expect(githubRelease).toMatch(/permissions:\n      contents: write\n/)
