@@ -736,6 +736,35 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(result.usage).toEqual({ totalTokens: 2 })
   })
 
+  it("skips throwing metadata existence checks while finalizing raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const error = vi.fn()
+    const target = (async function* () {
+      yield { text: "hello", type: "text-delta" }
+    })()
+    const raw = new Proxy(target, {
+      has(_target, key) {
+        if (typeof key === "string" && ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"].includes(key)) {
+          throw new Error("unreadable provider metadata")
+        }
+        return Reflect.has(_target, key)
+      },
+    })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:error": error, "agent:finish": finish },
+    })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(error).not.toHaveBeenCalled()
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "hello" } })
+  })
+
   it("preserves inherited usage-record metadata on raw streams", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

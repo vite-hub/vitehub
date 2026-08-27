@@ -3606,8 +3606,9 @@ function toAgentRunResultWithInheritedProperties(result: unknown): AgentRunResul
   if (!result || !hasRuntimeType(result, "object")) return toAgentRunResult(result)
   const normalized = toAgentRunResult(result)
   for (const key of ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"] as const) {
-    if (normalized[key] !== undefined || !Reflect.has(result, key)) continue
+    if (normalized[key] !== undefined) continue
     try {
+      if (!Reflect.has(result, key)) continue
       // SAFETY: The key list is limited to writable AgentRunResult properties.
       normalized[key] = Reflect.get(result, key) as never
     }
