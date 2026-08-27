@@ -320,38 +320,39 @@ function canStartRegexLiteral(output: string): boolean {
   if (prefix.endsWith("++") || prefix.endsWith("--")) return false
   if ("([{,:;=!?&|~%^<>*+-".includes(prefix.at(-1)!)) return true
   if (endsWithDeclaration(prefix)) return true
-  if (/\b(?:catch|if|for|switch|while|with)\s*\([^;{}]*\)\s*(?:\{[^{}]*\})?$/.test(prefix)) return true
-  if (/\b(?:catch|do|else|finally|try)\s*\{[^{}]*\}$/.test(prefix)) return true
+  if (endsWithControlCondition(prefix)) return true
   if (endsWithStatementBlock(prefix)) return true
-  if (/(?:^|[;{}])\s*\{[^{}]*\}$/.test(prefix)) return true
   return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(prefix)
 }
 
-function endsWithStatementBlock(source: string): boolean {
-  if (!source.endsWith("}")) return false
+function matchingOpeningDelimiter(source: string, opening: string, closing: string): number | undefined {
+  if (!source.endsWith(closing)) return
   let depth = 1
-  let bodyStart = source.length - 1
-  while (bodyStart > 0 && depth > 0) {
-    bodyStart--
-    if (source[bodyStart] === "}") depth++
-    else if (source[bodyStart] === "{") depth--
+  for (let index = source.length - 2; index >= 0; index--) {
+    if (source[index] === closing) depth++
+    else if (source[index] === opening && --depth === 0) return index
   }
-  if (depth !== 0) return false
+}
+
+function endsWithControlCondition(source: string): boolean {
+  const conditionStart = matchingOpeningDelimiter(source, "(", ")")
+  if (conditionStart === undefined) return false
+  return /\b(?:catch|if|for|switch|while|with)$/.test(source.slice(0, conditionStart).trimEnd())
+}
+
+function endsWithStatementBlock(source: string): boolean {
+  const bodyStart = matchingOpeningDelimiter(source, "{", "}")
+  if (bodyStart === undefined) return false
   const header = source.slice(0, bodyStart).trimEnd()
   return /(?:^|[;{}\n])\s*[\w$]+\s*:$/.test(header)
-    || /\bcatch(?:\s*\([^;{}]*\))?$/.test(header)
+    || /\b(?:catch|do|else|finally|try)$/.test(header)
+    || endsWithControlCondition(header)
+    || /(?:^|[;{}\n])\s*$/.test(header)
 }
 
 function endsWithDeclaration(source: string): boolean {
-  if (!source.endsWith("}")) return false
-  let depth = 1
-  let bodyStart = source.length - 1
-  while (bodyStart > 0 && depth > 0) {
-    bodyStart--
-    if (source[bodyStart] === "}") depth++
-    else if (source[bodyStart] === "{") depth--
-  }
-  if (depth !== 0) return false
+  const bodyStart = matchingOpeningDelimiter(source, "{", "}")
+  if (bodyStart === undefined) return false
   const header = source.slice(0, bodyStart).trimEnd()
   return /(?:^|[;{}])\s*(?:(?:export\s+(?:default\s+)?)?(?:(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^;]*\)|class\s+[\w$]+(?:\s+extends\s+[^;{}]+)?)|export\s+default\s+(?:(?:async\s+)?function(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^;]*\)|class(?:\s+[\w$]+)?(?:\s+extends\s+[^;{}]+)?))\s*$/.test(header)
 }
@@ -690,15 +691,17 @@ try {
   }
   await cp(sourceRoot, uploadRoot, { recursive: true })
 
-  const common = ["--allow-node-modules", "--org", organization, "--app", app]
-  const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
-  if (creation.signal != null && !interrupted) {
-    throw new Error("deno deploy create exited with " + creation.signal)
-  }
-  if (!interrupted && creation.code !== 0) {
-    const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
-    if (deployment.code !== 0) {
-      throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
+  if (!interrupted) {
+    const common = ["--allow-node-modules", "--org", organization, "--app", app]
+    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
+    if (creation.signal != null && !interrupted) {
+      throw new Error("deno deploy create exited with " + creation.signal)
+    }
+    if (!interrupted && creation.code !== 0) {
+      const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
+      if (deployment.code !== 0) {
+        throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
+      }
     }
   }
 } finally {

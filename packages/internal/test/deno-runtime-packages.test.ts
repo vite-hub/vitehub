@@ -116,6 +116,7 @@ import "real"
 const matcher = /import\("healthcheck"\)/
 const characterClass = /[\\/]require\("missing"\)/g
 if (ready) {} /import\("after-block"\)/.test(value)
+if (ready) { if (nested) {} } /import\("after-nested-if"\)/.test(value)
 switch (value) {} /import\("after-switch"\)/.test(value)
 try {} catch (error) {} /import\("after-catch"\)/.test(value)
 block: {} /import("after-labeled-block")/.test(value)
@@ -136,6 +137,7 @@ import "real"
     expect(collectDenoRuntimePackageNames('const ratio=/1//2;import("real-package")')).toEqual(["real-package"])
     expect(collectDenoRuntimePackageNames('const ratio=i++/2;import("real-package")')).toEqual(["real-package"])
     expect(collectDenoRuntimePackageNames('const ratio=i--/2;import("real-package")')).toEqual(["real-package"])
+    expect(collectDenoRuntimePackageNames('const ratio={ nested: {} }/import("division-package")')).toEqual(["division-package"])
   })
 
   it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
@@ -558,6 +560,7 @@ import "real"
       deploy: { runtime: { mode: "dynamic", entrypoint: "./server/index.mjs", cwd: "." } },
     })
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
+    expect(deployRunner.indexOf("if (!interrupted) {")).toBeLessThan(deployRunner.indexOf('const common = ["--allow-node-modules"'))
   })
 
   it("uses the pnpm package from a bundle marker", async () => {
