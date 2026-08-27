@@ -976,6 +976,50 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
   })
 
+  it("preserves Vercel runtime packages when cancellation interrupts their replacement", async () => {
+    vi.resetModules()
+    let releaseTrace: (() => void) | undefined
+    const traceStarted = Promise.withResolvers<void>()
+    vi.doMock("@vercel/nft", () => ({
+      nodeFileTrace: vi.fn(async () => {
+        traceStarted.resolve()
+        await new Promise<void>((resolve) => {
+          releaseTrace = resolve
+        })
+        return { fileList: new Set(["index.js"]) }
+      }),
+    }))
+
+    try {
+      const rootDir = await createTempProject()
+      const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+      const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+      const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+      const existingPackage = join(serverDir, "node_modules", "runtime-package")
+      await writePackage(rootDir, "runtime-package", { exports: { ".": "./index.js" } })
+      await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
+      await mkdir(existingPackage, { recursive: true })
+      await writeFile(join(existingPackage, "index.js"), "export const version = 'old'\n", "utf8")
+      const controller = new AbortController()
+
+      const copying = copyVercelFunctionRuntimePackages({
+        packages: [{ name: "runtime-package" }],
+        rootDir,
+        signal: controller.signal,
+      })
+      await traceStarted.promise
+      controller.abort()
+      releaseTrace?.()
+
+      await expect(copying).rejects.toHaveProperty("name", "AbortError")
+      await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
+    }
+    finally {
+      vi.doUnmock("@vercel/nft")
+      vi.resetModules()
+    }
+  })
+
   it("copies runtime packages into an explicit Node output", async () => {
     const rootDir = await createTempProject()
     const outputNodeModules = join(rootDir, ".output", "server", "node_modules")

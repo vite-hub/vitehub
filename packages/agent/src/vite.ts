@@ -2956,6 +2956,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
             ],
             rootDir: config.root,
+            signal,
           })
         },
       })

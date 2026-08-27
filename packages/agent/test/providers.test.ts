@@ -984,6 +984,7 @@ describe("agent Vite plugin", () => {
         { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
       ],
       rootDir: "/app",
+      signal: expect.any(AbortSignal),
     })
   })
 

@@ -1,4 +1,4 @@
-import { access, copyFile, cp, mkdir, readFile, realpath, rm, stat } from "node:fs/promises"
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -27,6 +27,7 @@ interface VercelFunctionRuntimePackagesOptions {
   packages: VercelFunctionRuntimePackage[]
   rootDir: string
   serverFunctionName?: string
+  signal?: AbortSignal
 }
 
 export async function copyVercelFunctionRuntimePackages(options: VercelFunctionRuntimePackagesOptions): Promise<void> {
@@ -44,11 +45,50 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     throw error
   }
 
-  await copyNodeRuntimePackages({
-    outputNodeModules: resolve(serverDir, "node_modules"),
-    packages: options.packages,
-    rootDir: options.rootDir,
-  })
+  const outputNodeModules = resolve(serverDir, "node_modules")
+  const stagingRoot = await mkdtemp(resolve(serverDir, ".vitehub-runtime-packages-"))
+  const stagedNodeModules = resolve(stagingRoot, "node_modules")
+  const previousNodeModules = resolve(stagingRoot, "previous-node_modules")
+  let movedPreviousOutput = false
+
+  try {
+    try {
+      await cp(outputNodeModules, stagedNodeModules, { recursive: true })
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    await mkdir(stagedNodeModules, { recursive: true })
+
+    await copyNodeRuntimePackages({
+      outputNodeModules: stagedNodeModules,
+      packages: options.packages,
+      rootDir: options.rootDir,
+    })
+    options.signal?.throwIfAborted()
+
+    try {
+      await rename(outputNodeModules, previousNodeModules)
+      movedPreviousOutput = true
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+
+    try {
+      options.signal?.throwIfAborted()
+      await rename(stagedNodeModules, outputNodeModules)
+    }
+    catch (error) {
+      if (movedPreviousOutput) await rename(previousNodeModules, outputNodeModules)
+      throw error
+    }
+  }
+  finally {
+    await rm(stagingRoot, { force: true, recursive: true })
+  }
 }
 
 export async function copyNodeRuntimePackages(options: NodeRuntimePackagesOptions): Promise<void> {
