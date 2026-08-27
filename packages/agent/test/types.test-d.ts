@@ -1092,6 +1092,10 @@ describe("agent public types", () => {
         },
       },
     }
+    const supportAccessCapability = access({ workspace: supportAccess })
+    type SupportAccessInputContext = NonNullable<typeof supportAccessCapability.__vitehubTypeContract>["inputContext"]
+    expectTypeOf(supportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
+    expectTypeOf({} as SupportInputContext).toMatchTypeOf<SupportAccessInputContext>()
 
     defineAgent({
       workspace,
@@ -1115,9 +1119,7 @@ describe("agent public types", () => {
         },
       }),
       capabilities: [
-        access({
-          workspace: supportAccess,
-        }),
+        supportAccessCapability,
         supportChat,
       ],
     })

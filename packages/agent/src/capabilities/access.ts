@@ -240,6 +240,14 @@ export type AccessWorkspaceOptionsFor<
   Name extends WorkspaceName = WorkspaceName,
 > = AccessWorkspaceOptions<TRuntimeConfig, Name, AccessWorkspaceSourceName<TWorkspace>, TInputContext>
 
+type AccessWorkspaceInputContext<TWorkspace> = TWorkspace extends { resolve?: infer TResolve }
+  ? [Extract<TResolve, (...args: never[]) => unknown>] extends [never]
+      ? Record<string, unknown>
+      : Extract<TResolve, (...args: never[]) => unknown> extends AccessWorkspaceScopeResolver<AgentRuntimeConfig, WorkspaceName, infer TInputContext, string>
+        ? TInputContext
+        : Record<string, unknown>
+  : Record<string, unknown>
+
 interface ResolvedWorkspaceScope {
   all: boolean
   definition: AccessWorkspaceScopeDefinition
@@ -282,7 +290,7 @@ async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, WorkspaceName, string, Record<string, unknown>> = AccessWorkspaceOptions<TRuntimeConfig, WorkspaceName, string, Record<string, unknown>>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, Record<string, unknown>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+>(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>
