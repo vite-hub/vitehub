@@ -475,19 +475,31 @@ describe("Agent Invocation Interface lifecycle", () => {
   it("skips throwing usage getters while finalizing raw streams", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
-    const usage = Object.defineProperty({ totalTokens: 2 }, "unreadable", {
-      enumerable: true,
-      get() {
-        throw new Error("unreadable usage metadata")
+    const usage = Object.defineProperties({ totalTokens: 2 }, {
+      // eslint-disable-next-line unicorn/no-thenable -- verifies unreadable promise metadata does not block finalization
+      then: {
+        get() {
+          throw new Error("unreadable promise metadata")
+        },
+      },
+      unreadable: {
+        enumerable: true,
+        get() {
+          throw new Error("unreadable usage metadata")
+        },
       },
     })
     const raw = Object.assign((async function* () {})(), { usage })
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
-    expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, usage: { totalTokens: 2 } } })
+    // SAFETY: The finish hook receives the normalized result after successful stream consumption.
+    const result = finish.mock.calls[0]![0].result as { raw?: unknown, usage?: unknown }
+    expect(result.raw).toBe(raw)
+    expect(result.usage).toEqual({ totalTokens: 2 })
   })
 
   it("preserves inherited usage-record metadata on raw streams", async () => {
@@ -498,16 +510,62 @@ describe("Agent Invocation Interface lifecycle", () => {
         return "response-1"
       }
     }
+    class UsageRecordMetadata {
+      get calls() {
+        return [{ model: "provider/call" }]
+      }
+
+      get cost() {
+        return { display: "$0.01", estimated: false, source: "provider", usd: "0.01" }
+      }
+
+      get model() {
+        return "provider/model"
+      }
+
+      get raw() {
+        return { provider: "metadata" }
+      }
+
+      get response() {
+        return new ResponseMetadata()
+      }
+
+      get transport() {
+        return "gateway"
+      }
+
+      get usage() {
+        return { totalTokens: 3 }
+      }
+    }
+    const usageRecord = Object.defineProperty(new UsageRecordMetadata(), "credentialSource", {
+      value: { label: "api key", source: "explicit" },
+    })
     const raw = Object.assign((async function* () {
       yield { type: "usage", usageRecord: { response: { finishReason: "stop" } } }
-    })(), { usageRecord: { response: new ResponseMetadata() } })
+    })(), { usageRecord })
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
-      result: { raw, usageRecord: { response: { finishReason: "stop", id: "response-1" } } },
+      result: {
+        raw,
+        usage: { totalTokens: 3 },
+        usageRecord: {
+          calls: [{ model: "provider/call" }],
+          cost: { display: "$0.01", estimated: false, source: "provider", usd: "0.01" },
+          credentialSource: { label: "api key", source: "explicit" },
+          model: "provider/model",
+          raw: { provider: "metadata" },
+          response: { finishReason: "stop", id: "response-1" },
+          transport: "gateway",
+          usage: { totalTokens: 3 },
+        },
+      },
     })
   })
 
@@ -637,7 +695,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     }
     for await (const _event of preserved.fullStream) {}
 
-    expect(preserved).toBe(result)
+    expect(preserved).not.toBe(result)
     expect(preserved).toMatchObject({
       usage: { totalTokens: 2 },
       usageRecord: { usage: { totalTokens: 2 } },

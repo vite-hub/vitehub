@@ -3746,7 +3746,13 @@ function definedObjectPropertiesWithInherited(value: unknown, keys: readonly str
 }
 
 function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
-  if (!value || !hasRuntimeType(value, "object") || hasRuntimeType(Reflect.get(value, "then"), "function")) return undefined
+  if (!value || !hasRuntimeType(value, "object")) return undefined
+  try {
+    if (hasRuntimeType(Reflect.get(value, "then"), "function")) return undefined
+  }
+  catch {
+    // Ignore provider then getters that cannot be read during usage normalization.
+  }
   const usage: Record<string, unknown> = { ...definedObjectProperties(value) }
   for (const key of ["details", "inputTokenDetails", "inputTokens", "outputTokenDetails", "outputTokens", "raw", "totalTokens"] as const) {
     if (usage[key] !== undefined || !Reflect.has(value, key)) continue
@@ -3758,11 +3764,17 @@ function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
       // Ignore provider getters that cannot be read during usage normalization.
     }
   }
+  // SAFETY: The canonical keys above construct the AgentUsage contract while omitting unreadable metadata.
   return usage as AgentUsage
 }
 
 function mergedDefinedObjects(...values: unknown[]): Record<string, unknown> {
   return Object.assign({}, ...values.map(definedObjectProperties))
+}
+
+function mergedUsageRecords(...values: unknown[]): Record<string, unknown> {
+  const keys = ["calls", "cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"] as const
+  return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
 }
 
 function mergedUsageRecordMetadata(key: "credentialSource" | "latency" | "response" | "run", ...values: unknown[]): Record<string, unknown> {
@@ -3785,39 +3797,43 @@ function resultWithStreamedTextAndUsage(
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
+    const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
+    const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
+    const hasSourceUsageRecord = Object.keys(sourceUsageRecordProperties).length > 0
+    const sourceUsage = normalizedAgentUsage(sourceUsageRecordProperties.usage)
     const normalizedUsage = normalizedAgentUsage(normalized.usage)
-    const mergedUsage = normalized.usageRecord?.usage || normalizedUsage || streamedUsageRecord?.usage
+    const mergedUsage = normalized.usageRecord?.usage || normalizedUsage || sourceUsage || streamedUsageRecord?.usage
       ? {
-          ...mergedDefinedObjects(streamedUsageRecord?.usage, normalized.usageRecord?.usage, normalizedUsage),
-          ...((streamedUsageRecord?.usage?.details || normalized.usageRecord?.usage?.details || normalizedUsage?.details)
+          ...mergedDefinedObjects(streamedUsageRecord?.usage, sourceUsage, normalized.usageRecord?.usage, normalizedUsage),
+          ...((streamedUsageRecord?.usage?.details || sourceUsage?.details || normalized.usageRecord?.usage?.details || normalizedUsage?.details)
             ? {
                 details: {
-                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.details, normalized.usageRecord?.usage?.details, normalizedUsage?.details),
+                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.details, sourceUsage?.details, normalized.usageRecord?.usage?.details, normalizedUsage?.details),
                 },
               }
             : {}),
-          ...((streamedUsageRecord?.usage?.inputTokenDetails || normalized.usageRecord?.usage?.inputTokenDetails || normalizedUsage?.inputTokenDetails)
+          ...((streamedUsageRecord?.usage?.inputTokenDetails || sourceUsage?.inputTokenDetails || normalized.usageRecord?.usage?.inputTokenDetails || normalizedUsage?.inputTokenDetails)
             ? {
                 inputTokenDetails: {
-                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.inputTokenDetails, normalized.usageRecord?.usage?.inputTokenDetails, normalizedUsage?.inputTokenDetails),
+                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.inputTokenDetails, sourceUsage?.inputTokenDetails, normalized.usageRecord?.usage?.inputTokenDetails, normalizedUsage?.inputTokenDetails),
                 },
               }
             : {}),
-          ...((streamedUsageRecord?.usage?.outputTokenDetails || normalized.usageRecord?.usage?.outputTokenDetails || normalizedUsage?.outputTokenDetails)
+          ...((streamedUsageRecord?.usage?.outputTokenDetails || sourceUsage?.outputTokenDetails || normalized.usageRecord?.usage?.outputTokenDetails || normalizedUsage?.outputTokenDetails)
             ? {
                 outputTokenDetails: {
-                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.outputTokenDetails, normalized.usageRecord?.usage?.outputTokenDetails, normalizedUsage?.outputTokenDetails),
+                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.outputTokenDetails, sourceUsage?.outputTokenDetails, normalized.usageRecord?.usage?.outputTokenDetails, normalizedUsage?.outputTokenDetails),
                 },
               }
             : {}),
         }
       : undefined
-    const mergedUsageRecord = normalized.usageRecord || streamedUsageRecord
+    const mergedUsageRecord = normalized.usageRecord || streamedUsageRecord || hasSourceUsageRecord
       ? {
-          ...mergedDefinedObjects(streamedUsageRecord, normalized.usageRecord),
+          ...mergedUsageRecords(streamedUsageRecord, sourceUsageRecordProperties, normalized.usageRecord),
           ...(["credentialSource", "latency", "response", "run"] as const).reduce<Record<string, unknown>>((properties, key) => {
-            if (streamedUsageRecord?.[key] || normalized.usageRecord?.[key]) {
-              properties[key] = mergedUsageRecordMetadata(key, streamedUsageRecord?.[key], normalized.usageRecord?.[key])
+            if (streamedUsageRecord?.[key] || sourceUsageRecordProperties[key] || normalized.usageRecord?.[key]) {
+              properties[key] = mergedUsageRecordMetadata(key, streamedUsageRecord?.[key], sourceUsageRecordProperties[key], normalized.usageRecord?.[key])
             }
             return properties
           }, {}),
