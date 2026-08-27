@@ -38,6 +38,21 @@ export function requiredOption(driver: string, value: unknown, name: string): as
   if (!value) throw emailProviderError(driver, "INVALID_OPTIONS", `${name} is required.`)
 }
 
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const normalizedName = name.toLowerCase()
+  return Object.keys(headers).some(header => header.toLowerCase() === normalizedName)
+}
+
+export function applyUnsubscribe(message: EmailMessage): EmailMessage {
+  if (!message.unsubscribe) return message
+  const headers = { ...message.headers }
+  const { mailto, oneClick, url } = message.unsubscribe
+  const values = [url ? `<${url}>` : undefined, mailto ? `<mailto:${mailto}>` : undefined].filter(value => value !== undefined)
+  if (values.length > 0 && !hasHeader(headers, "list-unsubscribe")) headers["List-Unsubscribe"] = values.join(", ")
+  if ((oneClick ?? Boolean(url)) && url && !hasHeader(headers, "list-unsubscribe-post")) headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+  return { ...message, ...(Object.keys(headers).length > 0 ? { headers } : {}) }
+}
+
 export function applyPersonalization(driver: string, message: EmailMessage): EmailMessage {
   if (!message.personalizations?.length) return message
   if (message.personalizations.length > 1) {

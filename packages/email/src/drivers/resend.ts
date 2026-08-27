@@ -1,5 +1,5 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts"
-import { addresses, applyPersonalization, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
+import { addresses, applyPersonalization, applyUnsubscribe, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
 
 import type { EmailAttachment, EmailDriver, EmailMessage, EmailProviderErrorCode } from "../types.ts"
 
@@ -25,7 +25,7 @@ function isString(value: unknown): value is string {
   return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
 }
 
-async function readResponseText(response: Response, signal: AbortSignal): Promise<string> {
+async function readResponseText(response: Response, signal: AbortSignal, retryable: boolean): Promise<string> {
   if (!response.body) return ""
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -45,7 +45,7 @@ async function readResponseText(response: Response, signal: AbortSignal): Promis
     throw signal.reason ?? new DOMException("aborted", "AbortError")
   }
   const timeout = setTimeout(() => {
-    cancelRead(emailProviderError("resend", "TIMEOUT", "Resend response timed out.", { retryable: true }))
+    cancelRead(emailProviderError("resend", "TIMEOUT", "Resend response timed out.", { retryable }))
   }, RESPONSE_READ_TIMEOUT_MS)
   try {
     while (true) {
@@ -159,6 +159,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       let body: string
       let idempotencyKey: string | undefined
       try {
+        message = applyUnsubscribe(message)
         message = applyPersonalization("resend", message)
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey)
         if (message.scheduledAt !== undefined && !(message.scheduledAt instanceof Date) && message.scheduledAt.trim() === "") {
@@ -205,12 +206,12 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       clearTimeout(requestTimeout)
       let text: string
       try {
-        text = await readResponseText(response, requestController.signal)
+        text = await readResponseText(response, requestController.signal, idempotencyKey !== undefined)
       }
       catch (cause) {
         if (isEmailProviderError(cause)) return { data: null, error: cause }
         if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", { cause, retryable: false }) }
-        return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: true }) }
+        return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: idempotencyKey !== undefined }) }
       }
       finally {
         context.signal?.removeEventListener("abort", abortRequest)

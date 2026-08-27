@@ -1,5 +1,6 @@
 import { emailError, isEmailError } from "./errors.ts"
 import { isEmailProviderError } from "./provider.ts"
+import { applyUnsubscribe } from "./drivers/shared.ts"
 
 import type { EmailClient, EmailDefinition, EmailDriver, EmailDriverSource, EmailMessage, EmailProviderErrorCode, EmailSendResult } from "./types.ts"
 
@@ -28,25 +29,6 @@ function resolveEmailDriver(source: EmailDriverSource): Promise<EmailDriver> {
   })
 }
 
-function hasHeader(headers: Record<string, string>, name: string): boolean {
-  const normalizedName = name.toLowerCase()
-  return Object.keys(headers).some(header => header.toLowerCase() === normalizedName)
-}
-
-function prepareMessage(message: EmailMessage): EmailMessage {
-  const headers = { ...message.headers }
-  if (message.unsubscribe) {
-    const { mailto, oneClick, url } = message.unsubscribe
-    const values = [url ? `<${url}>` : undefined, mailto ? `<mailto:${mailto}>` : undefined].filter(value => value !== undefined)
-    if (values.length > 0 && !hasHeader(headers, "list-unsubscribe")) headers["List-Unsubscribe"] = values.join(", ")
-    if ((oneClick ?? Boolean(url)) && url && !hasHeader(headers, "list-unsubscribe-post")) headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
-  }
-  return {
-    ...message,
-    ...(Object.keys(headers).length > 0 ? { headers } : {}),
-  }
-}
-
 export function createEmail(options: EmailDefinition): EmailClient {
   if (!options || typeof options !== "object" || !("driver" in options)) throw new TypeError("`createEmail()` expects an object with a driver.")
   if (typeof options.driver !== "function") assertEmailDriver(options.driver)
@@ -68,7 +50,7 @@ export function createEmail(options: EmailDefinition): EmailClient {
           })
           await initialization
         }
-        const preparedMessage = prepareMessage(message)
+        const preparedMessage = applyUnsubscribe(message)
         const result = await driver.send(preparedMessage, { attempt: 1, driver: driver.name, meta: {}, signal: undefined, stream: preparedMessage.stream })
         if (result.error) throw result.error
         if (typeof result.data.id !== "string" || result.data.id.trim().length === 0) {

@@ -1,5 +1,5 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts"
-import { addresses, addressValue, applyPersonalization, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
+import { addresses, addressValue, applyPersonalization, applyUnsubscribe, bytesToBase64, formatAddress, requiredOption, stringToBase64 } from "./shared.ts"
 
 import type { EmailAttachment, EmailDriver, EmailMessage } from "../types.ts"
 
@@ -130,6 +130,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
     name: "cloudflare-email",
     async send(message, context) {
       try {
+        message = applyUnsubscribe(message)
         if (message.stream !== undefined || context.stream !== undefined) {
           return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support stream selection.") }
         }

@@ -39,7 +39,7 @@ describe("Resend Email driver", () => {
   })
 
   it("normalizes trailing slashes in the endpoint", async () => {
-    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
     const driver = resend({ apiKey: "re_secret", endpoint: "https://resend.example.test///", fetch: request })
 
     await driver.send(message, context)
@@ -92,11 +92,11 @@ describe("Resend Email driver", () => {
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject(expected)
   })
 
-  it("maps response body read failures to retryable network errors", async () => {
+  it("does not retry an ambiguous response body failure without idempotency", async () => {
     const response = new Response(new ReadableStream({ start(controller) { controller.error(new Error("connection reset")) } }), { status: 200 })
     const driver = resend({ apiKey: "re_secret", fetch: async () => response })
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: true } })
+    await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: false } })
   })
 
   it("cancels and times out a stalled response body", async () => {
@@ -108,7 +108,7 @@ describe("Resend Email driver", () => {
     const delivery = driver.send(message, context)
     await vi.advanceTimersByTimeAsync(30_000)
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: false } })
     expect(cancel).toHaveBeenCalledOnce()
     vi.useRealTimers()
   })
@@ -126,7 +126,7 @@ describe("Resend Email driver", () => {
     const delivery = driver.send(message, context)
     await vi.advanceTimersByTimeAsync(30_000)
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: false } })
     vi.useRealTimers()
   })
 
@@ -139,7 +139,7 @@ describe("Resend Email driver", () => {
     const delivery = driver.send(message, context)
     await vi.advanceTimersByTimeAsync(30_000)
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: false } })
     expect(cancel).toHaveBeenCalledOnce()
     vi.useRealTimers()
   })
@@ -157,6 +157,30 @@ describe("Resend Email driver", () => {
     await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
     expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
     vi.useRealTimers()
+  })
+
+  it("retries an ambiguous response timeout with idempotency", async () => {
+    vi.useFakeTimers()
+    const response = new Response(new ReadableStream())
+    const driver = resend({ apiKey: "re_secret", fetch: async () => response })
+
+    const delivery = driver.send({ ...message, idempotencyKey: "send-1" }, context)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    vi.useRealTimers()
+  })
+
+  it("applies unsubscribe headers when called directly", async () => {
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await driver.send({ ...message, unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" } }, context)
+
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body)).headers).toMatchObject({
+      "List-Unsubscribe": "<https://example.com/unsubscribe>, <mailto:leave@example.com>",
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    })
   })
 
   it("cancels and rejects an oversized response body", async () => {
@@ -352,6 +376,16 @@ describe("Resend Email driver", () => {
 })
 
 describe("Cloudflare Email driver", () => {
+  it("applies unsubscribe headers when called directly", async () => {
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor })
+
+    await driver.send({ ...message, unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" } }, context)
+
+    expect(Constructor.mock.calls[0]?.[2]).toContain("List-Unsubscribe: <https://example.com/unsubscribe>, <mailto:leave@example.com>")
+    expect(Constructor.mock.calls[0]?.[2]).toContain("List-Unsubscribe-Post: List-Unsubscribe=One-Click")
+  })
+
   it("rejects stream selection before delivery", async () => {
     const send = vi.fn()
     const Constructor = vi.fn()
