@@ -354,6 +354,9 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         throw error
       }
     },
+    async renderError() {
+      await resetProviderDeploymentOutputs(providerOutput)
+    },
     closeBundle: {
       order: "post",
       async handler() {

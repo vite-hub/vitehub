@@ -73,6 +73,7 @@ vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubW
 
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { Plugin, PluginOption } from "vite"
+import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub } from "../src/index.ts"
 
@@ -180,6 +181,26 @@ function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
 }
 
 describe("vitehub", () => {
+  it("discards Provider Output after an output-phase build failure", async () => {
+    const plugins = vitehub({ preset: "node" })
+    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
+    const config: Record<string, unknown> = {}
+    await callHook(preset.config, [config, { command: "build", mode: "production" }])
+    config.command = "build"
+    config.plugins = plugins
+    callHook(output.configResolved, [config])
+
+    const catalog = useProviderOutputCatalog(config)
+    const write = vi.fn()
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir: "/app", write })
+
+    await callHook(output.renderError, [new Error("output failed")])
+    await callHook(output.closeBundle, [])
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("installs the complete console from one option", () => {
     expect(pluginNames(vitehub({ console: true, preset: "node" }))).toEqual(expect.arrayContaining([
       "vite-hub/console",

@@ -651,6 +651,9 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         },
       })
     },
+    async renderError() {
+      await resetProviderDeploymentOutputs(providerOutput)
+    },
     closeBundle: {
       order: "post",
       async handler() {

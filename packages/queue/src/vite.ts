@@ -283,6 +283,9 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         throw error
       }
     },
+    async renderError() {
+      await resetProviderDeploymentOutputs(providerOutput)
+    },
     closeBundle: {
       order: "post",
       async handler() {

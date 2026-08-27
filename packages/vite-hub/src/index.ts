@@ -576,6 +576,9 @@ function deploymentPlugins(
       async buildEnd(error) {
         if (error) await resetProviderDeploymentOutputs(providerOutput)
       },
+      async renderError() {
+        await resetProviderDeploymentOutputs(providerOutput)
+      },
       closeBundle: {
         order: "post",
         async handler() {

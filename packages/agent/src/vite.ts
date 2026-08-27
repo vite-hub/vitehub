@@ -2960,6 +2960,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         },
       })
     },
+    async renderError() {
+      await resetProviderDeploymentOutputs(providerOutput)
+    },
     closeBundle: {
       order: "post",
       async handler() {

@@ -233,6 +233,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         })}\n`
       }
     },
+    async renderError() {
+      await resetProviderDeploymentOutputs(providerOutput)
+    },
     closeBundle: {
       order: "post",
       async handler() {

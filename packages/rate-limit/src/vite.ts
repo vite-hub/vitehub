@@ -239,6 +239,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         throw error
       }
     },
+    async renderError() {
+      await resetProviderDeploymentOutputs(composedOutput)
+    },
     closeBundle: {
       order: "post",
       async handler() {

@@ -216,6 +216,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         },
       })
     },
+    async renderError() {
+      await resetProviderDeploymentOutputs(providerOutput)
+    },
     closeBundle: {
       order: "post",
       async handler() {
