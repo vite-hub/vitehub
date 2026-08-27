@@ -102,8 +102,8 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     working: emptyPage,
   }
   const groups: readonly [keyof ConsoleInvocationCursor, readonly AgentInvocationRecordStatus[]][] = [
-    ["working", ["running"]],
     ["queued", ["pending"]],
+    ["working", ["running"]],
     ["done", ["cancelled", "completed", "failed"]],
   ]
   const pendingGroups = groups
@@ -131,11 +131,11 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   else if (deferredGroups.has("done")) next.done = cursor.done ?? null
   const nextCursor = encodeCursor(next)
   const doneIds = new Set(done.invocations.map(invocation => invocation.id))
-  const queuedIds = new Set(queued.invocations.map(invocation => invocation.id))
+  const workingIds = new Set(working.invocations.map(invocation => invocation.id))
   const result: AgentInvocationListResult = {
     invocations: [
-      ...working.invocations.filter(invocation => !queuedIds.has(invocation.id) && !doneIds.has(invocation.id)),
-      ...queued.invocations.filter(invocation => !doneIds.has(invocation.id)),
+      ...working.invocations.filter(invocation => !doneIds.has(invocation.id)),
+      ...queued.invocations.filter(invocation => !workingIds.has(invocation.id) && !doneIds.has(invocation.id)),
       ...done.invocations,
     ],
     remainingStatuses: [

@@ -526,6 +526,42 @@ describe("Agent invocation console", () => {
     }])
   })
 
+  it("keeps an invocation that starts running between lifecycle reads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "starting",
+      observations: [],
+      status: "pending",
+      traceId: "trace-starting",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const list = store.list.bind(store)
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        await store.update("starting", {
+          status: "running",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toMatchObject([{
+      id: "starting",
+      status: "running",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    }])
+  })
+
   it("continues active pagination after terminal sessions are exhausted", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [index, status] of (["completed", "pending", "pending", "pending"] as const).entries()) {
