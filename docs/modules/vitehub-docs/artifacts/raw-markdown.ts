@@ -9,7 +9,7 @@ type Fence = {
 };
 
 function fenceRun(line: string) {
-  return line.match(/^\s*(```+|~~~+)/)?.[1];
+  return line.match(/^\s*(?:(?:[-+*]|\d+[.)])\s+)?(```+|~~~+)/)?.[1];
 }
 
 function closesFence(line: string, fence: Fence) {
@@ -71,7 +71,7 @@ function rewriteInlineLinks(source: string) {
     closingPattern.lastIndex = openingIndex + marker.length;
     let closing = closingPattern.exec(source);
     while (closing && isEscaped(source, closing.index)) closing = closingPattern.exec(source);
-    if (!closing) break;
+    if (!closing) continue;
 
     output += rewriteMarkdownLinks(source.slice(offset, openingIndex));
     output += source.slice(openingIndex, closing.index + marker.length);
@@ -101,6 +101,12 @@ function rewriteLinks(source: string) {
     if (fence) {
       output.push(lineWithEnding);
       if (closesFence(line, fence)) fence = null;
+      continue;
+    }
+
+    if (indentationColumns(line) >= 4) {
+      output.push(rewriteInlineLinks(outsideFence), lineWithEnding);
+      outsideFence = "";
       continue;
     }
 

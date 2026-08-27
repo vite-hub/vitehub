@@ -156,6 +156,10 @@ describe("writeDocsArtifacts", () => {
         "Escaped \\` delimiter and [rendered link](/docs/escaped) \\` stay outside code.",
         "`multiline literal",
         "[link](/docs/multiline)` and [rendered link](/docs/after-code).",
+        "Unmatched ` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](/docs/outside-span).",
+        "",
+        "    [indented literal link](/docs/indented)",
+        "\t[tab-indented literal link](/docs/tab-indented)",
         "",
         "::video{src=\"/demo.mp4\"}",
         "Keep this semantic directive.",
@@ -191,6 +195,12 @@ describe("writeDocsArtifacts", () => {
         "::",
         "~~~",
         "",
+        "- ```md",
+        "  ::warning",
+        "  This list-nested fence remains literal.",
+        "  ::",
+        "  ```",
+        "",
         "::steps",
         "  ::tabs",
         "    :::tabs-item{label=\"Example\"}",
@@ -223,6 +233,9 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
       expect(raw).toContain("Escaped \\` delimiter and [rendered link](https://vitehub.dev/docs/escaped) \\` stay outside code.");
       expect(raw).toContain("`multiline literal\n[link](/docs/multiline)` and [rendered link](https://vitehub.dev/docs/after-code).");
+      expect(raw).toContain("Unmatched ` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](https://vitehub.dev/docs/outside-span).");
+      expect(raw).toContain("    [indented literal link](/docs/indented)");
+      expect(raw).toContain("\t[tab-indented literal link](/docs/tab-indented)");
       expect(raw).toContain("::video{src=\"/demo.mp4\"}\nKeep this semantic directive.\n::");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
       expect(raw).toContain([
@@ -251,6 +264,13 @@ describe("writeDocsArtifacts", () => {
         "This tilde marker with an info string remains literal.",
         "::",
         "~~~",
+      ].join("\n"));
+      expect(raw).toContain([
+        "- ```md",
+        "  ::warning",
+        "  This list-nested fence remains literal.",
+        "  ::",
+        "  ```",
       ].join("\n"));
       expect(raw).toContain([
         "### Example",
