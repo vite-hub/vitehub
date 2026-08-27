@@ -25,6 +25,13 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("rejects reserved trace attributes in metadataContent", () => {
+    expect(() => defineAgentInvocations({
+      metadataContent: ["vitehub.payload.value"],
+      store: createMemoryAgentInvocationStore(),
+    })).toThrow("metadataContent cannot include reserved trace attributes")
+  })
+
   it("excludes generated cursors from memory-store search", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({

@@ -697,6 +697,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (options.content !== undefined && options.content !== "content" && options.content !== "metadata") {
     throw new TypeError('[vitehub] Agent Invocations content must be "content" or "metadata".')
   }
+  if (options.metadataContent?.some(key => CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))) {
+    throw new TypeError("[vitehub] Agent Invocations metadataContent cannot include reserved trace attributes.")
+  }
   if (options.metadataContent?.some(key => !isTraceContentAttributeKey(key))) {
     throw new TypeError("[vitehub] Agent Invocations metadataContent entries must name content attributes.")
   }

@@ -486,11 +486,11 @@ describe("@vite-hub/runtime", () => {
     expect(records[0]?.attributes?.["content.omitted"]).toBeUndefined()
 
     const spans = traceEventsToOpenTelemetrySpans(log.entries(), { content: "metadata" })
-    expect(spans[0]?.events[0]?.attributes).toMatchObject({
+    expect(spans[0]?.events?.[0]?.attributes).toMatchObject({
       "vitehub.payload.value": "public value",
       "vitehub.payload.visibility": "public",
     })
-    expect(spans[0]?.events[0]?.attributes?.["content.omitted"]).toBeUndefined()
+    expect(spans[0]?.events?.[0]?.attributes?.["content.omitted"]).toBeUndefined()
   })
 
   it("falls back to private without invoking hostile payload descriptors", async () => {
