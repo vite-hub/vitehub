@@ -169,6 +169,22 @@ describe("hubSandbox", () => {
     expect(code).toContain('"provider": "vercel"')
   })
 
+  it("keeps project definitions when the resolved Vite root is a nested app directory", async () => {
+    const rootDir = await createViteRoot()
+    const appDir = join(rootDir, "app")
+    await mkdir(appDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: appDir, resolve: { alias: [] } })
+
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"), "utf8"))
+      .resolves.toContain('"tools/release-notes"')
+  })
+
   it("does not discover conflicting Definitions when Sandbox is disabled", async () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "server/sandboxes/tools/release-notes"), { recursive: true })
