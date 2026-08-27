@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { custom, defineWorkspace, github, glob, mcpResources } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
@@ -617,6 +618,30 @@ describe("lazy sources", () => {
     ]))
   })
 
+  it("prepares the persistent live Source context after explicit materialization", async () => {
+    const revision = { id: "commit-123", immutable: true, ref: "main" }
+    const resolveRevision = vi.fn(async () => revision)
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      resolveRevision,
+      async getKeys() {
+        return ["guide.md"]
+      },
+      async getItem(key, context) {
+        return { key, path: key, content: context.revision?.id || "missing revision" }
+      },
+    })
+    markLiveWorkspaceSource(source, { "docs/guide.md": "guide.md" })
+    const view = createWorkspaceSourceView({ name: "materialization-live-revision", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ revision, status: "ready" }],
+    })
+    await expect(view.readFile("docs/guide.md")).resolves.toBe("commit-123")
+    expect(resolveRevision).toHaveBeenCalledTimes(2)
+  })
+
   it("keeps full cache-hit aggregates after scoped materialization", async () => {
     const files = new Map([["a.md", "# A\n"]])
     const view = createWorkspaceSourceView({
@@ -862,6 +887,31 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md\n")
     await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md\n")
     expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
+  it("shares and reuses successful pathless lazy materialization", async () => {
+    let release!: () => void
+    const getKeys = vi.fn(async () => {
+      await new Promise<void>(resolve => release = resolve)
+      return ["a.md"]
+    })
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
+    const view = createWorkspaceSourceView({
+      name: "pathless-materialization-reuse",
+      sources: {
+        docs: custom({ cache: false, materialize: "lazy", getItem, getKeys }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const first = view.glob("docs/**")
+    await vi.waitFor(() => expect(getKeys).toHaveBeenCalledOnce())
+    const second = view.glob("docs/**")
+    release()
+
+    await Promise.all([first, second])
+    await view.glob("docs/**")
+    expect(getKeys).toHaveBeenCalledOnce()
+    expect(getItem).toHaveBeenCalledOnce()
   })
 
   it("serializes implicit lazy access with explicit materialization", async () => {

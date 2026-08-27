@@ -93,7 +93,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const path = normalizeWorkspacePath(options?.path || "")
     for (const source of result.sources) {
       if (source.status !== "ready") continue
-      if (source.cacheStatus !== "hit") prepareBySource.set(source.source, Promise.resolve())
+      if (source.cacheStatus !== "hit" && !isLiveSource(source.source)) {
+        prepareBySource.set(source.source, Promise.resolve())
+      }
       let paths = materializedPathsBySource.get(source.source)
       if (!paths) {
         paths = new Set()
@@ -193,9 +195,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function ensureMaterialized(sourceKey: string, path?: string) {
-    const normalized = path === undefined ? undefined : normalizeWorkspacePath(path)
+    const normalized = normalizeWorkspacePath(path || "")
     const materializedPaths = materializedPathsBySource.get(sourceKey)
-    if (normalized !== undefined && [...materializedPaths || []].some(materializedPath =>
+    if ([...materializedPaths || []].some(materializedPath =>
       !materializedPath || normalized === materializedPath || normalized.startsWith(`${materializedPath}/`)
     )) return
     let pending = materializeBySource.get(sourceKey)
