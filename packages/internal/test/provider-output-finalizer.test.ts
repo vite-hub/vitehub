@@ -237,6 +237,43 @@ describe("Provider Output finalizer", () => {
     expect(publication).not.toHaveBeenCalled()
   })
 
+  it("does not publish a bundle when finalization is reset during bundling", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const entry = join(rootDir, "entry.ts")
+    const outputRoot = join(rootDir, "provider-output")
+    await writeFile(entry, "export default true\n")
+    let reset!: Promise<void>
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: {
+          bundleEntry: entry,
+          bundleOptions: {
+            plugins: [{
+              name: "reset-finalization",
+              setup(build) {
+                build.onStart(() => {
+                  reset = resetProviderDeploymentOutputs(catalog)
+                })
+              },
+            }],
+          },
+          outputRoot,
+          wranglerConfig: {},
+        },
+        rootDir,
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await reset
+    expect(existsSync(join(outputRoot, "index.js"))).toBe(false)
+  })
+
   it("removes stale output for every disabled host", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

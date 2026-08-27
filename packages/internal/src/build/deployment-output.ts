@@ -205,7 +205,8 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
   await writeFile(outfile, `${bundled.trimEnd()}\n\nexport const config = ${stringifyProviderOutputConfig(config)}\n`, "utf8")
 }
 
-async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
+async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
   const files = Object.entries(options.files ?? {})
@@ -234,10 +235,11 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
 
   if (options.bundleEntry && workerOutfile) {
     await rm(workerOutfile, { force: true, recursive: true })
-    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, { ...options.bundleOptions, rootDir: options.rootDir }))
+    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, { ...options.bundleOptions, rootDir: options.rootDir, signal }))
   }
 
   await Promise.all(writes)
+  signal?.throwIfAborted()
 }
 
 async function copyVercelClientOutput(rootDir: string, clientDir: string, staticOutputDir: string): Promise<void> {
@@ -262,7 +264,8 @@ async function copyVercelClientOutput(rootDir: string, clientDir: string, static
   await rm(resolve(staticOutputDir, outputRelativePath), { force: true, recursive: true })
 }
 
-async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {
+async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
   const functionOutput = options.function ?? { kind: "root" }
@@ -276,12 +279,13 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
 
   try {
-    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir })
+    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
   }
   catch (error) {
     await rm(serverDir, { force: true, recursive: true })
     throw error
   }
+  signal?.throwIfAborted()
 
   const writes = await Promise.allSettled([
     writeFile(
@@ -296,9 +300,11 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   ])
   const failedWrite = writes.find(result => result.status === "rejected")
   if (failedWrite?.status === "rejected") throw failedWrite.reason
+  signal?.throwIfAborted()
 }
 
-async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOptions): Promise<void> {
+async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOptions, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const outputRoot = options.outputRoot ?? createDefaultNetlifyOutputRoot(options.rootDir)
   const functionsRoot = resolve(outputRoot, "functions")
   const functionWrites = (options.functions ?? []).map(async (func) => {
@@ -309,6 +315,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
       ...func.bundleOptions,
       minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
       rootDir: options.rootDir,
+      signal,
     })
     await appendNetlifyFunctionConfig(outfile, func.config)
   })
@@ -318,6 +325,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     writeProviderOutputConfig(resolve(outputRoot, "config.json"), options.config ?? {}, { keys: options.configKeys }),
     ...functionWrites,
   ])
+  signal?.throwIfAborted()
 }
 
 async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)): Promise<void> {
@@ -362,31 +370,37 @@ async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyP
   await Promise.all(writes)
 }
 
-async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutputOptions): Promise<void> {
+async function writeProviderDeploymentOutputsNow(
+  options: ProviderDeploymentOutputOptions,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted()
   const writes: Array<Promise<void>> = []
   if (options.cloudflare) {
     writes.push(writeCloudflareDeploymentOutput({
       ...options.cloudflare,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
-    }))
+    }, signal))
   }
   if (options.netlify) {
     writes.push(writeNetlifyDeploymentOutput({
       ...options.netlify,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
-    }))
+    }, signal))
   }
   if (options.vercel) {
     writes.push(writeVercelDeploymentOutput({
       ...options.vercel,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
-    }))
+    }, signal))
   }
   await settleWrites(writes)
+  signal?.throwIfAborted()
   await options.afterWrite?.()
+  signal?.throwIfAborted()
 
   const cleanups: Array<Promise<void>> = []
   if (!options.cloudflare && options.cleanup?.cloudflare) {
@@ -400,6 +414,7 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
     if (cleanup) cleanups.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup))
   }
   await settleWrites(cleanups)
+  signal?.throwIfAborted()
 }
 
 async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operation: () => Promise<T>): Promise<T> {
@@ -465,7 +480,7 @@ export async function finalizeProviderDeploymentOutputs(
                   signal: controller.signal,
                   write: async (writeOptions) => {
                     throwIfProviderOutputAborted(controller.signal)
-                    await writeProviderDeploymentOutputsNow(writeOptions)
+                    await writeProviderDeploymentOutputsNow(writeOptions, controller.signal)
                   },
                 })
               }
