@@ -442,6 +442,7 @@ jobs:
     "eval 'npx unpinned'",
     "eval -- 'npx unpinned'",
     "bash <<< 'npx unpinned'",
+    "printf 'npx unpinned\\n' | bash",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -492,6 +493,27 @@ jobs:
         "    steps:",
         "      - run: |",
         ...conditional.map(line => `          ${line}`),
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("does not persist assignments from an uncalled function", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          set_version() {",
+        "            VERSION=1.2.3",
+        "          }",
         "          npx tool@$VERSION",
       ].join("\n"),
     })

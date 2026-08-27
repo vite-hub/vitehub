@@ -253,11 +253,36 @@ function conditionalCounts(tokens) {
   return { closes, opens }
 }
 
+function functionScopeCounts(tokens) {
+  const declaration = tokens.findIndex((token, index) => token === "{" && (
+    (tokens[index - 1] === ")" && tokens[index - 2] === "(" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens[index - 3] ?? ""))
+    || (tokens[index - 2] === "function" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens[index - 1] ?? ""))
+  ))
+  return {
+    closes: tokens.filter(token => token === "}").length,
+    opens: declaration === -1 ? 0 : 1,
+  }
+}
+
+function pipedShellSource(tokens, shellIndex) {
+  if (tokens[shellIndex - 1] !== "|") return
+  let start = shellIndex - 2
+  while (start >= 0 && !shellOperatorPattern.test(tokens[start])) start--
+  const invocation = tokens.slice(start + 1, shellIndex - 1)
+  const executable = executableName(invocation[0] ?? "")
+  if (executable !== "printf" && executable !== "echo") return
+  const argumentsStart = invocation.findIndex((token, index) => index > 0 && token === "--")
+  const source = invocation.slice(argumentsStart === -1 ? 1 : argumentsStart + 1).join(" ")
+  if (!source || /\$|`/.test(source)) return
+  return source
+}
+
 function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   const specs = []
   const environment = new Map(inheritedEnvironment)
   let dataHereDocument
   let conditionalDepth = 0
+  let functionDepth = 0
   for (const line of command.replaceAll(/\\\r?\n/g, "").split("\n")) {
     if (dataHereDocument) {
       if (line.trim() === dataHereDocument.delimiter) dataHereDocument = undefined
@@ -273,8 +298,11 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const tokens = shellTokens(line)
     const executableIndexes = commandIndexes(tokens)
     const { closes: closesConditional, opens: opensConditional } = conditionalCounts(tokens)
+    const { closes: closesFunction, opens: opensFunction } = functionScopeCounts(tokens)
     const activeConditionalDepth = Math.max(0, conditionalDepth - closesConditional)
+    const activeFunctionDepth = Math.max(0, functionDepth - closesFunction)
     if (executableIndexes.length === 0 && activeConditionalDepth === 0 && opensConditional === 0
+      && activeFunctionDepth === 0 && opensFunction === 0
       && tokens.length > 0 && tokens.every(token => assignmentPattern.test(token))) {
       for (const token of tokens) {
         const assignment = assignmentPattern.exec(token)
@@ -282,7 +310,8 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       }
     }
     for (const index of executableIndexes) {
-      if (activeConditionalDepth > 0 || opensConditional > 0 || executableName(tokens[index]) !== "export") continue
+      if (activeConditionalDepth > 0 || opensConditional > 0 || activeFunctionDepth > 0 || opensFunction > 0
+        || executableName(tokens[index]) !== "export") continue
       for (const token of tokens.slice(index + 1)) {
         if (shellOperatorPattern.test(token)) break
         if (token === "--" || token.startsWith("-")) continue
@@ -309,6 +338,8 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       }
 
       if (isShellCommand(token)) {
+        const standardInput = pipedShellSource(tokens, index)
+        if (standardInput) specs.push(...findExecutablePackageSpecs(standardInput, environment))
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
         const invocation = tokens.slice(index + 1, end === -1 ? tokens.length : end)
         const callIndex = invocation.findIndex(argument => /^-[^-]*c/.test(argument))
@@ -386,6 +417,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       }
     }
     conditionalDepth = Math.max(0, conditionalDepth + opensConditional - closesConditional)
+    functionDepth = Math.max(0, functionDepth + opensFunction - closesFunction)
   }
   return specs
 }
