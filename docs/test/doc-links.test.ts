@@ -40,9 +40,11 @@ describe("documentation link validation", () => {
 <img data-src="/images/metadata.png" src="/images/html-diagram.png" alt="HTML diagram">
 <img data-note=" src=&quot;/images/decoy.png&quot;" src="/images/actual.png">
 :u-button[Guide]{to="/docs/inline"}
+:u-avatar[]{src="/images/avatar.png"}
 ::card
 ---
 to: /docs/card
+src: /images/card.png
 ---
 ::
 ::card
@@ -83,7 +85,9 @@ https://vitehub.dev/docs/bare-autolink
       "/images/html-diagram.png",
       "/images/actual.png",
       "/docs/inline",
+      "/images/avatar.png",
       "/docs/card",
+      "/images/card.png",
       "/docs/card#install",
       "#install",
       "/docs/html",
@@ -166,19 +170,21 @@ https://vitehub.dev/docs/bare-autolink
   it("accepts explicit HTML anchors in docs content", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": '# Docs\n\n[Install](#install)\n[Legacy](#legacy)\n\n<h2 id="install">Install</h2>\n<a id="legacy"></a>',
+      "docs/content/docs/index.md": '# Docs\n\n[Install](#install)\n[Legacy](#legacy)\n\n<h2 data-note=" id=decoy" id="install">Install</h2>\n<a id=legacy></a>\n\n[Decoy](#decoy)',
     });
 
-    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining("anchor #decoy does not exist"),
+    ]);
   });
 
   it("accepts relative routes and anchors across docs and public package READMEs", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
       "docs/content/docs/index.md": "# Docs\n\n[Guide](/docs/guide#install)\n[Repeated](/docs/guide#install-1)",
-      "docs/content/docs/guide.md": "# Guide\n\n## Install\n\n## Install",
+      "docs/content/docs/guide.md": "# Guide\n\n## Install\n\n## Install\n\n## 123 start",
       "packages/example/package.json": JSON.stringify({ name: "example" }),
-      "packages/example/README.md": "# Example\n\n[Source](../../docs/content/docs/guide.md#install)\n[Site](https://vitehub.dev/docs/guide#install)",
+      "packages/example/README.md": "# Example\n\n[Source](../../docs/content/docs/guide.md#123-start)\n[Site](https://vitehub.dev/docs/guide#_123-start)",
     });
 
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [], files: 3 });

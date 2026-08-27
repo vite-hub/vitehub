@@ -96,7 +96,10 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const { body } = splitFrontmatter(markdown);
   visit(parseMarkdown(body, { renderer }), (node) => {
     if (renderer === "mdc" && node.type === "html" && !node.value.startsWith("<!--")) {
-      for (const match of node.value.matchAll(/\sid\s*=\s*["']([^"']+)["']/gi)) anchors.add(match[1]);
+      for (const match of node.value.matchAll(/<[^>]+>/g)) {
+        const id = htmlAttribute(match[0], "id");
+        if (id) anchors.add(id);
+      }
     }
     if (node.type !== "heading") return;
     if (renderer === "github") {
@@ -135,8 +138,10 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
       if (destination) links.push(destination);
     }
     if (node.type === "containerComponent" || node.type === "leafComponent" || node.type === "textComponent") {
-      const destination = node.fmAttributes?.to ?? node.attributes?.to;
-      if (destination?.constructor === String) links.push(destination);
+      for (const attribute of ["to", "href", "src"]) {
+        const destination = node.fmAttributes?.[attribute] ?? node.attributes?.[attribute];
+        if (destination?.constructor === String) links.push(destination);
+      }
     }
     if (node.type === "html" && !node.value.startsWith("<!--")) {
       for (const match of node.value.matchAll(/<(a|img)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
@@ -253,12 +258,12 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   for (const route of routeFiles.keys()) {
     if (route !== "/") knownRoutes.add(`/raw${route}.md`);
   }
-  const anchors = new Map(markdownFiles.map((path) => [
-    path,
-    markdownAnchors(readFileSync(path, "utf8"), {
-      renderer: path.startsWith(`${contentRoot}${sep}`) ? "mdc" : "github",
-    }),
-  ]));
+  const anchors = new Map();
+  function anchorsFor(path, renderer) {
+    const key = `${renderer}:${path}`;
+    if (!anchors.has(key)) anchors.set(key, markdownAnchors(readFileSync(path, "utf8"), { renderer }));
+    return anchors.get(key);
+  }
   const errors = [];
   let checked = 0;
 
@@ -318,8 +323,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       }
 
       if (fragment && targetFile) {
-        const targetAnchors = anchors.get(targetFile)
-          ?? (extname(targetFile) === ".md" ? markdownAnchors(readFileSync(targetFile, "utf8")) : undefined);
+        const targetRenderer = sourceRoute === undefined && !isSiteLink ? "github" : "mdc";
+        const targetAnchors = extname(targetFile) === ".md" ? anchorsFor(targetFile, targetRenderer) : undefined;
         if (targetAnchors && !targetAnchors.has(fragment)) {
           errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist in ${relative(repoRoot, targetFile)}`);
         }
