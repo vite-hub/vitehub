@@ -81,7 +81,7 @@ import "real"
     expect(scheduleBundle).not.toContain("./registry.mjs")
     expect(scheduleBundle).not.toContain("../../server/schedules/heartbeat.ts")
     await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
-      tasks: { start: "deno run -A ./main.ts" },
+      tasks: { start: "deno run --unstable-cron -A ./main.ts" },
     })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
   })

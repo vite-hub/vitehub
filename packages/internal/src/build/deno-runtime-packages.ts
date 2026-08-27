@@ -434,7 +434,7 @@ export async function finalizeDenoDeploymentOutput(
 
   const denoConfig = {
     nodeModulesDir: "manual",
-    tasks: { start: `deno run -A ./${entrypoint}` },
+    tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
   await writeFile(
