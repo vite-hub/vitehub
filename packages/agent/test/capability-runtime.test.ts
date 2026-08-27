@@ -848,6 +848,46 @@ describe("agent capability runtime", () => {
     })
   })
 
+  it("rejects unsafe Access selectors before querying capability workspace sources", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    let sourceQueries = 0
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({ workspace: { defaultScope: "all", scopes: { all: { all: true } } } }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                async getKeys() {
+                  sourceQueries++
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review context", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: { name: "review", sources: {} },
+    })
+
+    const expansivePattern = "{a,b}".repeat(11)
+    await expect(resolved.workspace?.fs.glob(expansivePattern)).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace?.fs.search({ paths: [`pull-request/${expansivePattern}`], pattern: "review" })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    expect(sourceQueries).toBe(0)
+  })
+
   it("rejects authorized capability workspace sources that shadow base paths", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")

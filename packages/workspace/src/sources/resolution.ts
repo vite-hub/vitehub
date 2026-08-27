@@ -307,18 +307,15 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
     },
     async glob(pattern, options) {
-      const [baseEntries, sourceEntries] = await Promise.all([
-        workspace.fs.glob(pattern as never, options),
-        sourceView.glob(pattern as never, options),
-      ])
+      const baseEntries = await workspace.fs.glob(pattern as never, options)
+      const sourceEntries = await sourceView.glob(pattern as never, options)
       return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
     },
     async search(query) {
       const scopedToSource = searchQueryTargetsSource(resolvedDefinition, query)
-      const [baseHits, sourceHits] = await Promise.all([
-        scopedToSource ? Promise.resolve([]) : workspace.fs.search(query),
-        sourceView.search(query),
-      ])
+      const queriedBaseHits = await workspace.fs.search(query)
+      const baseHits = scopedToSource ? [] : queriedBaseHits
+      const sourceHits = await sourceView.search(query)
       return mergeHits(filterBaseHits(resolvedDefinition, baseHits), filterScopedHits(selectedWorkspaceScope, sourceHits)).slice(0, query.limit ?? 100)
     },
     materializeSources,
