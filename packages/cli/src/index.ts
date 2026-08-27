@@ -269,7 +269,10 @@ export function runViteHubCliEntrypoint(options: RunViteHubCliEntrypointOptions 
       stderr.stream.write(`${error instanceof Error ? error.message : error}\n`)
       exitCode = 1
     }
-    await Promise.allSettled([stdout.flush(), stderr.flush()])
+    const flushes = await Promise.allSettled([stdout.flush(), stderr.flush()])
+    if (flushes.some(result => result.status === "rejected")) {
+      exitCode = 1
+    }
     process.exit(exitCode)
   })()
 }
