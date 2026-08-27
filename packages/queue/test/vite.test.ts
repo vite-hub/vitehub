@@ -15,14 +15,16 @@ const execFileAsync = promisify(execFile)
 const roots: string[] = []
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
 
-async function runProviderOutputHooks(plugin: ReturnType<typeof hubQueue>) {
-  await (plugin.buildEnd as () => void | Promise<void>)()
-  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
-}
-
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
+
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubQueue>) {
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this callable Vite lifecycle hook in the focused test.
+  await (plugin.buildEnd as unknown as () => void | Promise<void>)()
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this object Vite lifecycle hook in the focused test.
+  await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
+}
 
 describe("hubQueue", () => {
   it("registers and generates the Nitro queue runtime", async () => {

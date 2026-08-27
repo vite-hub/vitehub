@@ -2909,9 +2909,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const evalOptions = resolveAgentEvalOptions(agent?.eval)
       await writeAgentEvaliteConfig(config.root, evalOptions, generatedRoot)
     },
-    buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
-    },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
         return
@@ -2923,7 +2920,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         },
       }
     },
-    buildEnd() {
+    buildEnd(error) {
+      if (error) {
+        resetProviderDeploymentOutputs(providerOutput)
+        return
+      }
       if (!resolved || resolved.command !== "build") return
       const config = resolved
       contributeProviderDeploymentOutput(providerOutput, {

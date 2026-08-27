@@ -16,13 +16,15 @@ import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
 
-async function runProviderOutputHooks(plugin: ReturnType<typeof hubBlob>) {
-  await (plugin.buildEnd as () => void | Promise<void>)()
-  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
-}
-
 function driverImports(source: string) {
   return source.match(/from\s+["'][^"']+\/drivers\/[^"']+["']/g) || []
+}
+
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubBlob>) {
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
+  await (plugin.buildEnd as unknown as () => void | Promise<void>)()
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this object Vite lifecycle hook in the focused test.
+  await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
 }
 
 describe("hubBlob", () => {

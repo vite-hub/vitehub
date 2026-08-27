@@ -156,9 +156,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
-    },
     vitehub: {
       workflow: {
         async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry }: WorkflowNitroConfigOptions) {
@@ -178,7 +175,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         prepareScheduleRuntime,
       },
     },
-    buildEnd() {
+    buildEnd(error) {
+      if (error) {
+        resetProviderDeploymentOutputs(providerOutput)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }

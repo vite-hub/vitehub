@@ -10,14 +10,16 @@ import { hubRateLimit } from "../src/vite.ts"
 
 const roots: string[] = []
 
-async function runProviderOutputHooks(plugin: ReturnType<typeof hubRateLimit>) {
-  await (plugin.buildEnd as () => void | Promise<void>)()
-  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
-}
-
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
+
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubRateLimit>) {
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubRateLimit owns this callable Vite lifecycle hook in the focused test.
+  await (plugin.buildEnd as unknown as () => void | Promise<void>)()
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubRateLimit owns this object Vite lifecycle hook in the focused test.
+  await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
+}
 
 async function writeCloudflareDeclaration(root: string): Promise<void> {
   await writeFile(join(root, "upload.ts"), [

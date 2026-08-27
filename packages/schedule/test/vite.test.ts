@@ -12,8 +12,10 @@ import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
-  await (plugin.buildEnd as () => void | Promise<void>)()
-  await (plugin.closeBundle as { handler: () => void | Promise<void> }).handler()
+  if (typeof plugin.buildEnd !== "function") throw new TypeError("Expected hubSchedule buildEnd hook")
+  await plugin.buildEnd.call({} as never)
+  if (!plugin.closeBundle || typeof plugin.closeBundle === "function") throw new TypeError("Expected hubSchedule closeBundle object hook")
+  await plugin.closeBundle.handler.call({} as never)
 }
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {

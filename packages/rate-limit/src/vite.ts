@@ -188,9 +188,6 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (!isServerEnvironment(name, config)) return
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
-    buildStart() {
-      resetProviderDeploymentOutputs(composedOutput)
-    },
     async handleHotUpdate(context) {
       if (!/\.(?:c|m)?[jt]sx?$/i.test(context.file)) return
       resolved = context.server.config
@@ -200,7 +197,11 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
       return `import ${JSON.stringify(normalizePath(resolve(resolved.root, generatedRuntimeModule)))}\n${code}`
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        resetProviderDeploymentOutputs(composedOutput)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
       if (cloudflareOwnedByNitro && provider === "cloudflare") {
         const configuredDeclarations = declarations

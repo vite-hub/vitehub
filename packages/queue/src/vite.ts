@@ -226,9 +226,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
-    },
     async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
       const isDirectoryDefinition = /\.(?:c|m)?[jt]s$/i.test(file)
@@ -237,7 +234,11 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       resolved = context.server.config
       await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, resolveNuxtDefinitions?.(), localDevelopment)
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        resetProviderDeploymentOutputs(providerOutput)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }

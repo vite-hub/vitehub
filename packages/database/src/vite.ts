@@ -162,7 +162,6 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
       resetProviderOutputRuntime(providerOutput)
     },
     async handleHotUpdate(context) {
@@ -179,7 +178,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
       if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        resetProviderDeploymentOutputs(providerOutput)
+        return
+      }
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }

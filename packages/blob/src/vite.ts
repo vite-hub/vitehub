@@ -316,10 +316,13 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       }
     },
     buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
       resetProviderOutputRuntime(providerOutput)
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        resetProviderDeploymentOutputs(providerOutput)
+        return
+      }
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
       }

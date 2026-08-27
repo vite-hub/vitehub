@@ -576,9 +576,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
-    },
     handleHotUpdate(context) {
       const file = normalize(context.file).replace(/\\/g, "/")
       const scheduleRoots = (serverDirs ?? [resolve(projectRoot ?? resolved?.root ?? context.server.config.root, "server")])
@@ -615,7 +612,11 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return createTargetsContents()
       }
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        resetProviderDeploymentOutputs(providerOutput)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
