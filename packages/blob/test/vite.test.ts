@@ -477,7 +477,7 @@ describe("hubBlob", () => {
     })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
-    const userConfig = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
+    const userConfig = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }], root }
 
     config(userConfig, { command: "build" })
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [

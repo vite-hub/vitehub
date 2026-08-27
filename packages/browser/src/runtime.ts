@@ -11,7 +11,10 @@ import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"
 import { runBrowserAction, runBrowserContent } from "./actions.ts"
 import { attachCDPPage } from "./internal/cdp-page.ts"
-import { cloudflareBrowser } from "./providers/cloudflare.ts"
+import { importBrowserOptionalPeer } from "./internal/optional-peer.ts"
+import { createCloudflareBrowser } from "./internal/cloudflare-provider.ts"
+
+import type { CloudflarePlaywrightDriver } from "./internal/cloudflare-provider.ts"
 
 import type {
   BrowserAction,
@@ -206,10 +209,13 @@ function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
   if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
   configuredClient = createBrowser({
-    provider: cloudflareBrowser({
-      binding: runtimeConfig.binding,
-      engine: runtimeConfig.engine,
-    }),
+    provider: createCloudflareBrowser(
+      {
+        binding: runtimeConfig.binding,
+        engine: runtimeConfig.engine,
+      },
+      () => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"),
+    ),
   })
   return configuredClient
 }
