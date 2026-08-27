@@ -44,6 +44,7 @@ import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandler from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
+import usageHandler from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -1997,6 +1998,16 @@ describe("Agent invocation console", () => {
       outputTokens: 12,
       totalTokens: 30,
     })
+  })
+
+  it("rejects overlong Agent filters at the usage endpoint", async () => {
+    const requestEvent = event("127.0.0.1")
+    const url = `http://localhost/api/_vitehub/console/usage?agent=${"a".repeat(513)}`
+    if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")
+    requestEvent.node.req.url = url
+    requestEvent.req.url = url
+
+    await expect(usageHandler(requestEvent)).rejects.toMatchObject({ statusCode: 400 })
   })
 
   it("searches session text through the console Collection", async () => {
