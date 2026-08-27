@@ -79,7 +79,7 @@ async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSign
   }
 }
 
-export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
+export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore, options: { reuseStartupSnapshots?: boolean } = {}): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
   const sources = allSources.filter(source => !source.requestOnly && (source.materialize === "lazy" || source.materialize === "startup"))
@@ -183,6 +183,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     if (source.materialize === "startup" && completedSources.has(sourceKey)) return
+    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source)) {
+      completedSources.add(sourceKey)
+      return
+    }
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
       pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)

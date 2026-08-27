@@ -13,7 +13,7 @@ import type {
 } from "./types.ts"
 
 type WorkspaceWithDefinitionSync = Workspace & {
-  __syncWorkspaceDefinition?: () => Promise<void>
+  __syncWorkspaceDefinition?: (abortSignal?: AbortSignal) => Promise<void>
 }
 
 function getStore(definition: WorkspaceDefinition) {
@@ -102,9 +102,9 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     forwardWorkspaceRevisionMaterializer(store, workspace)
   }
 
-  ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async () => {
+  ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async (abortSignal) => {
     const { syncWorkspaceDefinition } = await import("../lifecycle.ts")
-    await syncWorkspaceDefinition(definition, store)
+    await syncWorkspaceDefinition(definition, store, abortSignal)
   }
 
   return attachWorkspaceSourceRequestExecution(workspace, createWorkspaceSourceRequestExecution(definition))

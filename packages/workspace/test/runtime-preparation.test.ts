@@ -132,11 +132,15 @@ describe("Workspace runtime preparation", () => {
     registerWorkspace(name, {
       loaders: [{
         name: "blocking-loader",
-        async load() {
+        async load(ctx) {
           attempts++
           if (attempts === 1) {
             loading()
-            await new Promise(() => {})
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
           }
         },
       }],

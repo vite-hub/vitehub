@@ -543,6 +543,7 @@ export interface WorkspaceLoaderSource extends WorkspaceSource {
 }
 
 export interface LoaderContext {
+  abortSignal?: AbortSignal
   workspace: string
   rootDir: string
   sourceRootDir?: string
@@ -561,6 +562,7 @@ export interface WorkspaceLoader {
 }
 
 export interface PublishContext {
+  abortSignal?: AbortSignal
   durable: boolean
   workspace: WorkspaceDefinition
   store: WorkspaceStore

@@ -98,6 +98,7 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
         sources: [],
       },
     },
+    getMeta: async key => await workspace.getMeta?.(key),
     tools: {
       inspect: () => ({}),
       none: () => ({}),
@@ -1072,7 +1073,7 @@ describe("Workspace Source Resolution", () => {
     })
 
     await expect(workspace.fs.readFile("docs/public.md")).resolves.toBe("public.md\n")
-    await expect(workspace.fs.readFile("docs/private.md")).rejects.toThrow("outside the selected Workspace scope")
+    await expect(workspace.fs.readFile("docs/private.md")).rejects.toThrow("Workspace file does not exist")
   })
 
   it("does not serve parent startup snapshots through resolved child Sources", async () => {

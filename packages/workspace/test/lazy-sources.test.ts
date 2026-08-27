@@ -983,6 +983,8 @@ describe("lazy sources", () => {
             return ["logo.svg"]
           },
           async getItem(key) {
+            assetsStarted()
+            await assetsBlocked
             return { key, content: "<svg />" }
           },
         }),

@@ -27,9 +27,11 @@ export async function publishWorkspace(definition: WorkspaceDefinition, store: W
   await publishWorkspaceSnapshot(definition, store, snapshot, false)
 }
 
-export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot, durable = true): Promise<void> {
+export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot, durable = true, abortSignal?: AbortSignal): Promise<void> {
   for (const publisher of definition.publish || []) {
+    abortSignal?.throwIfAborted()
     await publisher.publish({
+      abortSignal,
       durable,
       workspace: definition,
       store,
@@ -39,7 +41,8 @@ export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, 
   }
 }
 
-export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
+export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal): Promise<void> {
+  abortSignal?.throwIfAborted()
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
   const hasExplicitLoaders = !!definition.loaders?.length
   const ctxSource = createSourceContext(definition, undefined, store)
@@ -60,6 +63,7 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
     .filter(source => !bundledBuildSources?.has(source.key))
     .map(source => createMountedBuildSource(source))
   const ctx: LoaderContext = {
+    abortSignal,
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
     sourceRootDir: ctxSource.sourceRootDir,
@@ -71,10 +75,12 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   }
 
   for (const loader of loaders) {
+    abortSignal?.throwIfAborted()
     await loader.load(ctx)
   }
+  abortSignal?.throwIfAborted()
   const snapshot = await store.snapshot({ name: "sync" })
-  await publishWorkspaceSnapshot(definition, store, snapshot)
+  await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
 }
 
 async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<boolean> {

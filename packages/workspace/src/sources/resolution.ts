@@ -159,7 +159,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       return await memory.diff(options)
     },
     async getMeta(key) {
-      return await memory.getMeta?.(key)
+      return await memory.getMeta?.(key) ?? await (workspace as WorkspaceMetadataTarget).getMeta?.(key)
     },
     async setMeta(key, value) {
       await memory.setMeta?.(key, value)
@@ -276,7 +276,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path =>
     !isLazySourcePath(resolvedDefinition, path)
     || selectedScopeCanRead(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
-  ))
+  ), { reuseStartupSnapshots: true })
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   let readWorkspace!: Workspace
   const fs = attachWorkspaceSourceRequestExecution({

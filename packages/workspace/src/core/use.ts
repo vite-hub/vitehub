@@ -56,7 +56,7 @@ import type {
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
 
 type WorkspaceWithDefinitionSync = Workspace & {
-  __syncWorkspaceDefinition?: () => Promise<void>
+  __syncWorkspaceDefinition?: (abortSignal?: AbortSignal) => Promise<void>
 }
 
 export interface UseWorkspaceOptions {
@@ -118,6 +118,7 @@ export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName>
 
 export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   fs: ReadonlyWorkspaceFs<Name>
+  getMeta?(key: string): Promise<unknown>
   tools: WorkspaceReadToolSet
 }
 
@@ -183,10 +184,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     return await workspacePromise
   }
 
-  async function resolveSyncedWorkspace() {
+  async function resolveSyncedWorkspace(abortSignal?: AbortSignal) {
     const workspace = await resolveWorkspace()
     if (!syncPromise) {
-      const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.() ?? Promise.resolve()
+      const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.(abortSignal) ?? Promise.resolve()
       syncPromise = next
       next.catch(() => { syncPromise = undefined })
     }
@@ -243,7 +244,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       await (await resolveSyncedWorkspace()).rm(normalizePath(path), options)
     },
     async materializeSources(options) {
-      return await materializeWorkspaceSources(await resolveSyncedWorkspace(), options)
+      return await materializeWorkspaceSources(await resolveSyncedWorkspace(options?.abortSignal), options)
     },
     async publish(options) {
       if (syncPromise) await syncPromise
