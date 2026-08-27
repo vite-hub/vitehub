@@ -207,6 +207,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const previous = waitForMaterialization(Promise.all(predecessors), options.abortSignal)
     const current = (async () => {
       await previous
+      for (const source of selectedSources) {
+        if (!materializesCompleteSource(source, options)) continue
+        materializedSources.delete(source.key)
+        if (source.materialize === "startup") completedSources.delete(source.key)
+      }
       const result = await materializeWorkspaceSources(definition, store, options)
       for (const sourceResult of result.sources) {
         const source = sources.find(item => item.key === sourceResult.source)

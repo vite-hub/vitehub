@@ -1526,6 +1526,40 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it("retries a startup Source after a failed full refresh", async () => {
+    let version = 1
+    let failRefresh = false
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "b.md" && failRefresh) throw new Error("refresh failed")
+      return { key, content: `version ${version}\n` }
+    })
+    const source = custom({
+      materialize: "startup",
+      async getKeys() {
+        return ["a.md", "b.md"]
+      },
+      getItem,
+      async getMeta() {
+        return { ref: String(version) }
+      },
+    })
+    const definition = { name: "startup-failed-refresh", sources: { docs: source } }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    version = 2
+    failRefresh = true
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+
+    version = 3
+    failRefresh = false
+    await expect(view.readFile("docs/a.md")).resolves.toBe("version 3\n")
+    expect(getItem).toHaveBeenCalledTimes(6)
+  })
+
   it("refreshes uncached lazy Sources across Workspace views", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
     const definition = {
