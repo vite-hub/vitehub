@@ -478,7 +478,7 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 Use `driver: 's3'` for production S3-compatible object storage that is not one of ViteHub's provider-specific drivers.
 
 ```bash [Terminal]
-pnpm add @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 ```ts [vite.config.ts]
@@ -502,7 +502,7 @@ Use Cloudflare R2 when the app runs with an R2 binding or R2 HTTP credentials. U
 Use MinIO when you want Docker Compose or local staging to exercise object-storage semantics instead of a mounted filesystem.
 
 ```bash
-pnpm add @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 ```ts [vite.config.ts]
