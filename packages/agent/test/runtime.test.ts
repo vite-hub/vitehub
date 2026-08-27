@@ -8641,9 +8641,57 @@ describe("agent message protocol", () => {
     })
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
       activeTools: ["portal api"],
-      reasoning: "Active",
+      reasoningActive: true,
       userText: "How is this SKU cost calculated?",
     }))
+  })
+
+  it("builds status evidence from the request, elapsed time, and presence-only activity", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const prompts: string[] = []
+    const snapshots: Array<Record<string, unknown>> = []
+    const agent = defineAgent({
+      capabilities: [progressSummary({
+        driver: { run(context) {
+          prompts.push(context.prompt || "")
+          return "A deliberately long status sentence that describes ongoing inventory analysis without claiming completion and needs truncation for the compact progress surface."
+        } },
+        intervalMs: 0,
+        maxLength: 80,
+        template(input) {
+          snapshots.push(input as unknown as Record<string, unknown>)
+          return [
+            input.userText,
+            input.elapsedText,
+            String(input.reasoningActive),
+            input.activeToolsText,
+          ].join(" | ")
+        },
+      })],
+      driver: { run: () => (async function* () {
+          yield { id: "reasoning-1", type: "reasoning-delta" }
+          yield { id: "tool-1", name: "inventory_search", type: "tool-call" }
+          await new Promise(resolve => setTimeout(resolve, 20))
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory.\n<context>private</context>" })],
+    }) as AsyncIterable<Record<string, unknown>>
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(prompts[0]).toMatch(/^Check inventory\. \| \d+(?:m \d+s|m|s) \| true \| inventory search$/)
+    expect(prompts[0]).not.toContain("private")
+    expect(snapshots[0]).toMatchObject({
+      activeTools: ["inventory search"],
+      reasoningActive: true,
+      userText: "Check inventory.",
+    })
+    const progress = events.find(event => event.type === "data-progress-summary") as { data?: { summary?: string } } | undefined
+    expect(progress?.data?.summary?.length).toBeLessThanOrEqual(80)
+    expect(progress?.data?.summary).toMatch(/…$/)
   })
 
   it("does not start interval progress for a terminal-only stream", async () => {
@@ -9345,7 +9393,7 @@ describe("agent message protocol", () => {
     for await (const _chunk of stream) {}
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      reasoning: "Active",
+      reasoningActive: true,
     }))
   })
 
@@ -9379,11 +9427,11 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenCalledTimes(2)
     expect(execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       activeTools: [],
-      reasoning: "Active",
+      reasoningActive: true,
     }))
     expect(execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
       activeTools: ["inventory search"],
-      reasoning: undefined,
+      reasoningActive: false,
     }))
   })
 
