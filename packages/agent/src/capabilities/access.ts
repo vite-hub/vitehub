@@ -373,8 +373,7 @@ function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
   const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
   const fsStarter = workspaceSessionStarter(workspace.fs)
   const facadeStarter = workspaceSessionStarter(workspace as object)
-  const fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
-    ...workspace.fs,
+  const fs = workspaceRuntime.attachWorkspaceSourceRequestExecution(overridePrototypeMethods(workspace.fs, {
     async glob(pattern: string | string[], options?: GlobOptions) {
       workspaceRuntime.assertModelWorkspaceGlobPattern(pattern as string | string[])
       return await workspace.fs.glob(pattern as never, options)
@@ -386,16 +385,17 @@ function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
           },
         }
       : {}),
-  }, sourceRequestExecution)
-  const facade: ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter> = {
-    ...workspace,
+  }), sourceRequestExecution)
+  const facade = overridePrototypeMethods(workspace, {
     fs,
-  }
-  if (facadeStarter) {
-    facade.startSession = async (options?: WorkspaceSessionOptions) => {
-      return createModelSafeWorkspaceSession(await facadeStarter.startSession(options), workspaceRuntime)
-    }
-  }
+    ...(facadeStarter
+      ? {
+          async startSession(options?: WorkspaceSessionOptions) {
+            return createModelSafeWorkspaceSession(await facadeStarter.startSession(options), workspaceRuntime)
+          },
+        }
+      : {}),
+  }) as ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter>
   return facade
 }
 
@@ -403,13 +403,24 @@ function createModelSafeWorkspaceSession(
   session: WorkspaceSession,
   workspaceRuntime: WorkspaceAccessRuntime,
 ): WorkspaceSession {
-  return {
-    ...session,
+  return overridePrototypeMethods(session, {
     async glob(pattern: string | string[], options?: GlobOptions) {
       workspaceRuntime.assertModelWorkspaceGlobPattern(pattern)
       return await session.glob(pattern, options)
     },
-  }
+  })
+}
+
+function overridePrototypeMethods<T extends object>(target: T, overrides: Partial<T>): T {
+  return new Proxy(target, {
+    get(target, property) {
+      if (Object.hasOwn(overrides, property)) return Reflect.get(overrides, property, overrides)
+      const value = Reflect.get(target, property, target)
+      return typeof value === "function" && !Object.hasOwn(target, property)
+        ? value.bind(target)
+        : value
+    },
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

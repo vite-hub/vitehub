@@ -520,6 +520,74 @@ describe("access capability", () => {
     expect(facadeSession.glob).not.toHaveBeenCalled()
   })
 
+  it("preserves prototype methods on model-safe Workspace facades and sessions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+
+    class Files {
+      readonly #files = base.fs
+
+      readFile = this.#files.readFile
+      stat = this.#files.stat
+      exists = this.#files.exists
+      list = this.#files.list
+      glob = this.#files.glob
+      search = this.#files.search
+      materializeSources = this.#files.materializeSources
+
+      async startSession() {
+        return new Session()
+      }
+
+      prototypeValue() {
+        return this.#files.exists("public/readme.md")
+      }
+    }
+
+    class Session {
+      readonly #value = "session"
+
+      async glob() {
+        return []
+      }
+
+      prototypeValue() {
+        return this.#value
+      }
+    }
+
+    class Workspace {
+      readonly fs = new Files()
+      readonly tools = base.tools
+      readonly #value = "workspace"
+
+      async startSession() {
+        return new Session() as unknown as WorkspaceSession
+      }
+
+      prototypeValue() {
+        return this.#value
+      }
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, new Workspace() as unknown as ReadonlyWorkspaceFacade)
+    const workspace = resolved.workspace as ReadonlyWorkspaceFacade & Workspace & {
+      fs: ReadonlyWorkspaceFacade["fs"] & Files
+      startSession(): Promise<WorkspaceSession & Session>
+    }
+
+    expect(workspace.prototypeValue()).toBe("workspace")
+    await expect(workspace.fs.prototypeValue()).resolves.toBe(true)
+    const session = await workspace.startSession() as WorkspaceSession & Session
+    expect(session.prototypeValue()).toBe("session")
+    await expect((await workspace.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
   it("falls back to default scope when an explicit resolver returns no scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
