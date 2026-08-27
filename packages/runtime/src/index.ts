@@ -705,15 +705,29 @@ type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRunti
     : Exclude<TRuntimeConfig, undefined>
   : Record<string, unknown>
 
+type RuntimeCapabilitiesOf<TContext> = TContext extends { capabilities: infer TCapabilities }
+  ? [Exclude<TCapabilities, undefined>] extends [never]
+    ? RuntimeCapabilities
+    : Exclude<TCapabilities, undefined>
+  : RuntimeCapabilities
+
 export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): Omit<TContext, "capabilities" | "runtimeConfig"> & ExecutionContext<RuntimeConfigOf<TContext>> {
+): Omit<TContext, "capabilities" | "runtimeConfig">
+  & {
+    capabilities: RuntimeCapabilitiesOf<TContext>
+    runtimeConfig: RuntimeConfigOf<TContext>
+  } {
   return {
     ...context,
     capabilities: context.capabilities ?? {},
     // SAFETY: Execution Context construction establishes the asserted host contract.
     runtimeConfig: (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>,
-  }
+  } as unknown as Omit<TContext, "capabilities" | "runtimeConfig">
+    & {
+      capabilities: RuntimeCapabilitiesOf<TContext>
+      runtimeConfig: RuntimeConfigOf<TContext>
+    }
 }
 
 export function defineCapability<TKind extends string, TValue>(

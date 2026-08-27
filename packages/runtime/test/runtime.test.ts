@@ -33,7 +33,7 @@ describe("@vite-hub/runtime", () => {
   })
 
   it("preserves supplied execution context fields", () => {
-    const capabilities: RuntimeCapabilities = {
+    const capabilities = {
       db: defineCapability("db", { query: vi.fn() }),
     }
     const runtimeConfig = { region: "local" }
@@ -45,6 +45,8 @@ describe("@vite-hub/runtime", () => {
       waitUntil: vi.fn(),
     })
 
+    expectTypeOf(context.capabilities.db).toEqualTypeOf(capabilities.db)
+    expectTypeOf(context.capabilities.db.value.query).toEqualTypeOf(capabilities.db.value.query)
     expect(context.capabilities).toBe(capabilities)
     expect(context.runtimeConfig).toBe(runtimeConfig)
   })
