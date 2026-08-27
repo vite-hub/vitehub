@@ -3577,6 +3577,19 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     if (!Object.isExtensible(result)) {
       return { ...toAgentRunResult(result), raw: result, text }
     }
+    if (isAsyncIterable(result)) {
+      try {
+        Object.defineProperty(result, "text", {
+          configurable: true,
+          enumerable: true,
+          value: text,
+        })
+        return result
+      }
+      catch {
+        return { ...toAgentRunResult(result), raw: result, text }
+      }
+    }
     return resultWithPreservedProperties(result, {
       text: {
         configurable: true,

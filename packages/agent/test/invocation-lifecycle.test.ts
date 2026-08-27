@@ -268,6 +268,32 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("wraps raw streams when their text property cannot be replaced", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = (async function* () {
+      yield { text: "Final answer.", type: "text-delta" }
+    })()
+    Object.defineProperty(raw, "text", {
+      configurable: false,
+      enumerable: true,
+      value: "",
+    })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, text: "Final answer." },
+      text: "Final answer.",
+    })
+    expect(raw).toHaveProperty("text", "")
+  })
+
   it("finishes usage-only immutable raw streams without mutating them", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
