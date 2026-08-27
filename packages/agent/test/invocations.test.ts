@@ -1682,6 +1682,7 @@ describe("Agent Invocations", () => {
   it("bounds terminal SQLite invocation records by age and count", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
     const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: 2 })
     const recent = new Date().toISOString()
     const expired = new Date(Date.now() - 2_000).toISOString()
@@ -1694,7 +1695,7 @@ describe("Agent Invocations", () => {
       updatedAt,
     })
     try {
-      await store.create(record("expired", "completed", expired))
+      await unboundedStore.create(record("expired", "completed", expired))
       await store.create(record("active", "running", expired))
       await store.create(record("first", "completed"))
       await expect(store.claim("first", "first-claim", 30_000)).resolves.toBe(true)
@@ -1846,6 +1847,51 @@ describe("Agent Invocations", () => {
         record: { id: "retry", traceId: "replacement-trace" },
       })
       await expect(store.list({ limit: 10 })).resolves.toMatchObject({ invocations: [{ id: "retry" }] })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an age-expired terminal SQLite create that retention removes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-expired-create-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const expired = new Date(Date.now() - 2_000).toISOString()
+    try {
+      await expect(store.create({
+        createdAt: expired,
+        id: "expired",
+        observations: [],
+        status: "completed",
+        traceId: "expired-trace",
+        updatedAt: expired,
+      })).rejects.toThrow("removed by retention")
+      await expect(store.get("expired")).resolves.toBeUndefined()
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("prunes terminal SQLite records written with a stale status column", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-stale-status-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
+    const timestamp = new Date().toISOString()
+    try {
+      await unboundedStore.create({ createdAt: timestamp, id: "legacy", observations: [], status: "running", traceId: "legacy-trace", updatedAt: timestamp })
+      await client.execute({
+        args: [JSON.stringify({ createdAt: timestamp, id: "legacy", observations: [], status: "completed", traceId: "legacy-trace", updatedAt: timestamp }), "legacy"],
+        sql: "UPDATE vitehub_agent_invocations SET record = ? WHERE id = ?",
+      })
+      await store.create({ createdAt: timestamp, id: "newer", observations: [], status: "completed", traceId: "newer-trace", updatedAt: timestamp })
+
+      await expect(store.get("legacy")).resolves.toBeUndefined()
+      await expect(store.get("newer")).resolves.toMatchObject({ status: "completed" })
     }
     finally {
       client.close()

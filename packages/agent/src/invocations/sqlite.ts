@@ -111,6 +111,27 @@ function retentionValue(value: false | number | undefined, fallback: number, nam
   return value
 }
 
+function isSqliteBusy(error: unknown): boolean {
+  let current = error
+  while (current && typeof current === "object") {
+    if ((current as { code?: unknown }).code === "SQLITE_BUSY") return true
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}
+
+async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation()
+    }
+    catch (error) {
+      if (!isSqliteBusy(error) || attempt >= 7) throw error
+      await new Promise(resolve => setTimeout(resolve, Math.min(50, 2 ** attempt)))
+    }
+  }
+}
+
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): AgentInvocationStore {
   if (!options.client && !options.url) {
     throw new TypeError("[vitehub] SQLite Agent Invocations require url or client.")
@@ -251,6 +272,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       args.push(...terminalStatuses, maxRecords)
     }
     if (!filters.length) return
+    const reconcileStatuses = `UPDATE ${table}
+      SET status = json_extract(record, '$.status')
+      WHERE status != json_extract(record, '$.status')`
     const deleteInvocations = {
       args: [...terminalStatuses, ...args],
       sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
@@ -258,11 +282,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const deleteClaims = `DELETE FROM ${table}_claims
       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
     if (executor) {
+      await executor.execute(reconcileStatuses)
       await executor.execute(deleteInvocations)
       await executor.execute(deleteClaims)
     }
     else {
-      await client.batch([deleteInvocations, deleteClaims], "write")
+      await client.batch([reconcileStatuses, deleteInvocations, deleteClaims], "write")
     }
   }
   return {
@@ -283,7 +308,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async create(input: AgentInvocationStoreCreateInput) {
       return write(async () => {
         await initialize()
-        const transaction = await client.transaction("write")
+        const transaction = await retrySqliteBusy(() => client.transaction("write"))
         try {
           await prune(transaction)
           const result = await transaction.execute({
@@ -305,8 +330,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
           })
           const row = current.rows[0]
-          const record = row ? deserialize(row.record, row.sequence) : selectedRecord
-          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} could not be read.`)
+          const record = row ? deserialize(row.record, row.sequence) : undefined
+          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
           await transaction.commit()
           return { created: result.rowsAffected > 0, record }
         }

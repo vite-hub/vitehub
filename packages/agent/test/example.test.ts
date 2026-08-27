@@ -30,7 +30,7 @@ async function availablePort() {
   await once(server, "listening")
 
   const address = server.address()
-  if (!address || !("port" in address)) throw new Error("Could not allocate an Agent example test port")
+  if (!address || typeof address === "string") throw new Error("Could not allocate an Agent example test port")
 
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
   return address.port
