@@ -44,6 +44,12 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
   selectedMessages: UIMessageLike[]
 }
 
+const derivedChatInvokers = new WeakSet<object>()
+
+export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
+  return typeof invoker === "object" && invoker !== null && derivedChatInvokers.has(invoker)
+}
+
 function uiMessageText(message: UIMessageLike): string {
   const parts = Array.isArray(message.parts) ? message.parts : []
   return parts
@@ -407,6 +413,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     : transportSessionId)
   const hookArgs = createChatTriggerHookArgs(options, selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
+  if (invoker && !triggerInput?.invoker) derivedChatInvokers.add(invoker)
   return {
     hookArgs,
     input: {

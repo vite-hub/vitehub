@@ -1,6 +1,6 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
-import { chatTriggerUserMeta } from "../chat-message-input.ts"
+import { chatTriggerUserMeta, hasDerivedChatTriggerInvoker } from "../chat-message-input.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvoker } from "../invoker.ts"
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
@@ -72,8 +72,9 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
   }
 }
 
-function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>, user: unknown): unknown {
+function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>, user: unknown, derived: boolean): unknown {
   if (!isRuntimeObject(invoker)) return invoker
+  if (!derived) return invoker
   // SAFETY: isRuntimeObject established the mutable string-keyed record representation.
   const record = invoker as Record<string, unknown>
   if (record.kind !== "chat" || !isRuntimeObject(record.meta)) return invoker
@@ -131,7 +132,13 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   if (isRuntimeObject(chat)) invocationContext.set("chat", { ...chat, meta }, { overwrite: true })
   // SAFETY: the object-output check above establishes a metadata record.
   const user = isRuntimeObject(channel) ? channel.user : isRuntimeObject(chat) ? chat.user : undefined
-  const invoker = withParsedMeta(invocationContext.get("invoker"), rawMeta, meta as Record<string, unknown>, user)
+  const invoker = withParsedMeta(
+    invocationContext.get("invoker"),
+    rawMeta,
+    meta as Record<string, unknown>,
+    user,
+    hasDerivedChatTriggerInvoker(invocationContext.get("invoker")),
+  )
   if (invoker !== invocationContext.get("invoker")) {
     invocationContext.set("actor", invoker, { overwrite: true })
     invocationContext.set("invoker", invoker, { overwrite: true })

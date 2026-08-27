@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { createChatMessageTriggerInput } from "../src/chat-message-input.ts"
 import { defineAgent, portableAgentWorkflowInput, runAgentInline } from "../src/index.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
@@ -277,11 +278,12 @@ describe("Agent message metadata", () => {
 
   it("rebuilds a chat invoker from parsed metadata", async () => {
     const agent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
-    const context = createAgentInvocationContextStore({
-      actor: { id: "chat:user-1", kind: "chat", meta: { audience: "technical", email: "user@example.com", ignored: true } },
-      channel: { meta: { audience: "technical", ignored: true } },
-      invoker: { id: "chat:user-1", kind: "chat", meta: { audience: "technical", email: "user@example.com", ignored: true } },
-    })
+    const input = createChatMessageTriggerInput({}, {
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      meta: { audience: "technical", ignored: true },
+      user: { email: "user@example.com", id: "chat:user-1" },
+    }).input
+    const context = createAgentInvocationContextStore(input.context)
 
     await parseAgentMessageMeta(agent, context)
 
@@ -292,9 +294,27 @@ describe("Agent message metadata", () => {
       },
       id: "chat:user-1",
       kind: "chat",
-      meta: { audience: "technical", email: "user@example.com" },
+      meta: { audience: "technical", email: "user@example.com", id: "chat:user-1" },
     })
     expect(context.get("actor")).toEqual(context.get("invoker"))
+  })
+
+  it("preserves metadata owned by an explicit chat Invoker", async () => {
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
+    const input = createChatMessageTriggerInput({}, {
+      invoker: { id: "trusted", kind: "chat", meta: { audience: "internal", ignored: "trusted" } },
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      meta: { audience: "technical", ignored: "untrusted" },
+    }).input
+    const context = createAgentInvocationContextStore(input.context)
+
+    await parseAgentMessageMeta(agent, context)
+
+    expect(context.get("invoker")).toEqual({
+      id: "trusted",
+      kind: "chat",
+      meta: { audience: "internal", ignored: "trusted" },
+    })
   })
 
   it("rebuilds a chat invoker when null metadata is normalized", async () => {
@@ -306,72 +326,51 @@ describe("Agent message metadata", () => {
       },
     } as const
     const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
-    const context = createAgentInvocationContextStore({
-      actor: { id: "chat:user-1", kind: "chat", meta: {} },
-      channel: { meta: null },
-      invoker: { id: "chat:user-1", kind: "chat", meta: {} },
-    })
+    const input = createChatMessageTriggerInput({}, {
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      user: { id: "chat:user-1" },
+    }).input
+    const context = createAgentInvocationContextStore({ ...input.context, channel: { meta: null } })
 
     await parseAgentMessageMeta(agent, context)
 
-    expect(context.get("invoker")).toEqual({ id: "chat:user-1", kind: "chat", meta: { audience: "support" } })
+    expect(context.get("invoker")).toEqual({ id: "chat:user-1", kind: "chat", meta: { audience: "support", id: "chat:user-1" } })
     expect(context.get("actor")).toEqual(context.get("invoker"))
   })
 
   it("removes derived Invoker identity stripped by the metadata schema", async () => {
     const agent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
-    const context = createAgentInvocationContextStore({
-      actor: {
-        email: { address: "raw@example.com", domain: "example.com" },
-        id: "chat:user-1",
-        kind: "chat",
-        meta: { audience: "technical", email: "raw@example.com" },
-      },
-      channel: { meta: { audience: "technical", email: "raw@example.com" } },
-      invoker: {
-        email: { address: "raw@example.com", domain: "example.com" },
-        id: "chat:user-1",
-        kind: "chat",
-        meta: { audience: "technical", email: "raw@example.com" },
-      },
-    })
+    const input = createChatMessageTriggerInput({}, {
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      meta: { audience: "technical", email: "raw@example.com" },
+      user: { id: "chat:user-1" },
+    }).input
+    const context = createAgentInvocationContextStore(input.context)
 
     await parseAgentMessageMeta(agent, context)
 
     expect(context.get("invoker")).toEqual({
       id: "chat:user-1",
       kind: "chat",
-      meta: { audience: "technical" },
+      meta: { audience: "technical", id: "chat:user-1" },
     })
     expect(context.get("actor")).toEqual(context.get("invoker"))
   })
 
   it("retains user identity metadata when the schema strips the matching raw field", async () => {
     const agent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
-    const context = createAgentInvocationContextStore({
-      actor: {
-        email: { address: "user@example.com", domain: "example.com" },
-        id: "chat:user@example.com",
-        kind: "chat",
-        meta: { audience: "technical", email: "user@example.com" },
-      },
-      channel: {
-        meta: { audience: "technical", email: "user@example.com" },
-        user: { email: "user@example.com" },
-      },
-      invoker: {
-        email: { address: "user@example.com", domain: "example.com" },
-        id: "chat:user@example.com",
-        kind: "chat",
-        meta: { audience: "technical", email: "user@example.com" },
-      },
-    })
+    const input = createChatMessageTriggerInput({}, {
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      meta: { audience: "technical", email: "user@example.com" },
+      user: { email: "user@example.com" },
+    }).input
+    const context = createAgentInvocationContextStore(input.context)
 
     await parseAgentMessageMeta(agent, context)
 
     expect(context.get("invoker")).toEqual({
       email: { address: "user@example.com", domain: "example.com" },
-      id: "chat:user@example.com",
+      id: "user@example.com",
       kind: "chat",
       meta: { audience: "technical", email: "user@example.com" },
     })
