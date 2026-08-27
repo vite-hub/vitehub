@@ -832,8 +832,9 @@ describe("Agent Driver capacity", () => {
         runtime: false,
       })
 
-      const invocation = runAgentInline(agent, runtime(), {})
+      const prospectiveInvocation = runAgentInline(agent, runtime(), {})
       await sampleStarted.promise
+      const pendingInvocation = runAgentInline(agent, runtime(), {})
       expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
         active: 0,
         effectiveConcurrency: 0,
@@ -844,12 +845,16 @@ describe("Agent Driver capacity", () => {
         message: "[vitehub] Agent driver capacity is full (0 active, 1 queued).",
       })
 
-      const timedOut = expect(invocation).rejects.toMatchObject({
+      const prospectiveTimedOut = expect(prospectiveInvocation).rejects.toMatchObject({
+        code: "AGENT_CAPACITY_QUEUE_TIMEOUT",
+        name: "TimeoutError",
+      })
+      const pendingTimedOut = expect(pendingInvocation).rejects.toMatchObject({
         code: "AGENT_CAPACITY_QUEUE_TIMEOUT",
         name: "TimeoutError",
       })
       await vi.advanceTimersByTimeAsync(50)
-      await timedOut
+      await Promise.all([prospectiveTimedOut, pendingTimedOut])
       expect(vi.getTimerCount()).toBe(1)
 
       await vi.advanceTimersByTimeAsync(450)
