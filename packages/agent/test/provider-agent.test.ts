@@ -2232,6 +2232,36 @@ describe("Provider Agent Driver", () => {
     expect(waitUntil).toHaveBeenCalledOnce()
   })
 
+  it("keeps the session lock while deferred provider startup remains active", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-late-start-lock"
+      let finishStartup!: () => void
+      const first = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
+      const second = runtime(threadId, [])
+      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const firstResult = adapter.generate(context(threadId, { input: { prompt: "hello", timeout: 50 } }) as never)
+
+      await vi.advanceTimersByTimeAsync(50)
+      await expect(firstResult).rejects.toMatchObject({ name: "TimeoutError" })
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const secondResult = adapter.generate(context(threadId) as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(second.startSession).not.toHaveBeenCalled()
+
+      finishStartup()
+      await vi.waitFor(() => expect(first.close).toHaveBeenCalledOnce())
+      await expect(secondResult).resolves.toBeDefined()
+      expect(second.startSession).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("stops deferred provider work before closing the Workspace", async () => {
     const threadId = "thread-late-start-workspace"
     let finishStartup!: () => void
