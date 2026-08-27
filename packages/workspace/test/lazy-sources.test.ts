@@ -689,6 +689,64 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/b.md")).resolves.toMatchObject({ type: "file" })
   })
 
+  it("does not rematerialize an explicitly materialized path during listing", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "# A\n" }))
+    const view = createWorkspaceSourceView({
+      name: "explicit-materialization-listing",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          getItem,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
+    await expect(view.list("docs/a.md", { recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "docs/a.md", type: "file" }),
+    ])
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("serializes implicit lazy access with explicit materialization", async () => {
+    let releaseFirst!: () => void
+    let calls = 0
+    const view = createWorkspaceSourceView({
+      name: "implicit-explicit-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            const call = ++calls
+            if (call === 1) await new Promise<void>(resolve => releaseFirst = resolve)
+            return [call === 1 ? "a.md" : "b.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const explicit = view.materializeSources({ sources: ["docs"] })
+    await vi.waitFor(() => expect(calls).toBe(1))
+    const implicit = view.glob("docs/**")
+    releaseFirst()
+    await Promise.all([explicit, implicit])
+
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        files: 1,
+        paths: [{ path: "docs/b.md", status: "unchanged" }],
+      }],
+    })
+  })
+
   it("compares bulk source contents when reporting file deltas", async () => {
     let content = "# Same\n"
     const store = createMemoryWorkspaceStore()

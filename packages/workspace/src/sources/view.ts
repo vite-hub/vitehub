@@ -56,12 +56,24 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const prepareBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   const materializeBySource = new Map<string, Promise<void>>()
+  const materializedPathsBySource = new Map<string, Set<string>>()
   let materializationQueue = Promise.resolve()
 
   async function materializeSources(options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions) {
     const pending = materializationQueue.then(async () => await materializeWorkspaceSources(definition, store, options))
     materializationQueue = pending.then(() => undefined, () => undefined)
-    return await pending
+    const result = await pending
+    const path = normalizeWorkspacePath(options?.path || "")
+    for (const source of result.sources) {
+      if (source.status !== "ready") continue
+      let paths = materializedPathsBySource.get(source.source)
+      if (!paths) {
+        paths = new Set()
+        materializedPathsBySource.set(source.source, paths)
+      }
+      paths.add(path)
+    }
+    return result
   }
 
   function getSourceContext(source: { key: string, mountPath: string }) {
@@ -152,10 +164,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await Promise.all(items.map(async source => await ensurePrepared(source.key)))
   }
 
-  async function ensureMaterialized(sourceKey: string) {
+  async function ensureMaterialized(sourceKey: string, path?: string) {
+    const normalized = path === undefined ? undefined : normalizeWorkspacePath(path)
+    const materializedPaths = materializedPathsBySource.get(sourceKey)
+    if (normalized !== undefined && (materializedPaths?.has("") || materializedPaths?.has(normalized))) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
-      pending = materializeWorkspaceSources(definition, store, { sources: [sourceKey] }).then(() => undefined)
+      pending = materializeSources({ sources: [sourceKey] }).then(() => undefined)
       materializeBySource.set(sourceKey, pending)
     }
     await pending
@@ -199,7 +214,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         continue
       }
       if (sourceMountContainsPath(source, path) || !source.mountPath && path) {
-        await ensureMaterialized(source.key)
+        await ensureMaterialized(source.key, path)
         for (const entry of await store.list(path, options)) result.set(entry.path, entry)
       }
       else if (!path && !result.has(source.mountPath)) {
