@@ -297,7 +297,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   const backgroundTasks: Promise<unknown>[] = []
   const workflowRetryTasks: Promise<unknown>[] = []
   // SAFETY: The workflow payload's runtimeConfig was serialized from the same generic Agent runtime definition.
-  const runtimeConfig = (payload.runtimeConfig || {}) as TRuntimeConfig
+  const runtimeConfig = (payload.runtimeConfig ?? {}) as TRuntimeConfig
   const runtimeInput: Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & { memo?: AgentRuntimeContext<TRuntimeConfig>["memo"] } = {
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
     runtimeConfig,

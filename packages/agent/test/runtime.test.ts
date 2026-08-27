@@ -14510,6 +14510,43 @@ describe("agent message protocol", () => {
       expect(runtimeConfig).toEqual({ region: "iad" })
     })
 
+    it.each([false, 0, ""])("preserves falsey runtimeConfig %j through Workflow Runs", async configuredRuntime => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      let runtimeConfig: unknown
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const agent = {
+        async resolve(context) {
+          runtimeConfig = context.runtimeConfig
+          return {
+            async generate() {
+              return { finishReason: "stop", text: "configured", usage: {} }
+            },
+            name: "configured",
+          }
+        },
+        runtime: workflow("falsey-configured-agent"),
+      } as ReturnType<typeof defineAgent>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        runtimeConfig: configuredRuntime,
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("falsey-configured-agent", run.id)).resolves.toMatchObject({
+        result: { text: "configured" },
+        status: "completed",
+      })
+      expect(runtimeConfig).toBe(configuredRuntime)
+    })
+
     it("reuses generated workflow definitions across equivalent agent instances", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
