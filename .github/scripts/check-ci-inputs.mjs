@@ -13,6 +13,7 @@ const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`)$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
 const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
 const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "time", "until", "while"])
+const envValueOptions = new Set(["--chdir", "--split-string", "--unset", "-C", "-S", "-u"])
 
 function shellTokens(line) {
   const tokens = []
@@ -55,15 +56,36 @@ function commandIndexes(tokens) {
       continue
     }
     else if (commandStart && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
-      indexes.push(index)
+      let executableIndex = index
+      while (executableIndex < tokens.length && executableName(tokens[executableIndex]) === "env") {
+        executableIndex++
+        while (executableIndex < tokens.length) {
+          const argument = tokens[executableIndex]
+          if (argument === "--") {
+            executableIndex++
+            break
+          }
+          if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(argument)) executableIndex++
+          else if (envValueOptions.has(argument)) executableIndex += 2
+          else if (argument.startsWith("-")) executableIndex++
+          else break
+        }
+      }
+      if (executableIndex < tokens.length && !shellOperatorPattern.test(tokens[executableIndex])) {
+        indexes.push(executableIndex)
+      }
       commandStart = false
     }
   }
   return indexes
 }
 
+function executableName(token) {
+  return token.slice(token.lastIndexOf("/") + 1)
+}
+
 function isShellCommand(token) {
-  return shellCommands.has(token.slice(token.lastIndexOf("/") + 1))
+  return shellCommands.has(executableName(token))
 }
 
 function resolvePackageSpec(spec, environment) {
@@ -102,7 +124,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       if (isShellCommand(token)) {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
         const invocation = tokens.slice(index + 1, end === -1 ? tokens.length : end)
-        const callIndex = invocation.indexOf("-c")
+        const callIndex = invocation.findIndex(argument => /^-[^-]*c/.test(argument))
         if (callIndex !== -1 && invocation[callIndex + 1]) {
           specs.push(...findExecutablePackageSpecs(invocation[callIndex + 1], environment))
         }

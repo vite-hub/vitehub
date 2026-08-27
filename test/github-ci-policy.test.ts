@@ -80,6 +80,7 @@ describe("GitHub CI input policy", () => {
         "      - run: bun x tool@1.2.3 --help",
         "      - run: npm exec --package=runner@1.2.3 --call=\"npx nested@2.3.4\"",
         "      - run: npm exec -c 'echo ok'",
+        "      - run: env FOO=bar",
         "      - run: |",
         "          npx \\",
         "            tool@1.2.3",
@@ -390,6 +391,9 @@ jobs:
     "npx tool@$UNRESOLVED_VERSION",
     "(npx unpinned)",
     "bash -c 'npx unpinned'",
+    "bash -lc 'npx unpinned'",
+    "env FOO=bar npx unpinned",
+    "env --ignore-environment -u FOO BAR=baz npx unpinned",
     "if true; then npx unpinned; fi",
     "while npx unpinned; do echo ok; done",
   ])("rejects an unpinned package executor: %s", async (command) => {
