@@ -46,6 +46,10 @@ export default defineConfig({
           ...Object.fromEntries(
             Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
           ),
+          "./virtual": {
+            types: "./dist/virtual.d.ts",
+            import: "./dist/virtual.js",
+          },
           "./runtime/cloudflare-env": "./dist/runtime/state.js",
         }
       },

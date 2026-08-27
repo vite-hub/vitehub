@@ -155,13 +155,13 @@ async function importPackagesWithoutRootFallback(
   includeOptionalPeers: boolean,
   includePackage: (packageName: string) => boolean = () => true,
 ) {
-  const packageRoots = new Map(await Promise.all(packageInfos.map(async info => [
+  const includedPackages = packageInfos.filter(info => includePackage(info.packageName))
+  const packageRoots = new Map(await Promise.all(includedPackages.map(async info => [
     info.packageName,
     await realpath(join(appDir, "node_modules", ...info.packageName.split("/"))),
   ] as const)))
 
-  for (const info of packageInfos) {
-    if (!includePackage(info.packageName)) continue
+  for (const info of includedPackages) {
     const packageRoot = packageRoots.get(info.packageName)
     if (!packageRoot) throw new Error(`Missing installed package root for ${info.packageName}`)
     const manifest = await readManifest(join(packageRoot, "package.json"))
@@ -193,6 +193,51 @@ async function importPackagesWithoutRootFallback(
       await importSpecifiers(runnerDir, cloudflareContracts.map(contract => contract.specifier), true)
       await typecheckPackageExports(info.packageName, packageRoot, runnerDir, includeOptionalPeers)
     })
+  }
+}
+
+async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
+  const requiredPeerSpecs: Record<string, string> = {
+    ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
+    "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
+    "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
+    "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
+    vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
+  }
+
+  for (const info of packageInfos) {
+    const appDir = join(root, "absent-peers", info.name)
+    const sourceManifest = await readManifest(join(repoRoot, "packages", info.name, "package.json"))
+    const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
+      !sourceManifest.peerDependenciesMeta?.[name]?.optional,
+    )
+    await mkdir(appDir, { recursive: true })
+    await Promise.all([
+      writeFile(join(appDir, ".npmrc"), [
+        "auto-install-peers=false",
+        "hoist=false",
+        "node-linker=isolated",
+        "public-hoist-pattern[]=",
+        "shamefully-hoist=false",
+        "strict-peer-dependencies=false",
+        "",
+      ].join("\n"), "utf8"),
+      writeFile(join(appDir, "package.json"), JSON.stringify({
+        dependencies: { [info.packageName]: specs[info.packageName] },
+        devDependencies: Object.fromEntries(["@types/node", ...requiredPeers].map(name => {
+          const spec = specs[name] || requiredPeerSpecs[name]
+          if (!spec) throw new Error(`Missing required peer spec for ${name}`)
+          return [name, spec]
+        })),
+        packageManager: "pnpm@10.33.0",
+        private: true,
+        type: "module",
+      }, null, 2), "utf8"),
+      writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+    ])
+    await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
+    await importPackagesWithoutRootFallback(appDir, false, packageName => packageName === info.packageName)
   }
 }
 
@@ -253,11 +298,6 @@ async function addOptionalPeers(appDir: string) {
   const args = Object.entries(peers).map(([name, version]) => `${name}@${version}`)
   await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", ...args], appDir)
   return Object.keys(peers)
-}
-
-async function addRequiredVue(appDir: string) {
-  const version = await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json"))
-  await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", `vue@${version}`], appDir)
 }
 
 async function typecheckPackageExports(packageName: string, packageRoot: string, runnerDir: string, includeOptionalPeers: boolean) {
@@ -326,7 +366,7 @@ async function typecheckPackageModule(
     noEmit: true,
     paths: {
       ...(packageName === "@vite-hub/agent"
-        ? { "json-schema": [resolve(packageRoot, "node_modules/@types/json-schema/index.d.ts")] }
+        ? { "json-schema": [resolve(packageRoot, "../../@types/json-schema/index.d.ts")] }
         : {}),
       ...(hostTypesPath ? { "cloudflare:workers": [hostTypesPath] } : {}),
     },
@@ -433,19 +473,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
 
       const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
       await assertResolution(appDir, optionalPeers, false)
-      const absentPeerContracts = publicPackageExportContracts
-        .filter(contract => contract.packageName !== "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.optionalPeers.length === 0)
-      const absentCloudflareContracts = absentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
-      await importSpecifiers(appDir, absentPeerContracts
-        .filter(contract => !absentCloudflareContracts.includes(contract))
-        .map(contract => contract.specifier))
-      await importSpecifiers(appDir, absentCloudflareContracts.map(contract => contract.specifier), true)
-      await importPackagesWithoutRootFallback(appDir, false, packageName => packageName !== "@vite-hub/ui")
-      await addRequiredVue(appDir)
-      await importSpecifiers(appDir, publicPackageExportContracts
-        .filter(contract => contract.packageName === "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.optionalPeers.length === 0)
-        .map(contract => contract.specifier))
-      await importPackagesWithoutRootFallback(appDir, false, packageName => packageName === "@vite-hub/ui")
+      await exercisePackagesWithoutOptionalPeers(root, specs)
 
       expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
