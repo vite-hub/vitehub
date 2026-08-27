@@ -33,10 +33,14 @@ function findExecutablePackageSpecs(command) {
       .map(token => token[1] ?? token[2] ?? token[3] ?? token[4])
     for (let index = 0; index < tokens.length; index++) {
       let argumentsStart
-      let npmExec = false
+      let acceptsPackageOptions = false
       const token = tokens[index]
 
-      if (token === "npx" || token === "bunx") argumentsStart = index + 1
+      if (token === "npx") {
+        argumentsStart = index + 1
+        acceptsPackageOptions = true
+      }
+      else if (token === "bunx" || token === "pnpx") argumentsStart = index + 1
       else if (token === "npm") {
         let subcommand = index + 1
         while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
@@ -45,7 +49,7 @@ function findExecutablePackageSpecs(command) {
         }
         if (tokens[subcommand] !== "exec" && tokens[subcommand] !== "x") continue
         argumentsStart = subcommand + 1
-        npmExec = true
+        acceptsPackageOptions = true
       }
       else if (token === "vp" || token === "pnpm" || token === "yarn") {
         let subcommand = index + 1
@@ -61,7 +65,7 @@ function findExecutablePackageSpecs(command) {
       const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex >= argumentsStart && shellOperatorPattern.test(candidate))
       const invocation = tokens.slice(argumentsStart, end === -1 ? tokens.length : end)
       const packageSpecs = []
-      if (npmExec) {
+      if (acceptsPackageOptions) {
         for (let argumentIndex = 0; argumentIndex < invocation.length; argumentIndex++) {
           const argument = invocation[argumentIndex]
           if (argument === "--") break
