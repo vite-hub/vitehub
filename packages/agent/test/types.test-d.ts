@@ -1113,8 +1113,7 @@ describe("agent public types", () => {
     expectTypeOf(customSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig, "support">>()
 
     const customSupportChat: AccessChatOptions<SupportRuntimeConfig> = {
-      resolve({ runtimeConfig }) {
-        expectTypeOf(runtimeConfig.supportToken).toEqualTypeOf<string>()
+      resolve() {
         return true
       },
     }
@@ -1126,8 +1125,10 @@ describe("agent public types", () => {
       },
     })
     expectTypeOf(combinedSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig>>()
-    type CombinedSupportRuntimeConfig = Parameters<NonNullable<typeof combinedSupportAccessCapability.prepare>>[0]["runtimeConfig"]
-    expectTypeOf<CombinedSupportRuntimeConfig>().toEqualTypeOf<SupportRuntimeConfig>()
+    type CombinedSupportContext = Parameters<NonNullable<typeof combinedSupportAccessCapability.prepare>>[0]
+    type CombinedSupportModel = Exclude<Parameters<CombinedSupportContext["model"]["resolve"]>[0], AgentModelInput | undefined>
+    type CombinedSupportModelContext = Parameters<CombinedSupportModel>[0]
+    expectTypeOf<CombinedSupportModelContext["runtimeConfig"]>().toEqualTypeOf<SupportRuntimeConfig>()
 
     defineAgent({
       workspace,

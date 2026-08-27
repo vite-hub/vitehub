@@ -513,7 +513,7 @@ describe("access capability", () => {
     const base = createWorkspace()
     const createSession = () => ({
       glob: vi.fn(async () => []),
-    } as WorkspaceSession)
+    } as unknown as WorkspaceSession)
     const fsSession = createSession()
     const facadeSession = createSession()
     const workspace = {
@@ -592,7 +592,7 @@ describe("access capability", () => {
       readonly #value = "workspace"
 
       async startSession() {
-        return new Session() as WorkspaceSession
+        return new Session() as unknown as WorkspaceSession
       }
 
       prototypeValue() {
@@ -625,7 +625,7 @@ describe("access capability", () => {
       async glob() {
         return []
       },
-    }) as WorkspaceSession
+    }) as unknown as WorkspaceSession
     const fs = Object.freeze({
       ...base.fs,
       async startSession() {
