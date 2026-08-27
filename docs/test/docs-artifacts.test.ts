@@ -160,6 +160,11 @@ describe("writeDocsArtifacts", () => {
         "",
         "    [indented literal link](/docs/indented)",
         "\t[tab-indented literal link](/docs/tab-indented)",
+        "- item",
+        "    [list child](/docs/list-child)",
+        "`multiline code",
+        "    indented continuation",
+        "[multiline indented literal](/docs/multiline-indented)`",
         "",
         "::video{src=\"/demo.mp4\"}",
         "Keep this semantic directive.",
@@ -201,6 +206,10 @@ describe("writeDocsArtifacts", () => {
         "  ::",
         "  ```",
         "",
+        "> ~~~md",
+        "> [blockquote literal](/docs/blockquote-literal)",
+        "> ~~~",
+        "",
         "::steps",
         "  ::tabs",
         "    :::tabs-item{label=\"Example\"}",
@@ -236,6 +245,8 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("Unmatched ` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](https://vitehub.dev/docs/outside-span).");
       expect(raw).toContain("    [indented literal link](/docs/indented)");
       expect(raw).toContain("\t[tab-indented literal link](/docs/tab-indented)");
+      expect(raw).toContain("- item\n    [list child](https://vitehub.dev/docs/list-child)");
+      expect(raw).toContain("`multiline code\n    indented continuation\n[multiline indented literal](/docs/multiline-indented)`");
       expect(raw).toContain("::video{src=\"/demo.mp4\"}\nKeep this semantic directive.\n::");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
       expect(raw).toContain([
@@ -272,6 +283,7 @@ describe("writeDocsArtifacts", () => {
         "  ::",
         "  ```",
       ].join("\n"));
+      expect(raw).toContain("> ~~~md\n> [blockquote literal](/docs/blockquote-literal)\n> ~~~");
       expect(raw).toContain([
         "### Example",
         "",

@@ -9,11 +9,11 @@ type Fence = {
 };
 
 function fenceRun(line: string) {
-  return line.match(/^\s*(?:(?:[-+*]|\d+[.)])\s+)?(```+|~~~+)/)?.[1];
+  return line.match(/^\s*(?:>\s*)*(?:(?:[-+*]|\d+[.)])\s+)?(```+|~~~+)/)?.[1];
 }
 
 function closesFence(line: string, fence: Fence) {
-  const run = line.match(/^\s*(```+|~~~+)\s*$/)?.[1];
+  const run = line.match(/^\s*(?:>\s*)*(```+|~~~+)\s*$/)?.[1];
   return run?.[0] === fence.marker && run.length >= fence.length;
 }
 
@@ -85,6 +85,12 @@ function rewriteLinks(source: string) {
   const output: string[] = [];
   let outsideFence = "";
   let fence: Fence | null = null;
+  let listIndent: number | null = null;
+  const protectedLines: string[] = [];
+  const rewriteOutside = () => rewriteInlineLinks(outsideFence).replace(
+    /\0INDENT(\d+)\0/g,
+    (_match, index: string) => protectedLines[Number(index)]!,
+  );
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
@@ -92,7 +98,7 @@ function rewriteLinks(source: string) {
     const run = fenceRun(line);
 
     if (!fence && run) {
-      output.push(rewriteInlineLinks(outsideFence), lineWithEnding);
+      output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
       fence = { length: run.length, marker: run[0]! };
       continue;
@@ -104,16 +110,21 @@ function rewriteLinks(source: string) {
       continue;
     }
 
-    if (indentationColumns(line) >= 4) {
-      output.push(rewriteInlineLinks(outsideFence), lineWithEnding);
-      outsideFence = "";
+    const listItem = line.match(/^(\s*)(?:[-+*]|\d+[.)])\s+/);
+    if (listItem) listIndent = listItem[0].length;
+    else if (line.trim() && (listIndent === null || indentationColumns(line) < listIndent)) listIndent = null;
+
+    const isListContinuation = listIndent !== null && indentationColumns(line) >= listIndent;
+    if (indentationColumns(line) >= 4 && !isListContinuation) {
+      const index = protectedLines.push(lineWithEnding) - 1;
+      outsideFence += `\0INDENT${index}\0`;
       continue;
     }
 
     outsideFence += lineWithEnding;
   }
 
-  output.push(rewriteInlineLinks(outsideFence));
+  output.push(rewriteOutside());
   return output.join("");
 }
 
