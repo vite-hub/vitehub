@@ -1463,8 +1463,10 @@ describe("Provider Agent Driver", () => {
       workspaceMaterializationPaths: ["docs/a.md", "docs/b.md"],
     })
     runContext.context.set("access", { workspaceScope: { all: false, paths: ["docs/a.md", "docs/b.md"] } })
+    // SAFETY: This test fixture supplies the trusted access context expected by the helper.
     markTrustedWorkspaceAccessScope(runContext.context as never)
 
+    // SAFETY: This test fixture supplies the complete provider generation context.
     const generation = createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
     await vi.waitFor(() => expect(materializeSources).toHaveBeenCalledTimes(2))
     abort.abort(new DOMException("Canceled", "AbortError"))

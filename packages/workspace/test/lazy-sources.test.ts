@@ -807,10 +807,61 @@ describe("lazy sources", () => {
       },
     }, createMemoryWorkspaceStore())
 
-    await expect(view.materializeSources({ path: "docs/a.md", sources: ["docs"] })).resolves.toMatchObject({
+    await expect(view.materializeSources({ path: "docs", sources: ["docs"] })).resolves.toMatchObject({
       sources: [expect.objectContaining({ status: "error" })],
     })
     await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md\n")
+  })
+
+  it("does not reuse failed materialization cancellation for a lazy retry", async () => {
+    let fail = true
+    const abort = new AbortController()
+    const view = createWorkspaceSourceView({
+      name: "failed-materialization-cancellation",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            if (fail) {
+              fail = false
+              throw new Error("temporary source failure")
+            }
+            return ["b.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ abortSignal: abort.signal, path: "docs", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+    abort.abort(new DOMException("Canceled", "AbortError"))
+    await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md\n")
+  })
+
+  it("materializes an uncovered sibling after a scoped lazy access", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
+    const view = createWorkspaceSourceView({
+      name: "sibling-scoped-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          getItem,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md\n")
+    await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md\n")
+    expect(getItem).toHaveBeenCalledTimes(2)
   })
 
   it("serializes implicit lazy access with explicit materialization", async () => {
