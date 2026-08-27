@@ -48,12 +48,10 @@ export interface WorkspacePreparation {
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
-async function waitForValidation(
-  validation: void | Promise<void>,
+async function waitForAbortable<T>(
+  operation: T | Promise<T>,
   signal: AbortSignal,
-): Promise<void> {
-  if (!validation) return
-
+): Promise<T> {
   let removeAbortListener = () => {}
   const aborted = new Promise<never>((_resolve, reject) => {
     const onAbort = () => reject(signal.reason)
@@ -62,7 +60,7 @@ async function waitForValidation(
     removeAbortListener = () => signal.removeEventListener("abort", onAbort)
   })
   try {
-    await Promise.race([validation, aborted])
+    return await Promise.race([operation, aborted])
   }
   finally {
     removeAbortListener()
@@ -89,8 +87,8 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
     : [...new Set(options.sources.map(source => source.trim()))]
   const workspace = useWorkspace(workspaceName, { mode: "write" })
   let state: WorkspacePreparationState = Object.freeze({
-    startedAt: new Date().toISOString(),
-    status: "preparing",
+    stoppedAt: new Date().toISOString(),
+    status: "stopped",
   })
   let active: Promise<WorkspacePreparationState> | undefined
   let starting: Promise<WorkspacePreparationState> | undefined
@@ -122,22 +120,25 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
     const attempt = (async () => {
       try {
         const selectedSources = sources ?? normalizeWorkspaceSources(
-          (await resolveRegisteredWorkspaceDefinition(workspaceName)).sources,
+          (await waitForAbortable(resolveRegisteredWorkspaceDefinition(workspaceName), controller.signal)).sources,
         ).filter(source => source.materialize === "startup").map(source => source.key)
         if (!selectedSources.length) {
           throw new Error(`[vitehub] Workspace "${workspaceName}" has no startup sources to prepare.`)
         }
 
-        const result = await workspace.materializeSources({
-          abortSignal: controller.signal,
-          sources: selectedSources,
-        })
+        const result = await waitForAbortable(
+          workspace.materializeSources({
+            abortSignal: controller.signal,
+            sources: selectedSources,
+          }),
+          controller.signal,
+        )
         const sourceResults = new Map(result.sources.map(source => [source.source, source]))
         const failures = selectedSources.filter(source => sourceResults.get(source)?.status !== "ready")
         if (failures.length) {
           throw new Error(`[vitehub] Workspace "${workspaceName}" sources failed to prepare: ${failures.join(", ")}.`)
         }
-        await waitForValidation(options.validate?.(result), controller.signal)
+        await waitForAbortable(options.validate?.(result), controller.signal)
 
         if (stopped || attemptLifecycle !== lifecycle) return state
         const finishedAtMs = Date.now()

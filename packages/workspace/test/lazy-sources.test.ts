@@ -915,6 +915,62 @@ describe("lazy sources", () => {
     await active
   })
 
+  it("does not share pending materialization across Workspace Definitions", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const firstStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView({
+      name: "first-shared-store",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getItem(key) {
+            return { key, content: "# First\n" }
+          },
+          async getItems() {
+            started()
+            await blocked
+            return [{ key: "first.md", content: "# First\n" }]
+          },
+          async getKeys() {
+            return ["first.md"]
+          },
+        }),
+      },
+    }, store)
+    const secondItems = vi.fn(async () => [{ key: "second.md", content: "# Second\n" }])
+    const second = createWorkspaceSourceView({
+      name: "second-shared-store",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getItem(key) {
+            return { key, content: "# Second\n" }
+          },
+          getItems: secondItems,
+          async getKeys() {
+            return ["second.md"]
+          },
+        }),
+      },
+    }, store)
+
+    const firstMaterialization = first.materializeSources({ sources: ["docs"] })
+    await firstStarted
+    await second.materializeSources({ sources: ["docs"] })
+
+    expect(secondItems).toHaveBeenCalledOnce()
+    await expect(second.readFile("docs/second.md", { encoding: "utf8" })).resolves.toBe("# Second\n")
+    release()
+    await firstMaterialization
+  })
+
   it("fully materializes a lazy Source after joining a scoped request", async () => {
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {

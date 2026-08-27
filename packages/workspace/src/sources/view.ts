@@ -52,7 +52,7 @@ interface PendingMaterialization {
   promise: Promise<WorkspaceMaterializeSourcesResult>
 }
 
-const materializationByStore = new WeakMap<WorkspaceStore, Map<string, PendingMaterialization>>()
+const materializationByStore = new WeakMap<WorkspaceStore, WeakMap<WorkspaceDefinition, Map<string, PendingMaterialization>>>()
 
 async function waitForMaterialization(pending: Promise<WorkspaceMaterializeSourcesResult>, signal?: AbortSignal) {
   if (!signal) return await pending
@@ -81,8 +81,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
-  const materializeBySource = materializationByStore.get(store) ?? new Map<string, PendingMaterialization>()
-  if (!materializationByStore.has(store)) materializationByStore.set(store, materializeBySource)
+  let materializationByDefinition = materializationByStore.get(store)
+  if (!materializationByDefinition) {
+    materializationByDefinition = new WeakMap()
+    materializationByStore.set(store, materializationByDefinition)
+  }
+  const materializeBySource = materializationByDefinition.get(definition) ?? new Map<string, PendingMaterialization>()
+  if (!materializationByDefinition.has(definition)) materializationByDefinition.set(definition, materializeBySource)
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)

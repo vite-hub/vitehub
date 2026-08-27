@@ -6,6 +6,7 @@ import {
   registerWorkspace,
   useWorkspace,
 } from "../src/runtime.ts"
+import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 
 import type { SourceContext, WorkspaceSourceItem } from "../src/index.ts"
 
@@ -27,6 +28,38 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
 }
 
 describe("Workspace runtime preparation", () => {
+  it("is stopped until preparation starts", async () => {
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }]),
+    })
+
+    expect(preparation.getState()).toMatchObject({ status: "stopped" })
+    expect(preparation.response().status).toBe(503)
+    await expect(preparation.response().json()).resolves.toEqual({ ready: false, status: "stopped" })
+  })
+
+  it("stops without waiting for a pending registry loader", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => {
+      loading = resolve
+    })
+    setWorkspaceRegistry({
+      [name]: async () => {
+        loading()
+        await new Promise(() => {})
+        return {}
+      },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const started = preparation.start()
+    await loaderStarted
+    await expect(preparation.stop()).resolves.toBeUndefined()
+    await expect(started).resolves.toMatchObject({ status: "stopped" })
+    resetWorkspaceRegistry()
+  })
+
   it("keeps startup Sources available as lazy read fallbacks", async () => {
     const name = registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }])
     const workspace = useWorkspace(name)
