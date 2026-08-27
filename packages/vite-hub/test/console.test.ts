@@ -844,7 +844,9 @@ describe("Agent invocation console", () => {
       return transformHook("", resolvedAgentEntry)
     }
 
+    // SAFETY: Each generated script returns the isolated realm's global object.
     const firstRealm = runInNewContext(`${await transform(firstIdentity)}\nglobalThis`, { process }) as object
+    // SAFETY: Each generated script returns the isolated realm's global object.
     const secondRealm = runInNewContext(`${await transform(secondIdentity)}\nglobalThis`, { process }) as object
 
     expect(resolveConsoleInvocations(firstRealm)).toBe(first)
@@ -1119,6 +1121,41 @@ describe("Agent invocation console", () => {
         name: "agent.tool.error",
       }))
       expect(observation?.attributes?.["content.omitted"] ?? []).not.toContain("tool.error")
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves tool payloads in fixture-backed console journals", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-tools-"))
+    try {
+      const file = join(projectRoot, "console.fixture.json")
+      await writeFile(file, JSON.stringify({ invocations: [], version: 1 }))
+      const invocations = installConsoleFixtureInvocations(projectRoot, file)
+      const agent = defineAgent({
+        driver: { run: () => (async function* () {
+            yield { id: "tool-1", input: { query: "fixture" }, name: "lookup", type: "tool-call" }
+            yield { id: "tool-1", name: "lookup", output: { answer: "preserved" }, type: "tool-result" }
+            yield { type: "finish" }
+          })() },
+        runtime: false,
+      })
+      const result = await runAgent(agent, runtime("console-fixture-tool"), {})
+      // SAFETY: This Driver fixture always returns the async generator defined above.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+
+      const invocation = await invocations.getByRunId("console-fixture-tool")
+      expect(invocation?.observations).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "tool.input": { query: "fixture" } }),
+          name: "agent.tool.start",
+        }),
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "tool.output": { answer: "preserved" } }),
+          name: "agent.tool.finish",
+        }),
+      ]))
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })

@@ -20,6 +20,8 @@ const consoleMetadataContent = [
   "input.prompt",
   "message.content",
   "result.text",
+  "tool.input",
+  "tool.output",
   "vitehub.activity.progress",
 ] as const
 
@@ -65,15 +67,7 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
 
 export function createConsoleInvocations(projectRoot: string): AgentInvocations {
   return defineAgentInvocations({
-    metadataContent: [
-      "input.messages",
-      "input.prompt",
-      "message.content",
-      "result.text",
-      "tool.input",
-      "tool.output",
-      "vitehub.activity.progress",
-    ],
+    metadataContent: consoleMetadataContent,
     store: createLibsqlAgentInvocationStore({
       maxAgeMs: false,
       maxRecords: false,

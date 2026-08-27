@@ -70,7 +70,7 @@ export async function loadViteHubCliConfig(
   })
   try {
     const nuxtRoot = nuxt.options.rootDir || rootDir
-    const viteRoot = resolve(nuxtRoot, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : nuxtRoot)
+    const viteRoot = resolve(nuxtRoot, nuxt.options.vite?.root ?? nuxtRoot)
     return {
       ...await resolveViteConfig({
         ...nuxt.options.vite,
