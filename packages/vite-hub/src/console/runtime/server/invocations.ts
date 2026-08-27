@@ -6,6 +6,7 @@ import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sq
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import {
+  createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
   resolveConsoleInvocationsIdentity,
@@ -93,7 +94,7 @@ export function createConsoleFixtureInvocations(file: string): AgentInvocations 
 
 export function installConsoleInvocations(projectRoot: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
-  const identity = `sqlite:${resolvedRoot}`
+  const identity = createConsoleInvocationsIdentity(resolvedRoot)
   const installed = resolveConsoleInvocations()
   if (installed && resolveConsoleInvocationsIdentity() === identity) return installed
   const invocations = createConsoleInvocations(resolvedRoot)
@@ -104,7 +105,7 @@ export function installConsoleInvocations(projectRoot: string): AgentInvocations
 export function installConsoleFixtureInvocations(projectRoot: string, file: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const resolvedFile = resolve(file)
-  const identity = `fixture:${resolvedRoot}:${resolvedFile}`
+  const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile)
   const installed = resolveConsoleInvocations()
   if (installed && resolveConsoleInvocationsIdentity() === identity) return installed
   const invocations = createConsoleFixtureInvocations(resolvedFile)

@@ -769,8 +769,8 @@ describe("Agent invocation console", () => {
     const unboundAgentRealm = { process }
 
     // doctor-disable-next-line typescript/evidence/no-object-parameters -- VM contexts accept object realms and the test only checks injected symbol state.
-    const bind = async (projectRoot: string, realm: object) => {
-      const plugin = consoleInvocationRootPlugin(projectRoot)
+    const bind = async (projectRoot: string, realm: object, identity?: string) => {
+      const plugin = consoleInvocationRootPlugin(projectRoot, identity)
       // SAFETY: The console plugin declares this environment predicate on its Vite Plugin contract.
       const applyToEnvironment = plugin.applyToEnvironment as NonNullable<typeof plugin.applyToEnvironment>
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with a focused fake context.
@@ -818,6 +818,37 @@ describe("Agent invocation console", () => {
 
     expect(resolveConsoleInvocations(boundFirstAgentRealm)).toBe(first)
     expect(resolveConsoleInvocations(boundSecondAgentRealm)).toBe(second)
+  })
+
+  it("binds same-root isolated Agent realms to their owning runtime journal", async () => {
+    const first = fakeInvocations("first")
+    const second = fakeInvocations("second")
+    const projectRoot = "/project"
+    const firstIdentity = "fixture:/project:/first.json"
+    const secondIdentity = "fixture:/project:/second.json"
+    installConsoleInvocationFallback(first, projectRoot, { process }, firstIdentity)
+    installConsoleInvocationFallback(second, projectRoot, { process }, secondIdentity)
+
+    const transform = async (identity: string) => {
+      const plugin = consoleInvocationRootPlugin(projectRoot, identity)
+      const resolvedAgentEntry = "/app/node_modules/vite-hub/dist/agent.js"
+      const context = {
+        error(message: string): never { throw new TypeError(message) },
+        resolve: vi.fn(async () => ({ external: true, id: resolvedAgentEntry })),
+      }
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
+      const buildStart = plugin.buildStart as unknown as (this: typeof context) => Promise<void>
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
+      const transformHook = plugin.transform as unknown as (code: string, id: string) => string
+      await Reflect.apply(buildStart, context, [])
+      return transformHook("", resolvedAgentEntry)
+    }
+
+    const firstRealm = runInNewContext(`${await transform(firstIdentity)}\nglobalThis`, { process }) as object
+    const secondRealm = runInNewContext(`${await transform(secondIdentity)}\nglobalThis`, { process }) as object
+
+    expect(resolveConsoleInvocations(firstRealm)).toBe(first)
+    expect(resolveConsoleInvocations(secondRealm)).toBe(second)
   })
 
   it("keeps the project-root binding out of client environments", async () => {

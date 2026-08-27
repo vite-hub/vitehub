@@ -6,6 +6,7 @@ export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.cons
 export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
 export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
+export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 
 type ConsoleInvocationsByRoot = {
   get(key: string): AgentInvocations | undefined
@@ -13,7 +14,12 @@ type ConsoleInvocationsByRoot = {
   readonly size: number
 }
 
-type ConsoleInvocationRegistry = Record<symbol, AgentInvocations | string | ConsoleInvocationsByRoot | undefined>
+type ConsoleInvocationRegistry = Record<symbol, AgentInvocations | string | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | undefined>
+
+type ConsoleInvocationIdentitiesByRoot = {
+  get(key: string): string | undefined
+  set(key: string, value: string): unknown
+}
 
 export type ConsoleInvocationScope = {
   process?: unknown
@@ -22,6 +28,11 @@ export type ConsoleInvocationScope = {
   [consoleInvocationsIdentityRootKey]?: string
   [consoleInvocationsRootKey]?: string
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
+  [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
+}
+
+export function createConsoleInvocationsIdentity(projectRoot: string, fixture?: string): string {
+  return fixture ? `fixture:${projectRoot}:${fixture}` : `sqlite:${projectRoot}`
 }
 
 function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {

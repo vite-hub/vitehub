@@ -13,6 +13,7 @@ import type { Plugin } from "vite"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, readConsoleFixture } from "./fixture.ts"
+import { createConsoleInvocationsIdentity } from "./internal.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -229,9 +230,10 @@ function normalizeModuleId(id: string): string {
   return id.replace(/\\/g, "/").split("?", 1)[0]!
 }
 
-export function consoleInvocationRootPlugin(configuredProjectRoot?: string): Plugin {
+export function consoleInvocationRootPlugin(configuredProjectRoot?: string, configuredIdentity?: string): Plugin {
   const frameworkAgentEntries = new Set<string>()
   let projectRoot = configuredProjectRoot
+  let identity = configuredIdentity
 
   function rememberFrameworkAgent(id: string): void {
     frameworkAgentEntries.add(normalizeModuleId(id))
@@ -247,6 +249,11 @@ export function consoleInvocationRootPlugin(configuredProjectRoot?: string): Plu
     },
     configResolved(config) {
       projectRoot ||= resolveViteHubProjectRoot(config.root)
+      const configuredFixture = process.env[consoleFixtureEnvironmentVariable]
+      identity ||= createConsoleInvocationsIdentity(
+        projectRoot,
+        configuredFixture ? resolve(projectRoot, configuredFixture) : undefined,
+      )
     },
     async buildStart() {
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
@@ -263,7 +270,12 @@ export function consoleInvocationRootPlugin(configuredProjectRoot?: string): Plu
     transform(code, id) {
       if (!frameworkAgentEntries.has(normalizeModuleId(id))) return
       if (!projectRoot) this.error("[vitehub] Could not resolve the project root for the Agent invocation console.")
-      return `globalThis[Symbol.for("vitehub.console.invocations.root")] = ${JSON.stringify(projectRoot)}\n${code}`
+      return [
+        `globalThis[Symbol.for("vitehub.console.invocations.root")] = ${JSON.stringify(projectRoot)}`,
+        `globalThis[Symbol.for("vitehub.console.invocations.identity")] = ${JSON.stringify(identity)}`,
+        `globalThis[Symbol.for("vitehub.console.invocations.identity-root")] = ${JSON.stringify(projectRoot)}`,
+        code,
+      ].join("\n")
     },
   }
 }

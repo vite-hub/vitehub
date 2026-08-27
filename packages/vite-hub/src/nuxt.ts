@@ -15,6 +15,7 @@ import { mergeConfig } from "vite"
 import { vitehub } from "./index.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, readConsoleFixture } from "./console/fixture.ts"
+import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, consoleInvocationRootPlugin } from "./console/vite.ts"
@@ -546,6 +547,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !options.console || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
+  const consoleFixture = process.env[consoleFixtureEnvironmentVariable]
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
     ...(options.console
@@ -554,7 +556,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } },
         }]
       : []),
-    ...(options.console ? [consoleInvocationRootPlugin(projectRoot)] : []),
+    ...(options.console ? [consoleInvocationRootPlugin(
+      projectRoot,
+      createConsoleInvocationsIdentity(projectRoot, consoleFixture
+        ? resolve(projectRoot, consoleFixture)
+        : undefined),
+    )] : []),
   ]
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
