@@ -124,6 +124,12 @@ Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in re
 
 The Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, and progress updates.
 
+Set `VITEHUB_CONSOLE_DATABASE_URL` when the journal belongs on another volume or libSQL endpoint. Relative `file:` paths resolve from the ViteHub project root:
+
+```dotenv [.env]
+VITEHUB_CONSOLE_DATABASE_URL=file:/var/lib/my-app/console.sqlite
+```
+
 The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data.
 
 The fallback applies only when an Agent Definition does not configure `invocations`. An explicit `defineAgent({ invocations })` store remains authoritative, and its sessions are not copied into `console.sqlite` or read by the built-in Console.

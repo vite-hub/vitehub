@@ -60,6 +60,7 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
+  vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -725,6 +726,24 @@ describe("Agent invocation console", () => {
       expect(agent.invocations).toBe(writer)
       expect(existsSync(join(projectRoot, ".vitehub/data/console.sqlite"))).toBe(true)
       expect(existsSync(join(unrelatedCwd, ".vitehub/data/console.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+      await rm(unrelatedCwd, { force: true, recursive: true })
+    }
+  })
+
+  it("uses the configured Console database path relative to the project root", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-configured-project-"))
+    const unrelatedCwd = await mkdtemp(join(tmpdir(), "vitehub-console-configured-cwd-"))
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite")
+    vi.spyOn(process, "cwd").mockReturnValue(unrelatedCwd)
+    try {
+      await createConsoleInvocations(projectRoot).list()
+
+      expect(existsSync(join(projectRoot, "data/invocations.sqlite"))).toBe(true)
+      expect(existsSync(join(projectRoot, ".vitehub/data/console.sqlite"))).toBe(false)
+      expect(existsSync(join(unrelatedCwd, "data/invocations.sqlite"))).toBe(false)
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
