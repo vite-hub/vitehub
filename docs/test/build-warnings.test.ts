@@ -32,6 +32,7 @@ describe("docs build warning budget", () => {
     const warnings = [
       "[warn] [docus] AI assistant disabled: missing AI binding",
       "[warn] [PLUGIN_TIMINGS] render pages took 1s",
+      "[warn] [INEFFECTIVE_DYNAMIC_IMPORT] ../node_modules/.pnpm/@nuxt+ui@4.11.0/node_modules/@nuxt/ui/dist/runtime/components/Button.vue is dynamically imported",
       "[warn] [Icon] failed to load icon `simple-icons:pnpm`",
       "[warn] [nitro] [cloudflare] Wrangler config `assets`set by config or modules is overridden and will be ignored.",
     ].join("\n")

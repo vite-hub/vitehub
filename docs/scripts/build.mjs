@@ -22,6 +22,7 @@ export const buildWarningBudget = Object.freeze([
   { name: "build plugin timings", maximum: 3, text: "[PLUGIN_TIMINGS]" },
   { name: "VueUse pure annotations", maximum: 2, text: "[INVALID_ANNOTATION]" },
   { name: "Rollup pure annotations", maximum: 2, text: "contains an annotation that Rollup cannot interpret", warningTokenRequired: false },
+  { name: "Nuxt UI Button dynamic import", maximum: 2, text: "[INEFFECTIVE_DYNAMIC_IMPORT] ../node_modules/.pnpm/@nuxt+ui@" },
   { name: "Vite chunk size", maximum: 1, text: "[plugin builtin:vite-reporter]" },
   { name: "Nitro Cloudflare assets override", maximum: 1, text: "Wrangler config assetsset" },
   { name: "Nuxt Nitro server unused H3Event import", maximum: 1, text: '"H3Event" is imported from external module' },
