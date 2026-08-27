@@ -47,6 +47,7 @@ catalogs:
   h3-v1-compat:
     h3: ^1.15.11
   markdown:
+    "@types/mdast": ^4.0.4
     "@comark/html": 0.6.2
     comark: 0.6.2
     comark-content: 0.3.0

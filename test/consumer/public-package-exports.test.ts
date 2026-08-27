@@ -36,8 +36,7 @@ function isPackageDiagnostic(diagnostic: ts.Diagnostic, sourcePath: string, pack
   return !diagnostic.file
     || diagnostic.file.fileName === sourcePath
     || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)
-    || (!diagnostic.file.hasNoDefaultLib
-      && !diagnostic.file.fileName.includes(`${sep}node_modules${sep}@types${sep}`))
+    || !diagnostic.file.hasNoDefaultLib
 }
 
 async function run(command: string, args: string[], cwd: string) {
@@ -142,13 +141,18 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[]) {
   await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
 }
 
-async function importPackagesWithoutRootFallback(appDir: string, includeOptionalPeers: boolean) {
+async function importPackagesWithoutRootFallback(
+  appDir: string,
+  includeOptionalPeers: boolean,
+  includePackage: (packageName: string) => boolean = () => true,
+) {
   const packageRoots = new Map(await Promise.all(packageInfos.map(async info => [
     info.packageName,
     await realpath(join(appDir, "node_modules", ...info.packageName.split("/"))),
   ] as const)))
 
   for (const info of packageInfos) {
+    if (!includePackage(info.packageName)) continue
     const packageRoot = packageRoots.get(info.packageName)
     if (!packageRoot) throw new Error(`Missing installed package root for ${info.packageName}`)
     const manifest = await readManifest(join(packageRoot, "package.json"))
@@ -250,6 +254,23 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
     && isJavaScriptModule(contract.target)
     && (includeOptionalPeers || contract.optionalPeers.length === 0),
   )
+  const cloudflareModules = modules.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
+  const ordinaryModules = modules.filter(contract => !cloudflareModules.includes(contract))
+
+  await typecheckPackageModuleGroup(packageName, packageRoot, runnerDir, ordinaryModules, "", false)
+  if (cloudflareModules.length) {
+    await typecheckPackageModuleGroup(packageName, packageRoot, runnerDir, cloudflareModules, "-cloudflare", true)
+  }
+}
+
+async function typecheckPackageModuleGroup(
+  packageName: string,
+  packageRoot: string,
+  runnerDir: string,
+  modules: readonly (typeof publicPackageExportContracts)[number][],
+  suffix: string,
+  withCloudflareHost: boolean,
+) {
   const ambientModules: Record<string, string> = {
     "@vite-hub/blob": "#vitehub/blob/config",
     "@vite-hub/kv": "#vitehub/kv/config",
@@ -264,11 +285,11 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
     ].join("\n")),
     ...(ambientModule ? [`import type * as AmbientModule from ${JSON.stringify(ambientModule)}`, "void (undefined as unknown as typeof AmbientModule)"] : []),
   ].join("\n")
-  await writeFile(join(runnerDir, "exports.ts"), `${source}\n`, "utf8")
-  const sourcePath = join(runnerDir, "exports.ts")
+  const sourcePath = join(runnerDir, `exports${suffix}.ts`)
+  await writeFile(sourcePath, `${source}\n`, "utf8")
   const rootNames = [sourcePath]
   let hostTypesPath: string | undefined
-  if (packageName === "@vite-hub/agent") {
+  if (withCloudflareHost) {
     hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
     await writeFile(hostTypesPath, [
       "export class DurableObject<Env = unknown> {",
@@ -332,6 +353,24 @@ describe("published declaration diagnostics", () => {
 
     expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
   })
+
+  it("keeps diagnostics from imported @types declarations", () => {
+    const file = ts.createSourceFile(
+      "/consumer/node_modules/.pnpm/@types+example/index.d.ts",
+      "export type Broken = Missing",
+      ts.ScriptTarget.ESNext,
+    )
+    const diagnostic: ts.Diagnostic = {
+      category: ts.DiagnosticCategory.Error,
+      code: 2304,
+      file,
+      length: 7,
+      messageText: "Cannot find name 'Missing'.",
+      start: 21,
+    }
+
+    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
+  })
 })
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package exports from tarballs", () => {
@@ -366,11 +405,12 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       await importSpecifiers(appDir, publicPackageExportContracts
         .filter(contract => contract.packageName !== "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
         .map(contract => contract.specifier))
+      await importPackagesWithoutRootFallback(appDir, false, packageName => packageName !== "@vite-hub/ui")
       await addRequiredVue(appDir)
       await importSpecifiers(appDir, publicPackageExportContracts
         .filter(contract => contract.packageName === "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
         .map(contract => contract.specifier))
-      await importPackagesWithoutRootFallback(appDir, false)
+      await importPackagesWithoutRootFallback(appDir, false, packageName => packageName === "@vite-hub/ui")
 
       expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
