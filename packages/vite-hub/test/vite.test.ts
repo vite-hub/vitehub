@@ -80,7 +80,7 @@ vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: integrationMocks.hubWor
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
-import type { Plugin, PluginOption } from "vite"
+import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub } from "../src/index.ts"
 
@@ -964,7 +964,7 @@ describe("vitehub", () => {
     }])).not.toThrow()
   })
 
-  it("forwards Vite resolve conditions to Deno output staging", async () => {
+  it("forwards resolved server conditions to Deno output staging", async () => {
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
     integrationMocks.finalizeDeploymentPlanOutput.mockClear()
     const plugins = vitehub({ preset: "deno" })
@@ -974,12 +974,10 @@ describe("vitehub", () => {
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
     // SAFETY: The preset config hook populated Nitro modules for the Deno build above.
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
-    callHook(output.configResolved, [{
-      command: "build",
-      nitro: nitroConfig,
-      plugins: [],
-      resolve: { alias: [], conditions: ["launch"] },
-    }])
+    const resolvedConfig = await resolveConfig({
+      resolve: { conditions: ["launch"] },
+    }, "build", "production")
+    callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
     const nitro = {
       hooks: {
@@ -1002,7 +1000,7 @@ describe("vitehub", () => {
     await compiled()
 
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
-      conditions: ["launch"],
+      conditions: ["module", "node", "production", "launch"],
     }))
   })
 

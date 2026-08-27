@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 
+import { defaultClientConditions, defaultServerConditions } from "vite"
+
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -49,11 +51,17 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { Plugin, PluginOption, UserConfig } from "vite"
+import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 
 export type { ConsoleOptions } from "./console/vite.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
+
+function resolveServerConditions(config: ResolvedConfig): string[] {
+  const customConditions = config.resolve.conditions.filter(condition => !defaultClientConditions.includes(condition))
+  const conditions = config.environments.ssr?.resolve.conditions ?? [...defaultServerConditions, ...customConditions]
+  return conditions.map(condition => condition === "development|production" ? config.mode : condition)
+}
 
 const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
@@ -572,7 +580,7 @@ function deploymentPlugins(
               ? [{ customResolver: alias.customResolver !== undefined, find: alias.find, replacement: alias.replacement }]
               : [],
           ),
-          conditions: [...config.resolve.conditions],
+          conditions: resolveServerConditions(config),
           hasScheduleIntegration: config.plugins.some(plugin => plugin.name === "@vite-hub/schedule/vite"),
         }
         if (plan.preset === "cloudflare") {
