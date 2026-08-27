@@ -120,7 +120,14 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
     for (const signal of forwardedSignals) {
       const handler = () => {
         if (process.platform === "win32" || !child.pid) child.kill(signal)
-        else process.kill(-child.pid, signal)
+        else {
+          try {
+            process.kill(-child.pid, signal)
+          }
+          catch (error) {
+            if (Reflect.get(Object(error), "code") !== "ESRCH") throw error
+          }
+        }
       }
       handlers.set(signal, handler)
       process.on(signal, handler)

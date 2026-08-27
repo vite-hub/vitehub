@@ -236,6 +236,50 @@ describe("ViteHub CLI", () => {
     expect(stderrFlush).toHaveBeenCalledOnce()
   })
 
+  it.runIf(process.platform !== "win32")("ignores a signal forwarded after the child process group exits", async () => {
+    const originalKill = process.kill.bind(process)
+    const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid < 0 && signal === "SIGTERM") {
+        throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" })
+      }
+      return originalKill(pid, signal)
+    })
+
+    try {
+      const exitCode = await runViteHubCli({
+        args: ["test", "spawn"],
+        loadConfig: async () => ({
+          plugins: [{
+            vitehub: {
+              cli: {
+                namespaces: [{
+                  features: [{
+                    name: "spawn",
+                    run: async (_args, context) => {
+                      const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 20)"])
+                      await vi.waitFor(() => expect(process.listenerCount("SIGTERM")).toBeGreaterThan(0))
+                      process.emit("SIGTERM")
+                      return (await result).exitCode
+                    },
+                  }],
+                  name: "test",
+                }],
+              },
+            },
+          }],
+          root: "/repo",
+        }),
+      })
+
+      expect(exitCode).toBe(0)
+      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGTERM")
+      expect(process.listenerCount("SIGTERM")).toBe(0)
+    }
+    finally {
+      kill.mockRestore()
+    }
+  })
+
   it("routes package-contributed CLI features", async () => {
     const stdout = stream()
     const stderr = stream()
