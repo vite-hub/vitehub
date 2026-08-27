@@ -17,10 +17,12 @@ const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
 const envSplitStringOptions = new Set(["--split-string", "-S"])
 const commandValueOptions = new Set(["--argv0", "-a"])
 const commandQueryOptions = new Set(["--verbose", "-V", "-v"])
+const sudoQueryOptions = new Set(["--list", "-l"])
 const sudoValueOptions = new Set([
   "--chdir", "--chroot", "--close-from", "--command-timeout", "--group", "--host", "--prompt", "--role", "--type", "--user",
   "-C", "-D", "-g", "-h", "-p", "-R", "-r", "-T", "-t", "-u",
 ])
+const timeoutValueOptions = new Set(["--kill-after", "--signal", "-k", "-s"])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
 
@@ -124,17 +126,39 @@ function commandIndexes(tokens) {
         }
         if (wrapper === "sudo") {
           executableIndex++
+          let queriesOnly = false
           while (executableIndex < tokens.length) {
             const argument = tokens[executableIndex]
             if (argument === "--") {
               executableIndex++
               break
             }
+            if (sudoQueryOptions.has(argument)) {
+              queriesOnly = true
+              executableIndex++
+              continue
+            }
             if (assignmentPattern.test(argument)) executableIndex++
             else if (sudoValueOptions.has(argument)) executableIndex += 2
             else if (argument.startsWith("-")) executableIndex++
             else break
           }
+          if (queriesOnly) executableIndex = tokens.length
+          continue
+        }
+        if (wrapper === "timeout") {
+          executableIndex++
+          while (executableIndex < tokens.length) {
+            const argument = tokens[executableIndex]
+            if (argument === "--") {
+              executableIndex++
+              break
+            }
+            if (timeoutValueOptions.has(argument)) executableIndex += 2
+            else if (argument.startsWith("-")) executableIndex++
+            else break
+          }
+          if (executableIndex < tokens.length) executableIndex++
           continue
         }
         if (wrapper !== "env") break
@@ -231,8 +255,9 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
         const invocation = tokens.slice(index + 1, end === -1 ? tokens.length : end)
         const callIndex = invocation.findIndex(argument => /^-[^-]*c/.test(argument))
-        if (callIndex !== -1 && invocation[callIndex + 1]) {
-          specs.push(...findExecutablePackageSpecs(invocation[callIndex + 1], environment))
+        const commandIndex = callIndex + (invocation[callIndex + 1] === "--" ? 2 : 1)
+        if (callIndex !== -1 && invocation[commandIndex]) {
+          specs.push(...findExecutablePackageSpecs(invocation[commandIndex], environment))
         }
         continue
       }

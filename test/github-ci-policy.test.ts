@@ -87,6 +87,8 @@ describe("GitHub CI input policy", () => {
         "      - run: command npx tool@1.2.3",
         "      - run: command -v npx",
         "      - run: command -V pnpm",
+        "      - run: sudo -l npx unpinned",
+        "      - run: sudo --list npx unpinned",
         "      - run: exec -a tool npx tool@1.2.3",
         "      - run: 2>/dev/null npx redirected@1.2.3",
         "      - run: *pinned-command",
@@ -406,6 +408,7 @@ jobs:
     "(npx unpinned)",
     "bash -c 'npx unpinned'",
     "bash -lc 'npx unpinned'",
+    "bash -c -- 'npx unpinned'",
     "env FOO=bar npx unpinned",
     "env --ignore-environment -u FOO BAR=baz npx unpinned",
     "if true; then npx unpinned; fi",
@@ -430,6 +433,8 @@ jobs:
     "echo ${FOO:-$(npx unpinned)}",
     "sudo npx unpinned",
     "sudo -u root FOO=bar npx unpinned",
+    "timeout 5m npx unpinned",
+    "timeout --signal KILL 5m npx unpinned",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
