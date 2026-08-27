@@ -143,6 +143,24 @@ describe("Agent message metadata", () => {
     expect(prepared.context?.channel).toEqual({ meta: { parse: 1 } })
   })
 
+  it("does not reuse another Agent Definition's metadata receipt", async () => {
+    const first = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
+    const secondSchema = {
+      "~standard": {
+        validate: () => ({ value: { owner: "second" } }),
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    } as const
+    const second = defineAgent({ driver: { run: () => "ok" }, messages: { meta: secondSchema } })
+    const prepared = await withParsedAgentMessageMeta(first, { context: { channel: { meta: {} } } })
+    const context = createAgentInvocationContextStore(prepared.context)
+
+    await parseAgentMessageMeta(second, context)
+
+    expect(context.get("channel")).toEqual({ meta: { owner: "second" } })
+  })
+
   it("restores trusted parsed metadata after a durable handoff", async () => {
     let parses = 0
     const schema = {
@@ -155,9 +173,9 @@ describe("Agent message metadata", () => {
     const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
     const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
 
-    expect(hasParsedAgentMessageMeta(prepared)).toBe(true)
+    expect(hasParsedAgentMessageMeta(agent, prepared)).toBe(true)
     const portable = await portableAgentWorkflowInput(prepared)
-    const restored = restoreParsedAgentMessageMeta(portable)
+    const restored = restoreParsedAgentMessageMeta(agent, portable)
     await parseAgentMessageMeta(agent, createAgentInvocationContextStore(restored.context))
 
     expect(parses).toBe(1)
@@ -223,6 +241,27 @@ describe("Agent message metadata", () => {
       kind: "chat",
       meta: { audience: "technical", email: "user@example.com" },
     })
+    expect(context.get("actor")).toEqual(context.get("invoker"))
+  })
+
+  it("rebuilds a chat invoker when null metadata is normalized", async () => {
+    const schema = {
+      "~standard": {
+        validate: () => ({ value: { audience: "support" } }),
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    } as const
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
+    const context = createAgentInvocationContextStore({
+      actor: { id: "chat:user-1", kind: "chat", meta: {} },
+      channel: { meta: null },
+      invoker: { id: "chat:user-1", kind: "chat", meta: {} },
+    })
+
+    await parseAgentMessageMeta(agent, context)
+
+    expect(context.get("invoker")).toEqual({ id: "chat:user-1", kind: "chat", meta: { audience: "support" } })
     expect(context.get("actor")).toEqual(context.get("invoker"))
   })
 

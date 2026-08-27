@@ -372,7 +372,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     }
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
     let restoredWorkflowInput = workflowInput as AgentRunInput<CALL_OPTIONS>
-    if (payload.parsedMessageMeta) restoredWorkflowInput = restoreParsedAgentMessageMeta(restoredWorkflowInput)
+    if (payload.parsedMessageMeta) restoredWorkflowInput = restoreParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run)
     if (payload.resolvedInvoker) restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput)
     const inlineResult = await runAgentInline(
       agent,
