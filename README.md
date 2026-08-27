@@ -100,4 +100,18 @@ On a systemd host, follow the events with:
 journalctl -u babysitter.service -f -o cat | rg '^\[babysitter\]'
 ```
 
+Have systemd send the non-terminating `SIGUSR2` drain signal before stopping the Node server, then poll the read-only drain status.
+
+```ini
+[Service]
+WorkingDirectory=/srv/babysitter/current
+ExecStop=/bin/sh .output/server/babysitter-drain $MAINPID http://127.0.0.1:3000/api/drain
+TimeoutStopSec=70min
+KillMode=control-group
+```
+
+`SIGUSR2` closes reconciliation admission before the signal handler returns. Repeated signals reuse the same drain. `GET /api/drain` reports `starting`, `accepting`, `draining`, `drained`, or `failed`. HTTP requests cannot start a drain, including requests forwarded by a local reverse proxy.
+
+The production build copies the helper to `.output/server/babysitter-drain`, so deploy it with the rest of the immutable `.output` directory. The helper waits until the signal listener reports `accepting`, sends `SIGUSR2`, and blocks until both running and capacity-queued owner invocations finish. It fails immediately if the drain reports `failed` or the main process exits. Systemd then stops the server and clears any remaining processes in the service cgroup. Keep `KillMode=control-group`; `process` can leave owner children outside the service lifecycle. `TimeoutStopSec` bounds the agents' 60-minute invocation timeout plus queue and cleanup overhead.
+
 Keep `BABYSITTER_MAX_OWNERS=1` until representative runs finish without OOM events, sustained swap growth, or low available memory. Raise the hard ceiling one owner at a time. The adaptive gate reduces admission under pressure; it does not prove that a higher ceiling is safe.

@@ -1,0 +1,83 @@
+#!/bin/sh
+
+set -u
+
+main_pid=${1-}
+status_url=${2-http://127.0.0.1:3000/api/drain}
+poll_seconds=${BABYSITTER_DRAIN_POLL_SECONDS-1}
+
+case "$main_pid" in
+  ''|*[!0-9]*)
+    echo 'usage: babysitter-drain MAINPID [STATUS_URL]' >&2
+    exit 2
+    ;;
+esac
+
+main_is_running() {
+  kill -0 "$main_pid" 2>/dev/null
+}
+
+read_status() {
+  response=$(curl --fail --silent --connect-timeout 2 --max-time 5 "$status_url") || {
+    echo unavailable
+    return
+  }
+  case "$response" in
+    *'"status":"starting"'*) echo starting ;;
+    *'"status":"accepting"'*) echo accepting ;;
+    *'"status":"draining"'*) echo draining ;;
+    *'"status":"drained"'*) echo drained ;;
+    *'"status":"failed"'*) echo failed ;;
+    *) echo invalid ;;
+  esac
+}
+
+fail_if_terminal() {
+  case "$1" in
+    failed)
+      echo 'babysitter drain reported failed' >&2
+      exit 1
+      ;;
+    invalid)
+      echo 'babysitter drain returned an invalid status' >&2
+      exit 1
+      ;;
+  esac
+}
+
+send_signal=true
+while main_is_running; do
+  drain_status=$(read_status)
+  fail_if_terminal "$drain_status"
+  case "$drain_status" in
+    accepting) break ;;
+    draining)
+      send_signal=false
+      break
+      ;;
+    drained) exit 0 ;;
+  esac
+  sleep "$poll_seconds"
+done
+
+if ! main_is_running; then
+  echo "babysitter main process $main_pid exited before drain started" >&2
+  exit 1
+fi
+
+if [ "$send_signal" = true ] && ! kill -USR2 "$main_pid" 2>/dev/null; then
+  echo "babysitter main process $main_pid exited before drain started" >&2
+  exit 1
+fi
+
+while main_is_running; do
+  drain_status=$(read_status)
+  fail_if_terminal "$drain_status"
+  if [ "$drain_status" = drained ]; then
+    exit 0
+  fi
+  sleep "$poll_seconds"
+done
+
+echo "babysitter main process $main_pid exited before drain completed" >&2
+exit 1
