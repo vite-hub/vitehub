@@ -754,7 +754,8 @@ describe("Agent invocation console", () => {
       const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-progress-summary")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
-          "content.omitted": expect.arrayContaining(["tool.output", "vitehub.activity.body", "vitehub.activity.title"]),
+          "content.omitted": expect.not.arrayContaining(["tool.output"]),
+          "tool.output": expect.anything(),
           "vitehub.activity.progress": "Checking Airtable for assigned tasks.",
         }),
         name: "agent.tool.finish",

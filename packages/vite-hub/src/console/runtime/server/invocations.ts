@@ -29,6 +29,8 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
       "input.prompt",
       "message.content",
       "result.text",
+      "tool.input",
+      "tool.output",
       "vitehub.activity.progress",
     ],
     store: createLibsqlAgentInvocationStore({
