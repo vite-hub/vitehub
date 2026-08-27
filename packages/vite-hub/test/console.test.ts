@@ -412,17 +412,27 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
       expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)}, `)
 
-      let refresh: (() => Promise<void>) | undefined
+      const listeners = new Map<string, () => Promise<void>>()
+      const logger = { error: vi.fn() }
       const configureServerHook = plugin.configureServer
       if (!configureServerHook) throw new TypeError("Expected a configureServer hook.")
       const configureServer = "handler" in configureServerHook
         ? configureServerHook.handler
         : configureServerHook
-      await Reflect.apply(configureServer, {}, [{ watcher: { on: (_event: string, callback: () => Promise<void>) => { refresh = callback } } }])
+      await Reflect.apply(configureServer, {}, [{ config: { logger }, watcher: { on: (event: string, callback: () => Promise<void>) => listeners.set(event, callback) } }])
       await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
-      await refresh?.()
+      await listeners.get("change")?.()
       const refreshed = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
       expect(refreshed).not.toBe(generated)
+
+      await rm(fixture)
+      await expect(listeners.get("unlink")?.()).resolves.toBeUndefined()
+      await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.toBe(refreshed)
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
+
+      await writeFile(fixture, JSON.stringify({ invocations: [], marker: "restored", version: 1 }))
+      await listeners.get("add")?.()
+      await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.not.toBe(refreshed)
 
       await expect(Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }]))
         .rejects.toThrow("Console fixture mode is development-only")

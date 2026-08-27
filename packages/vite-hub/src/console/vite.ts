@@ -221,7 +221,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       await refreshAgentDefinitions()
     },
     configureServer(server) {
-      const refresh = async () => await refreshAgentDefinitions()
+      const refresh = async () => {
+        try {
+          await refreshAgentDefinitions()
+        }
+        catch (error) {
+          server.config.logger.error(
+            `[vitehub] Could not refresh Console development state: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
       server.watcher.on("add", refresh)
       server.watcher.on("change", refresh)
       server.watcher.on("unlink", refresh)
