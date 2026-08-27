@@ -177,6 +177,7 @@ async function removeStaleMaterializedSourceFiles(
   source: ResolvedWorkspaceSource,
   nextPaths: Set<string>,
   scope: WorkspaceMaterializeSourcesOptions | undefined,
+  control: { assertCurrent: () => void },
   options: { removeUntracked?: boolean } = {},
 ) {
   const entries = await store.list(source.mountPath, { recursive: true })
@@ -188,11 +189,13 @@ async function removeStaleMaterializedSourceFiles(
     const file = await store.readFile(entry.path)
     if (options.removeUntracked || file?.metadata?.source === source.key) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
+      control.assertCurrent()
       await store.rm(entry.path, { force: true })
     }
   }
   for (const entry of entries.filter(entry => entry.type === "directory" && staleDirectories.has(entry.path) && !nextDirectories.has(entry.path)).sort((a, b) => b.path.length - a.path.length)) {
     try {
+      control.assertCurrent()
       await store.rm(entry.path, { force: true })
     }
     catch {}
@@ -298,6 +301,9 @@ export async function materializeWorkspaceSources(
   options: WorkspaceMaterializeSourcesOptions = {},
   control: { isCurrent: () => boolean } = { isCurrent: () => true },
 ): Promise<WorkspaceMaterializeSourcesResult> {
+  const assertCurrent = () => {
+    if (!control.isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
+  }
   const started = Date.now()
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => shouldMaterializeSource(source, options))
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
@@ -338,6 +344,7 @@ export async function materializeWorkspaceSources(
       ? { ...existing.items }
       : {}
     if (completeSource) {
+      assertCurrent()
       await writeSourceSnapshotMetadata(store, {
         configHash,
         source: source.key,
@@ -358,6 +365,7 @@ export async function materializeWorkspaceSources(
       await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
+        assertCurrent()
         await store.mkdir(source.mountPath, { recursive: true })
       }
 
@@ -396,7 +404,7 @@ export async function materializeWorkspaceSources(
             ...entry.metadata,
             source: source.key,
           },
-        })
+        }, options.abortSignal ? { assertCurrent } : undefined)
         itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
@@ -410,7 +418,7 @@ export async function materializeWorkspaceSources(
         }
       }
       throwIfAborted(options.abortSignal)
-      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, { removeUntracked: Boolean(source.mountPath) })
+      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, { assertCurrent }, { removeUntracked: Boolean(source.mountPath) })
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []
@@ -428,6 +436,7 @@ export async function materializeWorkspaceSources(
         items: readyItems,
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
+      assertCurrent()
       if (completeSource) await writeSourceSnapshotMetadata(store, ready)
       else if (existing?.configHash === configHash) {
         await writeSourceSnapshotMetadata(store, {
@@ -511,9 +520,10 @@ async function writeMaterializedFile(
     mediaType?: string
     metadata?: Record<string, unknown>
   },
+  control?: { assertCurrent: () => void },
 ): Promise<{ size?: number }> {
   if (file.contentStream) {
-    if (store.writeFileStream) {
+    if (!control && store.writeFileStream) {
       return await store.writeFileStream(path, {
         path: file.path,
         content: file.contentStream,
@@ -522,11 +532,13 @@ async function writeMaterializedFile(
       })
     }
     const content = await contentStreamToBytes(file.contentStream)
+    control?.assertCurrent()
     await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
     return { size: content.byteLength }
   }
 
   const content = file.content ?? ""
+  control?.assertCurrent()
   await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
   return { size: contentSize(content) }
 }

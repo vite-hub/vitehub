@@ -318,6 +318,42 @@ describe("Workspace runtime preparation", () => {
     await preparation.stop()
   })
 
+  it("does not let an abandoned content stream overwrite a restarted snapshot", async () => {
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let firstStarted!: () => void
+    const firstStreaming = new Promise<void>((resolve) => { firstStarted = resolve })
+    let attempts = 0
+    const name = registerPreparationWorkspace(async () => {
+      attempts++
+      if (attempts > 1) return [{ content: "# Fresh", key: "ready.md" }]
+      return [{
+        contentStream: new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            firstStarted()
+            await firstBlocked
+            controller.enqueue(new TextEncoder().encode("# Stale"))
+            controller.close()
+          },
+        }),
+        key: "ready.md",
+      }]
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await firstStreaming
+    await preparation.stop()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    releaseFirst()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    await expect(useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Fresh")
+    expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
   it("stops without waiting for a pending validator", async () => {
     let validating!: () => void
     const validationStarted = new Promise<void>((resolve) => {
