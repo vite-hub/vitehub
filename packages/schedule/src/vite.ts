@@ -614,7 +614,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
     async buildEnd(error) {
       if (error) {
-        resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {

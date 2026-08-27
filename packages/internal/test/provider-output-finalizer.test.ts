@@ -9,6 +9,7 @@ import {
   contributeProviderDeploymentOutput,
   createDefaultCloudflareOutputRoot,
   finalizeProviderDeploymentOutputs,
+  resetProviderDeploymentOutputs,
 } from "../src/build/deployment-output.ts"
 import { createProviderOutputCatalog } from "../src/build/provider-output-catalog.ts"
 
@@ -181,6 +182,32 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
     await finalizeProviderDeploymentOutputs(catalog)
     expect(write).not.toHaveBeenCalled()
+  })
+
+  it("aborts and settles active finalization when reset", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let activeSignal: AbortSignal | undefined
+    let releaseWrite!: () => void
+    const laterWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ signal }) => {
+        activeSignal = signal
+        await new Promise<void>(resolve => releaseWrite = resolve)
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: laterWrite })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(activeSignal).toBeDefined())
+    const reset = resetProviderDeploymentOutputs(catalog)
+    expect(activeSignal?.aborted).toBe(true)
+    releaseWrite()
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    expect(laterWrite).not.toHaveBeenCalled()
   })
 
   it("removes stale output for every disabled host", async () => {

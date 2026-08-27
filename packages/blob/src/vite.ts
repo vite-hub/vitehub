@@ -320,7 +320,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     },
     async buildEnd(error) {
       if (error) {
-        resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput)
         return
       }
       if (shouldSkipViteProviderBuild(command, getViteMode())) {

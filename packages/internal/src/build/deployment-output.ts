@@ -134,7 +134,12 @@ interface FinalizeProviderDeploymentOutputOptions {
 }
 
 const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
-const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, Promise<void>>()
+interface ProviderDeploymentOutputFinalization {
+  controller: AbortController
+  promise: Promise<void>
+}
+
+const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
 
 const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "agent",
@@ -417,8 +422,12 @@ export function contributeProviderDeploymentOutput(
   catalog?.replaceDeploymentContribution(contribution)
 }
 
-export function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): void {
+export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): Promise<void> {
+  if (!catalog) return
+  const active = providerDeploymentOutputFinalizations.get(catalog)
+  active?.controller.abort(new Error("Provider Output finalization reset"))
   catalog?.resetDeploymentContributions()
+  if (active) await active.promise.catch(() => undefined)
 }
 
 export async function finalizeProviderDeploymentOutputs(
@@ -427,11 +436,11 @@ export async function finalizeProviderDeploymentOutputs(
 ): Promise<void> {
   if (!catalog) return
   const existing = providerDeploymentOutputFinalizations.get(catalog)
-  if (existing) return await existing
+  if (existing) return await existing.promise
 
+  const controller = new AbortController()
   const finalization = (async () => {
     const order = new Map(providerDeploymentOutputOwnerOrder.map((owner, index) => [owner, index]))
-    const controller = new AbortController()
     const abort = () => controller.abort(options.signal?.reason)
     if (options.signal?.aborted) abort()
     else options.signal?.addEventListener("abort", abort, { once: true })
@@ -472,12 +481,13 @@ export async function finalizeProviderDeploymentOutputs(
       options.signal?.removeEventListener("abort", abort)
     }
   })()
-  providerDeploymentOutputFinalizations.set(catalog, finalization)
+  const active = { controller, promise: finalization }
+  providerDeploymentOutputFinalizations.set(catalog, active)
   try {
     await finalization
   }
   finally {
-    if (providerDeploymentOutputFinalizations.get(catalog) === finalization) {
+    if (providerDeploymentOutputFinalizations.get(catalog) === active) {
       providerDeploymentOutputFinalizations.delete(catalog)
     }
   }

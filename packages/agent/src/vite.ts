@@ -2920,9 +2920,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         },
       }
     },
-    buildEnd(error) {
+    async buildEnd(error) {
       if (error) {
-        resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput)
         return
       }
       if (!resolved || resolved.command !== "build") return

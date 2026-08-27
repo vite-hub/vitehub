@@ -15,7 +15,7 @@ async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
   if (typeof plugin.buildEnd !== "function") throw new TypeError("Expected hubSchedule buildEnd hook")
   await plugin.buildEnd.call({} as never)
   if (!plugin.closeBundle || typeof plugin.closeBundle === "function") throw new TypeError("Expected hubSchedule closeBundle object hook")
-  await plugin.closeBundle.handler.call({} as never)
+  await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 }
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {

@@ -573,8 +573,8 @@ function deploymentPlugins(
           throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(nitroPreset) + ".")
         }
       },
-      buildEnd(error) {
-        if (error) resetProviderDeploymentOutputs(providerOutput)
+      async buildEnd(error) {
+        if (error) await resetProviderDeploymentOutputs(providerOutput)
       },
       closeBundle: {
         order: "post",

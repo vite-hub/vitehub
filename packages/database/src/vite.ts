@@ -180,7 +180,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
-        resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput)
         return
       }
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {

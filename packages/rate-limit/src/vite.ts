@@ -199,7 +199,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async buildEnd(error) {
       if (error) {
-        resetProviderDeploymentOutputs(composedOutput)
+        await resetProviderDeploymentOutputs(composedOutput)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return

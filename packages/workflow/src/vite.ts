@@ -175,9 +175,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         prepareScheduleRuntime,
       },
     },
-    buildEnd(error) {
+    async buildEnd(error) {
       if (error) {
-        resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
