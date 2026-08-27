@@ -3550,7 +3550,7 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
       input: restoredInput,
       capabilities: newerMessage.capabilities ?? previous.capabilities,
       requestUrl: newerMessage.requestUrl ?? previous.requestUrl,
-      parsedMessageMeta: newerMessage.parsedMessageMeta ?? previous.parsedMessageMeta,
+      parsedMessageMeta: newerMessage.parsedMessageMeta,
       resolvedInvoker: newerMessage.resolvedInvoker ?? previous.resolvedInvoker,
       run: newerMessage.run ?? previous.run,
     }

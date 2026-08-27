@@ -345,15 +345,23 @@ describe("Agent message metadata", () => {
     }).input
     const prepared = await withParsedAgentMessageMeta(previousAgent, input)
     const state = parsedAgentMessageMetaState(previousAgent, prepared)
-    const portable = await portableAgentWorkflowInput(withResolvedAgentInvokerInput(prepared, prepared.context!.invoker!))
+    const portable = await portableAgentWorkflowInput(withResolvedAgentInvokerInput(prepared, {
+      id: "previous-service",
+      kind: "service",
+      meta: { audience: "technical" },
+    }))
     let observed: unknown
+    let resolverInput: unknown
     const currentAgent = defineAgent({
       driver: { run: ({ context }) => {
         observed = context.get("invoker")
         return "ok"
       } },
       invoker: {
-        resolve: ({ defaultInvoker }) => ({ ...defaultInvoker, id: "current-agent" }),
+        resolve: ({ defaultInvoker }) => {
+          resolverInput = defaultInvoker
+          return { ...defaultInvoker, id: "current-agent" }
+        },
       },
     })
 
@@ -364,6 +372,7 @@ describe("Agent message metadata", () => {
       provider: "cloudflare",
     }, runAgentInline)
 
+    expect(resolverInput).toMatchObject({ id: "chat:user-1", kind: "chat" })
     expect(observed).toMatchObject({ id: "current-agent", kind: "chat" })
   })
 

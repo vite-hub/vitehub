@@ -77,7 +77,17 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
   if (state.derivedInvoker) markDerivedChatTriggerInvoker(input.context?.invoker, state.derivedInvoker)
   const receipt = parsedAgentMessageMetaReceipt(definition, createAgentInvocationContextStore(input.context), run)
   if (!receipt || state.revision === undefined || receipt.revision !== state.revision) {
-    return state.derivedInvoker ? withoutResolvedAgentInvokerInput(input) : input
+    if (!state.derivedInvoker) return input
+    const unresolved = withoutResolvedAgentInvokerInput(input)
+    if (receipt) return unresolved
+    return {
+      ...unresolved,
+      context: {
+        ...unresolved.context,
+        actor: state.derivedInvoker,
+        invoker: state.derivedInvoker,
+      },
+    }
   }
   return {
     ...input,
