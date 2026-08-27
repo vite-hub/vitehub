@@ -860,23 +860,23 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         observationWrite = settled
       }
       const persistLateObservation = async (observation: TraceEventLogEntry): Promise<void> => {
-        if (!await ensureCreated()) return
-        const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, true))
-        if (claimed !== true) return
-        try {
-          const timestamp = normalizedTimestamp(observation.timestamp)
-          await boundedStoreOperation(() => store.update(recordId, {
-            observation: boundedObservation({
-              ...observation,
+        await write(async () => {
+          if (!await ensureCreated()) return
+          const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, true))
+          if (claimed !== true) return
+          try {
+            const timestamp = normalizedTimestamp(observation.timestamp)
+            const persistedObservation = { ...observation, timestamp }
+            if (observation.trace) persistedObservation.trace = { ...observation.trace, id: traceId }
+            await boundedStoreOperation(() => store.update(recordId, {
+              observation: boundedObservation(persistedObservation),
               timestamp,
-              ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-            }),
-            timestamp,
-          }, claimId))
-        }
-        finally {
-          await boundedStoreOperation(() => store.release(recordId, claimId))
-        }
+            }, claimId))
+          }
+          finally {
+            await boundedStoreOperation(() => store.release(recordId, claimId))
+          }
+        })
       }
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) {
