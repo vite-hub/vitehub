@@ -16,7 +16,7 @@ const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB
 export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth" | "ignore">, WorkspaceSourceRuntimeOptions {
   auth?: GitHubAuth
   /** Adds to the default Source ignores. Set to false to include every matched path. */
-  ignore?: false | string | string[]
+  ignore?: false | string | readonly string[]
 }
 
 export type GitHubSourceResolver = (

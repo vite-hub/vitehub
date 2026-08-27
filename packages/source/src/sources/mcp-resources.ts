@@ -113,7 +113,7 @@ export type McpResourcesServer =
 
 export interface McpResourcesSourceOptions<TKey extends string = string> {
   cache?: false | SourceCacheOptions
-  ignore?: string | string[]
+  ignore?: string | readonly string[]
   include?: string | string[]
   path?: (resource: McpResourceDescriptor) => TKey | string | undefined
   request?: McpResourcesRequestOptions

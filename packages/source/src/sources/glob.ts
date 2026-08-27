@@ -11,7 +11,7 @@ export interface GlobSourceOptions {
   dot?: boolean
   followSymlinks?: boolean
   include: string | string[]
-  ignore?: string | string[]
+  ignore?: string | readonly string[]
   keyCache?: boolean
   prefix?: string
 }
@@ -115,8 +115,8 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
   return source
 }
 
-function normalizePatterns(patterns: string | string[] | undefined): string[] {
-  return Array.isArray(patterns) ? patterns : patterns ? [patterns] : []
+function normalizePatterns(patterns: string | readonly string[] | undefined): readonly string[] {
+  return typeof patterns === "string" ? [patterns] : patterns || []
 }
 
 function resolveSourceRoot(ctx: SourceContext) {

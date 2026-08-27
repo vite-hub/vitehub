@@ -4,6 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   defineWorkspace,
+  sourceIgnores,
   useWorkspace,
 } from "../src/index.ts"
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
@@ -132,6 +133,12 @@ describe("workspace types", () => {
       root: "docs",
       include: "**/*.md",
       ignore: "docs/drafts/**",
+    })
+    github({ ignore: sourceIgnores.defaults, repo: "acme/app" })
+    defineWorkspace({
+      sources: {
+        docs: { ignore: false, repo: "acme/docs" },
+      },
     })
     // @ts-expect-error Source Instructions no longer belong on Source config.
     github({ repo: "acme/app", instructions: "Use for hosted docs." })

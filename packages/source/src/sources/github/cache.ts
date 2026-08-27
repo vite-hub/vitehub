@@ -12,7 +12,7 @@ export function normalizeGitHubCache(options: Pick<GitHubSourceOptions, "cache">
 
 export function createGitHubCacheKey(input: {
   authScope: string
-  ignore?: string | string[]
+  ignore?: string | readonly string[]
   include?: string | string[]
   key?: string
   kind: string
@@ -36,7 +36,7 @@ export function githubAuthenticationScope(token: string | undefined) {
   return token ? createHash("sha256").update(token).digest("hex") : "anonymous"
 }
 
-function normalizePatternCacheKey(value: string | string[] | undefined) {
+function normalizePatternCacheKey(value: string | readonly string[] | undefined) {
   if (!value) return ""
-  return Array.isArray(value) ? value.join(",") : value
+  return typeof value === "string" ? value : value.join(",")
 }
