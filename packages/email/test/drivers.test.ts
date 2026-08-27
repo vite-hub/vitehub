@@ -60,6 +60,18 @@ describe("Resend Email driver", () => {
     expect(JSON.parse(request.mock.calls[0]![1]?.body as string).attachments).toEqual([{ content: "aGVsbG8=", filename: "hello.txt" }])
   })
 
+  it.each([
+    [{ html: "", text: "Hello" }, { html: "", text: "Hello" }],
+    [{ html: "<p>Hello</p>", text: "" }, { html: "<p>Hello</p>", text: "" }],
+  ])("preserves explicitly empty body alternatives", async (body, expected) => {
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await driver.send({ ...message, ...body }, context)
+
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject(expected)
+  })
+
   it("maps response body read failures to retryable network errors", async () => {
     const response = new Response(null, { status: 200 })
     vi.spyOn(response, "text").mockRejectedValue(new Error("connection reset"))
@@ -336,7 +348,9 @@ describe("Cloudflare Email driver", () => {
 
     await driver.send({ ...message, attachments: undefined, html: undefined, scheduledAt: undefined, text }, context)
 
-    const encoded = (Constructor.mock.calls[0]![2] as string).split("Content-Transfer-Encoding: base64\r\n\r\n")[1] ?? ""
+    const raw = Constructor.mock.calls[0]?.[2]
+    expect(raw).toEqual(expect.any(String))
+    const encoded = String(raw).split("Content-Transfer-Encoding: base64\r\n\r\n")[1] ?? ""
     expect(Buffer.from(encoded.replaceAll("\r\n", ""), "base64").toString()).toBe("first\r\nsecond")
   })
 

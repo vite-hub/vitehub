@@ -13,6 +13,14 @@ function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
   return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError")
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
+}
+
 function validateIdempotencyKey(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   try {
@@ -50,12 +58,12 @@ function payload(message: EmailMessage): Record<string, unknown> {
       ...message.headers,
       ...Object.fromEntries(Object.entries(message.metadata ?? {}).map(([key, value]) => [`X-Metadata-${key}`, value])),
     } } : message.metadata ? { headers: Object.fromEntries(Object.entries(message.metadata).map(([key, value]) => [`X-Metadata-${key}`, value])) } : {}),
-    ...(message.html ? { html: message.html } : {}),
+    ...(message.html !== undefined ? { html: message.html } : {}),
     ...(message.replyTo ? { reply_to: addresses(message.replyTo).map(formatAddress) } : {}),
     ...(message.scheduledAt ? { scheduled_at: message.scheduledAt instanceof Date ? message.scheduledAt.toISOString() : message.scheduledAt } : {}),
     subject: message.subject,
     ...(message.tags ? { tags: message.tags } : {}),
-    ...(message.text ? { text: message.text } : {}),
+    ...(message.text !== undefined ? { text: message.text } : {}),
     to: addresses(message.to).map(formatAddress),
   }
 }
@@ -65,7 +73,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   if (!options.apiKey.startsWith("re_")) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must start with 're_'.")
   if (/[^\u0021-\u007E]/.test(options.apiKey)) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey contains an invalid HTTP header character.")
   const request = options.fetch ?? globalThis.fetch
-  if (typeof request !== "function") throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.")
+  if (!(request instanceof Function)) throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.")
   const endpoint = options.endpoint ?? "https://api.resend.com"
   return {
     name: "resend",
@@ -92,7 +100,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       try {
         message = applyPersonalization("resend", message)
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey)
-        if (typeof message.scheduledAt === "string" && message.scheduledAt.trim() === "") {
+        if (message.scheduledAt !== undefined && !(message.scheduledAt instanceof Date) && message.scheduledAt.trim() === "") {
           throw emailProviderError("resend", "INVALID_OPTIONS", "scheduledAt cannot be empty.")
         }
         body = JSON.stringify(payload(message))
@@ -130,14 +138,14 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       let responseBody: Record<string, unknown> = {}
       try {
         const parsed: unknown = text ? JSON.parse(text) : {}
-        responseBody = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+        responseBody = isRecord(parsed) ? parsed : {}
       }
       catch {}
       if (!response.ok) {
         const code: EmailProviderErrorCode = response.status === 401 || response.status === 403
           ? "AUTH"
           : response.status === 408 ? "TIMEOUT" : response.status === 429 ? "RATE_LIMIT" : response.status >= 500 ? "NETWORK" : "PROVIDER"
-        return { data: null, error: emailProviderError("resend", code, typeof responseBody.message === "string" ? responseBody.message : `HTTP ${response.status}`, {
+        return { data: null, error: emailProviderError("resend", code, isString(responseBody.message) ? responseBody.message : `HTTP ${response.status}`, {
           cause: responseBody,
           retryable: code === "TIMEOUT" || code === "RATE_LIMIT" || code === "NETWORK",
           status: response.status,
