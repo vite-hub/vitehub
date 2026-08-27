@@ -1241,7 +1241,7 @@ async function applyChannelDeliveryEffectIntents<
           const deferredTrace = intent.kind === "reply" && registerMessageChannelDeferredReplyTrace(deliveryEffectContext, async (capture) => {
             await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
               ...metadata,
-              ...(capture.content ? { "channel.effect.content": capture.content } : {}),
+              "channel.effect.content": capture.content,
               ...(capture.error ? { "error.message": capture.error } : {}),
               ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
             })

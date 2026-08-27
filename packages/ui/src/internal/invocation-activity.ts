@@ -332,7 +332,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         .join("");
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
-      const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
+      const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"))
+        || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")));
       const approvalDenied = attributes["approval.approved"] === false;
       const completed = sorted.some(item => /\.(cancelled|completed|decision|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
@@ -446,6 +447,11 @@ function channelDeliveryTitle(activity: InvocationActivity): string {
   const delivery = rawKind.includes(".") ? rawKind : kind ? normalizedTitle(kind) : "Channel delivery";
   if (activity.attributes["channel.effect.supported"] === false) return `${delivery} not supported`;
   if (stringAttribute(activity.attributes, "channel.effect.skipped")) return `${delivery} skipped`;
+  if (stringAttribute(activity.attributes, "error.message")) {
+    if (kind === "reply") return "Reply failed";
+    if (kind === "reaction") return "Reaction failed";
+    return `${delivery} failed`;
+  }
   if (kind === "reaction") {
     const reaction: Record<string, string> = { completed: "hooray", failed: "confused", started: "eyes" };
     return reaction[intent] ? `Reacted with ${reaction[intent]}` : "Reaction sent";

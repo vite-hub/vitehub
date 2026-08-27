@@ -248,6 +248,8 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocation, { props: { invocation } });
     const delivery = wrapper.get('[data-kind="delivery"]');
 
+    expect(invocationActivityTitle(invocationActivities(invocation)[0]!)).toBe("Reply failed");
+    expect(invocationActivities(invocation)[0]?.status).toBe("failed");
     expect(delivery.get("summary").element.tagName).toBe("SUMMARY");
     expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Partially delivered reply.");
     expect(delivery.get(".vh-invocation-delivery__body").element.parentElement).toBe(delivery.element);
@@ -277,6 +279,8 @@ describe("Agent Invocation UI", () => {
     } satisfies AgentInvocationView;
     const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
 
+    expect(invocationActivityTitle(invocationActivities(invocation)[0]!)).toBe("Reaction failed");
+    expect(invocationActivities(invocation)[0]?.status).toBe("failed");
     expect(delivery.find(".vh-invocation-delivery__body").exists()).toBe(false);
     await delivery.get("summary").trigger("click");
     expect(delivery.get(".vh-invocation-event__failure").text()).toBe("Reaction delivery failed");

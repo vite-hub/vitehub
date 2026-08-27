@@ -11871,9 +11871,7 @@ describe("server helpers", () => {
           event.reply((async function* () {
             yield "Partial reply"
           })()),
-          event.reply((async function* () {
-            yield "Skipped reply"
-          })()),
+          event.reply("Skipped reply"),
         ],
       },
     })
@@ -11894,6 +11892,7 @@ describe("server helpers", () => {
       }))
       expect(record?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
+          "channel.effect.content": "",
           "error.message": "Skipped after an earlier queued reply failed: stream edit failed",
         }),
         name: "agent.channel.delivery.effect",
