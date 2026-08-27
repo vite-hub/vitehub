@@ -443,6 +443,98 @@ describe("Agent Invocation UI", () => {
     });
   });
 
+  it("renders structured tool payloads and a timed Agent and ViteHub trace", () => {
+    const invocation = {
+      completedAt: "2026-08-22T00:00:03.000Z",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "trace-context",
+      observations: [
+        {
+          attributes: {
+            "step.id": "materialize",
+            "tool.id": "materialize",
+            "tool.input": { path: "workspace root" },
+            "tool.name": "materialize_sources",
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Materialized ViteHub workspace",
+          },
+          name: "agent.tool.start",
+          sequence: 1,
+          timestamp: "2026-08-22T00:00:00.250Z",
+          type: "run" as const,
+        },
+        {
+          attributes: {
+            "step.id": "materialize",
+            "tool.durationMs": 500,
+            "tool.id": "materialize",
+            "tool.name": "materialize_sources",
+            "tool.output": { files: 12, summary: "Materialized repository (12 files)." },
+          },
+          name: "agent.tool.finish",
+          sequence: 2,
+          timestamp: "2026-08-22T00:00:00.750Z",
+          type: "run" as const,
+        },
+        {
+          attributes: {
+            "tool.id": "query",
+            "tool.input": { summary: "Private query omitted." },
+            "tool.name": "database_query",
+          },
+          name: "agent.tool.start",
+          sequence: 3,
+          timestamp: "2026-08-22T00:00:01.000Z",
+          type: "run" as const,
+        },
+        {
+          attributes: {
+            "tool.id": "query",
+            "tool.name": "database_query",
+            "tool.output": { rows: 1, summary: "Returned 1 row." },
+          },
+          name: "agent.tool.finish",
+          sequence: 4,
+          timestamp: "2026-08-22T00:00:02.000Z",
+          type: "run" as const,
+        },
+      ],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:03.000Z",
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)).toEqual([
+      expect.objectContaining({
+        durationMs: 500,
+        endedAt: "2026-08-22T00:00:00.750Z",
+        preview: "Materialized repository (12 files).",
+        startedAt: "2026-08-22T00:00:00.250Z",
+      }),
+      expect.objectContaining({ durationMs: 1_000 }),
+    ]);
+
+    const thread = mount(AgentInvocation, { props: { invocation } });
+    expect(thread.findAll(".vh-invocation-event__payload > strong").map(item => item.text())).toEqual([
+      "Input",
+      "Output",
+    ]);
+    expect(thread.text()).toContain("Private query omitted.");
+    expect(thread.text()).toContain("Returned 1 row.");
+
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    const rows = inspector.findAll(".vh-invocation-timeline__row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.attributes()).toMatchObject({
+      "data-owner": "vitehub",
+      title: "Materialized ViteHub workspace — Materialized repository (12 files).",
+    });
+    expect(rows[0]!.text()).toContain("+250ms · 500ms");
+    expect(rows[1]!.attributes("data-owner")).toBe("agent");
+    expect(rows[1]!.text()).toContain("+1s · 1s");
+  });
+
   it.each([
     ["direct output", "clean"],
     ["completed output", { output: "clean" }],

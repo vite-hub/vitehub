@@ -28,6 +28,8 @@ export interface InvocationActivity {
   attributes: Record<string, unknown>;
   body?: string;
   command?: InvocationCommand;
+  durationMs?: number;
+  endedAt?: string;
   id: string;
   kind: InvocationActivityKind;
   name: string;
@@ -37,6 +39,7 @@ export interface InvocationActivity {
   reasoningTokens?: number;
   role?: "assistant" | "system" | "tool" | "user";
   sequence: number;
+  startedAt?: string;
   status: "running" | "completed" | "failed";
   totalTokens?: number;
   truncated?: boolean;
@@ -182,7 +185,7 @@ function payloadDetail(attributes: Record<string, unknown>): string | undefined 
   for (const key of ["tool.output", "tool.input"]) {
     const payload = record(attributes[key]);
     const item = record(payload?.item) ?? payload;
-    const detail = item && stringAttribute(item, "detail", "output", "query", "path");
+    const detail = item && stringAttribute(item, "detail", "summary", "output", "query", "path");
     if (detail) return detail.split(/\r?\n/).find(Boolean)?.trim();
   }
   return stringAttribute(attributes, "tool.detail", "tool.output.summary", "vitehub.activity.detail");
@@ -341,6 +344,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
+      const endedAt = sorted.at(-1)?.timestamp;
+      const observedDuration = Date.parse(endedAt ?? "") - Date.parse(first.timestamp);
+      const durationMs = numericAttribute(attributes, "tool.durationMs")
+        ?? (Number.isFinite(observedDuration) ? Math.max(0, observedDuration) : undefined);
       const started = /\.(request|start|started)$/.test(first.name);
       const unfinishedTerminalStatus = started
         && invocation.status !== "pending"
@@ -351,12 +358,15 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         attributes,
         body: patches.join("") || messageBody || activityBody(attributes),
         command,
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(endedAt ? { endedAt } : {}),
         id,
         kind,
         name: first.name,
         patches,
         paths,
         sequence: first.sequence,
+        startedAt: first.timestamp,
         ...(numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") !== undefined
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
