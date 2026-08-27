@@ -1044,6 +1044,45 @@ describe("Workspace Source Resolution", () => {
     expect(getItem).toHaveBeenCalledOnce()
   })
 
+  it("does not serve parent startup snapshots through resolved child Sources", async () => {
+    const childGetItem = vi.fn(async (key: string) => ({ key, content: "resolved\n" }))
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          mount: "docs",
+          async getKeys() { return ["private/secret.md"] },
+          async getItem(key) { return { key, content: "prepared parent\n" } },
+        }),
+        privateDocs: custom({
+          materialize: "lazy",
+          mount: "docs/private",
+          async resolve() {
+            return custom({
+              mount: "docs/private",
+              async getKeys() { return ["secret.md"] },
+              getItem: childGetItem,
+            })
+          },
+          async getKeys() { return [] },
+          async getItem(key) { throw new Error(`unresolved source read: ${key}`) },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("docs/private/secret.md")).resolves.toBe("resolved\n")
+    expect(childGetItem).toHaveBeenCalledOnce()
+  })
+
   it("keeps source-backed paths read-only in writable overlays", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
