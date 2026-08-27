@@ -404,6 +404,28 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("records top-level usage when finalizing raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
+    const raw = Object.assign((async function* () {
+      yield { text: "answer", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      result: expect.objectContaining({ raw, text: "answer", usage, usageRecord: { usage } }),
+      usage: expect.objectContaining({ usage }),
+    }))
+  })
+
   it("preserves promise-backed usage on raw streams", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

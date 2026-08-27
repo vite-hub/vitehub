@@ -3866,7 +3866,7 @@ async function resultWithStreamedTextAndUsage(
         }
       : undefined
     const usageRecordValues = [fallbackUsageRecordProperties, streamedUsageRecordProperties, sourceUsageRecordProperties, normalizedUsageRecordProperties]
-    const mergedUsageRecord = usageRecordValues.some(value => Object.keys(value).length > 0) || hasSourceUsageRecord
+    const mergedUsageRecord = mergedUsage || usageRecordValues.some(value => Object.keys(value).length > 0) || hasSourceUsageRecord
       ? {
           ...mergedUsageRecords(...usageRecordValues),
           ...(["credentialSource", "latency", "response", "run"] as const).reduce<Record<string, unknown>>((properties, key) => {
