@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { createServer, type ViteDevServer } from "vite"
+import { createServer, resolveConfig, type ViteDevServer } from "vite"
 
 import { runAgentDevCli, runAgentInfoCli } from "@vite-hub/agent/cli"
 
@@ -56,6 +56,12 @@ describe("offline Agent Vite example", () => {
 
   afterAll(async () => {
     await server?.close()
+  })
+
+  it("keeps the documented CLI URL pinned to the development port", async () => {
+    const config = await resolveConfig({ configFile: join(exampleRoot, "vite.config.ts"), root: exampleRoot }, "serve")
+
+    expect(config.server.strictPort).toBe(true)
   })
 
   it("builds a request route from public package imports", async () => {

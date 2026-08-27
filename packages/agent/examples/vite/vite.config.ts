@@ -13,6 +13,9 @@ export default defineConfig({
     },
   },
   plugins: [hubAgent()],
+  server: {
+    strictPort: true,
+  },
   ssr: {
     external: ["@vite-hub/agent"],
   },
