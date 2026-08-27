@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
-import type { ReadonlyWorkspaceFacade, WorkspaceSession } from "@vite-hub/workspace"
+import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -25,6 +25,13 @@ const emptyWorkspace = () => ({
     none: vi.fn(() => ({})),
   },
 })
+
+function isWorkspaceSessionStarter(value: unknown): value is { startSession(): Promise<WorkspaceSession> } {
+  return typeof value === "object"
+    && value !== null
+    && "startSession" in value
+    && typeof value.startSession === "function"
+}
 
 const workspaceWithFiles = (files: Record<string, string>) => {
   const paths = new Set(Object.keys(files))
@@ -853,7 +860,12 @@ describe("agent capability runtime", () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
     let sourceQueries = 0
-    const baseWorkspace = emptyWorkspace()
+    const baseWorkspace = {
+      ...emptyWorkspace(),
+      startSession: vi.fn(async () => ({
+        glob: vi.fn(async () => []),
+      })),
+    }
     baseWorkspace.fs.search.mockRejectedValue(new Error("base search unavailable"))
 
     const resolved = await resolveAgentCapabilities({
@@ -888,9 +900,8 @@ describe("agent capability runtime", () => {
     await expect(resolved.workspace?.fs.search({ paths: [`pull-request/${expansivePattern}`], pattern: "review" })).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
-    const session = await (resolved.workspace as ReadonlyWorkspaceFacade & {
-      startSession(): Promise<WorkspaceSession>
-    }).startSession()
+    if (!isWorkspaceSessionStarter(resolved.workspace)) throw new Error("Expected a session-capable Workspace facade.")
+    const session = await resolved.workspace.startSession()
     await expect(session.glob(expansivePattern)).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
@@ -1675,10 +1686,13 @@ describe("agent capability runtime", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
-    const resolvedWorkspace = resolved.workspace as unknown as ReturnType<typeof writableWorkspace>
+    const resolvedWorkspace = resolved.workspace
+    if (!resolvedWorkspace || !("writeFile" in resolvedWorkspace.fs) || typeof resolvedWorkspace.fs.writeFile !== "function") {
+      throw new Error("Expected a writable Workspace facade.")
+    }
     await resolvedWorkspace.fs.writeFile("artifacts/review.md", "ok")
     expect(workspace.fs.writeFile).toHaveBeenCalledWith("artifacts/review.md", "ok", undefined)
-    expect(resolvedWorkspace.tools.write).toEqual(expect.any(Function))
+    expect(resolvedWorkspace.tools).toHaveProperty("write", expect.any(Function))
   })
 
   it("rejects duplicate invocation context values", async () => {

@@ -15,7 +15,7 @@ import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import githubExtension from "@github-tools/eve-extension"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
+import type { AccessChatOptions, AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
 
 declare global {
   interface ViteHubAgentInvocationContextValues {
@@ -1111,6 +1111,23 @@ describe("agent public types", () => {
     const customSupportAccessCapability = access({ workspace: customSupportAccess })
     expectTypeOf(customSupportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
     expectTypeOf(customSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig, "support">>()
+
+    const customSupportChat: AccessChatOptions<SupportRuntimeConfig> = {
+      resolve({ runtimeConfig }) {
+        expectTypeOf(runtimeConfig.supportToken).toEqualTypeOf<string>()
+        return true
+      },
+    }
+    const combinedSupportAccessCapability = access({
+      chat: customSupportChat,
+      workspace: {
+        defaultScope: "customer",
+        scopes: { customer: { all: true } },
+      },
+    })
+    expectTypeOf(combinedSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig>>()
+    type CombinedSupportRuntimeConfig = Parameters<NonNullable<typeof combinedSupportAccessCapability.prepare>>[0]["runtimeConfig"]
+    expectTypeOf<CombinedSupportRuntimeConfig>().toEqualTypeOf<SupportRuntimeConfig>()
 
     defineAgent({
       workspace,

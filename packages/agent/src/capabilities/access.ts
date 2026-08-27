@@ -304,8 +304,12 @@ async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
 }
 
 export function access<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, any, any, any>,
+>(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+export function access<
   const TWorkspace extends AccessWorkspaceOptions<any, any, any, any>,
->(options: { chat?: AccessChatOptions<AccessWorkspaceRuntimeConfig<TWorkspace>>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<AccessWorkspaceRuntimeConfig<TWorkspace>, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+>(options: { chat?: undefined, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<AccessWorkspaceRuntimeConfig<TWorkspace>, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>
