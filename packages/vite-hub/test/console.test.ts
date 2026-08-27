@@ -144,6 +144,38 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("replaces an installed journal when a fixture is rewritten in place", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-rewrite-"))
+    const fixture = (id: string) => ({
+      invocations: [{
+        agentName: "support",
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id,
+        observations: [],
+        status: "completed",
+        traceId: `${id}-trace`,
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      }],
+      version: 1,
+    })
+    try {
+      const file = join(root, "fixture.json")
+      await writeFile(file, JSON.stringify(fixture("first")))
+      const first = installConsoleFixtureInvocations(root, file)
+
+      await writeFile(file, JSON.stringify(fixture("second")))
+      const second = installConsoleFixtureInvocations(root, file)
+
+      expect(second).not.toBe(first)
+      await expect(second.list()).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "second" })],
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects malformed and duplicate fixture records", () => {
     expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
     expect(() => parseConsoleFixture({

@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+
 import type { AgentInvocations } from "@vite-hub/agent"
 
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
@@ -32,7 +35,9 @@ export type ConsoleInvocationScope = {
 }
 
 export function createConsoleInvocationsIdentity(projectRoot: string, fixture?: string): string {
-  return fixture ? `fixture:${projectRoot}:${fixture}` : `sqlite:${projectRoot}`
+  if (!fixture) return `sqlite:${projectRoot}`
+  const revision = createHash("sha256").update(readFileSync(fixture)).digest("hex")
+  return `fixture:${projectRoot}:${fixture}:${revision}`
 }
 
 function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {
