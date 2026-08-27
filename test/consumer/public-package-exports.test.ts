@@ -370,23 +370,27 @@ async function typecheckPackageModule(
     ].join("\n"), "utf8")
     rootNames.push(hostTypesPath)
   }
+  const paths: ts.CompilerOptions["paths"] = {}
+  if (["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)) {
+    paths["json-schema"] = [resolve(packageRoot, "../../@types/json-schema/index.d.ts")]
+  }
+  if (hostTypesPath) {
+    paths["cloudflare:workers"] = [hostTypesPath]
+  }
   const options: ts.CompilerOptions = {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
-    paths: {
-      ...(packageName === "@vite-hub/agent"
-        ? { "json-schema": [resolve(packageRoot, "../../@types/json-schema/index.d.ts")] }
-        : {}),
-      ...(hostTypesPath ? { "cloudflare:workers": [hostTypesPath] } : {}),
-    },
+    paths,
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    typeRoots: packageName === "@vite-hub/agent"
+    typeRoots: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
       ? [resolve(packageRoot, "../../@types"), resolve(runnerDir, "../..", "node_modules/@types")]
       : undefined,
-    types: packageName === "@vite-hub/agent" ? ["json-schema", "mdast", "node"] : ["node"],
+    types: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
+      ? ["json-schema", "mdast", "node"]
+      : ["node"],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>

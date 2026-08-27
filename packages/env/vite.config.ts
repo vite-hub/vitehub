@@ -31,6 +31,7 @@ export default defineConfig({
       customExports(exports) {
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pack export values cross the plugin boundary as strings or conditional export objects.
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
             }

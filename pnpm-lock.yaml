@@ -757,6 +757,12 @@ importers:
 
   packages/auth:
     dependencies:
+      '@types/json-schema':
+        specifier: catalog:ai
+        version: 7.0.15
+      '@types/mdast':
+        specifier: catalog:markdown
+        version: 4.0.4
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env

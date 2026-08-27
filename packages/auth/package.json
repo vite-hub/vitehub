@@ -47,6 +47,8 @@
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
+    "@types/json-schema": "catalog:ai",
+    "@types/mdast": "catalog:markdown",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth"
