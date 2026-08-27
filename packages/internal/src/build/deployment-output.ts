@@ -136,6 +136,7 @@ interface FinalizeProviderDeploymentOutputOptions {
 const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
 interface ProviderDeploymentOutputFinalization {
   controller: AbortController
+  preservePendingOnAbort: boolean
   promise: Promise<void>
 }
 
@@ -444,6 +445,7 @@ export function contributeProviderDeploymentOutput(
 export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): Promise<void> {
   if (!catalog) return
   const active = providerDeploymentOutputFinalizations.get(catalog)
+  if (active) active.preservePendingOnAbort = true
   active?.controller.abort(new Error("Provider Output finalization reset"))
   catalog?.resetDeploymentContributions()
   if (active) await active.promise.catch(() => undefined)
@@ -456,7 +458,15 @@ export async function finalizeProviderDeploymentOutputs(
   if (!catalog) return
   const existing = providerDeploymentOutputFinalizations.get(catalog)
   if (existing) {
-    await existing.promise
+    try {
+      await existing.promise
+    }
+    catch (error) {
+      if (!catalog.hasDeploymentContributions()) throw error
+    }
+    if (providerDeploymentOutputFinalizations.get(catalog) === existing) {
+      providerDeploymentOutputFinalizations.delete(catalog)
+    }
     if (catalog.hasDeploymentContributions()) await finalizeProviderDeploymentOutputs(catalog, options)
     return
   }
@@ -503,14 +513,15 @@ export async function finalizeProviderDeploymentOutputs(
       }
     }
     catch (error) {
-      catalog.resetDeploymentContributions()
+      const active = providerDeploymentOutputFinalizations.get(catalog)
+      if (!active?.preservePendingOnAbort) catalog.resetDeploymentContributions()
       throw error
     }
     finally {
       options.signal?.removeEventListener("abort", abort)
     }
   })()
-  const active = { controller, promise: finalization }
+  const active = { controller, preservePendingOnAbort: false, promise: finalization }
   providerDeploymentOutputFinalizations.set(catalog, active)
   try {
     await finalization

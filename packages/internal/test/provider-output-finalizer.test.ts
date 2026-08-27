@@ -240,6 +240,35 @@ describe("Provider Output finalizer", () => {
     expect(laterWrite).not.toHaveBeenCalled()
   })
 
+  it("finalizes newer contributions registered while reset unwinds", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let releaseWrite!: () => void
+    let writeStarted!: () => void
+    const started = new Promise<void>(resolve => writeStarted = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => {
+        writeStarted()
+        await new Promise<void>(resolve => releaseWrite = resolve)
+      },
+    })
+
+    const failedFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog)
+    const newerWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: newerWrite })
+    const newerFinalization = finalizeProviderDeploymentOutputs(catalog)
+    releaseWrite()
+
+    await reset
+    await expect(failedFinalization).rejects.toThrow("Provider Output finalization reset")
+    await newerFinalization
+    expect(newerWrite).toHaveBeenCalledOnce()
+  })
+
   it("prevents publication resumed after active finalization is reset", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
