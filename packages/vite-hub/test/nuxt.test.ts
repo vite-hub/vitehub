@@ -340,6 +340,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
         { route: "/api/_vitehub/console/search" },
+        { route: "/api/_vitehub/console/kv" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
@@ -353,6 +354,9 @@ describe("ViteHub Nuxt integration", () => {
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleAgentDefinitions([], vitehubConsoleInvocations)`,
+    )
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default"])`,
     )
 
     mocks.uiModule.mockClear()
@@ -386,6 +390,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
         { route: "/api/_vitehub/console/search" },
+        { route: "/api/_vitehub/console/kv" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
@@ -396,7 +401,16 @@ describe("ViteHub Nuxt integration", () => {
   it("installs only KV navigation and metadata for a KV-only Console", async () => {
     const development = createNuxt(true)
 
-    await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, development.nuxt)
+    await viteHubNuxtModule({
+      console: true,
+      kv: {
+        stores: {
+          cache: { base: ".vitehub/data/cache", driver: "fs-lite" },
+          default: { driver: "fs-lite" },
+        },
+      },
+      preset: "node",
+    }, development.nuxt)
     const pages: Array<{ file: string; name: string; path: string }> = []
     development.runPagesHook(pages)
 
@@ -405,12 +419,16 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/api/_vitehub/console/sections" }],
+      handlers: [
+        { route: "/api/_vitehub/console/sections" },
+        { route: "/api/_vitehub/console/kv" },
+      ],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["kv"])`)
     expect(generated).not.toContain("installConsoleInvocations")
+    expect(generated).toContain(`installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`)
   })
 
   it("rejects non-Node production console storage while preserving development", async () => {

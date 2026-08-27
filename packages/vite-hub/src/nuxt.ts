@@ -10,6 +10,7 @@ import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
+import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
@@ -163,12 +164,19 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   }
 }
 
-function renderConsoleNitroPlugin(projectRoot: string, sections: readonly ConsoleSectionId[], agents: readonly { handler: string; name: string }[]): string {
+function renderConsoleNitroPlugin(
+  projectRoot: string,
+  sections: readonly ConsoleSectionId[],
+  agents: readonly { handler: string; name: string }[],
+  kvStores: readonly string[],
+): string {
   const agentsEnabled = sections.includes("agents")
+  const kvEnabled = sections.includes("kv")
   return [
-    `import { ${["installConsoleSections", ...(agentsEnabled ? ["installConsoleAgentDefinitions", "installConsoleInvocations"] : [])].join(
+    `import { ${["installConsoleSections", ...(agentsEnabled ? ["installConsoleAgentDefinitions", "installConsoleInvocations"] : []), ...(kvEnabled ? ["installConsoleKV"] : [])].join(
       ", ",
     )} } from "vite-hub/console/server"`,
+    ...(kvEnabled ? [`import { kv as vitehubConsoleKV } from "vite-hub/kv"`] : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
     ...(agentsEnabled
@@ -176,6 +184,9 @@ function renderConsoleNitroPlugin(projectRoot: string, sections: readonly Consol
           `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
           `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
         ]
+      : []),
+    ...(kvEnabled
+      ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
       : []),
     "export default function viteHubConsolePlugin() {}",
     "",
@@ -187,8 +198,9 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
+  kvStores: readonly string[],
 ): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores)
   if ((await readFile(file, "utf8").catch(() => undefined)) === contents) return
   await mkdir(resolve(file, ".."), { recursive: true })
   await writeFile(file, contents, "utf8")
@@ -199,6 +211,7 @@ async function installConsole(
   projectRoot: string,
   discoveryRoot: string,
   sections: readonly ConsoleSectionId[],
+  kvStores: readonly string[],
   serverDirs?: string[],
 ): Promise<void> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
@@ -284,6 +297,12 @@ async function installConsole(
           },
         ]
       : []),
+    ...(sections.includes("kv")
+      ? [{
+          handler: join(consoleRuntimeRoot, "server/kv.get.js"),
+          route: "/api/_vitehub/console/kv",
+        }]
+      : []),
   ]
   for (const handler of additions) {
     if (!handlers.some((candidate) => candidate.route === handler.route)) handlers.push(handler)
@@ -291,7 +310,7 @@ async function installConsole(
   const plugins = (nitro.plugins ??= [])
   const plugin = join(projectRoot, ".vitehub/nitro/console/plugin.mjs")
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
-    await writeConsoleNitroPlugin(plugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(discoveryRoot, serverDirs) : [])
+    await writeConsoleNitroPlugin(plugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(discoveryRoot, serverDirs) : [], kvStores)
   })
   // Nitro runs in another runtime realm, so install a second journal instance over the same project SQLite file.
   await refreshAgentDefinitions()
@@ -519,6 +538,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
   const consoleSections = resolveConsoleSectionIds(options)
+  const configuredConsoleKV = options.kv && options.kv !== true ? options.kv : undefined
+  const resolvedConsoleKV = options.kv
+    ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
+    : false
+  const consoleKVStores = resolvedConsoleKV
+    ? Object.keys(resolvedConsoleKV.stores || { default: resolvedConsoleKV.store })
+    : []
   if (options.console) {
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
@@ -535,7 +561,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       development: Boolean(nuxt.options.dev),
       preset: plan.preset,
     })
-    await installConsole(nuxt, projectRoot, viteRoot, consoleSections, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined)
+    await installConsole(nuxt, projectRoot, viteRoot, consoleSections, consoleKVStores, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined)
   }
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {

@@ -654,6 +654,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.console) {
     plugins.push(consoleVitePlugin({
       console: options.console === true ? true : options.console,
+      kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,
       resolveAuthConfig: options.auth
         ? (root, serverDirs, auth) => resolveAuthViteConfig(

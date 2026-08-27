@@ -109,6 +109,7 @@ describe("ViteHub Console", () => {
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         console: { exposure: "host-managed" },
+        kvStores: ["default", "cache"],
         preset: "node",
         sections: ["agents", "kv"],
       })
@@ -132,6 +133,7 @@ describe("ViteHub Console", () => {
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
         "/api/_vitehub/console/search",
+        "/api/_vitehub/console/kv",
         "/_vitehub",
         "/_vitehub/**",
       ])
@@ -143,6 +145,9 @@ describe("ViteHub Console", () => {
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `fallbackName: "review"`,
+      )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`from "file://`)
     }
@@ -158,6 +163,7 @@ describe("ViteHub Console", () => {
       await writeFile(join(root, "hidden.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         console: { exposure: "host-managed" },
+        kvStores: ["default"],
         preset: "cloudflare",
         sections: ["kv"],
       })
@@ -171,10 +177,11 @@ describe("ViteHub Console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/sections", "/_vitehub", "/_vitehub/**"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/sections", "/api/_vitehub/console/kv", "/_vitehub", "/_vitehub/**"])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
+      expect(generated).toContain(`installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default"])`)
       expect(generated).not.toContain("hidden.agent")
     } finally {
       await rm(root, { force: true, recursive: true })

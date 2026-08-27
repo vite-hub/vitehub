@@ -14,6 +14,7 @@ useHead({ title: "KV · ViteHub Console" });
     <ConsoleProvider>
       <ConsoleKv
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
+        :kv-base="`${appBaseURL}/api/_vitehub/console/kv`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
       />
