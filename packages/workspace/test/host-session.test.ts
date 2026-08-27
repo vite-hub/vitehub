@@ -1545,6 +1545,34 @@ describe("workspace host sessions", () => {
     expect(maximum).toBe(1)
   })
 
+  it("settles active inspections and skips pending work after a batch fails", async () => {
+    const docs = workspace()
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 2 })
+    for (let index = 0; index < 4; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+    const session = await docs.startSession({ host })
+    const read = host.files.read.bind(host.files)
+    let reads = 0
+    let release!: () => void
+    const active = new Promise<void>((resolve) => { release = resolve })
+    host.files.read = async (path, options) => {
+      reads++
+      if (reads === 1) throw new Error("inspection failed")
+      await active
+      return await read(path, options)
+    }
+
+    const diff = session.diff()
+    await vi.waitFor(() => expect(reads).toBe(2))
+    let settled = false
+    void diff.finally(() => { settled = true }).catch(() => {})
+    await new Promise(resolve => setTimeout(resolve, 1))
+    expect(settled).toBe(false)
+    release()
+    await expect(diff).rejects.toThrow("inspection failed")
+    expect(reads).toBe(2)
+  })
+
   it("rejects invalid host inspection concurrency", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "docs")

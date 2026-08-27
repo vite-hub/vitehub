@@ -67,7 +67,29 @@ function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
 
 async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: readonly T[], visit: (value: T) => Promise<U>) {
   const inspect = resolveHostInspectionLimiter(host)
-  return await Promise.all(values.map(value => inspect(async () => await visit(value))))
+  const results = new Array<U>(values.length)
+  let next = 0
+  let failed = false
+  let failure: unknown
+  const workers = Array.from(
+    { length: Math.min(values.length, resolveHostInspectionConcurrency(host)) },
+    async () => {
+      while (!failed) {
+        const index = next++
+        if (index >= values.length) return
+        try {
+          results[index] = await inspect(async () => failed ? undefined as U : await visit(values[index]!))
+        }
+        catch (error) {
+          if (!failed) failure = error
+          failed = true
+        }
+      }
+    },
+  )
+  await Promise.all(workers)
+  if (failed) throw failure
+  return results
 }
 
 async function waitForOperation<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
