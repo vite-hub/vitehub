@@ -1,5 +1,6 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView } from "../types.ts";
+import { hasRuntimeType } from "./runtime-type.ts";
 
 type InvocationActivityKind =
   | "action"
@@ -46,7 +47,7 @@ export interface InvocationActivity {
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
+  return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
 }
@@ -56,7 +57,7 @@ function messageText(value: unknown): string | undefined {
   if (!Array.isArray(message?.parts)) return;
   const parts = message.parts.flatMap((part) => {
     const item = record(part);
-    return typeof item?.text === "string" ? [item.text] : [];
+    return hasRuntimeType(item?.text, "string") ? [item.text] : [];
   });
   return parts.length ? parts.join("") : undefined;
 }
@@ -88,9 +89,9 @@ function activityBody(attributes: Record<string, unknown>): string | undefined {
   ]) {
     const value = attributes[key];
     if (value === undefined || value === "undefined") continue;
-    if (typeof value === "string" && value) return value;
+    if (hasRuntimeType(value, "string") && value) return value;
     try {
-      const json = JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? `${item}n` : item, 2);
+      const json = JSON.stringify(value, (_key, item: unknown) => hasRuntimeType(item, "bigint") ? `${item}n` : item, 2);
       if (json) return json;
     } catch (error) {
       return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
@@ -109,19 +110,19 @@ function fileChanges(attributes: Record<string, unknown>): { patches: string[]; 
     const paths: string[] = [];
     const patches = item.changes.flatMap((value) => {
       const change = record(value);
-      if (typeof change?.path !== "string") {
+      if (!hasRuntimeType(change?.path, "string")) {
         return [];
       }
       const path = change.path.split("/workspace/").at(-1) || change.path.replace(/^\/+/, "");
       paths.push(path);
-      if (typeof change.diff !== "string" || !change.diff) return [];
+      if (!hasRuntimeType(change.diff, "string") || !change.diff) return [];
       const diff = change.diff.endsWith("\n") ? change.diff : `${change.diff}\n`;
       return [`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${diff}`];
     });
     if (patches.length || paths.length) return { patches, paths };
   }
   const body = attributes["vitehub.activity.body"];
-  if (attributes["vitehub.activity.kind"] === "change" && typeof body === "string" && /^diff --git /m.test(body)) {
+  if (attributes["vitehub.activity.kind"] === "change" && hasRuntimeType(body, "string") && /^diff --git /m.test(body)) {
     const paths = [...body.matchAll(/^diff --git a\/(.+?) b\/.+$/gm)].map(match => match[1]!);
     return {
       patches: [body.endsWith("\n") ? body : `${body}\n`],
@@ -151,29 +152,29 @@ function commandDetails(
   const streamedOutput = observations
     .filter(observation => observation.name === "agent.tool.output")
     .map(observation => observation.attributes?.["tool.output"])
-    .filter((value): value is string => typeof value === "string")
+    .filter((value): value is string => hasRuntimeType(value, "string"))
     .join("");
   const directOutput = observations
     .filter(observation => /\.(finish|error)$/.test(observation.name))
     .map(observation => observation.attributes?.["tool.output"])
-    .findLast(value => typeof value === "string");
-  const outputText = typeof output?.aggregatedOutput === "string"
+    .findLast(value => hasRuntimeType(value, "string"));
+  const outputText = hasRuntimeType(output?.aggregatedOutput, "string")
       ? output.aggregatedOutput
       : streamedOutput
         ? streamedOutput
-        : typeof directOutput === "string"
+        : hasRuntimeType(directOutput, "string")
           ? directOutput
-          : typeof output?.output === "string"
+          : hasRuntimeType(output?.output, "string")
             ? output.output
-            : typeof input?.aggregatedOutput === "string"
+            : hasRuntimeType(input?.aggregatedOutput, "string")
           ? input.aggregatedOutput
-          : typeof input?.output === "string"
+          : hasRuntimeType(input?.output, "string")
             ? input.output
             : undefined;
   return {
     command,
-    ...(typeof input?.cwd === "string" ? { cwd: input.cwd } : typeof output?.cwd === "string" ? { cwd: output.cwd } : {}),
-    ...(typeof output?.exitCode === "number" ? { exitCode: output.exitCode } : typeof input?.exitCode === "number" ? { exitCode: input.exitCode } : {}),
+    ...(hasRuntimeType(input?.cwd, "string") ? { cwd: input.cwd } : hasRuntimeType(output?.cwd, "string") ? { cwd: output.cwd } : {}),
+    ...(hasRuntimeType(output?.exitCode, "number") ? { exitCode: output.exitCode } : hasRuntimeType(input?.exitCode, "number") ? { exitCode: input.exitCode } : {}),
     ...(outputText !== undefined ? { output: outputText } : {}),
   };
 }
@@ -181,7 +182,7 @@ function commandDetails(
 export function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = attributes[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
+    if (hasRuntimeType(value, "string") && value.trim()) return value.trim();
   }
 }
 
@@ -237,7 +238,7 @@ function activityKind(
   if (observation.name === "agent.usage.recorded") return "model";
   const explicit = attributes["vitehub.activity.kind"];
   if (
-    typeof explicit === "string"
+    hasRuntimeType(explicit, "string")
     && ["action", "approval", "change", "delivery", "error", "message", "model", "plan", "preparation", "reasoning", "run", "system", "tool", "activity"].includes(explicit)
   ) {
     return explicit as InvocationActivityKind;
@@ -258,7 +259,7 @@ function activityKind(
 function numericAttribute(attributes: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
     const value = attributes[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value;
   }
 }
 
@@ -334,7 +335,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const attributes = Object.assign({}, ...sorted.map(item => item.attributes ?? {}));
       const messageBody = sorted
         .map(item => item.attributes?.["message.content"])
-        .filter((value): value is string => typeof value === "string")
+        .filter((value): value is string => hasRuntimeType(value, "string"))
         .join("");
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
@@ -425,7 +426,7 @@ export function latestInvocationTokens(activities: readonly InvocationActivity[]
 
 export function invocationActivityTitle(activity: InvocationActivity): string {
   const explicit = activity.attributes["vitehub.activity.title"];
-  if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
+  if (hasRuntimeType(explicit, "string") && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.name === "vitehub.agent.configured") return "Agent configured";
   if (activity.kind === "preparation") return "Prepared session";

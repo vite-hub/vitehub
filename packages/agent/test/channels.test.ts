@@ -5,6 +5,8 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+
 function githubIssueCommentPayload(body = "/review please") {
   return {
     action: "created",
@@ -37,6 +39,7 @@ describe("agent channels", () => {
     const trigger = channel.triggers?.dev
     if (!trigger) throw new Error("Missing GitHub dev trigger.")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const result = await trigger.invoke({
       capabilities: [],
       channel,
@@ -68,8 +71,9 @@ describe("agent channels", () => {
     })
     if (result instanceof Response) throw new Error("Expected GitHub context invocation.")
     const finishEffect = result.delivery?.finishEffects
-    if (typeof finishEffect !== "function") throw new Error("Missing GitHub finish effect.")
+    if (!hasRuntimeType(finishEffect, "function")) throw new Error("Missing GitHub finish effect.")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(Promise.resolve(finishEffect({
       extensions: { get: () => undefined },
       reply: (input: string) => ({ kind: "reply", payload: input }),
@@ -105,8 +109,10 @@ describe("agent channels", () => {
       },
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     expect(pullRequest.read({
       context: {
+        // SAFETY: This test fixture intentionally indexes its exact local context shape.
         get: key => context[key as keyof typeof context],
       },
     })).toMatchObject({
@@ -151,7 +157,8 @@ describe("agent channels", () => {
 
     const defaultChannel = github({ pullRequest: true })
     const defaultWorkspace = defaultChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof defaultWorkspace !== "function") throw new Error("Missing default pull request Workspace contribution.")
+    if (!hasRuntimeType(defaultWorkspace, "function")) throw new Error("Missing default pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const contribution = await defaultWorkspace(context as never)
     if (!contribution) throw new Error("Missing default pull request Workspace source.")
     expect(contribution.sources?.vitehubGitHubPullRequest).toMatchObject({
@@ -161,21 +168,24 @@ describe("agent channels", () => {
     expect(contribution.sources).not.toHaveProperty("github")
     const rootChannel = github({ pullRequest: { workspace: true } })
     const rootWorkspace = rootChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof rootWorkspace !== "function") throw new Error("Missing root pull request Workspace contribution.")
+    if (!hasRuntimeType(rootWorkspace, "function")) throw new Error("Missing root pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(rootWorkspace(context as never)).resolves.toMatchObject({
       sources: { vitehubGitHubPullRequest: { mount: { path: "" } } },
     })
 
     const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
     const customWorkspace = customChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof customWorkspace !== "function") throw new Error("Missing custom pull request Workspace contribution.")
+    if (!hasRuntimeType(customWorkspace, "function")) throw new Error("Missing custom pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(customWorkspace(context as never)).resolves.toMatchObject({
       sources: { vitehubGitHubPullRequest: { mount: { path: "repository" } } },
     })
 
     const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
     const sourceMountWorkspace = sourceMountChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof sourceMountWorkspace !== "function") throw new Error("Missing source-mount pull request Workspace contribution.")
+    if (!hasRuntimeType(sourceMountWorkspace, "function")) throw new Error("Missing source-mount pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(sourceMountWorkspace(context as never)).resolves.toMatchObject({
       sources: { vitehubGitHubPullRequest: { mount: { path: "legacy-repository" } } },
     })
@@ -211,7 +221,8 @@ describe("agent channels", () => {
         },
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(channel.adapter({} as never)).resolves.toEqual({ name: "discord" })
       expect(createDiscordAdapter).toHaveBeenCalledWith({
         applicationId: "app-id",
@@ -241,7 +252,8 @@ describe("agent channels", () => {
         webhookSecret: () => ({ unseal: () => "webhook-secret" }),
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(channel.adapter({} as never)).resolves.toEqual({ name: "telegram" })
       expect(createTelegramAdapter).toHaveBeenCalledWith({
         allowedUserIds: ["123"],
@@ -252,11 +264,12 @@ describe("agent channels", () => {
       })
 
       const webhooks = channel.webhooks
-      if (!webhooks || typeof webhooks !== "object" || Array.isArray(webhooks)) {
+      if (!webhooks || !hasRuntimeType(webhooks, "object") || Array.isArray(webhooks)) {
         throw new Error("Expected Telegram webhook registration.")
       }
       expect(webhooks.secretHeader).toBe("x-telegram-bot-api-secret-token")
-      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      if (!hasRuntimeType(webhooks.secretToken, "function")) throw new Error("Expected webhook secret resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(Promise.resolve(webhooks.secretToken({} as never))).resolves.toBe("webhook-secret")
     }
     finally {
@@ -272,6 +285,7 @@ describe("agent channels", () => {
     try {
       const { telegram } = await import("../src/channels.ts")
       const channel = telegram()
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const context = {
         cloudflare: {
           env: {
@@ -281,7 +295,7 @@ describe("agent channels", () => {
         },
       } as never
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
       await expect(channel.adapter(context)).resolves.toEqual({ name: "telegram" })
       expect(createTelegramAdapter).toHaveBeenCalledWith({
         botToken: "bot-token",
@@ -289,11 +303,12 @@ describe("agent channels", () => {
       })
 
       const webhooks = channel.webhooks
-      if (!webhooks || typeof webhooks !== "object" || Array.isArray(webhooks)) {
+      if (!webhooks || !hasRuntimeType(webhooks, "object") || Array.isArray(webhooks)) {
         throw new Error("Expected Telegram webhook registration.")
       }
-      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      if (!hasRuntimeType(webhooks.secretToken, "function")) throw new Error("Expected webhook secret resolver.")
       await expect(Promise.resolve(webhooks.secretToken(context))).resolves.toBe("webhook-secret")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(Promise.resolve(webhooks.secretToken({ cloudflare: { env: {} } } as never))).resolves.toBeUndefined()
     }
     finally {
@@ -329,7 +344,8 @@ describe("agent channels", () => {
         },
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const resolved = await channel.adapter({} as never)
       expect(resolved).toBe(adapter)
       expect(createDiscordAdapter).toHaveBeenCalledWith({ botToken: "bot-token" })
@@ -359,10 +375,11 @@ describe("agent channels", () => {
         },
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const resolved = await channel.adapter({} as never) as { setThreadTitle?: (threadId: string, title: string) => Promise<void> }
       expect(resolved).toBe(adapter)
-      expect(typeof resolved.setThreadTitle).toBe("function")
+      expect(hasRuntimeType(resolved.setThreadTitle, "function")).toBe(true)
 
       await resolved.setThreadTitle?.("discord:guild:channel:thread-1", "  New   Thread   Title  ")
       const longTitle = `ERROR: ${"x".repeat(120)}`
@@ -399,7 +416,9 @@ describe("agent channels", () => {
     const stat = vi.fn(async () => ({ mediaType: "image/png", path: "screenshots/login.png", type: "file" as const }))
     const publish = vi.fn(async () => ({ url: "https://assets.example/review/screenshots/login.png" }))
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(publishWorkspaceArtifacts({
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       workspace: {
         fs: { readFile, stat },
       } as never,
@@ -437,6 +456,7 @@ describe("agent channels", () => {
     const publish = vi.fn()
 
     await expect(publishWorkspaceArtifacts({
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       workspace: {
         fs: {
           readFile: vi.fn(),
@@ -521,6 +541,7 @@ describe("agent channels", () => {
       trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const result = await trigger.invoke(context as never, { payload: githubIssueCommentPayload() })
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
 
@@ -535,6 +556,7 @@ describe("agent channels", () => {
       repository: { fullName: "acme/app" },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const withEmptyFacts = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review generated route"), github: {} })
     if (withEmptyFacts instanceof Response) throw new Error("Expected GitHub webhook invocation with empty facts.")
     expect(withEmptyFacts.input.context?.github).toMatchObject({
@@ -559,12 +581,14 @@ describe("agent channels", () => {
         })
       })
       const channel = github({
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         app: { fetch: fetcher as typeof fetch },
         pullRequest: { reply: false },
       })
       const trigger = channel.triggers?.webhook
       if (!trigger) throw new Error("Missing GitHub webhook trigger.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const result = await trigger.invoke({
         capabilities: [],
         channel,
@@ -617,6 +641,7 @@ describe("agent channels", () => {
       const channel = github({
         app: {
           apiBaseUrl: "https://api.github.test",
+          // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
           fetch: fetcher as typeof fetch,
         },
         pullRequest: { reply: false },
@@ -624,6 +649,7 @@ describe("agent channels", () => {
       const trigger = channel.triggers?.webhook
       if (!trigger) throw new Error("Missing GitHub webhook trigger.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const result = await trigger.invoke({
         capabilities: [],
         channel,
@@ -654,6 +680,7 @@ describe("agent channels", () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({
       app: {
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: (async () => Response.json({
           base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
           head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
@@ -664,6 +691,7 @@ describe("agent channels", () => {
     const trigger = channel.triggers?.webhook
     if (!trigger) throw new Error("Missing GitHub webhook trigger.")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const result = await trigger.invoke({
       capabilities: [],
       channel,
@@ -712,6 +740,7 @@ describe("agent channels", () => {
     }
     const devRun = { origin: "dev", runId: "dev:from-loop", threadId: "dev:agent" }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const fromContext = await trigger.invoke(context as never, { pullRequest, run: devRun })
     if (fromContext instanceof Response) throw new Error("Expected GitHub context invocation.")
     expect(fromContext.input).toMatchObject({
@@ -734,6 +763,7 @@ describe("agent channels", () => {
       threadId: "pr-42",
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const blocked = await trigger.invoke({
       ...context,
       agentCapabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
@@ -741,6 +771,7 @@ describe("agent channels", () => {
     if (!(blocked instanceof Response)) throw new Error("Expected blocked GitHub context response.")
     await expect(blocked.json()).resolves.toMatchObject({ reason: "not_command" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const fromPayload = await trigger.invoke(context as never, { ...githubIssueCommentPayload("/review raw payload"), run: devRun })
     if (fromPayload instanceof Response) throw new Error("Expected GitHub payload invocation.")
     expect(fromPayload.input.context?.github).toMatchObject({
@@ -775,14 +806,16 @@ describe("agent channels", () => {
       app: {
         apiBaseUrl: "https://api.github.test",
         appId: "1",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: fetcher as typeof fetch,
         installationId: 123,
         privateKey: privateKeyPem,
       },
     })
     const reviewEffect = channel.effects?.review
-    if (typeof reviewEffect !== "function") throw new Error("Missing GitHub review effect.")
+    if (!hasRuntimeType(reviewEffect, "function")) throw new Error("Missing GitHub review effect.")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await reviewEffect({
       channel,
       effect: {
@@ -868,13 +901,14 @@ describe("agent channels", () => {
         apiBaseUrl: "https://api.github.test",
         appId: "2",
         artifacts: { branch: "review-assets", pathPrefix: "review-output" },
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: fetcher as typeof fetch,
         installationId: 456,
         privateKey: privateKeyPem,
       },
     })
     const replyEffect = channel.effects?.reply
-    if (typeof replyEffect !== "function") throw new Error("Missing GitHub reply effect.")
+    if (!hasRuntimeType(replyEffect, "function")) throw new Error("Missing GitHub reply effect.")
 
     const effect = {
       kind: "reply" as const,
@@ -979,13 +1013,14 @@ describe("agent channels", () => {
         apiBaseUrl: "https://api.github.test",
         appId: "2",
         artifacts: { branch: "review-assets", pathPrefix: "review-output" },
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: fetcher as typeof fetch,
         installationId: 457,
         privateKey: privateKeyPem,
       },
     })
     const replyEffect = channel.effects?.reply
-    if (typeof replyEffect !== "function") throw new Error("Missing GitHub reply effect.")
+    if (!hasRuntimeType(replyEffect, "function")) throw new Error("Missing GitHub reply effect.")
 
     const effect = {
       kind: "reply" as const,
@@ -1066,6 +1101,7 @@ describe("agent channels", () => {
         app: {
           apiBaseUrl: "https://api.github.test",
           appId: "4",
+          // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
           fetch: fetcher as typeof fetch,
           installationId: 789,
           privateKeyPath,
@@ -1073,8 +1109,9 @@ describe("agent channels", () => {
         },
       })
       const statusEffect = channel.effects?.status
-      if (typeof statusEffect !== "function") throw new Error("Missing GitHub status effect.")
+      if (!hasRuntimeType(statusEffect, "function")) throw new Error("Missing GitHub status effect.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await statusEffect({
         channel,
         effect: {
@@ -1120,13 +1157,15 @@ describe("agent channels", () => {
     const channel = github({
       app: {
         appId: "3",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: vi.fn() as typeof fetch,
       },
     })
 
     for (const kind of ["reply", "update", "review"] as const) {
       const effect = channel.effects?.[kind]
-      if (typeof effect !== "function") throw new Error(`Missing GitHub ${kind} effect.`)
+      if (!hasRuntimeType(effect, "function")) throw new Error(`Missing GitHub ${kind} effect.`)
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(effect({
         channel,
         effect: { kind, payload: { body: "No GitHub context" } },

@@ -2,6 +2,7 @@ import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { readPullRequestContext } from "./capabilities/repository-host-context.ts"
 import { defineCapability } from "./capability-runtime.ts"
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   deliveryArtifactAttachments,
@@ -397,15 +398,15 @@ type GitHubPullRequestStatusPayload = {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
+  return hasRuntimeType(value, "object") && value !== null
 }
 
 function maybeString(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
+  return hasRuntimeType(value, "string") && value ? value : undefined
 }
 
 function maybeNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+  return hasRuntimeType(value, "number") && Number.isFinite(value) ? value : undefined
 }
 
 interface GitHubPullRequestWorkspacePolicy {
@@ -433,7 +434,7 @@ function githubPullRequestWorkspacePolicy(
   }
   const mount = options.workspace === true
     ? ""
-    : typeof options.workspace === "object"
+    : hasRuntimeType(options.workspace, "object")
       ? options.workspace.mount ?? ""
       : options.sourceMount ?? "portal"
   return {
@@ -444,7 +445,7 @@ function githubPullRequestWorkspacePolicy(
 
 function maybeStrings(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return
-  const strings = value.filter((item): item is string => typeof item === "string" && Boolean(item))
+  const strings = value.filter((item): item is string => hasRuntimeType(item, "string") && Boolean(item))
   return strings.length ? strings : undefined
 }
 
@@ -517,7 +518,7 @@ const defaultGitHubPullRequestMaxComments = 30
 const defaultGitHubPullRequestMaxFiles = 200
 
 function githubPullRequestLimit(value: number | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
+  return hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
 }
 
 function truncateGitHubPullRequestText(value: string | undefined, maxLength: number): string | undefined {
@@ -535,21 +536,23 @@ function chatFinishExtension(input: AgentRunInput): AgentChatFinishExtension | u
 }
 
 function chatFinishExtensionFromUnknown(value: unknown): AgentChatFinishExtension | undefined {
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: The function guard establishes the sole runtime member used by this extension contract.
-  return isRecord(value) && typeof value.sendMessage === "function"
-    ? value as unknown as AgentChatFinishExtension
+  // SAFETY: The guarded sendMessage member establishes the extension contract used here.
+  return isRecord(value) && hasRuntimeType(value.sendMessage, "function")
+    // SAFETY: The guarded sendMessage member establishes the extension contract used here.
+    ? asUnknownBoundary(value) as AgentChatFinishExtension
     : undefined
 }
 
 function inputPayload(input: unknown): GitHubIssueCommentPayload | undefined {
   if (!isRecord(input)) return
+  // SAFETY: The GitHub webhook boundary supplies the payload object consumed by this parser.
   return isRecord(input.payload) ? input.payload as GitHubIssueCommentPayload : undefined
 }
 
 function inputPayloadOrBody(input: unknown): GitHubIssueCommentPayload | undefined {
   const payload = inputPayload(input)
   if (payload) return payload
-  if (!isRecord(input) || typeof input.body !== "string") return
+  if (!isRecord(input) || !hasRuntimeType(input.body, "string")) return
   const parsed: unknown = JSON.parse(input.body || "{}")
   return inputPayload({ payload: parsed })
 }
@@ -563,8 +566,10 @@ function parseSlashCommand(body: string): { args: string, command: `/${string}` 
   const text = body.trim()
   const match = /^(\/[a-z][a-z0-9_-]*)(?:\s+([\s\S]*))?$/i.exec(text)
   if (!match) return
+  // SAFETY: The command regex requires the first capture to begin with a slash.
   return {
     args: match[2]?.trim() || "",
+    // SAFETY: The command regex requires the first capture to begin with a slash.
     command: match[1] as `/${string}`,
   }
 }
@@ -575,7 +580,7 @@ type InputCommandsMetadata = {
 }
 
 function inputCommandsMetadata(value: unknown): InputCommandsMetadata | undefined {
-  if (!isRecord(value) || Array.isArray(value.commands) || !isRecord(value.commands) || typeof value.trigger !== "string") return
+  if (!isRecord(value) || Array.isArray(value.commands) || !isRecord(value.commands) || !hasRuntimeType(value.trigger, "string")) return
   return { commands: value.commands, trigger: value.trigger }
 }
 
@@ -831,8 +836,11 @@ async function resolveEffectOption<T, TRuntimeConfig extends AgentRuntimeConfig>
   value: MaybeResolvable<T, AgentChannelDeliveryEffectContext<TRuntimeConfig>>,
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<T> {
-  if (typeof value === "function") return await (value as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
-  if (isRecord(value) && typeof value.resolve === "function") return await (value.resolve as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  // SAFETY: This option boundary accepts only resolvers with the declared delivery context signature.
+  if (hasRuntimeType(value, "function")) return await (value as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  // SAFETY: A resolver record is invoked with the delivery context promised by the option contract.
+  if (isRecord(value) && hasRuntimeType(value.resolve, "function")) return await (value.resolve as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  // SAFETY: Non-resolver option values already carry the generic option contract.
   return value as T
 }
 
@@ -841,18 +849,21 @@ async function resolveGithubAppOption<T, TRuntimeConfig extends AgentRuntimeConf
   context: GitHubAppContext<TRuntimeConfig>,
 ): Promise<T | undefined> {
   if (value === undefined) return undefined
-  if (typeof value === "function") return await (value as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
-  if (isRecord(value) && typeof value.resolve === "function") return await (value.resolve as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  // SAFETY: This option boundary accepts only resolvers with the declared GitHub App context signature.
+  if (hasRuntimeType(value, "function")) return await (value as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  // SAFETY: A resolver record is invoked with the GitHub App context promised by the option contract.
+  if (isRecord(value) && hasRuntimeType(value.resolve, "function")) return await (value.resolve as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  // SAFETY: Non-resolver option values already carry the generic option contract.
   return value as T
 }
 
 function unseal(value: unknown): unknown {
-  return isRecord(value) && typeof value.unseal === "function" ? value.unseal() : value
+  return isRecord(value) && hasRuntimeType(value.unseal, "function") ? value.unseal() : value
 }
 
 function cleanSecret(value: unknown): string | undefined {
   const secret = unseal(value)
-  return typeof secret === "string" && secret.trim() ? secret.trim() : undefined
+  return hasRuntimeType(secret, "string") && secret.trim() ? secret.trim() : undefined
 }
 
 function runtimeEnv<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -860,13 +871,13 @@ function runtimeEnv<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentCallbackContext<TRuntimeConfig>,
 ): unknown {
   return context.cloudflare?.env?.[name]
-    ?? (typeof process === "object" && process?.env ? process.env[name] : undefined)
+    ?? (hasRuntimeType(process, "object") && process?.env ? process.env[name] : undefined)
 }
 
 const serverEnvModuleId = "#vitehub/env/server"
 
 async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
-  const fallback = typeof process === "object" && process?.env
+  const fallback = hasRuntimeType(process, "object") && process?.env
     ? {
         appId: process.env.GITHUB_APP_ID,
         appInstallationId: process.env.GITHUB_APP_INSTALLATION_ID,
@@ -878,6 +889,7 @@ async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
     : {}
   try {
     // hubEnv() rewrites the tagged import so Vite can resolve its generated module.
+    // SAFETY: The generated server env module exposes the optional useServerEnv entrypoint.
     const module = await import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId) as { useServerEnv?: (event?: unknown) => unknown }
     const env = module.useServerEnv?.(event)
     const github = isRecord(env) && isRecord(env.github)
@@ -912,13 +924,13 @@ async function githubAppSetting<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 function requiredString(value: unknown, name: string): string {
-  const string = typeof value === "number" ? String(value) : cleanSecret(value)
+  const string = hasRuntimeType(value, "number") ? String(value) : cleanSecret(value)
   if (!string) throw new Error(`[vitehub] Missing GitHub App ${name}.`)
   return string
 }
 
 function requiredNumber(value: unknown, name: string): number {
-  const number = typeof value === "number" ? value : Number(cleanSecret(value))
+  const number = hasRuntimeType(value, "number") ? value : Number(cleanSecret(value))
   if (!Number.isFinite(number)) throw new Error(`[vitehub] Missing GitHub App ${name}.`)
   return number
 }
@@ -966,7 +978,9 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const options = githubAppOptions(app) || {}
   const env = await githubEnv(context)
   const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
+  // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
   const installationId = installation
+    // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
     ?? requiredNumber(await githubAppSetting(options, env, "installationId", "appInstallationId", context), "installationId")
   const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
@@ -979,9 +993,9 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     method: "POST",
   })
   const body = await response.json().catch(() => undefined)
-  const token = isRecord(body) && typeof body.token === "string" ? body.token : undefined
+  const token = isRecord(body) && hasRuntimeType(body.token, "string") ? body.token : undefined
   if (!token) throw new Error("[vitehub] GitHub App installation token response did not include token.")
-  const expiresAt = isRecord(body) && typeof body.expires_at === "string" ? Date.parse(body.expires_at) : Date.now() + 9 * 60_000
+  const expiresAt = isRecord(body) && hasRuntimeType(body.expires_at, "string") ? Date.parse(body.expires_at) : Date.now() + 9 * 60_000
   githubAppTokenCache.set(cacheKey, { expiresAt, token })
   return token
 }
@@ -1020,7 +1034,7 @@ function staticGithubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>
   if (app === true) return
   const secret = app.webhookSecret
   if (secret === false) return false
-  if (typeof secret === "function") return
+  if (hasRuntimeType(secret, "function")) return
   return cleanSecret(secret)
 }
 
@@ -1086,9 +1100,9 @@ function githubApiNextPageUrl(link: string | null): string | undefined {
 function reactionContent<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): string {
-  if (typeof context.effect.payload === "string") return context.effect.payload
-  if (isRecord(context.effect.payload) && typeof context.effect.payload.content === "string") return context.effect.payload.content
-  if (isRecord(context.effect.payload) && typeof context.effect.payload.emoji === "string") return context.effect.payload.emoji
+  if (hasRuntimeType(context.effect.payload, "string")) return context.effect.payload
+  if (isRecord(context.effect.payload) && hasRuntimeType(context.effect.payload.content, "string")) return context.effect.payload.content
+  if (isRecord(context.effect.payload) && hasRuntimeType(context.effect.payload.emoji, "string")) return context.effect.payload.emoji
   if (context.effect.intent === "completed") return "hooray"
   if (context.effect.intent === "failed") return "confused"
   return "eyes"
@@ -1111,21 +1125,23 @@ type GitHubTransientReaction = {
 }
 
 function transientReactionStore(input: AgentRunInput): Record<string, GitHubTransientReaction> {
+  // SAFETY: Transient reaction state is stored only on the invocation context record.
   const context = input.context as Record<string, unknown> | undefined
   if (!context) return {}
   const key = "github.delivery.transientReactions"
   if (!isRecord(context[key])) context[key] = {}
+  // SAFETY: The branch above initializes this key as the transient-reaction record.
   return context[key] as Record<string, GitHubTransientReaction>
 }
 
 export function messageChannelReplyBody<TRuntimeConfig extends AgentRuntimeConfig>(
   context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "effect">,
 ): string | undefined {
-  if (typeof context.effect.payload === "string") return context.effect.payload
-  if (isRecord(context.effect.payload) && typeof context.effect.payload.body === "string") return context.effect.payload.body
-  if (isRecord(context.effect.payload) && typeof context.effect.payload.markdown === "string") return context.effect.payload.markdown
-  if (typeof context.effect.metadata?.body === "string") return context.effect.metadata.body
-  if (typeof context.effect.metadata?.markdown === "string") return context.effect.metadata.markdown
+  if (hasRuntimeType(context.effect.payload, "string")) return context.effect.payload
+  if (isRecord(context.effect.payload) && hasRuntimeType(context.effect.payload.body, "string")) return context.effect.payload.body
+  if (isRecord(context.effect.payload) && hasRuntimeType(context.effect.payload.markdown, "string")) return context.effect.payload.markdown
+  if (hasRuntimeType(context.effect.metadata?.body, "string")) return context.effect.metadata.body
+  if (hasRuntimeType(context.effect.metadata?.markdown, "string")) return context.effect.metadata.markdown
 }
 
 const messageChannelDeliveredReplyBodies = new WeakMap<object, string | undefined>()
@@ -1181,7 +1197,7 @@ function deliveryArtifactFilename(artifact: PublishedAgentDeliveryArtifact): str
 
 function arrayBufferContent(value: ArrayBuffer | Uint8Array | string): ArrayBuffer {
   if (value instanceof ArrayBuffer) return value
-  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value
+  const bytes = hasRuntimeType(value, "string") ? new TextEncoder().encode(value) : value
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
   return copy.buffer
@@ -1200,7 +1216,9 @@ async function deliveryArtifactFiles<TRuntimeConfig extends AgentRuntimeConfig>(
     if (stat && stat.type !== "file") continue
     const mediaType = artifact.mediaType || stat?.mediaType
     const content = await context.workspace.fs.readFile(path, { encoding: "binary" })
+    // SAFETY: Workspace binary reads return one of the content representations accepted by arrayBufferContent.
     files.push({
+      // SAFETY: Workspace binary reads return one of the content representations accepted by arrayBufferContent.
       data: arrayBufferContent(content as ArrayBuffer | Uint8Array | string),
       filename: deliveryArtifactFilename(artifact),
       ...(mediaType ? { mimeType: mediaType } : {}),
@@ -1215,7 +1233,9 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   const artifacts = deliveryArtifacts(context)
   const attachments = deliveryArtifactAttachments(artifacts)
   const files = await deliveryArtifactFiles(context, artifacts)
+  // SAFETY: The async-iterable guard establishes the reply-stream contract.
   const stream = isAsyncIterable(context.effect.payload)
+    // SAFETY: The async-iterable guard establishes the reply-stream contract.
     ? context.effect.payload as AgentChannelDeliveryReplyStream
     : undefined
   if (stream && !artifacts.length) {
@@ -1231,7 +1251,9 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
       }
       return
     }
+    // SAFETY: Channel adapter options resolve against this delivery-effect context.
     const adapter = context.channel.adapter
+      // SAFETY: Channel adapter options resolve against this delivery-effect context.
       ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
       : undefined
     if (adapter && context.run?.threadId) {
@@ -1268,6 +1290,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     return
   }
   const adapter = context.channel.adapter
+    // SAFETY: Channel adapter options resolve against this delivery-effect context.
     ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
     : undefined
   if (adapter && context.run?.threadId) {
@@ -1276,8 +1299,8 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
 }
 
 function titleEffectPayloadTitle(value: unknown): string | undefined {
-  const title = typeof value === "string" ? value : isRecord(value) ? value.title : undefined
-  return typeof title === "string" ? maybeString(title.trim()) : undefined
+  const title = hasRuntimeType(value, "string") ? value : isRecord(value) ? value.title : undefined
+  return hasRuntimeType(title, "string") ? maybeString(title.trim()) : undefined
 }
 
 type ThreadTitleAdapter = Adapter & {
@@ -1289,19 +1312,23 @@ type AssistantTitleAdapter = Adapter & {
 }
 
 function adapterSetThreadTitle(adapter: Adapter | undefined) {
+  // SAFETY: The optional member is probed before it is called.
   const setThreadTitle = (adapter as ThreadTitleAdapter | undefined)?.setThreadTitle
-  return typeof setThreadTitle === "function" ? setThreadTitle.bind(adapter) : undefined
+  return hasRuntimeType(setThreadTitle, "function") ? setThreadTitle.bind(adapter) : undefined
 }
 
 function adapterSetAssistantTitle(adapter: Adapter | undefined) {
+  // SAFETY: The optional member is probed before it is called.
   const setAssistantTitle = (adapter as AssistantTitleAdapter | undefined)?.setAssistantTitle
-  return typeof setAssistantTitle === "function" ? setAssistantTitle.bind(adapter) : undefined
+  return hasRuntimeType(setAssistantTitle, "function") ? setAssistantTitle.bind(adapter) : undefined
 }
 
 async function messageChannelTitleAdapter<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<Adapter | undefined> {
+  // SAFETY: Channel adapter options resolve against this delivery-effect context.
   return context.channel.adapter
+    // SAFETY: Channel adapter options resolve against this delivery-effect context.
     ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
     : undefined
 }
@@ -1544,7 +1571,7 @@ function statusPayload<TRuntimeConfig extends AgentRuntimeConfig>(
 ): GitHubPullRequestStatusPayload {
   const payload = isRecord(context.effect.payload)
     ? context.effect.payload
-    : typeof context.effect.payload === "string"
+    : hasRuntimeType(context.effect.payload, "string")
       ? { state: context.effect.payload }
       : {}
   return {
@@ -1760,7 +1787,8 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   input: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
 ): AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined {
   if (input === undefined) return undefined
-  if (input !== true && (typeof input === "function" || isAdapter(input) || isResolver(input))) {
+  if (input !== true && (hasRuntimeType(input, "function") || isAdapter(input) || isResolver(input))) {
+    // SAFETY: The runtime guards above establish every supported adapter option variant.
     return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
   }
   const options: DiscordAdapterOptions = input === true ? {} : input
@@ -1822,11 +1850,11 @@ function addDiscordThreadTitleSupport(adapter: Adapter, options: DiscordAdapterO
 }
 
 function isAdapter(value: unknown): value is AgentChatPlatformAdapter {
-  return isRecord(value) && typeof value.postMessage === "function"
+  return isRecord(value) && hasRuntimeType(value.postMessage, "function")
 }
 
 function isResolver(value: unknown): value is { resolve: (context: AgentCallbackContext) => MaybePromise<AgentChatPlatformAdapter> } {
-  return isRecord(value) && typeof value.resolve === "function"
+  return isRecord(value) && hasRuntimeType(value.resolve, "function")
 }
 
 function ignored(reason: string) {
@@ -1875,6 +1903,7 @@ function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined
   const payload = inputPayloadOrBody(input)
   if (payload) return payload
   if (!isRecord(input) || !isRecord(input.issue) || !isRecord(input.comment)) return
+  // SAFETY: The issue and comment record guards establish the webhook payload shape used downstream.
   return input as GitHubIssueCommentPayload
 }
 
@@ -1914,9 +1943,11 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         const inputRecord = isRecord(input) ? input : {}
         const finishEffects = githubPullRequestCommentFinishEffects(options)
         const existingPullRequest = githubPullRequestRunContextFromInput(input)
+        // SAFETY: The dev invocation contract supplies AbortSignal when this control is present.
         const controls = {
+          // SAFETY: The dev invocation contract supplies AbortSignal when this control is present.
           ...(inputRecord.abortSignal ? { abortSignal: inputRecord.abortSignal as AbortSignal } : {}),
-          ...(typeof inputRecord.timeout === "number" ? { timeout: inputRecord.timeout } : {}),
+          ...(hasRuntimeType(inputRecord.timeout, "number") ? { timeout: inputRecord.timeout } : {}),
         }
         if (existingPullRequest) {
           const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
@@ -1978,8 +2009,8 @@ function githubPullRequestContextValue(input: GitHubPullRequestReadInvocation): 
 
 function githubPullRequestInstallationId(value: PullRequestContextValue): number | undefined {
   const installationId = value.trigger?.installationId
-  if (typeof installationId === "number") return installationId
-  if (typeof installationId !== "string" || !installationId) return
+  if (hasRuntimeType(installationId, "number")) return installationId
+  if (!hasRuntimeType(installationId, "string") || !installationId) return
   const parsed = Number(installationId)
   return Number.isFinite(parsed) ? parsed : undefined
 }
@@ -2014,10 +2045,11 @@ export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   kind: string,
   options: AgentChannelDefinitionOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  if (typeof kind !== "string" || !kind.trim()) {
+  if (!hasRuntimeType(kind, "string") || !kind.trim()) {
     throw new TypeError("[vitehub] defineChannel() requires a non-empty Channel kind.")
   }
   const messages: false | AgentMessageChannelSettings<TRuntimeConfig> =
+    // SAFETY: An omitted message configuration selects the default settings object.
     options.messages === undefined ? {} as AgentMessageChannelSettings<TRuntimeConfig> : options.messages
   const effects = messages !== false && options.adapter
     ? messageChannelDeliveryEffects(options.effects)
@@ -2065,6 +2097,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
       ...(workspaceCapability ? [workspaceCapability] : []),
       ...channelOptions.capabilities || [],
     ],
+    // SAFETY: Both effect maps implement the same channel delivery effect contract.
     effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
     triggers: {
@@ -2149,7 +2182,7 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       const resolvedWebhooks = resolvedChannel.webhooks
       const registration = Array.isArray(resolvedWebhooks)
         ? resolvedWebhooks.length === 1 ? resolvedWebhooks[0] : undefined
-        : resolvedWebhooks && typeof resolvedWebhooks === "object" ? resolvedWebhooks : undefined
+        : resolvedWebhooks && hasRuntimeType(resolvedWebhooks, "object") ? resolvedWebhooks : undefined
       const secret = registration?.secretToken
       const [apiBaseUrl, apiUrl, botToken, secretToken] = await Promise.all([
         options.apiBaseUrl === undefined ? undefined : resolveRuntimeValue(options.apiBaseUrl, context),

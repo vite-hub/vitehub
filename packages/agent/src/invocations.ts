@@ -132,7 +132,7 @@ function cloneObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
 
 function observationIdentity(observation: TraceEventLogEntry): string | undefined {
   const identity = observation.attributes?.[AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]
-  return typeof identity === "string" ? identity : undefined
+  return hasRuntimeType(identity, "string") ? identity : undefined
 }
 
 function sameObservation(left: TraceEventLogEntry, right: TraceEventLogEntry): boolean {
@@ -203,7 +203,7 @@ function normalizeLimit(limit: number | undefined): number {
 
 function normalizeSearch(search: string | undefined): string | undefined {
   if (search === undefined) return
-  if (typeof search !== "string") {
+  if (!hasRuntimeType(search, "string")) {
     throw new TypeError("[vitehub] Agent Invocation search must be a string.")
   }
   const value = search.trim()
@@ -981,7 +981,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             .filter(observation => !persistedObservations.has(observationPersistenceKey(observation)))
           const pendingFailure = unpersistedOutcomes.find(failureEvidenceObservation)
           const pendingTerminal = unpersistedOutcomes.findLast(terminalObservation)
-          const pendingOutcomes = [pendingFailure, pendingTerminal]
+          const pendingDeliveries = unpersistedOutcomes.filter(deliveryOutcomeObservation)
+          const pendingOutcomes = [pendingFailure, pendingTerminal, ...pendingDeliveries]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
             .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
             .map(observation => boundedObservation({

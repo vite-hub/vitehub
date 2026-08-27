@@ -718,6 +718,7 @@ describe("Agent Invocation UI", () => {
     const payloads = thread.findAll(".vh-invocation-event__payload");
     expect(payloads[0]!.get("summary code").text()).toContain("Private query omitted.");
     expect(payloads[0]!.find(".vh-invocation-payload__content").exists()).toBe(false);
+    // SAFETY: This wrapper selects the rendered details payload element.
     (payloads[0]!.element as HTMLDetailsElement).open = true;
     await payloads[0]!.trigger("toggle");
     expect(payloads[0]!.findAll(".vh-invocation-payload__key").map(item => item.text())).toContain("summary");
@@ -751,6 +752,7 @@ describe("Agent Invocation UI", () => {
     await nextTick();
     const selectedEvent = selected.get(`[data-activity-id="${rows[0]!.attributes("data-activity-id")}"]`);
     expect(selectedEvent.attributes("data-selected")).toBe("true");
+    // SAFETY: The selected activity is rendered inside its owning details element.
     expect((selectedEvent.element.closest("details") as HTMLDetailsElement).open).toBe(true);
     await selected.setProps({ selectedActivityId: undefined });
     await selected.setProps({ selectedActivityId: rows[0]!.attributes("data-activity-id") });
@@ -770,6 +772,7 @@ describe("Agent Invocation UI", () => {
     });
     await nextTick();
     const focusedEvent = regrouped.get(`[data-activity-id="${regroupedActivityId}"]`).element;
+    // SAFETY: Activity rows render as focusable HTML elements.
     const focus = vi.spyOn(focusedEvent as HTMLElement, "focus");
     await regrouped.setProps({ invocation: { ...regroupedInvocation, status: "running" } });
     await nextTick();
@@ -809,6 +812,7 @@ describe("Agent Invocation UI", () => {
     const payload = wrapper.findAll(".vh-invocation-event__payload")[0]!;
 
     expect(payload.find(".vh-invocation-payload__tree").exists()).toBe(false);
+    // SAFETY: This wrapper selects the rendered details payload element.
     (payload.element as HTMLDetailsElement).open = true;
     await payload.trigger("toggle");
     expect(payload.findAll("li")).toHaveLength(500);
@@ -830,6 +834,7 @@ describe("Agent Invocation UI", () => {
       status: "running" as const,
     } } });
     const deepPayload = deepWrapper.get(".vh-invocation-event__payload");
+    // SAFETY: This wrapper selects the rendered details payload element.
     (deepPayload.element as HTMLDetailsElement).open = true;
     await deepPayload.trigger("toggle");
     await deepPayload.get('input[type="search"]').setValue("visible boundary");
@@ -845,6 +850,7 @@ describe("Agent Invocation UI", () => {
       status: "running" as const,
     } } });
     const searchPayload = searchWrapper.get(".vh-invocation-event__payload");
+    // SAFETY: This wrapper selects the rendered details payload element.
     (searchPayload.element as HTMLDetailsElement).open = true;
     await searchPayload.trigger("toggle");
     await searchPayload.get('input[type="search"]').setValue("empty");

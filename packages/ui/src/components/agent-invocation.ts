@@ -16,6 +16,7 @@ import {
   terminalText,
   type InvocationActivity,
 } from "../internal/invocation-activity.ts";
+import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 
@@ -91,12 +92,12 @@ function renderFolderIcon() {
 type InspectTarget = "agent" | "workspace";
 
 function payloadText(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (hasRuntimeType(value, "string")) return value;
   const ancestors: object[] = [];
   try {
     return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
-      if (typeof item === "bigint") return `${item}n`;
-      if (typeof item !== "object" || item === null) return item;
+      if (hasRuntimeType(item, "bigint")) return `${item}n`;
+      if (!hasRuntimeType(item, "object") || item === null) return item;
       while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
       if (ancestors.includes(item)) return "[Circular]";
       ancestors.push(item);
@@ -108,15 +109,15 @@ function payloadText(value: unknown): string {
 }
 
 function payloadPreview(value: unknown, text: string): string {
-  const source = typeof value === "string" ? value : text.replaceAll(/\s+/g, " ");
+  const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
   const compact = source.trim();
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
 function jsonValueLabel(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
+  if (hasRuntimeType(value, "string")) return JSON.stringify(value);
   if (value === null) return "null";
-  if (typeof value === "object") return Array.isArray(value) ? `Array(${value.length})` : "Object";
+  if (hasRuntimeType(value, "object")) return Array.isArray(value) ? `Array(${value.length})` : "Object";
   return String(value);
 }
 
@@ -135,7 +136,7 @@ function matchingPayloadRows(
     }
     result.rows.push({ path, value: label });
   }
-  if (typeof value !== "object" || value === null || depth >= 12) return result;
+  if (!hasRuntimeType(value, "object") || value === null || depth >= 12) return result;
   for (const [key, item] of Object.entries(value)) {
     matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, result, depth + 1);
     if (result.truncated) break;
@@ -153,16 +154,16 @@ function renderPayloadTree(
   if (budget.remaining < 0) {
     return h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden");
   }
-  if (depth >= 12 && typeof value === "object" && value !== null) {
+  if (depth >= 12 && hasRuntimeType(value, "object") && value !== null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
       h("code", { class: "vh-invocation-payload__value" }, "Nested content hidden"),
     ]);
   }
-  if (typeof value !== "object" || value === null) {
+  if (!hasRuntimeType(value, "object") || value === null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
-      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : typeof value }, jsonValueLabel(value)),
+      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : runtimeType(value) }, jsonValueLabel(value)),
     ]);
   }
   const entries = Object.entries(value);
@@ -203,14 +204,14 @@ const InvocationPayload = defineComponent({
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const text = computed(() => payloadText(props.value));
     const normalized = computed<unknown>(() => {
-      if (typeof props.value !== "object" || props.value === null) return props.value;
+      if (!hasRuntimeType(props.value, "object") || props.value === null) return props.value;
       try {
         return JSON.parse(text.value);
       } catch {
         return text.value;
       }
     });
-    const structured = computed(() => typeof normalized.value === "object" && normalized.value !== null);
+    const structured = computed(() => hasRuntimeType(normalized.value, "object") && normalized.value !== null);
     const matches = computed(() => query.value
       ? matchingPayloadRows(normalized.value, query.value.toLocaleLowerCase())
       : { rows: [], truncated: false });
@@ -240,8 +241,10 @@ const InvocationPayload = defineComponent({
       if (copyTimer) clearTimeout(copyTimer);
     });
 
+    // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
     return () => h("details", {
       class: "vh-invocation-event__payload",
+      // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
       onToggle: (event: Event) => { open.value = (event.currentTarget as HTMLDetailsElement).open; },
       open: open.value,
     }, [
@@ -260,6 +263,7 @@ const InvocationPayload = defineComponent({
             ? h("label", { class: "vh-invocation-payload__search" }, [
                 h("span", { class: "vh-visually-hidden" }, `Search ${props.label}`),
                 h("input", {
+                  // SAFETY: Input events for this rendered control expose HTMLInputElement as target.
                   onInput: (event: Event) => { query.value = (event.target as HTMLInputElement).value; },
                   placeholder: "Search payload",
                   type: "search",
@@ -432,7 +436,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const capturedDeliveryBody = activity.kind === "delivery"
     ? activity.attributes["channel.effect.content"]
     : undefined;
-  const deliveryBody = typeof capturedDeliveryBody === "string" && capturedDeliveryBody.trim()
+  const deliveryBody = hasRuntimeType(capturedDeliveryBody, "string") && capturedDeliveryBody.trim()
     ? capturedDeliveryBody
     : undefined;
   const visibleDelivery = Boolean(deliveryBody);
@@ -548,7 +552,7 @@ function renderPreparationAction(activity: InvocationActivity, inspect: (target:
 function renderPreparationContext(invocation: AgentInvocationView, url: string | undefined) {
   const repository = invocation.annotations?.["github.repository"];
   const pullRequest = invocation.annotations?.["github.pullRequest"];
-  if (typeof repository !== "string" || (typeof pullRequest !== "number" && typeof pullRequest !== "string")) {
+  if (!hasRuntimeType(repository, "string") || (!hasRuntimeType(pullRequest, "number") && !hasRuntimeType(pullRequest, "string"))) {
     return h("code", agentInvocationContext(invocation));
   }
   return h("span", { class: "vh-invocation-preparation__context" }, [
