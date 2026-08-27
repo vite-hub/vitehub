@@ -25,15 +25,6 @@ declare global {
     "support.customerScope": { customers: string[] }
     trustedScope: string
   }
-  interface ViteHubAgentChannelMeta {
-    access?: string
-    audience?: string
-    customer?: string
-  }
-  interface ViteHubAgentChannelUser {
-    id?: string
-    email?: string
-  }
 }
 
 describe("agent public types", () => {
@@ -871,6 +862,12 @@ describe("agent public types", () => {
     type _PublicTelegram = ChannelExports["telegram"]
     type _PublicTeams = ChannelExports["teams"]
 
+    // @ts-expect-error Message metadata schemas belong to Agent or Channel definitions, not the legacy chat() Capability.
+    // SAFETY: the type fixture needs only the Standard Schema type to verify this rejected legacy option.
+    chat({ meta: {} as StandardSchemaV1<unknown, Record<string, unknown>> })
+    // @ts-expect-error Message metadata revisions belong to Agent or Channel definitions, not the legacy chat() Capability.
+    chat({ metaRevision: "v1" })
+
     type ServerExports = typeof import("../src/server.ts")
     type _PublicDiscordGatewayRouteHandler = ServerExports["createDiscordGatewayRouteHandler"]
     type _PublicResumableChatRouteContext = import("../src/server.ts").AgentChannelChatRouteResumableContext
@@ -1464,9 +1461,9 @@ describe("agent public types", () => {
         {
           id: "support-audience",
           prepare({ actor, channel, invoker }) {
-            expectTypeOf(channel?.meta?.customer).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.meta?.customer).toEqualTypeOf<unknown>()
             expectTypeOf(channel?.run?.origin).toEqualTypeOf<string | undefined>()
-            expectTypeOf(channel?.user?.email).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.user?.email).toEqualTypeOf<unknown>()
             expectTypeOf(actor.id).toEqualTypeOf<string>()
             expectTypeOf(invoker.id).toEqualTypeOf<string>()
           },
