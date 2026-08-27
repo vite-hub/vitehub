@@ -339,6 +339,23 @@ describe("Resend Email driver", () => {
     });
   });
 
+  it("serializes the validated unsubscribe URL", async () => {
+    const request = vi.fn(
+      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
+        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
+    );
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await driver.send(
+      { ...message, unsubscribe: { url: "https://example.com/un subscribe" } },
+      context,
+    );
+
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({
+      headers: { "List-Unsubscribe": "<https://example.com/un%20subscribe>" },
+    });
+  });
+
   it("rejects one-click unsubscribe without a URL before dispatch", async () => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
@@ -687,6 +704,20 @@ describe("Cloudflare Email driver", () => {
     );
     expect(Constructor.mock.calls[0]?.[2]).toContain(
       "List-Unsubscribe-Post: List-Unsubscribe=One-Click",
+    );
+  });
+
+  it("serializes the validated unsubscribe URL", async () => {
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor });
+
+    await driver.send(
+      { ...message, unsubscribe: { url: "https://example.com/un subscribe" } },
+      context,
+    );
+
+    expect(String(Constructor.mock.calls[0]?.[2])).toContain(
+      "List-Unsubscribe: <https://example.com/un%20subscribe>",
     );
   });
 

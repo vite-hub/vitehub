@@ -75,6 +75,7 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   const mailto = message.unsubscribe.mailto?.trim();
   const url = message.unsubscribe.url?.trim();
   const oneClickEnabled = oneClick ?? Boolean(url);
+  let normalizedUrl = url;
   if (oneClickEnabled) {
     let parsedUrl: URL | undefined;
     try {
@@ -87,13 +88,15 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
         "one-click unsubscribe requires a valid HTTPS URL.",
       );
     }
+    normalizedUrl = parsedUrl.href;
   }
-  const values = [url ? `<${url}>` : undefined, mailto ? `<mailto:${mailto}>` : undefined].filter(
-    (value) => value !== undefined,
-  );
+  const values = [
+    normalizedUrl ? `<${normalizedUrl}>` : undefined,
+    mailto ? `<mailto:${mailto}>` : undefined,
+  ].filter((value) => value !== undefined);
   if (values.length > 0 && !hasHeader(headers, "list-unsubscribe"))
     headers["List-Unsubscribe"] = values.join(", ");
-  if (oneClickEnabled && url && !hasHeader(headers, "list-unsubscribe-post"))
+  if (oneClickEnabled && normalizedUrl && !hasHeader(headers, "list-unsubscribe-post"))
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   return { ...message, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
 }
