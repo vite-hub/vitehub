@@ -414,6 +414,22 @@ function normalizedTraceActivity(activity: TraceActivityContext | undefined): Tr
   }
 }
 
+function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  if (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer) return true
+  if (seen.has(value)) return false
+  seen.add(value)
+  if (ArrayBuffer.isView(value)) return containsSharedArrayBuffer(value.buffer, seen)
+  if (value instanceof Map) {
+    return [...value].some(([key, entry]) => containsSharedArrayBuffer(key, seen) || containsSharedArrayBuffer(entry, seen))
+  }
+  if (value instanceof Set) return [...value].some(entry => containsSharedArrayBuffer(entry, seen))
+  return Reflect.ownKeys(value).some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor && containsSharedArrayBuffer(descriptor.value, seen)
+  })
+}
+
 function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
   if (payload === undefined) return
   if (!payload || !hasRuntimeType(payload, "object")) return { visibility: "private" }
@@ -424,7 +440,8 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
     if (visibility.value === "public") {
       const value = Object.getOwnPropertyDescriptor(payload, "value")
       if (value && "value" in value) {
-        return { value: structuredClone(value.value), visibility: "public" }
+        const snapshot = structuredClone(value.value)
+        if (!containsSharedArrayBuffer(snapshot)) return { value: snapshot, visibility: "public" }
       }
     }
     if (visibility.value === "summary") {
