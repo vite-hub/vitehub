@@ -17,6 +17,10 @@ const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
 const envSplitStringOptions = new Set(["--split-string", "-S"])
 const commandValueOptions = new Set(["--argv0", "-a"])
 const commandQueryOptions = new Set(["--verbose", "-V", "-v"])
+const sudoValueOptions = new Set([
+  "--chdir", "--chroot", "--close-from", "--command-timeout", "--group", "--host", "--prompt", "--role", "--type", "--user",
+  "-C", "-D", "-g", "-h", "-p", "-R", "-r", "-T", "-t", "-u",
+])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
 
@@ -24,7 +28,7 @@ function shellTokens(line) {
   const tokens = []
   let previousEnd = -1
   let wordIndex
-  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(\$\{[^}]*\})|(\$\(|&&|\|\||[;&|()`{}])|([^\s;&|()`{}"']+)/g)) {
+  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(\$\{[^}]*\})|(\d*(?:>&|<&)(?:\d+|-)|\$\(|&&|\|\||[;&|()`{}])|([^\s;&|()`{}"']+)/g)) {
     if (token.index !== previousEnd) wordIndex = undefined
     previousEnd = token.index + token[0].length
     if (token[5]?.startsWith("#")
@@ -118,6 +122,21 @@ function commandIndexes(tokens) {
           if (queriesOnly) executableIndex = tokens.length
           continue
         }
+        if (wrapper === "sudo") {
+          executableIndex++
+          while (executableIndex < tokens.length) {
+            const argument = tokens[executableIndex]
+            if (argument === "--") {
+              executableIndex++
+              break
+            }
+            if (assignmentPattern.test(argument)) executableIndex++
+            else if (sudoValueOptions.has(argument)) executableIndex += 2
+            else if (argument.startsWith("-")) executableIndex++
+            else break
+          }
+          continue
+        }
         if (wrapper !== "env") break
         executableIndex++
         while (executableIndex < tokens.length) {
@@ -187,6 +206,15 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       for (const token of tokens) {
         const assignment = assignmentPattern.exec(token)
         environment.set(assignment[1], assignment[2])
+      }
+    }
+    for (const index of executableIndexes) {
+      if (executableName(tokens[index]) !== "export") continue
+      for (const token of tokens.slice(index + 1)) {
+        if (shellOperatorPattern.test(token)) break
+        if (token === "--" || token.startsWith("-")) continue
+        const assignment = assignmentPattern.exec(token)
+        if (assignment) environment.set(assignment[1], assignment[2])
       }
     }
     const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
@@ -487,7 +515,8 @@ export function inspectGitHubCIInputs(path, source) {
     }
   }
   else {
-    const runs = findPair(root, "runs")?.value
+    let runs = findPair(root, "runs")?.value
+    if (isAlias(runs)) runs = runs.resolve(document)
     if (isMap(runs)) inspectSteps(findPair(runs, "steps")?.value, workflowEnvironment)
   }
 

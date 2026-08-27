@@ -423,9 +423,13 @@ jobs:
     "command npx unpinned",
     "command -p -- npx unpinned",
     "2>/dev/null npx unpinned",
+    "2>&1 npx unpinned",
+    "2<&0 npx unpinned",
     "exec npx unpinned",
     "exec -a tool npx unpinned",
     "echo ${FOO:-$(npx unpinned)}",
+    "sudo npx unpinned",
+    "sudo -u root FOO=bar npx unpinned",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -434,6 +438,33 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("must use an exact version") }),
     ])
+  })
+
+  it("inspects composite actions whose runs map is aliased", async () => {
+    const root = await createFixture({
+      "action.yml": [
+        "name: fixture",
+        "description: fixture",
+        "shared-runs: &shared-runs",
+        "  using: composite",
+        "  steps:",
+        "    - run: npx unpinned",
+        "      shell: bash",
+        "runs: *shared-runs",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+  })
+
+  it("tracks exact package versions assigned by export", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: |\n          export VERSION=1.2.3\n          npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("inspects workflows whose complete jobs map is aliased", async () => {
