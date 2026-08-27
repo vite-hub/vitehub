@@ -11917,7 +11917,15 @@ describe("server helpers", () => {
       },
       driver: { run: () => "Agent output" },
       hooks: {
-        "agent:finish": event => event.reply("Static reply"),
+        "agent:finish": event => event.reply({
+          artifacts: [{
+            alt: "Result report",
+            path: "reports/result.md",
+            placement: "link",
+            url: "https://assets.example/reports/result.md",
+          }],
+          body: "Static reply",
+        }),
         "hook:observe": observe,
       },
     })
@@ -11928,7 +11936,7 @@ describe("server helpers", () => {
 
     expect(observe).toHaveBeenCalledWith(expect.objectContaining({
       attributes: expect.objectContaining({
-        "channel.effect.content": "Static reply",
+        "channel.effect.content": "Static reply\n\n[Result report](<https://assets.example/reports/result.md>)",
         "error.message": "static post failed",
       }),
       name: "channel:delivery-effect",

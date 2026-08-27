@@ -4401,6 +4401,19 @@ async function collectAbortableChatMessage(message: AsyncIterable<string>, abort
   return { markdown }
 }
 
+function captureStaticChatFinishMessage(message: AgentChatMessage, capture: ChatFinishDeliveryCapture): void {
+  const content = typeof message === "string"
+    ? message
+    : isTextChatMessage(message)
+      ? message.text
+      : isRuntimeObject(message) && "markdown" in message && isRuntimeString(message.markdown)
+        ? message.markdown
+        : undefined
+  if (content === undefined) return
+  capture.content = content.slice(0, 16 * 1024)
+  capture.truncated = content.length > 16 * 1024
+}
+
 async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
@@ -4425,6 +4438,7 @@ async function flushChatFinishExtensionMessages(
         }
       })()
     }
+    else if (queued.callbacks.length) captureStaticChatFinishMessage(message, capture)
     try {
       abortSignal?.throwIfAborted()
       if (abortSignal && isAsyncIterable(message)) {
