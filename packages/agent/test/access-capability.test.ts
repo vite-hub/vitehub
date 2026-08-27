@@ -2,7 +2,7 @@ import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
 import { attachWorkspaceSourceRequestExecution } from "@vite-hub/workspace/runtime"
 
 function runtime(): AgentRuntimeContext {
@@ -332,9 +332,10 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.glob("x".repeat(2_049))).rejects.toThrow(
       "[vitehub] Workspace glob pattern input exceeds the model-facing limit of 2048 bytes.",
     )
-    await expect(resolved.workspace!.fs.list("", { exclude: ["{a,b}".repeat(11)], recursive: true })).rejects.toThrow(
-      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
-    )
+    await expect(resolved.workspace!.fs.list("", {
+      exclude: Array.from({ length: 17 }, (_, index) => `literal-{${index}}`),
+      recursive: true,
+    })).resolves.toHaveLength(3)
   })
 
   it("can select Workspace Scope from an explicit trusted resolver", async () => {
@@ -474,9 +475,49 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.glob("reports/{1..100000}.json")).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
-    await expect(resolved.workspace!.fs.list("", { exclude: ["reports/{1..100000}.json"], recursive: true })).rejects.toThrow(
+    await expect(resolved.workspace!.fs.list("", { exclude: ["reports/{1..100000}.json"], recursive: true })).resolves.toHaveLength(7)
+  })
+
+  it("bounds model-facing glob patterns on Workspace Sessions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    const createSession = () => ({
+      glob: vi.fn(async () => []),
+    } as unknown as WorkspaceSession)
+    const fsSession = createSession()
+    const facadeSession = createSession()
+    const workspace = {
+      ...base,
+      fs: {
+        ...base.fs,
+        startSession: vi.fn(async () => fsSession),
+      },
+      startSession: vi.fn(async () => facadeSession),
+    } as unknown as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: { all: true, role: "admin", scope: "support" },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const resolvedWithSessions = resolved.workspace as ReadonlyWorkspaceFacade & {
+      fs: ReadonlyWorkspaceFacade["fs"] & { startSession(): Promise<WorkspaceSession> }
+      startSession(): Promise<WorkspaceSession>
+    }
+
+    await expect((await resolvedWithSessions.fs.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
+    await expect((await resolvedWithSessions.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    expect(fsSession.glob).not.toHaveBeenCalled()
+    expect(facadeSession.glob).not.toHaveBeenCalled()
   })
 
   it("falls back to default scope when an explicit resolver returns no scope", async () => {

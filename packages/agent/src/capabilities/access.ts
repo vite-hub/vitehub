@@ -371,20 +371,44 @@ function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
   workspaceRuntime: WorkspaceAccessRuntime,
 ): ReadonlyWorkspaceFacade<Name> {
   const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
+  const fsStarter = workspaceSessionStarter(workspace.fs)
+  const facadeStarter = workspaceSessionStarter(workspace as object)
   const fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
     ...workspace.fs,
-    async list(path = "", options?: ListOptions) {
-      if (options?.exclude) workspaceRuntime.assertModelWorkspaceGlobPattern(options.exclude)
-      return await workspace.fs.list(path as never, options)
-    },
     async glob(pattern: string | string[], options?: GlobOptions) {
       workspaceRuntime.assertModelWorkspaceGlobPattern(pattern as string | string[])
       return await workspace.fs.glob(pattern as never, options)
     },
+    ...(fsStarter
+      ? {
+          async startSession(options?: WorkspaceSessionOptions) {
+            return createModelSafeWorkspaceSession(await fsStarter.startSession(options), workspaceRuntime)
+          },
+        }
+      : {}),
   }, sourceRequestExecution)
-  return {
+  const facade: ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter> = {
     ...workspace,
     fs,
+  }
+  if (facadeStarter) {
+    facade.startSession = async (options?: WorkspaceSessionOptions) => {
+      return createModelSafeWorkspaceSession(await facadeStarter.startSession(options), workspaceRuntime)
+    }
+  }
+  return facade
+}
+
+function createModelSafeWorkspaceSession(
+  session: WorkspaceSession,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): WorkspaceSession {
+  return {
+    ...session,
+    async glob(pattern: string | string[], options?: GlobOptions) {
+      workspaceRuntime.assertModelWorkspaceGlobPattern(pattern)
+      return await session.glob(pattern, options)
+    },
   }
 }
 
