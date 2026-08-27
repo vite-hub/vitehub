@@ -56,7 +56,7 @@ export function inspectGitHubActionReferences(path, source) {
 
     const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line
     const value = isAlias(pair.value) ? pair.value.resolve(document) : pair.value
-    if (!isScalar(value) || typeof value.value !== "string") {
+    if (!isScalar(value)) {
       failures.push({ line, message: "uses must be a string", path })
       return
     }
@@ -82,7 +82,10 @@ export function inspectGitHubActionReferences(path, source) {
     }
   }
 
-  const findPair = (map, key) => map.items.find(pair => isScalar(pair.key) && pair.key.value === key)
+  const findPair = (map, key) => map.items.find((pair) => {
+    const pairKey = isAlias(pair.key) ? pair.key.resolve(document) : pair.key
+    return isScalar(pairKey) && pairKey.value === key
+  })
   const inspectSteps = (steps) => {
     if (isAlias(steps)) steps = steps.resolve(document)
     if (!isSeq(steps)) return
@@ -101,7 +104,7 @@ export function inspectGitHubActionReferences(path, source) {
     for (const jobPair of jobs.items) {
       const job = isAlias(jobPair.value) ? jobPair.value.resolve(document) : jobPair.value
       if (!isMap(job)) continue
-      inspectUses(findPair(job, "uses"))
+      inspectUses(findPair(job, "uses"), job.comment ?? "")
       inspectSteps(findPair(job, "steps")?.value)
     }
   }

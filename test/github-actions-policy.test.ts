@@ -130,6 +130,15 @@ describe("GitHub Action pin policy", () => {
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("allows a pinned reusable workflow with a flow-mapping version comment", async () => {
+    const reference = "owner/repo/.github/workflows/build.yml@1234567890abcdef1234567890abcdef12345678"
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  call: { uses: "${reference}" } # v1.2.3\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
   it("allows pinned action references through YAML aliases", async () => {
     const reference = pinnedCheckout.split(" #")[0]
     const root = await createFixture({
@@ -173,6 +182,18 @@ jobs:
 
     await expect(checkGitHubActionPins(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
+    ])
+  })
+
+  it("inspects action fields whose mapping keys are aliases", async () => {
+    const root = await createFixture({
+      ".github/actions/setup/action.yml": `inputs:\n  uses-key:\n    default: &uses-key uses\n  steps-key:\n    default: &steps-key steps\n  runs-key:\n    default: &runs-key runs\n? *runs-key\n:\n  using: composite\n  ? *steps-key\n  :\n    - ? *uses-key\n      : actions/checkout@v6\n`,
+      ".github/workflows/ci.yml": `env:\n  JOBS_KEY: &jobs-key jobs\n  STEPS_KEY: &steps-key steps\n  USES_KEY: &uses-key uses\n? *jobs-key\n:\n  test:\n    ? *steps-key\n    :\n      - ? *uses-key\n        : actions/setup-node@v6\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
+      expect.objectContaining({ message: expect.stringContaining("actions/setup-node@v6") }),
     ])
   })
 
