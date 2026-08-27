@@ -694,6 +694,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     defaultWorkingDirectory: state.root,
     description: "Crabbox session.",
     id: sessionId || randomUUID(),
+    inspectionConcurrency: 1,
     ports: [0],
     async destroy() {
       if (destroyed) return;

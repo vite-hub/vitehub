@@ -371,6 +371,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
       return
     }
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
+    // SAFETY: the Workflow payload preserves the originating Agent call options while crossing the portable runtime boundary.
     let restoredWorkflowInput = workflowInput as AgentRunInput<CALL_OPTIONS>
     if (payload.parsedMessageMeta) {
       restoredWorkflowInput = restoreParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run, payload.parsedMessageMeta)

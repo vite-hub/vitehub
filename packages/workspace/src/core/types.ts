@@ -171,6 +171,7 @@ export interface WorkspaceSessionHostFiles {
 
 export interface WorkspaceSessionHost {
   readonly executionAuthority: ExecutionAuthority
+  readonly inspectionConcurrency?: number
   detachAbortSignal?(): void
   files: WorkspaceSessionHostFiles
   exec(
@@ -524,7 +525,10 @@ export interface WorkspaceFetchSourceInput<TResponse = unknown, TOutput = TRespo
 
 export type WorkspaceGlobSourceInput = SourcePackageGlobSourceOptions & WorkspaceSourceBindingOptions
 
-export type WorkspaceGitHubSourceInput = SourcePackageGitHubSourceOptions & WorkspaceSourceBindingOptions
+export type WorkspaceGitHubSourceInput =
+  Omit<SourcePackageGitHubSourceOptions, "ignore">
+  & { ignore?: false | string | readonly string[] }
+  & WorkspaceSourceBindingOptions
 
 export type WorkspaceMcpResourcesSourceInput<TKey extends string = string> =
   Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache"> & WorkspaceSourceBindingOptions

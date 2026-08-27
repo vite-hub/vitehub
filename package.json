@@ -9,6 +9,9 @@
     "url": "git+https://github.com/vite-hub/vitehub.git"
   },
   "type": "module",
+  "dependencies": {
+    "yaml": "catalog:tooling"
+  },
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",

@@ -30,7 +30,7 @@ export default defineAgent({
 })
 ```
 
-The Capability owns the summarizer instructions. The configured Driver selects the model and execution environment using the same contract as an Agent Definition or `title()`.
+The Capability owns the safety and evidence instructions. The configured Driver selects the model and execution environment using the same contract as an Agent Definition or `title()`. Use `guidance` to append product-specific direction without replacing those safeguards.
 
 ## Render the current summary
 
@@ -55,9 +55,9 @@ With manual chat delivery, ViteHub edits the current placeholder as summaries ar
 
 With event-driven `intervalMs: 0`, the Capability starts its initial summary when the first non-terminal primary stream chunk arrives. A terminal-only or failed stream does not start unused auxiliary work.
 
-Positive intervals begin when the first primary stream chunk arrives and use a fixed cadence from that point, so auxiliary generation never delays primary Driver startup. At most one generation runs at a time, and interval ticks are skipped while a generation is pending. Set `intervalMs: 0` to generate from reasoning and tool activity through the event-driven microtask behavior instead. Activity that arrives during an event-driven generation schedules one follow-up after it settles. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
+Positive intervals begin when the first primary stream chunk arrives and use a fixed cadence from that point, so auxiliary generation never delays primary Driver startup. At most one generation runs at a time, and interval ticks are skipped while a generation is pending. Set `intervalMs: 0` to generate from reasoning and tool activity through the event-driven microtask behavior instead. Activity that arrives during an event-driven generation schedules one follow-up after it settles. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as a boolean presence signal.
 
-The default prompt uses only reasoning presence, sanitized tool names, and the previous summary. It does not include user message text, code, commands, paths, traces, hidden instructions, credentials, raw tool details, or trusted `<context>` payloads.
+The default prompt includes the latest user request with trusted `<context>` payloads removed, elapsed time, reasoning presence, sanitized tool names, and the previous summary. The request identifies the subject and language; the summarizer instructions explicitly treat it as untrusted data. The prompt does not include raw reasoning, tool input, tool output, or hidden instructions.
 
 The Capability stops its cadence and aborts every in-flight generation when the parent invocation aborts or the primary stream finishes, cancels, or errors. A generation failure does not interrupt the primary response stream; ViteHub emits a sanitized warning and trace event without logging the Driver error message.
 
@@ -88,14 +88,14 @@ Stop the invocation before the next interval and confirm that no later progress 
 | `driver` | `AgentDriver` | none | Independent Agent Driver used for progress generation. |
 | `execute` | `(input) => string \| { summary?: string }` | none | Custom progress generator. |
 | `id` | `string` | `"progress-summary"` | Capability id. |
-| `instructions` | `string` | Capability-owned instructions | System instructions for model-backed generation. |
+| `guidance` | `string` | none | Product-specific direction appended to the Capability-owned instructions. |
 | `intervalMs` | `number` | `10000` | Fixed generation cadence. Use `0` for event-driven updates. |
 | `maxLength` | `number` | `180` | Maximum summary length. |
 | `model` | `AgentModelResolver` | Agent model | Model used when no independent Driver is configured. |
 | `template` | `string \| function` | generated | Markdown prompt template. |
 | `variables` | `Record<string, value \| function>` | none | Extra Markdown template variables. |
 
-String templates use `@vite-hub/markdown-template` and receive `userText`, the `reasoning` presence signal, `activeTools`, `completedTools`, and `previous`. Referencing `userText` opts a custom template into handling user message text; keep sensitive content out of prompts you construct.
+String templates use `@vite-hub/markdown-template` and receive `userText`, `elapsed`, `reasoningActive`, `activeTools`, `completedTools`, and `previous`. Function templates additionally receive `elapsedText` plus the structured snapshot fields. Keep sensitive content out of prompts you construct.
 
 ## Related pages
 

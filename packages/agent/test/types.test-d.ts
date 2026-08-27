@@ -858,6 +858,7 @@ describe("agent public types", () => {
     type _PublicTeams = ChannelExports["teams"]
 
     // @ts-expect-error Message metadata schemas belong to Agent or Channel definitions, not the legacy chat() Capability.
+    // SAFETY: the type fixture needs only the Standard Schema type to verify this rejected legacy option.
     chat({ meta: {} as StandardSchemaV1<unknown, Record<string, unknown>> })
 
     type ServerExports = typeof import("../src/server.ts")

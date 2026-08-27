@@ -3,6 +3,7 @@ import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -31,6 +32,30 @@ vi.mock("@vite-hub/internal/build/deployment-output", () => ({
 vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 
 const execFileAsync = promisify(execFile)
+
+function deferred<T>() {
+  let reject!: (reason?: unknown) => void
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    reject = rejectPromise
+    resolve = resolvePromise
+  })
+  return { promise, reject, resolve }
+}
+
+async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setNodeTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setNodeTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) clearNodeTimeout(timeout)
+  }
+}
 
 function isTestRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
@@ -2831,6 +2856,7 @@ describe("server helpers", () => {
     const resolveInvoker = vi.fn(({ defaultInvoker, request }) => ({
       id: `customer:${request.headers.get("x-customer")}`,
       kind: "customer",
+      label: "Acme Customer",
       meta: {
         fallback: defaultInvoker.id,
         user: request.headers.get("x-user"),
@@ -2848,8 +2874,11 @@ describe("server helpers", () => {
         run,
       },
     })
+    const callerAnnotations = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`caller.${index}`, index]))
     // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
-    const handler = createChannelChatRouteHandler(agent as never)
+    const handler = createChannelChatRouteHandler(agent as never, {
+      mapInput: () => ({ run: { annotations: callerAnnotations } }),
+    })
 
     const response = await handler(
       new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -2901,6 +2930,46 @@ describe("server helpers", () => {
         }),
       }),
     )
+    const annotations = run.mock.calls[0]?.[0].run.annotations
+    expect(annotations).toEqual({ triggeredBy: "Acme Customer", ...callerAnnotations })
+    expect(Object.keys(annotations)[0]).toBe("triggeredBy")
+  })
+
+  it("removes caller-supplied invoker identity evidence when the invoker has no label", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let annotations: Record<string, boolean | number | string | null> | undefined
+    const agent = defineAgent({
+      capabilities: [defineChatCapability()],
+      driver: {
+        run({ run }) {
+          annotations = run?.annotations
+          return "ok"
+        },
+      },
+      invoker: { resolve: () => ({ id: "customer:acme", kind: "customer" }) },
+    })
+    // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
+    const handler = createChannelChatRouteHandler(agent as never, {
+      mapInput: () => ({ run: { annotations: { source: "portal", triggeredBy: "spoofed" } } }),
+    })
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          id: "portal-thread",
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentName: "support" },
+    )
+
+    expect(response.status).toBe(200)
+    await response.text()
+    expect(annotations).toEqual({ source: "portal" })
   })
 
   it("consumes only approval responses issued by the server session", async () => {
@@ -2976,6 +3045,7 @@ describe("server helpers", () => {
         invoker: {
           resolve: ({ request }) => ({ id: request?.headers.get("x-user") || "anonymous" }),
         },
+      // SAFETY: the test fixture intentionally supplies only the route fields exercised by metadata admission.
       }) as never,
       {
         admission: { authenticate: () => true },
@@ -3597,7 +3667,9 @@ describe("server helpers", () => {
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "unreachable")
+    // SAFETY: the test fixture intentionally supplies only the route fields exercised by metadata admission.
     const handler = createChannelChatRouteHandler(
+      // SAFETY: the route handler test accepts this intentionally minimal Agent Definition fixture.
       defineAgent({
         channels: {
           portal: webChat({
@@ -3612,6 +3684,7 @@ describe("server helpers", () => {
           meta: {
             "~standard": {
               validate: (value: unknown) => {
+                // SAFETY: this schema fixture has asserted its metadata input contract for the test.
                 const meta = value as Record<string, unknown>
                 return meta.audience === "technical"
                   ? { value: meta }
@@ -3622,6 +3695,7 @@ describe("server helpers", () => {
             },
           },
         },
+      // SAFETY: the test fixture intentionally supplies only the route fields exercised by metadata admission.
       }) as never,
       { channelId: "portal" },
     )
@@ -3639,6 +3713,7 @@ describe("server helpers", () => {
     )
 
     expect(response.status).toBe(400)
+    // SAFETY: the route's JSON error response is intentionally inspected as an untyped test value.
     await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("Invalid agent channel metadata") })
     expect(run).not.toHaveBeenCalled()
   })
@@ -5146,13 +5221,20 @@ describe("server helpers", () => {
     const { telegram, webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler, createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const run = vi.fn(() => ({ text: "final answer" }))
     const agent = defineAgent({
       channels: {
         web: webChat,
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
-      driver: { run: () => ({ text: "final answer" }) },
+      driver: { run },
+      invoker: {
+        resolve: ({ defaultInvoker }) => ({
+          ...defaultInvoker,
+          meta: { name: "Maxi" },
+        }),
+      },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -5179,6 +5261,11 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     await Promise.all(waitUntilTasks)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        annotations: { triggeredBy: "Maxi" },
+      }),
+    }))
     expect(agent.chat).toMatchObject({ stream: false })
     expect(adapter.startTyping).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenCalledOnce()
@@ -8137,6 +8224,9 @@ describe("server helpers", () => {
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
+    const runStarted = Array.from({ length: 5 }, () => deferred<void>())
+    const runCompleted = Array.from({ length: 5 }, () => deferred<void>())
+    let startedRuns = 0
     let releaseSteer: () => void = () => undefined
     const steerAccepted = new Promise<void>((resolve) => {
       releaseSteer = resolve
@@ -8145,6 +8235,8 @@ describe("server helpers", () => {
     let failFlush = false
     let completedRuns = 0
     const run = vi.fn(async (context: { run?: { runId?: string }; waitUntil: (task: Promise<unknown>) => void }) => {
+      const runIndex = startedRuns++
+      runStarted[runIndex]?.resolve(undefined)
       const { run: metadata } = context
       const controlId = agentInvocationControlId(context)
       if (!metadata?.runId || !controlId) throw new Error("Expected controlled Agent Invocation identities.")
@@ -8167,6 +8259,7 @@ describe("server helpers", () => {
       } finally {
         closeControl()
         completedRuns += 1
+        runCompleted[runIndex]?.resolve(undefined)
       }
     })
     const agent = defineAgent({
@@ -8217,25 +8310,28 @@ describe("server helpers", () => {
       webhookState: state,
     }
     let stop: () => void | Promise<void> = () => undefined
-    vi.useFakeTimers()
-
     try {
       stop = handler.resume(options)
-      const first = await handler(request("delivery-1"), "github", options)
+      const first = await withDeadline(
+        handler(request("delivery-1"), "github", options),
+        3_000,
+        "First queued webhook admission did not finish.",
+      )
       await expect(first.json()).resolves.toEqual({
         accepted: true,
         duplicate: false,
         ok: true,
         queued: true,
       })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await withDeadline(runStarted[0]!.promise, 3_000, "First queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledOnce()
       expect(rehydrate).toHaveBeenCalledWith("delivery-1")
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
 
       const waitUntilCount = waitUntilTasks.length
       const steering = handler(request("delivery-2"), "github", options)
       await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
-      await vi.advanceTimersByTimeAsync(1_100)
+      await new Promise<void>((resolve) => setNodeTimeout(resolve, 1_100))
       const concurrentDelivery = await handler(request("delivery-6"), "github", options)
       expect(concurrentDelivery.status).toBe(503)
       await expect(concurrentDelivery.json()).resolves.toEqual({
@@ -8258,6 +8354,7 @@ describe("server helpers", () => {
       await expect(steered.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
       expect(waitUntilTasks.length).toBeGreaterThan(waitUntilCount)
       expect(waitUntilTasks.at(-1)).toBeInstanceOf(Promise)
+      const steeringSettlement = waitUntilTasks.at(-1)!
       expect(steeredInputs).toEqual([expect.objectContaining({ prompt: "delivery-2" })])
 
       const duplicate = await handler(request("delivery-2"), "github", options)
@@ -8303,12 +8400,15 @@ describe("server helpers", () => {
       expect(steeredInputs).toHaveLength(1)
       expect(run).toHaveBeenCalledOnce()
 
-      stop()
+      const stopped = stop()
       failFlush = true
       releases.shift()!()
-      await vi.waitFor(() => expect(completedRuns).toBe(1))
+      await withDeadline(runCompleted[0]!.promise, 3_000, "First queued webhook Agent Invocation did not finish.")
+      await stopped
+      await withDeadline(steeringSettlement, 3_000, "Steered webhook settlement did not finish.")
+      expect(completedRuns).toBe(1)
       failFlush = false
-      await vi.waitFor(async () => expect(await state.get("webhook:review:github:github:steer:delivery-2")).toBeNull())
+      await expect(state.get("webhook:review:github:github:steer:delivery-2")).resolves.toBeNull()
       const absent = await handler(request("delivery-2"), "github", options)
       await expect(absent.json()).resolves.toEqual({
         accepted: false,
@@ -8320,21 +8420,25 @@ describe("server helpers", () => {
       expect(run).toHaveBeenCalledOnce()
       stop = handler.resume(options)
 
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 3_000 })
+      await withDeadline(runStarted[1]!.promise, 3_000, "Second queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(2)
       releases.shift()!()
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
+      await withDeadline(runStarted[2]!.promise, 3_000, "Third queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(3)
       releases.shift()!()
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      await withDeadline(runStarted[3]!.promise, 3_000, "Fourth queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(4)
       releases.shift()!()
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(5))
+      await withDeadline(runStarted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(5)
       releases.shift()!()
-      await vi.waitFor(() => expect(completedRuns).toBe(5))
+      await withDeadline(runCompleted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not finish.")
+      expect(completedRuns).toBe(5)
     } finally {
       const stopping = stop()
       releaseSteer()
       releases.splice(0).forEach((release) => release())
       await stopping
-      vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
@@ -8354,21 +8458,28 @@ describe("server helpers", () => {
     const states: Array<ReturnType<typeof createLibsqlAgentState>> = []
     const releases: Array<() => void> = []
     const steeredInputs: string[] = []
+    const runStarted = [deferred<void>(), deferred<void>()]
+    const runCompleted = [deferred<void>(), deferred<void>()]
+    let startedRuns = 0
     const run = vi.fn(async (context: { run?: { runId?: string } }) => {
-      const controlId = agentInvocationControlId(context)
-      if (!controlId) throw new Error("Expected an Agent Invocation control identity.")
-      const unregister = registerAgentInvocationInputHandler(controlId, {
-        sendInput(input) {
-          steeredInputs.push(String(input.prompt))
-          return "accepted"
-        },
-        support: { steer: true },
-      })
+      const runIndex = startedRuns++
+      runStarted[runIndex]?.resolve(undefined)
+      let unregister: () => void = () => undefined
       try {
+        const controlId = agentInvocationControlId(context)
+        if (!controlId) throw new Error("Expected an Agent Invocation control identity.")
+        unregister = registerAgentInvocationInputHandler(controlId, {
+          sendInput(input) {
+            steeredInputs.push(String(input.prompt))
+            return "accepted"
+          },
+          support: { steer: true },
+        })
         await new Promise<void>((resolve) => releases.push(resolve))
         return "accepted"
       } finally {
         unregister()
+        runCompleted[runIndex]?.resolve(undefined)
       }
     })
     const agent = defineAgent({
@@ -8410,8 +8521,10 @@ describe("server helpers", () => {
         },
         method: "POST",
       })
+    const waitUntilTasks: Promise<unknown>[] = []
     const options = {
       agentName: "review",
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
       webhookState: (context: { request?: Request }) => {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         const tenant = context.request?.headers.get("x-tenant") as keyof typeof stateUrls
@@ -8423,7 +8536,8 @@ describe("server helpers", () => {
 
     try {
       await handler(request("first-run", "first"), "github", options)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await withDeadline(runStarted[0]!.promise, 3_000, "First state-scoped webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledOnce()
       await expect(states[0]?.get("webhook:backend-id")).resolves.toEqual(expect.any(String))
 
       const sameBackend = await handler(request("same-backend-steer", "first"), "github", options)
@@ -8441,15 +8555,20 @@ describe("server helpers", () => {
         ok: true,
         queued: true,
       })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await withDeadline(runStarted[1]!.promise, 3_000, "Second state-scoped webhook Agent Invocation did not start.")
+      expect(run).toHaveBeenCalledTimes(2)
       expect(steeredInputs).toEqual(["same-backend-steer"])
     } finally {
       releases.splice(0).forEach((release) => release())
-      await vi.waitFor(() => expect(releases).toHaveLength(0)).catch(() => undefined)
-      await Promise.all(states.map((state) => state.disconnect().catch(() => undefined)))
-      await rm(stateDir, { force: true, recursive: true })
+      try {
+        await Promise.all(runCompleted.slice(0, startedRuns).map(({ promise }) => promise))
+        await withDeadline(Promise.all(waitUntilTasks), 3_000, "State-scoped webhook queue executions did not settle.")
+      } finally {
+        await Promise.all(states.map((state) => state.disconnect().catch(() => undefined)))
+        await rm(stateDir, { force: true, recursive: true })
+      }
     }
-  })
+  }, 15_000)
 
   it("resumes persisted webhook deliveries after a process restart", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -14370,14 +14489,21 @@ describe("server helpers", () => {
     const acquireLock = vi.spyOn(state, "acquireLock")
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
-    let rejectReplacement!: (error: Error) => void
-    const replacement = new Promise<never>((_resolve, reject) => {
-      rejectReplacement = reject
-    })
+    const replacement = deferred<never>()
+    const replacementStarted = deferred<void>()
+    let replacementWaiting = false
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params ?? {})
-      if (createBatch.mock.calls.length === 2) await replacement
+      if (createBatch.mock.calls.length === 2) {
+        replacementWaiting = true
+        replacementStarted.resolve(undefined)
+        try {
+          await replacement.promise
+        } finally {
+          replacementWaiting = false
+        }
+      }
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const run = vi.fn(() => "internal output")
@@ -14394,6 +14520,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    let replacementHandler: Promise<Response> | undefined
 
     try {
       await state.connect()
@@ -14427,14 +14554,15 @@ describe("server helpers", () => {
       expect(ownershipKey).toBeDefined()
       expect(handoffKey).toBeDefined()
       await state.forceReleaseLock(ownershipKey!)
-      const replacementHandler = handler(chatWebhookRequest(91_108), "telegram", {
+      replacementHandler = handler(chatWebhookRequest(91_108), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: {
           env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } },
         },
         waitUntil: (task) => waitUntilTasks.push(task),
       })
-      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
+      await withDeadline(replacementStarted.promise, 10_000, "Replacement Agent Workflow did not reach provider startup.")
+      expect(createBatch).toHaveBeenCalledTimes(2)
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91106", "91107", "91108"])
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
       const successorDelivery = workflowPayloads[1]?.input?.context?.[agentChannelDeliveryWorkflowContextKey] as
@@ -14471,16 +14599,23 @@ describe("server helpers", () => {
         } as never,
         1,
       )
-      rejectReplacement(Object.assign(new Error("Workflow handoff failed"), { status: 503 }))
+      replacement.reject(Object.assign(new Error("Workflow handoff failed"), { status: 503 }))
       await expect(replacementHandler).resolves.toMatchObject({ status: 200 })
       expect(createBatch).toHaveBeenCalledTimes(3)
       expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91106", "91107", "91108"])
     } finally {
-      resetWorkflowRuntime()
-      await state.disconnect()
-      await rm(stateDir, { force: true, recursive: true })
+      if (replacementWaiting) replacement.reject(Object.assign(new Error("Test cleanup released the replacement Workflow."), { status: 503 }))
+      try {
+        if (replacementHandler) {
+          await withDeadline(replacementHandler.catch(() => undefined), 3_000, "Replacement webhook cleanup did not finish.")
+        }
+      } finally {
+        resetWorkflowRuntime()
+        await state.disconnect()
+        await rm(stateDir, { force: true, recursive: true })
+      }
     }
-  })
+  }, 15_000)
 
   it.each([
     {
@@ -14568,6 +14703,7 @@ describe("server helpers", () => {
           "~standard": {
             validate: (value) => {
               metadataParses++
+              // SAFETY: this schema fixture returns the record-shaped metadata supplied by the test.
               return { value: value as Record<string, unknown> }
             },
             vendor: "vitehub-test",
@@ -14643,6 +14779,7 @@ describe("server helpers", () => {
       const deliveries = await handler.deliveries(chatWebhookRequest(91_141), "telegram", {
         agentIdentity: { name: "calories" },
       })
+      // SAFETY: this assertion narrows the matched delivery before its events are inspected below.
       const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91141"))
       expect(successor).toMatchObject({ status: "failed" })
       expect(successor?.events).toEqual(
@@ -15599,13 +15736,13 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    let resolveProgressEdit: (() => void) | undefined
-    adapter.editMessage.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveProgressEdit = resolve
-        }),
-    )
+    const progressEdit = deferred<void>()
+    const progressEditSettled = deferred<void>()
+    const stalledStream = deferred<void>()
+    adapter.editMessage.mockImplementationOnce(async () => {
+      await progressEdit.promise
+      progressEditSettled.resolve(undefined)
+    })
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -15628,7 +15765,7 @@ describe("server helpers", () => {
               transient: true,
               type: "data-progress-summary",
             }
-            await new Promise(() => undefined)
+            await stalledStream.promise
           })(),
         }),
       },
@@ -15650,10 +15787,16 @@ describe("server helpers", () => {
       expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
       expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
       expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
-      resolveProgressEdit?.()
-      await Promise.resolve()
+      progressEdit.resolve(undefined)
+      await withDeadline(progressEditSettled.promise, 3_000, "Progress edit did not settle.")
+      stalledStream.resolve(undefined)
+      await vi.advanceTimersByTimeAsync(0)
       expect(adapter.editMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
     } finally {
+      progressEdit.resolve(undefined)
+      stalledStream.resolve(undefined)
+      await vi.advanceTimersByTimeAsync(0)
       consoleError.mockRestore()
       vi.useRealTimers()
     }
