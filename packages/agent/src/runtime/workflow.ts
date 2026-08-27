@@ -34,6 +34,7 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentRuntimeName,
+  ResolvedAgentRuntimeContext,
 } from "../types.ts"
 
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
@@ -310,7 +311,11 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   if (payload.requestUrl) runtimeInput.request = new Request(payload.requestUrl)
   if (runId) runtimeInput.run = { origin: `workflow:${context.provider}`, ...payload.run, runId }
   if (payload.trace) runtimeInput.trace = payload.trace
-  let runtimeContext = createExecutionContext(createAgentRuntimeContext<TRuntimeConfig>(runtimeInput))
+  // SAFETY: runtimeConfig was normalized to TRuntimeConfig above before the Runtime boundary completes the context.
+  let runtimeContext = createExecutionContext({
+    ...createAgentRuntimeContext<TRuntimeConfig>(runtimeInput),
+    runtimeConfig,
+  }) as ResolvedAgentRuntimeContext<TRuntimeConfig>
   if (payload.run?.runId && payload.run.runId !== runId) {
     Object.defineProperty(runtimeContext, agentInvocationRunId, {
       enumerable: true,
