@@ -28,6 +28,11 @@ vi.mock("@vite-hub/internal/build/deployment-output", () => ({
   writeProviderDeploymentOutputs: vi.fn(async () => undefined),
 }))
 
+vi.mock("../src/internal/provider-runtime-packages.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/internal/provider-runtime-packages.ts")>()
+  return { ...original, resolveProviderRuntimePackages: vi.fn(original.resolveProviderRuntimePackages) }
+})
+
 vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 
 const execFileAsync = promisify(execFile)
@@ -961,6 +966,7 @@ describe("agent Vite plugin", () => {
 
   it("materializes Agent runtime packages for Vercel build output", async () => {
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { resolveProviderRuntimePackages } = await import("../src/internal/provider-runtime-packages.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-vercel-runtime-"))
     const platformPackage = `@openai/codex-${process.platform}-${process.arch}`
@@ -978,6 +984,10 @@ describe("agent Vite plugin", () => {
       // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+      vi.mocked(resolveProviderRuntimePackages).mockReturnValueOnce([
+        { name: "@openai/codex", resolveFrom: join(root, "package.json") },
+        { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
+      ])
 
       await configResolved({ command: "build", root })
       await closeBundle.handler()
@@ -987,6 +997,7 @@ describe("agent Vite plugin", () => {
       expect(call?.rootDir).toBe(root)
       expect(typeof call?.packages).toBe("function")
       const packages = typeof call?.packages === "function" ? await call.packages() : call?.packages
+      expect(resolveProviderRuntimePackages).toHaveBeenCalledWith({ rootDir: root })
       expect(packages).toEqual([
         { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
         { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
