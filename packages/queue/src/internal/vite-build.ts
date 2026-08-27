@@ -1,4 +1,5 @@
 import { hash } from "node:crypto"
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve } from "node:path"
@@ -507,16 +508,16 @@ async function writeVercelQueueFunctions(
   signal?.throwIfAborted()
   const outputRoot = createDefaultVercelOutputRoot(rootDir)
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
+  const stagedOutputRoot = resolve(outputRoot, ".vitehub-queue.pending")
+  const stagedQueueRoot = resolve(stagedOutputRoot, "functions", "api", "vitehub", "queues", "vercel")
+  const backupQueueRoot = `${queueRoot}.previous`
   const queueConfig = resolveOutputQueueConfig(queue, "vercel")
 
-  await rm(queueRoot, { force: true, recursive: true })
+  await rm(stagedOutputRoot, { force: true, recursive: true })
   signal?.throwIfAborted()
-  if (!isVercelQueueEnabled(queueConfig)) {
-    return
-  }
 
   const functionDirs = new Map<string, DiscoveredQueueDefinition>()
-  for (const definition of artifacts.definitions) {
+  for (const definition of isVercelQueueEnabled(queueConfig) ? artifacts.definitions : []) {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
     const segments = safeName.split("/")
     const functionDirKey = [...segments, `${segments.at(-1)}.func`].join("/")
@@ -525,10 +526,10 @@ async function writeVercelQueueFunctions(
       throw new Error(`Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved output path: ${functionDirKey}`)
     }
     functionDirs.set(functionDirKey, definition)
-    const functionDir = resolve(queueRoot, ...segments, `${segments.at(-1)}.func`)
+    const functionDir = resolve(stagedQueueRoot, ...segments, `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
-    const functionPath = relative(resolve(outputRoot, "functions"), functionDir).replace(/\\/g, "/")
+    const functionPath = relative(resolve(stagedOutputRoot, "functions"), functionDir).replace(/\\/g, "/")
     const consumer = sanitizeVercelConsumerName(functionPath)
     await mkdir(functionDir, { recursive: true })
     signal?.throwIfAborted()
@@ -542,7 +543,7 @@ async function writeVercelQueueFunctions(
     })
     signal?.throwIfAborted()
     await copyVercelRuntimePackages({
-      outputRoot,
+      outputRoot: stagedOutputRoot,
       packages: getVercelRuntimePackages(providerOutput, "blob"),
       rootDir,
       serverFunctionName: functionPath,
@@ -558,6 +559,28 @@ async function writeVercelQueueFunctions(
       }],
     }), null, 2)}\n`, "utf8")
   }
+
+  signal?.throwIfAborted()
+  if (isVercelQueueEnabled(queueConfig)) await mkdir(stagedQueueRoot, { recursive: true })
+  rmSync(backupQueueRoot, { force: true, recursive: true })
+  try {
+    renameSync(queueRoot, backupQueueRoot)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  try {
+    if (isVercelQueueEnabled(queueConfig)) {
+      mkdirSync(dirname(queueRoot), { recursive: true })
+      renameSync(stagedQueueRoot, queueRoot)
+    }
+    rmSync(backupQueueRoot, { force: true, recursive: true })
+  }
+  catch (error) {
+    if (existsSync(backupQueueRoot)) renameSync(backupQueueRoot, queueRoot)
+    throw error
+  }
+  await rm(stagedOutputRoot, { force: true, recursive: true })
 }
 
 export async function generateProviderOutputs(

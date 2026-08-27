@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs"
-import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
+import { cp, mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
@@ -337,7 +337,9 @@ export async function writeVercelScheduleFunctions(options: {
   const definitions = staticScheduleDefinitions(options.definitions)
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
-  await rm(functionRoot, { force: true, recursive: true })
+  const stagedFunctionRoot = `${functionRoot}.pending`
+  const backupFunctionRoot = `${functionRoot}.previous`
+  await rm(stagedFunctionRoot, { force: true, recursive: true })
   options.signal?.throwIfAborted()
 
   const emittedFunctionNames = new Map<string, string>()
@@ -350,7 +352,7 @@ export async function writeVercelScheduleFunctions(options: {
     emittedFunctionNames.set(safeName, definition.name)
 
     const segments = safeName.split("/")
-    const functionDir = resolve(functionRoot, ...segments.slice(0, -1), `${segments.at(-1)}.func`)
+    const functionDir = resolve(stagedFunctionRoot, ...segments.slice(0, -1), `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
@@ -370,6 +372,26 @@ export async function writeVercelScheduleFunctions(options: {
     await rm(wrapperFile, { force: true })
     options.signal?.throwIfAborted()
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
+  }
+
+  options.signal?.throwIfAborted()
+  rmSync(backupFunctionRoot, { force: true, recursive: true })
+  try {
+    renameSync(functionRoot, backupFunctionRoot)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  try {
+    if (definitions.length) {
+      mkdirSync(dirname(functionRoot), { recursive: true })
+      renameSync(stagedFunctionRoot, functionRoot)
+    }
+    rmSync(backupFunctionRoot, { force: true, recursive: true })
+  }
+  catch (error) {
+    if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+    throw error
   }
 
   const configFile = resolve(outputRoot, "config.json")
@@ -467,29 +489,46 @@ async function writeNetlifyScheduleFunctions(options: {
 }) {
   options.signal?.throwIfAborted()
   const functionRoot = resolve(options.outputRoot, "functions")
-  const existingFiles = await readdir(functionRoot).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return []
-    throw error
+  const stagedFunctionRoot = `${functionRoot}.pending`
+  const backupFunctionRoot = `${functionRoot}.previous`
+  await rm(stagedFunctionRoot, { force: true, recursive: true })
+  await cp(functionRoot, stagedFunctionRoot, { force: true, recursive: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error
   })
-  options.signal?.throwIfAborted()
-  await Promise.all(existingFiles
-    .filter(file => /^vitehub-schedule-.+\.mjs$/.test(file))
-    .map(file => rm(resolve(functionRoot, file), { force: true, recursive: true })))
+  const existingFiles = await readdir(stagedFunctionRoot).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error))
+  await Promise.all(existingFiles.filter(file => /^vitehub-schedule-.+\.mjs$/.test(file)).map(file => rm(resolve(stagedFunctionRoot, file), { force: true, recursive: true })))
 
   const outputs = await createNetlifyScheduleFunctionOutputs({
     definitions: options.definitions,
-    functionRoot,
+    functionRoot: stagedFunctionRoot,
     registryFile: options.registryFile,
   })
   options.signal?.throwIfAborted()
   if (outputs.length === 0) {
-    await removeEmptyDirectories(functionRoot, options.rootDir)
-    return
+    await mkdir(stagedFunctionRoot, { recursive: true })
   }
-
-  await mkdir(functionRoot, { recursive: true })
+  else {
+    await mkdir(stagedFunctionRoot, { recursive: true })
+    options.signal?.throwIfAborted()
+    await Promise.all(outputs.map(async output => writeFile(output.file, output.source, { encoding: "utf8", signal: options.signal })))
+  }
   options.signal?.throwIfAborted()
-  await Promise.all(outputs.map(async output => writeFile(output.file, output.source, { encoding: "utf8", signal: options.signal })))
+  rmSync(backupFunctionRoot, { force: true, recursive: true })
+  try {
+    renameSync(functionRoot, backupFunctionRoot)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  try {
+    renameSync(stagedFunctionRoot, functionRoot)
+    rmSync(backupFunctionRoot, { force: true, recursive: true })
+  }
+  catch (error) {
+    if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+    throw error
+  }
+  if (outputs.length === 0) await removeEmptyDirectories(functionRoot, options.rootDir)
 }
 
 async function writeCloudflareScheduleOutput(options: {

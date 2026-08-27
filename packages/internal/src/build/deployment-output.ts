@@ -235,8 +235,19 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   ]
 
   if (options.bundleEntry && workerOutfile) {
-    await rm(workerOutfile, { force: true, recursive: true })
-    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, { ...options.bundleOptions, rootDir: options.rootDir, signal }))
+    const stagedWorkerOutfile = `${workerOutfile}.pending`
+    writes.push((async () => {
+      try {
+        await rm(stagedWorkerOutfile, { force: true, recursive: true })
+        await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+        signal?.throwIfAborted()
+        await rename(stagedWorkerOutfile, workerOutfile)
+      }
+      catch (error) {
+        await rm(stagedWorkerOutfile, { force: true, recursive: true })
+        throw error
+      }
+    })())
   }
 
   await Promise.all(writes)
@@ -315,15 +326,24 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
   const functionsRoot = resolve(outputRoot, "functions")
   const functionWrites = (options.functions ?? []).map(async (func) => {
     const outfile = resolveNetlifyFunctionFile(functionsRoot, func.functionName)
-    await rm(outfile, { force: true, recursive: true })
+    const stagedOutfile = `${outfile}.pending`
     await mkdir(dirname(outfile), { recursive: true })
-    await bundleEsmEntry(func.bundleEntry, outfile, {
-      ...func.bundleOptions,
-      minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
-      rootDir: options.rootDir,
-      signal,
-    })
-    await appendNetlifyFunctionConfig(outfile, func.config)
+    try {
+      await rm(stagedOutfile, { force: true, recursive: true })
+      await bundleEsmEntry(func.bundleEntry, stagedOutfile, {
+        ...func.bundleOptions,
+        minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
+        rootDir: options.rootDir,
+        signal,
+      })
+      await appendNetlifyFunctionConfig(stagedOutfile, func.config)
+      signal?.throwIfAborted()
+      await rename(stagedOutfile, outfile)
+    }
+    catch (error) {
+      await rm(stagedOutfile, { force: true, recursive: true })
+      throw error
+    }
   })
 
   await mkdir(outputRoot, { recursive: true })

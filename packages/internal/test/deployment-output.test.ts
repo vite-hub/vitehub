@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { join, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -9,7 +9,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
 
 vi.mock("../src/build/esbuild.ts", () => ({
-  bundleEsmEntry: vi.fn(async () => undefined),
+  bundleEsmEntry: vi.fn(async (_entry: string, outfile: string) => {
+    await mkdir(dirname(outfile), { recursive: true })
+    await writeFile(outfile, "export default {}\n", "utf8")
+  }),
 }))
 
 const tempDirs: string[] = []
@@ -33,7 +36,10 @@ async function writePackage(rootDir: string, name: string, packageJson: Record<s
 }
 
 afterEach(async () => {
-  vi.mocked(bundleEsmEntry).mockReset().mockResolvedValue(undefined)
+  vi.mocked(bundleEsmEntry).mockReset().mockImplementation(async (_entry, outfile) => {
+    await mkdir(dirname(outfile), { recursive: true })
+    await writeFile(outfile, "export default {}\n", "utf8")
+  })
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -587,8 +593,8 @@ describe("provider deployment outputs", () => {
     await expect(readFile(functionFile, "utf8")).resolves.toContain("\"nodeBundler\": \"esbuild\"")
     expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
       join(rootDir, "agent.mjs"),
-      functionFile,
-      { format: "esm", minifyIdentifiers: true, platform: "node", rootDir },
+      `${functionFile}.pending`,
+      { format: "esm", minifyIdentifiers: true, platform: "node", rootDir, signal: undefined },
     )
     await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       edge_functions: [{ function: "vitehub-edge", path: "/edge" }],
@@ -803,7 +809,7 @@ describe("provider deployment outputs", () => {
   it("settles every started provider write before rejecting", async () => {
     let finishVercelWrite: (() => void) | undefined
     vi.mocked(bundleEsmEntry).mockImplementation(async (_entry, outfile) => {
-      if (outfile.endsWith("index.js")) throw new Error("cloudflare failed")
+      if (outfile.endsWith("index.js.pending")) throw new Error("cloudflare failed")
       await new Promise<void>((resolve) => {
         finishVercelWrite = resolve
       })
