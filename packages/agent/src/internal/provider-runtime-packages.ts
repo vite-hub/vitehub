@@ -69,6 +69,7 @@ function resolveClaudeTarget(platform: string, arch: string, libc?: RuntimeLibc)
 }
 
 function resolveRuntimePackages(options: {
+  allowMissingTarget?: boolean
   displayName: string
   packageName: string
   resolveFrom: string
@@ -80,6 +81,9 @@ function resolveRuntimePackages(options: {
     throw new Error(`[vitehub] Cannot package ${options.packageName} for this host. Self-hosted ${options.displayName} builds support macOS and Linux on arm64 or x64.`)
   }
   if (!resolvePackageJson(options.target.packageName, packageJsonPath)) {
+    if (options.allowMissingTarget) {
+      return [{ name: options.packageName, resolveFrom: options.resolveFrom }]
+    }
     throw new Error(`[vitehub] ${options.packageName} is installed, but its ${options.target.packageName} optional dependency is missing. Reinstall dependencies on the deployment host before building.`)
   }
   return [
@@ -144,6 +148,7 @@ export function resolveProviderRuntimePackages(options: {
       target: codexTargets[`${platform}-${arch}`],
     }),
     ...resolveRuntimePackages({
+      allowMissingTarget: true,
       displayName: "Claude",
       packageName: claudePackageName,
       resolveFrom,

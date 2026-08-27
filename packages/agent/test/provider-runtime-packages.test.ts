@@ -105,14 +105,15 @@ describe("Provider runtime packages", () => {
     expect(resolveInstalledProviderExecutable("claude-code", { platform: "win32", resolveFrom })).toBeUndefined()
   })
 
-  it("fails when an installed provider lacks its native package", async () => {
+  it("packages the Claude SDK without its native package for the host command fallback", async () => {
     const codex = await createProject({ codex: true })
     const claude = await createProject({ claude: true })
 
     expect(() => resolveProviderRuntimePackages({ arch: "x64", platform: "linux", rootDir: codex.rootDir }))
       .toThrow("@openai/codex-linux-x64 optional dependency is missing")
-    expect(() => resolveProviderRuntimePackages({ arch: "arm64", libc: "glibc", platform: "linux", rootDir: claude.rootDir }))
-      .toThrow("@anthropic-ai/claude-agent-sdk-linux-arm64 optional dependency is missing")
+    expect(resolveProviderRuntimePackages({ arch: "arm64", libc: "glibc", platform: "linux", rootDir: claude.rootDir })).toEqual([
+      { name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(claude.rootDir, "package.json") },
+    ])
   })
 
   it("fails explicitly for unsupported deployment hosts", async () => {
