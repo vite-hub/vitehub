@@ -17,6 +17,7 @@ import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { forwardWorkspaceMetadataTarget, workspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
 import type { Tool, ToolSet } from "ai"
@@ -196,6 +197,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   }
 
   const workspace = {
+    async [workspaceMetadataTarget]() {
+      const resolved = await resolveWorkspace()
+      return (resolved as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
+    },
     name,
     async capabilities() {
       const resolved = await resolveWorkspace()
@@ -283,7 +288,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   })
 }
 
-function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): WritableWorkspaceFs<Name> {
+function createWritableFs<Name extends WorkspaceName>(name: Name, workspace: Workspace): WritableWorkspaceFs<Name> {
   return attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => await workspace.readFile(normalizePath(path), options as never),
     writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(path), content, options),
@@ -502,7 +507,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       },
       capabilities: async () => await workspace.capabilities!(),
       diff: async options => await workspace.diff(options),
-      fs: createWritableFs<Name>(workspace),
+      fs: createWritableFs(name, workspace),
       history: {
         checkpoint: async options => await workspace.snapshot({ name: options?.message }),
         rebase: async options => await workspace.rebase(options),
@@ -534,9 +539,11 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
   >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
   tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
   tools.none = emptyTools
-  return {
+  const facade = {
     fs,
-    getMeta: async key => await workspace.getMeta?.(key),
+    getMeta: async (key: string) => await workspace.getMeta?.(key),
     tools,
   }
+  forwardWorkspaceMetadataTarget(workspace, facade)
+  return facade
 }

@@ -5,6 +5,7 @@ import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
+import { workspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
@@ -24,7 +25,8 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
   const store = getStore(definition)
   const files = createWorkspaceSourceView(definition, store)
 
-  const workspace: Workspace = {
+  const workspace: Workspace & { [workspaceMetadataTarget]: () => WorkspaceStore } = {
+    [workspaceMetadataTarget]: () => store,
     name: definition.name,
     async capabilities() {
       return { conditionalWrites: typeof store.writeFileConditional === "function" }

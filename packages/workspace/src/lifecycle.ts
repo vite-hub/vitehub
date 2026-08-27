@@ -48,9 +48,9 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   const ctxSource = createSourceContext(definition, undefined, store)
   const buildSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
-  const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources)
+  const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources, abortSignal)
   const bundledBuildSources = !hasExplicitLoaders
-    ? await syncRuntimeBuildAssets(definition, store, buildSources)
+    ? await syncRuntimeBuildAssets(definition, store, buildSources, abortSignal)
     : undefined
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
     const snapshot = await store.snapshot({ name: "sync" })
@@ -83,7 +83,8 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
 }
 
-async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<boolean> {
+async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
+  abortSignal?.throwIfAborted()
   const previousSources = await readSyncedBuildSources(store)
   const hasBuildSourceState = previousSources.length > 0 || currentSources.length > 0
   const resetPaths = [...new Set([
@@ -92,13 +93,16 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   ])]
 
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
+    abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
   }
   for (const source of [...previousSources, ...currentSources].filter(source => !source.mountPath)) {
+    abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, source)
   }
 
   for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
+    abortSignal?.throwIfAborted()
     await store.mkdir(mountPath, { recursive: true })
   }
 
@@ -106,7 +110,8 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   return hasBuildSourceState
 }
 
-async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<Set<string> | undefined> {
+async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<Set<string> | undefined> {
+  abortSignal?.throwIfAborted()
   if (!currentSources.length) return undefined
 
   let assets: WorkspaceAssets
@@ -124,11 +129,13 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
   const bundledSourceByPath = new Map<string, string>()
   const bundledBuildSources = new Set<string>()
   for (const source of currentSources) {
+    abortSignal?.throwIfAborted()
     if (await hasCompleteBundledBuildSource(definition, store, source, bundledPaths, files, bundledSourceByPath)) {
       bundledBuildSources.add(source.key)
     }
   }
   for (const entry of files) {
+    abortSignal?.throwIfAborted()
     const sourceKey = typeof entry.metadata?.source === "string"
       ? entry.metadata.source
       : bundledSourceByPath.get(entry.path) || findBuildSourceForPath(entry.path, currentSources)?.key

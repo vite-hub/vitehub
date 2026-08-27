@@ -6,6 +6,7 @@ import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
+import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
@@ -175,7 +176,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       return await memory.diff(options)
     },
     async getMeta(key) {
-      return await memory.getMeta?.(key) ?? await (workspace as WorkspaceMetadataTarget).getMeta?.(key)
+      return await memory.getMeta?.(key) ?? await (await resolveWorkspaceMetadataTarget(workspace))?.getMeta?.(key)
     },
     async setMeta(key, value) {
       await memory.setMeta?.(key, value)
@@ -291,7 +292,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
   const overlayStore = createOverlaySourceStore(workspace, path =>
     !isLazySourcePath(resolvedDefinition, path)
-    || selectedScopeCanRead(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
+    || selectedScopeCanSee(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
   )
   const sourceView = createWorkspaceSourceView(sourceViewDefinition, overlayStore, { reuseStartupSnapshots: true })
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
@@ -553,9 +554,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   const readonlyWorkspace: ReadonlyWorkspaceFacade<Name> & Partial<Pick<Workspace, "startSession">> = {
     fs,
-    getMeta: async key => await overlayStore.getMeta?.(key),
     tools,
   }
+  forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, readonlyWorkspace)
   const starter = workspaceSessionStarter(workspace)
   if (starter) {
     readonlyWorkspace.startSession = async options => await starter.startSession(options)
