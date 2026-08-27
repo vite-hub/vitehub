@@ -18,11 +18,11 @@ pnpm add @vite-hub/env
 
 ## Choose an Env section
 
-| Section      | Read when                 | Visible to client code | Use it for                                                       |
-| ------------ | ------------------------- | ---------------------- | ---------------------------------------------------------------- |
-| `env.public` | Build time                | Yes                    | Browser-safe application configuration.                          |
-| `env.define` | Build transform           | Yes, where bundled     | Compile-time replacements such as a release identifier.          |
-| `env.server` | Request or server runtime | By caller convention   | Host-supplied server configuration and source-only credentials.  |
+| Section      | Read when                 | Visible to client code | Use it for                                                      |
+| ------------ | ------------------------- | ---------------------- | --------------------------------------------------------------- |
+| `env.public` | Build time                | Yes                    | Browser-safe application configuration.                         |
+| `env.define` | Build transform           | Yes, where bundled     | Compile-time replacements such as a release identifier.         |
+| `env.server` | Request or server runtime | By caller convention   | Host-supplied server configuration and source-only credentials. |
 
 ## First result
 
