@@ -1554,29 +1554,31 @@ describe("workspace host sessions", () => {
   it("settles active inspections and skips pending work after a batch fails", async () => {
     const docs = workspace()
     const host = Object.assign(memoryHost(), { inspectionConcurrency: 2 })
-    for (let index = 0; index < 4; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.writeFile("blocker.txt", "blocker")
+    for (let index = 0; index < 3; index++) await docs.writeFile(`files/${index}.txt`, String(index))
     await docs.snapshot({ name: "baseline" })
     const session = await docs.startSession({ host })
     const read = host.files.read.bind(host.files)
-    let reads = 0
+    let batchReads = 0
     let release!: () => void
-    const active = new Promise<void>((resolve) => { release = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
     host.files.read = async (path, options) => {
-      reads++
-      if (reads === 1) throw new Error("inspection failed")
-      await active
+      if (path.endsWith("blocker.txt")) await blocked
+      else if (++batchReads === 1) throw new Error("inspection failed")
       return await read(path, options)
     }
 
+    const blocker = session.readFile("blocker.txt")
     const diff = session.diff()
-    await vi.waitFor(() => expect(reads).toBe(2))
+    await vi.waitFor(() => expect(batchReads).toBe(1))
     let settled = false
     void diff.finally(() => { settled = true }).catch(() => {})
     await new Promise(resolve => setTimeout(resolve, 1))
     expect(settled).toBe(false)
     release()
+    await blocker
     await expect(diff).rejects.toThrow("inspection failed")
-    expect(reads).toBe(2)
+    expect(batchReads).toBe(1)
   })
 
   it("settles an aborted inspection while it waits for a host slot", async () => {
