@@ -1045,6 +1045,37 @@ describe("Workspace Source Resolution", () => {
     expect(getItem).toHaveBeenCalledOnce()
   })
 
+  it("masks removed startup snapshot files after an overlay refresh", async () => {
+    let keys = ["kept.md", "removed.md"]
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+    keys = ["kept.md"]
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await workspace.fs.materializeSources?.({ sources: ["docs"] })
+
+    await expect(workspace.fs.readFile("docs/kept.md")).resolves.toBe("kept.md\n")
+    await expect(workspace.fs.readFile("docs/removed.md")).rejects.toThrow("does not exist")
+    await expect(workspace.fs.exists("docs/removed.md")).resolves.toBe(false)
+    await expect(workspace.fs.list("docs")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/kept.md", type: "file" }),
+    ])
+  })
+
   it("does not serve startup snapshots outside the selected scope", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",

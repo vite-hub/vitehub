@@ -89,9 +89,20 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   fallback: (path: string) => boolean,
 ): WorkspaceStore {
   const memory = createMemoryWorkspaceStore()
+  const tombstones = new Set<string>()
+
+  function isTombstoned(path: string) {
+    return [...tombstones].some(tombstone => path === tombstone || path.startsWith(`${tombstone}/`))
+  }
+
+  function restorePath(path: string) {
+    for (const tombstone of tombstones) {
+      if (path === tombstone || path.startsWith(`${tombstone}/`)) tombstones.delete(tombstone)
+    }
+  }
 
   async function readBaseFile(path: string): Promise<WorkspaceFile | undefined> {
-    if (!fallback(path)) return
+    if (!fallback(path) || isTombstoned(path)) return
     if (!await workspace.fs.exists(path as never)) return
     const stat = await workspace.fs.stat(path as never).catch(() => undefined)
     if (stat?.type === "directory") return
@@ -104,7 +115,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
 
   async function baseEntries(path = "", options?: ListOptions) {
     try {
-      return (await workspace.fs.list(path as never, options)).filter(entry => fallback(entry.path))
+      return (await workspace.fs.list(path as never, options)).filter(entry => fallback(entry.path) && !isTombstoned(entry.path))
     }
     catch {
       return []
@@ -113,7 +124,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
 
   async function baseGlob(pattern: string | string[], options?: GlobOptions) {
     try {
-      return (await workspace.fs.glob(pattern as never, options)).filter(entry => fallback(entry.path))
+      return (await workspace.fs.glob(pattern as never, options)).filter(entry => fallback(entry.path) && !isTombstoned(entry.path))
     }
     catch {
       return []
@@ -121,7 +132,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 
   async function baseStat(path: string) {
-    if (!fallback(path)) return
+    if (!fallback(path) || isTombstoned(path)) return
     try {
       return await workspace.fs.stat(path as never)
     }
@@ -135,6 +146,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       return await memory.readFile(path) || await readBaseFile(path)
     },
     async writeFile(path, file) {
+      restorePath(path)
       await memory.writeFile(path, file)
     },
     async list(path, options) {
@@ -147,10 +159,14 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       return await memory.stat(path) || await baseStat(path)
     },
     async mkdir(path, options) {
+      restorePath(path)
       await memory.mkdir(path, options)
     },
     async rm(path, options) {
+      const removedBaseEntries = options?.recursive ? await baseEntries(path, { recursive: true }) : []
       await memory.rm(path, options)
+      tombstones.add(path)
+      for (const entry of removedBaseEntries) tombstones.add(entry.path)
     },
     async snapshot(options) {
       return await memory.snapshot(options)
