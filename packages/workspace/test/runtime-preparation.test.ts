@@ -77,6 +77,22 @@ describe("Workspace runtime preparation", () => {
     expect(getItems).not.toHaveBeenCalled()
   })
 
+  it("preserves absent optional Store mutation methods", async () => {
+    const base = createMemoryWorkspaceStore()
+    const store = new Proxy(base, {
+      get(target, property, receiver) {
+        if (property === "setMeta") return undefined
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }], store),
+    })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await preparation.stop()
+  })
+
   it("does not let an abandoned registry load replace a restarted definition", async () => {
     const name = `workspace-preparation-${crypto.randomUUID()}`
     let releaseFirst!: () => void
@@ -141,6 +157,7 @@ describe("Workspace runtime preparation", () => {
           default: {
             sources: {
               docs: custom({
+                materialize: "startup",
                 async getItem(key) { return { content: "# Ready", key } },
                 async getItems() { return [{ content: "# Ready", key: "ready.md" }] },
                 async getKeys() { return ["ready.md"] },

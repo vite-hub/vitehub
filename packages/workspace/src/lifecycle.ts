@@ -56,6 +56,7 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
     get(target, property) {
       const value = Reflect.get(target, property, target)
       if (!STORE_MUTATIONS.has(String(property))) return value?.bind(target)
+      if (value === undefined) return undefined
       return (...args: unknown[]) => {
         abortSignal.throwIfAborted()
         const operation = Promise.resolve(Reflect.apply(value, target, args))
