@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const store = vi.hoisted(() => ({
-  client: { makeRequest: vi.fn() },
   delete: vi.fn(),
   getMetadata: vi.fn(),
   getWithMetadata: vi.fn(),
   list: vi.fn(),
   set: vi.fn(),
-  name: "vitehub-blob",
 }))
 
 vi.mock("@vite-hub/internal/arrays", () => ({
@@ -20,15 +18,19 @@ vi.mock("@vite-hub/netlify-blobs-runtime", () => ({
 
 import { createDriver } from "../src/drivers/netlify-blobs.ts"
 
-const options = { driver: "netlify-blobs", name: "vitehub-blob" } as const
+const options = { driver: "netlify-blobs", name: "vitehub-blob", siteID: "site-id", token: "secret" } as const
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.unstubAllGlobals()
+})
 
 function mockListPages(pages: Record<string, { blobs: Array<{ etag: string, key: string }>, directories: string[], next_cursor?: string }>) {
-  store.client.makeRequest.mockImplementation(({ parameters }: { parameters: { cursor?: string } }) => {
-    const page = pages[parameters.cursor ?? "first"]
+  vi.stubGlobal("fetch", vi.fn((input: string | URL | Request) => {
+    const url = new URL(input.toString())
+    const page = pages[url.searchParams.get("cursor") ?? "first"]
     return Promise.resolve(new Response(JSON.stringify(page), { status: 200 }))
-  })
+  }))
 }
 
 describe("Netlify Blobs driver", () => {
@@ -61,9 +63,11 @@ describe("Netlify Blobs driver", () => {
     expect(first.folders).toEqual(["skipped/", "folder-only/"])
     expect(second.blobs.map(blob => blob.pathname)).toEqual(["keep.txt"])
     expect(second.folders).toEqual(["selected/"])
-    expect(store.client.makeRequest).toHaveBeenLastCalledWith(expect.objectContaining({
-      parameters: expect.objectContaining({ cursor: "page-3" }),
-    }))
+    expect(fetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchParams: expect.any(URLSearchParams) }),
+      expect.objectContaining({ headers: { authorization: "Bearer secret" } }),
+    )
+    expect(new URL(vi.mocked(fetch).mock.calls.at(-1)![0].toString()).searchParams.get("cursor")).toBe("page-3")
   })
 
   it("does not repeat folded directories across repeated page resumes", async () => {

@@ -27,15 +27,14 @@ type NetlifyListPage = {
   next_cursor?: string
 }
 
-type NetlifyStoreInternals = {
-  client: {
-    makeRequest(options: {
-      method: "get"
-      parameters: Record<string, string>
-      storeName: string
-    }): Promise<Response>
-  }
-  name: string
+type NetlifyEnvironmentContext = {
+  apiURL?: string
+  deployID?: string
+  edgeURL?: string
+  primaryRegion?: string
+  siteID?: string
+  token?: string
+  uncachedEdgeURL?: string
 }
 
 const METADATA_CONCURRENCY = 16
@@ -56,20 +55,64 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
   }
 }
 
-async function listPage(store: object, options: { cursor?: string, directories?: boolean, prefix?: string }) {
-  const { client, name } = store as NetlifyStoreInternals
+function getEnvironmentContext(): NetlifyEnvironmentContext {
+  const encoded = globalThis.netlifyBlobsContext
+  if (typeof encoded !== "string" || !encoded) return {}
+  try {
+    return JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as NetlifyEnvironmentContext
+  }
+  catch {
+    return {}
+  }
+}
+
+function createListPageFetcher(options: NetlifyBlobsStoreConfig) {
+  const environmentContext = getEnvironmentContext()
+  const context = !options.deployScoped && options.siteID && options.token ? {} : environmentContext
+  const siteID = context.siteID ?? options.siteID
+  const token = context.token ?? options.token
+  if (!siteID || !token) {
+    throw new Error("The environment has not been configured to use Netlify Blobs. Supply siteID and token when creating the store.")
+  }
+  const storeName = options.deployScoped
+    ? `deploy:${environmentContext.deployID}${options.name ? `:${options.name}` : ""}`
+    : `site:${options.name}`
+  const edgeURL = options.consistency === "strong" ? context.uncachedEdgeURL : context.edgeURL
+  if (options.consistency === "strong" && context.edgeURL && !edgeURL) {
+    throw new Error("Netlify Blobs strong consistency requires an uncached edge URL.")
+  }
+
+  return async (parameters: Record<string, string>) => {
+    const region = options.deployScoped && edgeURL ? context.primaryRegion : undefined
+    if (options.deployScoped && !environmentContext.deployID) {
+      throw new Error("The environment has not been configured with a Netlify deploy ID.")
+    }
+    if (options.deployScoped && edgeURL && !region) {
+      throw new Error("Netlify Blobs deploy stores require a primary region when using the edge endpoint.")
+    }
+    const pathname = edgeURL
+      ? `/${region ? `region:${region}/` : ""}${siteID}/${storeName}`
+      : `/api/v1/blobs/${siteID}/${storeName}`
+    const url = new URL(pathname, edgeURL ?? context.apiURL ?? "https://api.netlify.com")
+    for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value)
+    if (options.deployScoped && !edgeURL) url.searchParams.set("region", "auto")
+    return await fetch(url, { headers: { authorization: `Bearer ${token}` } })
+  }
+}
+
+async function listPage(fetchPage: (parameters: Record<string, string>) => Promise<Response>, options: { cursor?: string, directories?: boolean, prefix?: string }) {
   const parameters: Record<string, string> = {}
   if (options.cursor) parameters.cursor = options.cursor
   if (options.directories) parameters.directories = "true"
   if (options.prefix) parameters.prefix = options.prefix
-  const response = await client.makeRequest({ method: "get", parameters, storeName: name })
+  const response = await fetchPage(parameters)
   if (response.status === 204 || response.status === 404) return { blobs: [], directories: [] } satisfies NetlifyListPage
   if (response.status !== 200) throw new Error(`Netlify Blobs list failed with status ${response.status}.`)
   return await response.json() as NetlifyListPage
 }
 
 async function mapWithConcurrency<T, U>(values: readonly T[], visit: (value: T) => Promise<U>): Promise<U[]> {
-  const results = new Array<U>(values.length)
+  const results: U[] = []
   let nextIndex = 0
   await Promise.all(Array.from({ length: Math.min(METADATA_CONCURRENCY, values.length) }, async () => {
     while (nextIndex < values.length) {
@@ -121,6 +164,7 @@ async function normalizeBody(body: BlobPutBody) {
 
 export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapter<NetlifyBlobsStoreConfig> {
   const store = createStore(options)
+  const fetchListPage = createListPageFetcher(options)
   return {
     name: options.driver,
     options,
@@ -154,7 +198,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       let directoriesConsumed = cursor.directoriesConsumed
       while (true) {
         const pageCursor = providerCursor
-        const page = await listPage(store, {
+        const page = await listPage(fetchListPage, {
           cursor: pageCursor,
           directories: listOptions.folded,
           prefix: listOptions.prefix,
