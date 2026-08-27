@@ -4,6 +4,7 @@ import cloudflareEmail from "../src/drivers/cloudflare-email.ts"
 import resend from "../src/drivers/resend.ts"
 
 import type { EmailMessage } from "../src/types.ts"
+import type { ResendEmailDriverOptions } from "../src/drivers/resend.ts"
 
 const message: EmailMessage = {
   attachments: [{ content: new Uint8Array([1, 2, 3]), filename: "report.bin" }],
@@ -24,7 +25,9 @@ describe("Resend Email driver", () => {
   })
 
   it("rejects non-string API keys during configuration", () => {
-    expect(() => resend({ apiKey: 123 as unknown as string })).toThrow("apiKey must be a string")
+    const options: ResendEmailDriverOptions = { apiKey: "re_secret" }
+    Object.assign(options, { apiKey: 123 })
+    expect(() => resend(options)).toThrow("apiKey must be a string")
   })
 
   it("rejects API keys with invalid header characters during configuration", () => {
@@ -107,6 +110,21 @@ describe("Resend Email driver", () => {
 
     await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
     expect(cancel).toHaveBeenCalledOnce()
+    vi.useRealTimers()
+  })
+
+  it("aborts and times out a stalled request", async () => {
+    vi.useFakeTimers()
+    const request = vi.fn((_input: Parameters<typeof fetch>[0], init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+    }))
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    const delivery = driver.send(message, context)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
     vi.useRealTimers()
   })
 

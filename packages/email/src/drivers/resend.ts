@@ -11,6 +11,7 @@ export interface ResendEmailDriverOptions {
 
 const MAX_RESPONSE_BYTES = 64 * 1024
 const RESPONSE_READ_TIMEOUT_MS = 30_000
+const REQUEST_TIMEOUT_MS = 30_000
 
 function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
   return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError")
@@ -108,7 +109,7 @@ function payload(message: EmailMessage): Record<string, unknown> {
 
 export default function resendEmailDriver(options: ResendEmailDriverOptions): EmailDriver {
   requiredOption("resend", options?.apiKey, "apiKey")
-  if (typeof options.apiKey !== "string") throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must be a string.")
+  if (!isString(options.apiKey)) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must be a string.")
   if (!options.apiKey.startsWith("re_")) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must start with 're_'.")
   if (/[^\u0021-\u007E]/.test(options.apiKey)) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey contains an invalid HTTP header character.")
   const request = options.fetch ?? globalThis.fetch
@@ -161,6 +162,14 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         return { data: null, error: emailProviderError("resend", "INVALID_OPTIONS", "Resend payload is invalid.", { cause }) }
       }
       let response: Response
+      const requestController = new AbortController()
+      const abortRequest = () => requestController.abort(context.signal?.reason)
+      context.signal?.addEventListener("abort", abortRequest, { once: true })
+      let requestTimedOut = false
+      const requestTimeout = setTimeout(() => {
+        requestTimedOut = true
+        requestController.abort()
+      }, REQUEST_TIMEOUT_MS)
       try {
         response = await request(`${endpoint}/emails`, {
           body,
@@ -170,13 +179,18 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },
           method: "POST",
-          signal: context.signal,
+          signal: requestController.signal,
         })
       }
       catch (cause) {
         if (isEmailProviderError(cause)) return { data: null, error: cause }
+        if (requestTimedOut) return { data: null, error: emailProviderError("resend", "TIMEOUT", "Resend request timed out.", { cause, retryable: true }) }
         if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", { cause, retryable: false }) }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend request failed.", { cause, retryable: true }) }
+      }
+      finally {
+        clearTimeout(requestTimeout)
+        context.signal?.removeEventListener("abort", abortRequest)
       }
       let text: string
       try {
