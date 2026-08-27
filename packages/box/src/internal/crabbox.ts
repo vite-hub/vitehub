@@ -200,7 +200,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
     } = {}) {
       const sessionOptions: CrabboxSessionOptions = {
         ...options,
-        ...(process.env.CRABBOX_STATIC_HOST ? { staticId: `vitehub-${randomUUID()}` } : {}),
+        staticId: `vitehub-${randomUUID()}`,
         stateHome: await mkdtemp(join(tmpdir(), "vitehub-crabbox-state-")),
       }
       let releaseWorkspace = () => {};

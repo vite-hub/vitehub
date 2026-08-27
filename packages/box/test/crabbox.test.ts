@@ -781,7 +781,7 @@ describe("createCrabboxRuntime", () => {
     })
   }, 30_000)
 
-  it("isolates concurrent sessions on a Crabbox static host", async () => {
+  it("isolates concurrent sessions on a profile-configured Crabbox static host", async () => {
     const root = await temporaryRoot()
     const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
     const bin = join(root, "bin")
@@ -790,7 +790,6 @@ describe("createCrabboxRuntime", () => {
     await fakeCrabbox(bin)
 
     await withEnvironment({
-      CRABBOX_STATIC_HOST: "localhost",
       CRABBOX_TEST_STATIC_ID_LOG: staticIdLog,
       PATH: `${bin}:${process.env.PATH || ""}`,
     }, async () => {
