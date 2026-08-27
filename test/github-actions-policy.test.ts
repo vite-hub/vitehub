@@ -93,6 +93,15 @@ describe("GitHub Action pin policy", () => {
     ])
   })
 
+  it("ignores nested YAML files that GitHub does not discover as workflows", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - uses: ${pinnedCheckout}\n`,
+      ".github/workflows/fixtures/example.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n",
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
   it("classifies nested action manifests under .github/workflows as actions", async () => {
     const root = await createFixture({
       ".github/workflows/actions/setup/action.yml": "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v6\n",

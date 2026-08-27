@@ -7,7 +7,7 @@ import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from "yam
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-async function findYamlFiles(directory, filter, ignoredDirectories = new Set()) {
+async function findYamlFiles(directory, filter, ignoredDirectories = new Set(), recursive = true) {
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
@@ -20,7 +20,7 @@ async function findYamlFiles(directory, filter, ignoredDirectories = new Set()) 
   const files = []
   for (const entry of entries) {
     const path = resolve(directory, entry.name)
-    if (entry.isDirectory() && !ignoredDirectories.has(entry.name)) {
+    if (recursive && entry.isDirectory() && !ignoredDirectories.has(entry.name)) {
       files.push(...await findYamlFiles(path, filter, ignoredDirectories))
     }
     else if (filter(entry.name) && (entry.isFile() || (entry.isSymbolicLink() && (await stat(path)).isFile()))) {
@@ -33,7 +33,7 @@ async function findYamlFiles(directory, filter, ignoredDirectories = new Set()) 
 export async function findGitHubActionPolicyFiles(repoRoot) {
   const githubRoot = resolve(repoRoot, ".github")
   const [workflows, actions] = await Promise.all([
-    findYamlFiles(resolve(githubRoot, "workflows"), name => /\.ya?ml$/.test(name)),
+    findYamlFiles(resolve(githubRoot, "workflows"), name => /\.ya?ml$/.test(name), new Set(), false),
     findYamlFiles(repoRoot, name => /^action\.ya?ml$/.test(name), new Set([".git", "node_modules"])),
   ])
   return [...new Set([...workflows, ...actions])].sort()
