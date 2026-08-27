@@ -5937,7 +5937,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
       raw: expect.stringMatching(/ \(2\/2\)$/),
     })
-    expect(adapter.postMessage).toHaveBeenCalledTimes(3)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
   })
 
   it("maps audio mime file attachments by default without resolving bytes", async () => {
@@ -12071,7 +12071,7 @@ describe("server helpers", () => {
         name: "agent.channel.delivery.effect",
       }))
     })
-    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(3)
   })
 
   it("defers static queued finish reply traces until delivery", async () => {
