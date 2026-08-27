@@ -494,6 +494,37 @@ describe("Agent invocation console", () => {
     expect(second.cursor).toBeUndefined()
   })
 
+  it("preserves deferred active pagination while serving terminal sessions", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["completed", "completed", "pending", "pending"] as const).entries()) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=1"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const ids: string[] = []
+    let cursor: string | undefined
+    do {
+      requestEvent.node!.req!.url = cursor ? `${url}&cursor=${encodeURIComponent(cursor)}` : url
+      requestEvent.req!.url = requestEvent.node!.req!.url
+      const page = await invocationsHandler(requestEvent)
+      ids.push(...page.invocations.map(invocation => invocation.id))
+      cursor = page.cursor
+    } while (cursor)
+
+    expect(ids).toEqual(["pending-3", "completed-1", "pending-2", "completed-0"])
+  })
+
   it("searches session text through the console Collection", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({

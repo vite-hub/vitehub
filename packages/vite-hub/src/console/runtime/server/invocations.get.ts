@@ -102,7 +102,11 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       })
     : emptyPage
   const nextCursor = encodeCursor({
-    ...(active.cursor ? { active: active.cursor } : {}),
+    ...(active.cursor
+      ? { active: active.cursor }
+      : activeLimit === 0 && cursor.active
+        ? { active: cursor.active }
+        : {}),
     ...(terminal.cursor
       ? { terminal: terminal.cursor }
       : terminalLimit === 0 && hasTerminalPage
