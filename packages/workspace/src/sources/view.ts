@@ -86,6 +86,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
+  const materializedSources = new Set<string>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   let materializationByDefinition = materializationByStore.get(store)
   if (!materializationByDefinition) {
@@ -194,7 +195,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}) {
-    const sourceKeys = options.sources?.length ? options.sources : sources.map(source => source.key)
+    const requestedPath = normalizeWorkspacePath(options.path || "")
+    const sourceKeys = sources
+      .filter(source => (!options.sources?.length || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
+      .map(source => source.key)
     const predecessors = sourceKeys.flatMap((sourceKey) => {
       const pending = pendingBySource.get(sourceKey)
       return pending ? [pending.tail] : []
@@ -205,8 +209,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const result = await materializeWorkspaceSources(definition, store, options)
       if (!options.path) {
         for (const source of result.sources) {
-          if (source.status === "ready" && sources.find(item => item.key === source.source)?.materialize === "startup") {
-            completedSources.add(source.source)
+          if (source.status === "ready") {
+            materializedSources.add(source.source)
+            if (sources.find(item => item.key === source.source)?.materialize === "startup") completedSources.add(source.source)
           }
         }
       }
@@ -221,18 +226,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )
     const entry = { fullSource: !options.path, promise: current, tail }
     for (const sourceKey of sourceKeys) pendingBySource.set(sourceKey, entry)
-    try {
-      return await current
-    }
-    finally {
+    void tail.then(() => {
       for (const sourceKey of sourceKeys) {
         if (pendingBySource.get(sourceKey) === entry) pendingBySource.delete(sourceKey)
       }
-    }
+    })
+    return await current
   }
 
   async function ensureMaterialized(sourceKey: string) {
-    if (completedSources.has(sourceKey)) return
+    if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) return
     const pending = pendingBySource.get(sourceKey)
     if (pending?.fullSource) {
       try {
@@ -242,7 +245,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         // A lazy consumer owns its fallback independently from a preparation
         // lifecycle that it happened to join.
       }
-      if (completedSources.has(sourceKey)) return
+      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) return
     }
     await materializeSerialized({ sources: [sourceKey] })
   }

@@ -924,6 +924,52 @@ describe("lazy sources", () => {
     expect(getItems).toHaveBeenCalledTimes(2)
   })
 
+  it("serializes path-scoped materialization only with matching Sources", async () => {
+    let releaseAssets!: () => void
+    const assetsBlocked = new Promise<void>((resolve) => {
+      releaseAssets = resolve
+    })
+    let assetsStarted!: () => void
+    const assetsMaterializing = new Promise<void>((resolve) => {
+      assetsStarted = resolve
+    })
+    const docsItem = vi.fn(async (key: string) => ({ key, content: "# Guide\n" }))
+    const definition = {
+      name: "lazy-path-coordination",
+      sources: {
+        assets: custom({
+          materialize: "lazy" as const,
+          async getKeys() {
+            assetsStarted()
+            await assetsBlocked
+            return ["logo.svg"]
+          },
+          async getItem(key) {
+            return { key, content: "<svg />" }
+          },
+        }),
+        docs: custom({
+          materialize: "lazy" as const,
+          async getKeys() {
+            return ["guide.md"]
+          },
+          getItem: docsItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store)
+    const second = createWorkspaceSourceView(definition, store)
+    const assets = first.materializeSources({ path: "assets/logo.svg" })
+    await assetsMaterializing
+
+    await second.materializeSources({ sources: ["docs"] })
+    expect(docsItem).toHaveBeenCalledOnce()
+
+    releaseAssets()
+    await assets
+  })
+
   it("does not share pending materialization across Workspace Definitions", async () => {
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {
