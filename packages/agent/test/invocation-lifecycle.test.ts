@@ -307,6 +307,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: streamAgent returns an async iterable when the capability provides final streamed output.
     const stream = await streamAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -832,7 +833,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(result.text).toBe("hello")
   })
 
-  it("skips throwing nested descriptor enumeration while finalizing raw streams", async () => {
+  it("skips throwing usage detail enumeration while finalizing raw streams", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const details = new Proxy({}, {
@@ -840,7 +841,14 @@ describe("Agent Invocation Interface lifecycle", () => {
         throw new Error("unreadable usage descriptors")
       },
     })
-    const raw = Object.assign((async function* () {})(), { usage: { details, totalTokens: 2 } })
+    const raw = Object.assign((async function* () {})(), {
+      usage: {
+        details,
+        inputTokenDetails: details,
+        outputTokenDetails: details,
+        totalTokens: 2,
+      },
+    })
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.

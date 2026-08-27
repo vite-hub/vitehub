@@ -197,8 +197,13 @@ function readString(record: Record<string, unknown> | undefined, ...keys: string
 function readDetails(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return
   const details: Record<string, number> = {}
-  for (const [key, item] of Object.entries(value)) {
-    if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
+  try {
+    for (const [key, item] of Object.entries(value)) {
+      if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
+    }
+  }
+  catch {
+    return
   }
   return Object.keys(details).length ? details : undefined
 }
