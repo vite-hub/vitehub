@@ -200,7 +200,7 @@ describe("Agent Invocation UI", () => {
       props: {
         items: [
           { id: "first", status: "completed", title: "First" },
-          { id: "second", status: "failed", title: "Second" },
+          { id: "second", status: "completed", title: "Second" },
         ],
         selectedId: "first",
       },

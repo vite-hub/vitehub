@@ -179,8 +179,14 @@ export const AgentInvocationList = defineComponent({
       requestedLength.value = undefined;
       requestMoreIfNeeded();
     });
-    watch(() => props.items.find(item => item.id === props.selectedId)?.status, (status, previousStatus) => {
-      if (status === previousStatus || status === undefined || status === "running" || status === "pending") return;
+    watch([
+      () => props.selectedId,
+      () => props.items.find(item => item.id === props.selectedId)?.status,
+    ], ([selectedId, status], [previousSelectedId, previousStatus]) => {
+      if ((selectedId === previousSelectedId && status === previousStatus)
+        || status === undefined
+        || status === "running"
+        || status === "pending") return;
       doneOpen.value = true;
     });
     onMounted(() => {
