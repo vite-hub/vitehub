@@ -53,6 +53,7 @@ import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
+import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
 import {
   isRuntimeBigInt,
   isRuntimeBoolean,
@@ -134,6 +135,7 @@ import type {
 import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
+import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -4423,44 +4425,51 @@ async function flushChatFinishExtensionMessages(
         }
       })()
     }
-    abortSignal?.throwIfAborted()
-    if (abortSignal && isAsyncIterable(message)) {
-      message = manualDelivery.placeholder ? await collectAbortableChatMessage(message, abortSignal) : abortableChatMessage(message, abortSignal)
-    }
-    if (manualDelivery.placeholder) {
-      if (isAsyncIterable(message)) {
-        let markdown = ""
-        for await (const chunk of message) markdown += chunk
-        message = { markdown }
-        abortSignal?.throwIfAborted()
+    try {
+      abortSignal?.throwIfAborted()
+      if (abortSignal && isAsyncIterable(message)) {
+        message = manualDelivery.placeholder ? await collectAbortableChatMessage(message, abortSignal) : abortableChatMessage(message, abortSignal)
       }
-      const placeholder = manualDelivery.placeholder
-      let deliveredToPlaceholder = false
-      const placeholderCleanup = (async () => {
+      if (manualDelivery.placeholder) {
+        if (isAsyncIterable(message)) {
+          let markdown = ""
+          for await (const chunk of message) markdown += chunk
+          message = { markdown }
+          abortSignal?.throwIfAborted()
+        }
+        const placeholder = manualDelivery.placeholder
+        let deliveredToPlaceholder = false
+        const placeholderCleanup = (async () => {
+          try {
+            await deleteManualDeliveryPlaceholder(placeholder)
+          } catch {
+            abortSignal?.throwIfAborted()
+            deliveredToPlaceholder = await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)
+            abortSignal?.throwIfAborted()
+          }
+          manualDelivery.placeholder = undefined
+          abortSignal?.throwIfAborted()
+        })()
+        manualDelivery.placeholderCleanup = placeholderCleanup
         try {
-          await deleteManualDeliveryPlaceholder(placeholder)
-        } catch {
-          abortSignal?.throwIfAborted()
-          deliveredToPlaceholder = await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)
-          abortSignal?.throwIfAborted()
+          await placeholderCleanup
+        } finally {
+          if (manualDelivery.placeholderCleanup === placeholderCleanup) {
+            manualDelivery.placeholderCleanup = undefined
+          }
         }
-        manualDelivery.placeholder = undefined
-        abortSignal?.throwIfAborted()
-      })()
-      manualDelivery.placeholderCleanup = placeholderCleanup
-      try {
-        await placeholderCleanup
-      } finally {
-        if (manualDelivery.placeholderCleanup === placeholderCleanup) {
-          manualDelivery.placeholderCleanup = undefined
+        if (deliveredToPlaceholder) {
+          for (const callback of queued.callbacks) await callback(capture)
+          continue
         }
       }
-      if (deliveredToPlaceholder) {
-        for (const callback of queued.callbacks) await callback(capture)
-        continue
-      }
+      await postChatMessage(thread, message, abortSignal)
     }
-    await postChatMessage(thread, message, abortSignal)
+    catch (error) {
+      capture.error = error instanceof Error ? error.message : String(error)
+      for (const callback of queued.callbacks) await callback(capture)
+      throw error
+    }
     for (const callback of queued.callbacks) await callback(capture)
   }
 }
@@ -6396,128 +6405,21 @@ function agentChatFetchErrorResponse(error: unknown): Response {
   return toHttpErrorResponse(error, error instanceof TypeError ? 400 : 500)!
 }
 
-const resumableChatDefaultTtlMs = 10 * 60 * 1000
-const resumableChatDiscoveryAttempts = 30
-const resumableChatDiscoveryIntervalMs = 100
-
-interface ResumableChatRun {
-  chunks: Uint8Array[]
-  done: boolean
-  error?: unknown
-  hasBody: boolean
-  headers: Headers
-  invocationKey: string
-  latestKey: string
-  reader?: ReadableStreamDefaultReader<Uint8Array>
-  ready: Promise<void>
-  resolveReady: () => void
-  setupError?: unknown
-  status: number
-  statusText: string
-  subscribers: Set<ReadableStreamDefaultController<Uint8Array>>
-}
-
-function resumableChatKey(...parts: string[]): string {
-  return JSON.stringify(parts)
-}
-
-function resumableChatResponse(run: ResumableChatRun): Response {
-  if (!run.hasBody) {
-    return new Response(null, {
-      headers: run.headers,
-      status: run.status,
-      statusText: run.statusText,
-    })
-  }
-  let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined
-  return new Response(new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of run.chunks) controller.enqueue(chunk)
-      if (run.error) controller.error(run.error)
-      else if (run.done) controller.close()
-      else {
-        subscriber = controller
-        run.subscribers.add(controller)
-      }
-    },
-    cancel() {
-      if (subscriber) run.subscribers.delete(subscriber)
-    },
-  }), {
-    headers: run.headers,
-    status: run.status,
-    statusText: run.statusText,
-  })
-}
-
-async function resumableChatOwner(
-  config: AgentChannelChatRouteResumableOptions | undefined,
-  context: AgentChannelChatRouteResumableContext,
-): Promise<string> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route options can arrive from untyped JavaScript, so validate the public runtime boundary before invocation.
-  if (!config || typeof config !== "object" || typeof config.owner !== "function") {
-    throw new TypeError("[vitehub] Resumable web chat requires route.resumable.owner().")
-  }
-  if (config.scope !== "process") {
-    throw new TypeError('[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.')
-  }
-  const owner = await config.owner(context)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript owner callbacks can violate the declared return type at this public runtime boundary.
-  if (typeof owner !== "string" || !owner.trim()) {
-    throw new TypeError("[vitehub] Resumable web chat owner must be a non-empty string.")
-  }
-  return owner.trim()
-}
-
-function closeResumableChatRun(run: ResumableChatRun, error?: unknown): void {
-  if (run.done) return
-  run.done = true
-  run.error = error
-  for (const subscriber of run.subscribers) {
-    if (error) subscriber.error(error)
-    else subscriber.close()
-  }
-  run.subscribers.clear()
-}
-
-function scheduleResumableChatRunCleanup(
-  run: ResumableChatRun,
-  resumable: AgentChannelChatRouteResumableOptions,
-  resumableRuns: Map<string, ResumableChatRun>,
-  latestResumableRuns: Map<string, ResumableChatRun>,
-): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript route options can violate the declared numeric type at this public runtime boundary.
-  const ttlMs = typeof resumable.ttlMs === "number" && resumable.ttlMs > 0 ? resumable.ttlMs : resumableChatDefaultTtlMs
-  const cleanup = setTimeout(() => {
-    resumableRuns.delete(run.invocationKey)
-    if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
-  }, ttlMs)
-  cleanup.unref?.()
-}
-
-async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key: string): Promise<ResumableChatRun | undefined> {
-  for (let attempt = 0; attempt < resumableChatDiscoveryAttempts; attempt++) {
-    const run = runs.get(key)
-    if (run) return run
-    await new Promise<void>(resolve => setTimeout(resolve, resumableChatDiscoveryIntervalMs))
-  }
-}
-
 export function createChannelChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
 ): AgentChannelChatRouteHandler {
   const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
-  const resumableRuns = new Map<string, ResumableChatRun>()
-  const latestResumableRuns = new Map<string, ResumableChatRun>()
+  const resumableCustody = routeOptions.resumable
+    ? createResumableChatProcessCustody<AgentChannelChatRouteResumableContext>(routeOptions.resumable)
+    : undefined
   const handler: AgentChannelChatRouteHandler = async (request, handlerOptions = {}) => {
-    const resumable = routeOptions.resumable
-    if (request.method !== "POST" && (!resumable || (request.method !== "GET" && request.method !== "DELETE"))) {
+    if (request.method !== "POST" && (!resumableCustody || (request.method !== "GET" && request.method !== "DELETE"))) {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
     }
 
     let delivery: AgentChannelDeliveryTracker | undefined
-    let claimedRun: ResumableChatRun | undefined
+    let resumableClaim: ResumableChatProcessClaim | undefined
     try {
       if (request.method !== "POST") {
         const searchParams = new URL(request.url).searchParams
@@ -6538,30 +6440,27 @@ export function createChannelChatRouteHandler(
           request,
         })
         if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
-        const owner = await resumableChatOwner(resumable, {
-          agentName,
-          // SAFETY: false is rejected immediately above.
-          auth: auth as never,
-          body,
-          event: handlerOptions.event,
-          rawBody: "",
-          request,
-        })
-        const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", owner, id)
-        const run = request.method === "DELETE"
-          ? resumableRuns.get(resumableChatKey(latestKey, messageId!))
-          : latestResumableRuns.get(latestKey) || await waitForResumableChatRun(latestResumableRuns, latestKey)
-        if (!run) return new Response(null, { status: 204 })
-        await run.ready
-        if (run.setupError) throw run.setupError
+        const session = await resumableCustody!.session(
+          {
+            agentName,
+            // SAFETY: false is rejected immediately above.
+            auth: auth as never,
+            body,
+            event: handlerOptions.event,
+            rawBody: "",
+            request,
+          },
+          {
+            agentName,
+            channelId: routeOptions.channelId || "http",
+            chatId: id,
+          },
+        )
         if (request.method === "DELETE") {
-          if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
-          resumableRuns.delete(run.invocationKey)
-          closeResumableChatRun(run)
-          await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+          await session.stop(messageId!)
           return new Response(null, { status: 204 })
         }
-        return resumableChatResponse(run)
+        return await session.latest() || new Response(null, { status: 204 })
       }
       const captured = await captureAgentInboundBody(request, handlerOptions.maxBodyBytes ?? routeOptions.maxBodyBytes)
       request = captured.request
@@ -6605,38 +6504,19 @@ export function createChannelChatRouteHandler(
         rawBody: parsed.rawBody,
         request,
       }
-      const resumableOwner = resumable ? await resumableChatOwner(resumable, inputContext) : undefined
+      const resumableSession = resumableCustody
+        ? await resumableCustody.session(inputContext, {
+            agentName,
+            channelId: routeOptions.channelId || "http",
+            chatId: optionalBodyString(body.id, "id") || "default",
+          })
+        : undefined
       const admittedInput = mergeAgentChannelChatRouteInput(trustedInput, await routeOptions.admission?.context?.(inputContext))
       let triggerInput = mergeAgentChannelChatRouteInput(admittedInput, await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }))
-      if (resumableOwner) {
-        const chatId = optionalBodyString(body.id, "id") || "default"
-        const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", resumableOwner, chatId)
-        const invocationKey = resumableChatKey(latestKey, resumableMessageId || "default")
-        const existingRun = resumableRuns.get(invocationKey)
-        if (existingRun) {
-          await existingRun.ready
-          if (existingRun.setupError) throw existingRun.setupError
-          return resumableChatResponse(existingRun)
-        }
-        let resolveReady!: () => void
-        const ready = new Promise<void>((resolve) => {
-          resolveReady = resolve
-        })
-        claimedRun = {
-          chunks: [],
-          done: false,
-          hasBody: false,
-          headers: new Headers(),
-          invocationKey,
-          latestKey,
-          ready,
-          resolveReady,
-          status: 200,
-          statusText: "",
-          subscribers: new Set(),
-        }
-        resumableRuns.set(invocationKey, claimedRun)
-        latestResumableRuns.set(latestKey, claimedRun)
+      if (resumableSession) {
+        const claim = resumableSession.claim(resumableMessageId || "default")
+        if (claim.kind === "existing") return await claim.response
+        resumableClaim = claim
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
       const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
@@ -6743,49 +6623,14 @@ export function createChannelChatRouteHandler(
       )
       if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
       const response = await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
-      if (!claimedRun || !resumable) return response
-
-      const headers = new Headers(response.headers)
-      headers.set("x-vitehub-message-id", resumableMessageId || "")
-      headers.set("x-vitehub-run-id", triggerInput.run?.runId || "")
-      headers.delete("content-length")
-      claimedRun.headers = headers
-      claimedRun.status = response.status
-      claimedRun.statusText = response.statusText
-      claimedRun.hasBody = Boolean(response.body)
-      claimedRun.reader = response.body?.getReader()
-      claimedRun.resolveReady()
-      if (!claimedRun.reader) {
-        closeResumableChatRun(claimedRun)
-        scheduleResumableChatRunCleanup(claimedRun, resumable, resumableRuns, latestResumableRuns)
-      } else {
-        const run = claimedRun
-        const consume = (async () => {
-          try {
-            while (!run.done) {
-              const chunk = await run.reader!.read()
-              if (chunk.done) break
-              const value = chunk.value.slice()
-              run.chunks.push(value)
-              for (const subscriber of run.subscribers) subscriber.enqueue(value)
-            }
-            closeResumableChatRun(run)
-          } catch (error) {
-            closeResumableChatRun(run, error)
-          } finally {
-            scheduleResumableChatRunCleanup(run, resumable, resumableRuns, latestResumableRuns)
-          }
-        })()
-        context.waitUntil(consume)
-      }
-      return resumableChatResponse(claimedRun)
+      if (!resumableClaim) return response
+      return resumableClaim.complete(response, {
+        messageId: resumableMessageId,
+        runId: triggerInput.run?.runId,
+        waitUntil: promise => context.waitUntil(promise),
+      })
     } catch (error) {
-      if (claimedRun) {
-        claimedRun.setupError = error
-        claimedRun.resolveReady()
-        resumableRuns.delete(claimedRun.invocationKey)
-        if (latestResumableRuns.get(claimedRun.latestKey) === claimedRun) latestResumableRuns.delete(claimedRun.latestKey)
-      }
+      resumableClaim?.fail(error)
       if (delivery) {
         await settleChannelDeliveryInvocation(delivery, "failed", "failed", {
           error: channelDeliveryError(error),

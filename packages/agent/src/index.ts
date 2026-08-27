@@ -1242,6 +1242,7 @@ async function applyChannelDeliveryEffectIntents<
             await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
               ...metadata,
               ...(capture.content ? { "channel.effect.content": capture.content } : {}),
+              ...(capture.error ? { "error.message": capture.error } : {}),
               ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
             })
           })

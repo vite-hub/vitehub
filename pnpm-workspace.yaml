@@ -3,11 +3,9 @@ packages:
   - "packages/*"
   - "packages/*/examples/*"
 catalog:
+  '@cloudflare/vitest-plugin': ^1.1.0
   '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@99682f626b1d24843d3f82bd082644d77aa0de43
   vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
-
-ignoredOptionalDependencies:
-  - fallow-type-aware
 
 catalogMode: prefer
 
@@ -44,14 +42,14 @@ catalogs:
     effect: 4.0.0-beta.99
   email:
     unemail: 0.5.0
-  markdown:
-    "@comark/html": 0.6.2
-    comark: 0.6.2
-    comark-content: 0.3.0
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:
     h3: ^1.15.11
+  markdown:
+    "@comark/html": 0.6.2
+    comark: 0.6.2
+    comark-content: 0.3.0
   nuxt:
     "@nuxt/content": ^3.15.0
     "@nuxt/ui": ^4.11.0
@@ -160,6 +158,9 @@ catalogs:
     mrmime: ^2.0.1
     picomatch: ^4.0.5
     tinyglobby: ^0.2.17
+
+ignoredOptionalDependencies:
+  - fallow-type-aware
 overrides:
   "glob": ^13.0.6
   "parse-url>@types/parse-path": "-"

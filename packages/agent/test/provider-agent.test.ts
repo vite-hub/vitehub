@@ -9,8 +9,10 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string> }) => providerRuntimes.shift()))
+const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
+vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -111,10 +113,24 @@ describe("Provider Agent Driver", () => {
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
       environment: expect.objectContaining({ PROVIDER_SELECTED: "selected" }),
+      settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
     }))
     expect(createProviderRuntime).toHaveBeenCalled()
-    expect(createProviderRuntime.mock.calls.at(-1)![0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    const lastRuntimeCall = createProviderRuntime.mock.lastCall
+    expect(lastRuntimeCall).toBeDefined()
+    expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
+  })
+
+  it("keeps the host Codex executable fallback when the package is absent", async () => {
+    const threadId = "thread-host-codex"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    resolveInstalledCodexExecutable.mockReturnValueOnce(undefined)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
   })
 
   it("does not request another provider event after the turn completes", async () => {
@@ -144,10 +160,9 @@ describe("Provider Agent Driver", () => {
   ] as const)("maps %s to its provider runtime mode", async (_label, providerName, permissions, runtimeMode) => {
     const threadId = `thread-permissions-${providerName}-${permissions ?? "omitted"}`
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const adapter = createProviderAgentAdapter({
-      ...(permissions ? { permissions } : {}),
-      provider: providerName,
-    })
+    const providerOptions: { permissions?: typeof permissions, provider: typeof providerName } = { provider: providerName }
+    if (permissions) providerOptions.permissions = permissions
+    const adapter = createProviderAgentAdapter(providerOptions)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)

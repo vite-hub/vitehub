@@ -4,6 +4,7 @@ export const chatFinishDeliveryRegistrarKey = Symbol("vitehub.chat.finish.delive
 
 export interface ChatFinishDeliveryCapture {
   content: string
+  error?: string
   truncated: boolean
 }
 

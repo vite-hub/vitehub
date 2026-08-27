@@ -412,7 +412,7 @@ export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
-  if (terminalStatus(record.status) && !input.observationsTruncated) return record
+  if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
