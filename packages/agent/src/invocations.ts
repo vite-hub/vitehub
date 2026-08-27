@@ -363,6 +363,10 @@ function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
     || (observation.name === "agent.stream.error" && observation.attributes?.["error.recoverable"] !== true)
 }
 
+function deliveryOutcomeObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "agent.channel.delivery.effect"
+}
+
 function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
   if (failureEvidenceObservation(observation)) return 0
   if (terminalObservation(observation)) return 1
@@ -435,18 +439,16 @@ export function applyAgentInvocationStoreUpdate(
           const terminal = terminalObservation(input.observation)
             ? input.observation
             : record.observations.findLast(terminalObservation)
-          const retained = record.observations.filter(observation => observation !== failureEvidence && observation !== terminal)
-          if (failureEvidence && terminal && failureEvidence !== terminal) {
-            return [
-              ...retained.slice(0, MAX_OBSERVATIONS - 2),
-              cloneObservation(boundedObservation(truncatedObservation(failureEvidence))),
-              cloneObservation(boundedObservation(truncatedObservation(terminal))),
-            ]
-          }
-          const outcome = failureEvidence || terminal
+          const delivery = deliveryOutcomeObservation(input.observation)
+            ? input.observation
+            : record.observations.findLast(deliveryOutcomeObservation)
+          const outcomes = [failureEvidence, terminal, delivery]
+            .filter((observation, index, all): observation is TraceEventLogEntry => observation !== undefined && all.indexOf(observation) === index)
+          if (outcomes.length === 0) outcomes.push(record.observations.at(-1)!)
+          const retained = record.observations.filter(observation => !outcomes.includes(observation))
           return [
-            ...retained.slice(0, MAX_OBSERVATIONS - 1),
-            cloneObservation(boundedObservation(truncatedObservation(outcome || record.observations.at(-1)!))),
+            ...retained.slice(0, MAX_OBSERVATIONS - outcomes.length),
+            ...outcomes.map(observation => cloneObservation(boundedObservation(truncatedObservation(observation)))),
           ]
         })()
     : record.observations
