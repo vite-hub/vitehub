@@ -99,6 +99,19 @@ import "real"
     )
   })
 
+  it("rejects computed application imports through an intermediate base", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-base-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'const base = import.meta.url\nawait import(new URL("./helper.ts", base).href)\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+      "unsupported computed import",
+    )
+  })
+
   it("stages external Schedule packages and their native optional dependencies", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-package-"))
     await mkdir(join(root, ".output/server"), { recursive: true })

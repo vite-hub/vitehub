@@ -15,7 +15,9 @@ const denoRuntimeTargets = [
 ] as const
 
 interface FinalizeDenoDeploymentOutputOptions {
+  alias?: Record<string, string>
   deploymentName?: string
+  hasScheduleIntegration?: boolean
   outputDir?: string
   rootDir: string
 }
@@ -312,6 +314,10 @@ function assertSupportedApplicationEntryImports(source: string): void {
     if (specifier === "./schedule/deno-cron.mjs" || specifier === "./server/index.mjs") continue
     throw new Error(`Deno application entrypoint contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
   }
+  const remaining = source.replaceAll(/import\s*\(\s*new URL\(\s*["']\.\/(?:schedule\/deno-cron\.mjs|server\/index\.mjs)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, "")
+  if (/\bimport\s*\(\s*[^"'\s]/.test(maskInertImportText(remaining))) {
+    throw new Error("Deno application entrypoint contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.")
+  }
 }
 
 function denoDeployRunnerSource(deploymentName: string | undefined, entrypoint: string): string {
@@ -407,11 +413,16 @@ export async function finalizeDenoDeploymentOutput(
   let hasSchedule = false
   try {
     await access(scheduleSource)
+    if (options.hasScheduleIntegration === false) {
+      await rm(scheduleSource, { force: true })
+      throw Object.assign(new Error("stale Deno Schedule output"), { code: "ENOENT" })
+    }
     hasSchedule = true
     await access(applicationEntrySource)
     await mkdir(join(outputDir, "schedule"), { recursive: true })
     await bundleEsmEntry(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"), {
       external: [...builtinModuleNames],
+      alias: options.alias,
       format: "esm",
       packages: "external",
       platform: "neutral",
@@ -421,6 +432,7 @@ export async function finalizeDenoDeploymentOutput(
     assertSupportedApplicationEntryImports(await readFile(applicationEntrySource, "utf8"))
     await bundleEsmEntry(applicationEntrySource, join(outputDir, "main.ts"), {
       external: [...builtinModuleNames, "./schedule/*", "./server/*"],
+      alias: options.alias,
       format: "esm",
       platform: "neutral",
       rootDir: options.rootDir,

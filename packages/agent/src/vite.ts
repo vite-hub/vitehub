@@ -713,6 +713,11 @@ function mergeCloudflareAgentStateNitroConfig(value: unknown, stateImport: strin
 
 function mergeAgentNitroExternals(value: unknown): NitroConfig {
   const nitro = cloneNitroConfig(value)
+  if (isRecord(nitro.rollupConfig) && Array.isArray(nitro.rollupConfig.external)) {
+    nitro.rollupConfig.external = nitro.rollupConfig.external.filter(
+      (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
+    )
+  }
   const externals = isRecord(nitro.externals) ? { ...nitro.externals } : {}
   const existingInline = Array.isArray(externals.inline) ? externals.inline : []
   externals.inline = externals.inline === true
