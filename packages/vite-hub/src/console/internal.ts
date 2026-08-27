@@ -36,6 +36,11 @@ export type ConsoleInvocationScope = {
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
 
+function defaultConsoleInvocationScope(): ConsoleInvocationScope {
+  // SAFETY: ConsoleInvocationScope only adds optional symbol-keyed state to the global object.
+  return globalThis as ConsoleInvocationScope
+}
+
 function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return
@@ -67,7 +72,7 @@ function processRegistry(scope: ConsoleInvocationScope): ConsoleRuntimeRegistry 
   return scope.process && (typeof scope.process === "object" || typeof scope.process === "function") ? (scope.process as ConsoleRuntimeRegistry) : undefined
 }
 
-export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {
+export function resolveConsoleInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
   const root = scope[consoleProjectRootKey]
   const registered = invocationsByRoot(processRegistry(scope)?.[consoleInvocationsRegistryKey])
   if (root) {
@@ -84,7 +89,7 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = global
 export function installConsoleInvocationFallback(
   invocations: AgentInvocations,
   projectRoot: string,
-  scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
 ): void {
   scope[consoleInvocationsKey] = invocations
   scope[consoleProjectRootKey] = projectRoot
@@ -100,7 +105,7 @@ export function installConsoleInvocationFallback(
 export function installConsoleSectionScope(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
-  scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
 ): readonly ConsoleSectionId[] {
   const installed = [...new Set(sections)]
   scope[consoleSectionsRootKey] = projectRoot
@@ -115,7 +120,7 @@ export function installConsoleSectionScope(
   return installed
 }
 
-export function resolveConsoleSections(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): readonly ConsoleSectionId[] {
+export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): readonly ConsoleSectionId[] {
   const root = scope[consoleSectionsRootKey]
   const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
   if (root) return registered?.get(root) ?? scope[consoleSectionsKey] ?? []
@@ -124,6 +129,6 @@ export function resolveConsoleSections(scope: ConsoleInvocationScope = globalThi
   return (processRegistry(scope)?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
 }
 
-export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {
+export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
   return scope[consoleProjectRootKey]
 }

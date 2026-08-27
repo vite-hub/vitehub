@@ -48,7 +48,7 @@ export function prioritizeConsoleSectionIds(
 
 export function readLastConsoleSection(storage?: ConsoleSectionStorage): ConsoleSectionId | undefined {
   try {
-    const target = storage ?? Reflect.get(globalThis, "localStorage") as ConsoleSectionStorage | undefined
+    const target = storage ?? globalThis.localStorage
     const value = target?.getItem(lastConsoleSectionStorageKey)
     return isConsoleSectionId(value) ? value : undefined
   }
@@ -62,7 +62,7 @@ export function rememberConsoleSection(
   storage?: ConsoleSectionStorage,
 ): void {
   try {
-    const target = storage ?? Reflect.get(globalThis, "localStorage") as ConsoleSectionStorage | undefined
+    const target = storage ?? globalThis.localStorage
     target?.setItem(lastConsoleSectionStorageKey, section)
   }
   catch {

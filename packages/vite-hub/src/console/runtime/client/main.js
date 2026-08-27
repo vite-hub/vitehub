@@ -99,7 +99,7 @@ router.beforeEach(async (to) => {
 });
 
 router.afterEach((to) => {
-  document.title = typeof to.meta.title === "string" ? to.meta.title : "ViteHub Console";
+  document.title = String(to.meta.title ?? "ViteHub Console");
 });
 
 createApp(App).use(router).use(ui).use(createViteHubUI()).mount("#app");
