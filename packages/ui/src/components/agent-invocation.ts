@@ -187,13 +187,18 @@ function renderPayloadTree(
     ]);
   }
   const entries = Object.entries(value);
+  const visibleEntries = entries.slice(0, Math.max(0, budget.remaining - 1));
+  const truncated = visibleEntries.length < entries.length;
   return h("li", { class: "vh-invocation-payload__branch" }, [
     h("details", { open: depth < 1 }, [
       h("summary", [
         label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
         h("span", Array.isArray(value) ? `Array(${entries.length})` : `{${entries.length}}`),
       ]),
-      h("ul", entries.slice(0, Math.max(0, budget.remaining)).map(([key, item]) => renderPayloadTree(item, key, depth + 1, budget))),
+      h("ul", [
+        ...visibleEntries.map(([key, item]) => renderPayloadTree(item, key, depth + 1, budget)),
+        truncated ? h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden") : null,
+      ]),
     ]),
   ]);
 }
@@ -202,7 +207,7 @@ const InvocationPayload = defineComponent({
   name: "InvocationPayload",
   props: {
     label: { required: true, type: String },
-    value: { required: true, type: null as unknown as PropType<unknown> },
+    value: { required: true },
   },
   setup(props) {
     const mode = ref<"tree" | "raw">("tree");
@@ -483,7 +488,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
               ]),
               command.cwd ? h("div", { class: "vh-invocation-command__cwd" }, command.cwd) : null,
               command.output ? h("pre", terminalText(command.output)) : null,
-              renderEventPayload("Error", activity.attributes["tool.error"]),
+              renderCommandError(activity.attributes["tool.error"]),
             ])
           : hasPayloads
             ? h("div", { class: "vh-invocation-event__payloads" }, [
@@ -509,6 +514,15 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
 function renderEventPayload(label: string, value: unknown) {
   if (value === undefined) return null;
   return h(InvocationPayload, { label, value });
+}
+
+function renderCommandError(value: unknown) {
+  if (value === undefined) return null;
+  const text = Object.prototype.toString.call(value) === "[object String]" ? String(value) : JSON.stringify(value, null, 2);
+  return h("section", { class: "vh-invocation-event__payload" }, [
+    h("strong", "Error"),
+    h("pre", text),
+  ]);
 }
 
 function activityDetail(activity: InvocationActivity): string | undefined {
@@ -1128,7 +1142,7 @@ export const AgentInvocation = defineComponent({
       selectedElement = target;
     }
 
-    watch(() => props.selectedActivityId, id => void focusActivity(id), { immediate: true });
+    watch([() => props.selectedActivityId, activities], ([id]) => void focusActivity(id), { immediate: true });
     onBeforeUnmount(clearSelectedElement);
 
     return () => {

@@ -569,6 +569,24 @@ describe("Agent Invocation UI", () => {
     await selected.setProps({ selectedActivityId: rows[0]!.attributes("data-activity-id") });
     await nextTick();
     expect(selected.get(`[data-activity-id="${rows[0]!.attributes("data-activity-id")}"]`).attributes("data-selected")).toBe("true");
+
+    const regroupedInvocation = {
+      ...invocation,
+      observations: [
+        { attributes: { "message.content": "Inspect the repository", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 0, timestamp: invocation.startedAt, type: "lifecycle" as const },
+        ...invocation.observations,
+      ],
+    } satisfies AgentInvocationView;
+    const regroupedActivityId = invocationActivities(regroupedInvocation).find(activity => activity.kind === "tool")!.id;
+    const regrouped = mount(AgentInvocation, {
+      props: { invocation: { ...regroupedInvocation, status: "running" }, selectedActivityId: regroupedActivityId },
+    });
+    await nextTick();
+    await regrouped.setProps({ invocation: regroupedInvocation });
+    await nextTick();
+    const regroupedEvent = regrouped.get(`[data-activity-id="${regroupedActivityId}"]`);
+    expect(regroupedEvent.attributes("data-selected")).toBe("true");
+    expect(regroupedEvent.element.closest(".vh-invocation-work__details")).toHaveProperty("open", true);
   });
 
   it("bounds large payload trees and safely serializes repeated and circular values", async () => {
@@ -601,6 +619,7 @@ describe("Agent Invocation UI", () => {
     (payload.element as HTMLDetailsElement).open = true;
     await payload.trigger("toggle");
     expect(payload.findAll(".vh-invocation-payload__leaf").length).toBeLessThanOrEqual(500);
+    expect(payload.text()).toContain("More fields hidden");
 
     await payload.get('button[aria-pressed="false"]').trigger("click");
     const raw = payload.get("pre").text();
@@ -609,7 +628,7 @@ describe("Agent Invocation UI", () => {
     expect(raw).toContain('"big": "12n"');
   });
 
-  it("renders a safe fallback when reading a payload throws", () => {
+  it("renders unsafe payloads before a tool reaches a terminal state", () => {
     const input = { toJSON() { throw new Error("serialization failed"); } };
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -617,9 +636,8 @@ describe("Agent Invocation UI", () => {
       id: "throwing-payload",
       observations: [
         { attributes: { "tool.id": "inspect", "tool.input": input, "tool.name": "inspect" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
-        { attributes: { "tool.id": "inspect", "tool.name": "inspect", "tool.output": { ok: true } }, name: "agent.tool.finish", sequence: 2, timestamp, type: "run" as const },
       ],
-      status: "completed" as const,
+      status: "running" as const,
       traceId: "trace",
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
