@@ -225,7 +225,7 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     cursor: cursor?.output ?? String(index + 1),
     ...(error ? { error } : {}),
     failedAt: optionalTimestamp(input.failedAt, `${path}.failedAt`),
-    id: requiredString(input.id, `${path}.id`),
+    id: invocationId(input.id, `${path}.id`),
     observations,
     origin: optionalString(input.origin, `${path}.origin`),
     startedAt: optionalTimestamp(input.startedAt, `${path}.startedAt`),
@@ -234,6 +234,14 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     traceId: requiredString(input.traceId, `${path}.traceId`),
     updatedAt: timestamp(input.updatedAt, `${path}.updatedAt`),
   } as AgentInvocationRecord
+}
+
+function invocationId(value: unknown, path: string): string {
+  const id = requiredString(value, path)
+  if (id === "." || id === "..") {
+    throw new TypeError(`[vitehub] Console fixture ${path} must not be a dot segment.`)
+  }
+  return id
 }
 
 export function parseConsoleFixture(value: unknown): ConsoleFixture {

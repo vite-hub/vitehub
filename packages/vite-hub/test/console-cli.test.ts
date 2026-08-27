@@ -151,6 +151,21 @@ describe("Console fixture CLI", () => {
     })).toThrow("Console fixture invocations[0].cursor must be a string")
   })
 
+  it.each([".", ".."])('rejects the dot-segment fixture invocation ID "%s"', (id) => {
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        agentName: "support",
+        createdAt: "2026-08-27T00:00:00.000Z",
+        id,
+        observations: [],
+        status: "completed",
+        traceId: "fixture-trace",
+        updatedAt: "2026-08-27T00:00:00.000Z",
+      }],
+      version: 1,
+    })).toThrow("Console fixture invocations[0].id must not be a dot segment")
+  })
+
   it("rejects fixture Agent names that the Console API cannot select", () => {
     expect(() => parseConsoleFixture({
       invocations: [
