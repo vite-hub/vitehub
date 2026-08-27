@@ -3772,6 +3772,27 @@ function mergedDefinedObjects(...values: unknown[]): Record<string, unknown> {
   return Object.assign({}, ...values.map(definedObjectProperties))
 }
 
+function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
+  return Object.assign({}, ...values.map((value) => {
+    const properties = definedObjectProperties(value)
+    if (!value || !hasRuntimeType(value, "object")) return properties
+    for (let source: object | null = value; source && source !== Object.prototype; source = Object.getPrototypeOf(source)) {
+      for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(source))) {
+        if (key === "constructor" || properties[key] !== undefined) continue
+        if (!("get" in descriptor) && !(descriptor.enumerable && "value" in descriptor)) continue
+        try {
+          const property = Reflect.get(value, key)
+          if (property !== undefined) properties[key] = property
+        }
+        catch {
+          // Ignore provider detail getters that cannot be read during usage normalization.
+        }
+      }
+    }
+    return properties
+  }))
+}
+
 function mergedUsageRecords(...values: unknown[]): Record<string, unknown> {
   const keys = ["calls", "cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"] as const
   return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
@@ -3853,21 +3874,21 @@ async function resultWithStreamedTextAndUsage(
           ...(usageValues.some(value => value?.details)
             ? {
                 details: {
-                  ...mergedDefinedObjects(...usageValues.map(value => value?.details)),
+                  ...mergedReadableObjects(...usageValues.map(value => value?.details)),
                 },
               }
             : {}),
           ...(usageValues.some(value => value?.inputTokenDetails)
             ? {
                 inputTokenDetails: {
-                  ...mergedDefinedObjects(...usageValues.map(value => value?.inputTokenDetails)),
+                  ...mergedReadableObjects(...usageValues.map(value => value?.inputTokenDetails)),
                 },
               }
             : {}),
           ...(usageValues.some(value => value?.outputTokenDetails)
             ? {
                 outputTokenDetails: {
-                  ...mergedDefinedObjects(...usageValues.map(value => value?.outputTokenDetails)),
+                  ...mergedReadableObjects(...usageValues.map(value => value?.outputTokenDetails)),
                 },
               }
             : {}),

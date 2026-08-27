@@ -558,6 +558,46 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("preserves accessor-backed nested usage on raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class InputTokenDetails {
+      get cachedTokens() {
+        return 2
+      }
+    }
+    const raw = Object.assign((async function* () {
+      yield {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            details: Object.create({ streamed: 4 }),
+            outputTokenDetails: Object.create({ reasoningTokens: 3 }),
+          },
+        },
+      }
+    })(), {
+      usageRecord: {
+        usage: { inputTokenDetails: new InputTokenDetails() },
+      },
+    })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        usage: {
+          details: { streamed: 4 },
+          inputTokenDetails: { cachedTokens: 2 },
+          outputTokenDetails: { reasoningTokens: 3 },
+        },
+      },
+    })
+  })
+
   it("merges raw stream run annotations", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
