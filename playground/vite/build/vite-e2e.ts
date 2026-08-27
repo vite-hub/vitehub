@@ -205,11 +205,8 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "config")))}`)
     imports.push(`import { createBundledVercelBlobDriver } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/drivers/vercel-bundled.ts")))}`)
   }
-  else if (config?.store.driver === "fs") {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/fs")))}`)
-  }
   else if (config) {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/files")))}`)
+    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, `drivers/${config.store.driver}`)))}`)
   }
 
   const storageExpression = !config

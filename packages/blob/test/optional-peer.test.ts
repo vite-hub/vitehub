@@ -84,14 +84,6 @@ describe("optional peer imports", () => {
     expect(closure).toContain("vercel-storage.com")
   })
 
-  it("ships the generic Files SDK runtime through the public driver", async () => {
-    const closure = (await readLocalClosure(new URL("../dist/drivers/files.js", import.meta.url))).join("\n")
-
-    expect(closure).not.toContain('from "files-sdk')
-    expect(closure).not.toContain('import("files-sdk')
-    expect(closure).not.toContain('from "node:module"')
-  })
-
   it("keeps the Netlify driver closure free of Node module loading", async () => {
     const closure = (await readLocalClosure(new URL("../dist/drivers/netlify-blobs.js", import.meta.url))).join("\n")
 
@@ -107,11 +99,12 @@ describe("optional peer imports", () => {
 })
 
 describe("package exports", () => {
-  it("keeps the Files SDK helper private to the bundled drivers", async () => {
+  it("keeps generic Files SDK entries private to provider-specific drivers", async () => {
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       exports: Record<string, string>
     }
 
+    expect(manifest.exports).not.toHaveProperty("./drivers/files")
     expect(manifest.exports).not.toHaveProperty("./drivers/files-sdk")
   })
 

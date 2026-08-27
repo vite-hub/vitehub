@@ -60,7 +60,6 @@ export default defineConfig({
       "src/drivers/cloudflare-native.ts",
       "src/drivers/digitalocean-spaces.ts",
       "src/drivers/dropbox.ts",
-      "src/drivers/files.ts",
       "src/drivers/fs.ts",
       "src/drivers/gcs.ts",
       "src/drivers/google-drive.ts",

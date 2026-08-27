@@ -407,6 +407,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
         "files-sdk",
         "files-sdk/r2",
         "node:async_hooks",
+        "node:module",
         "#vitehub/blob/config",
       ],
       format: "esm",
