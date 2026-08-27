@@ -31,7 +31,7 @@ describe("Resend Email driver", () => {
     expect(() => resend({ apiKey: "re_secret\n" })).toThrow("apiKey contains an invalid HTTP header character")
   })
 
-  it.each(["", "not a url", "ftp://api.resend.com", "https://api.resend.com?token=secret", "https://api.resend.com#proxy"])("rejects an invalid endpoint during configuration", (endpoint) => {
+  it.each(["", "not a url", "ftp://api.resend.com", "https://user:pass@api.resend.com", "https://api.resend.com?token=secret", "https://api.resend.com#proxy"])("rejects an invalid endpoint during configuration", (endpoint) => {
     expect(() => resend({ apiKey: "re_secret", endpoint })).toThrow("endpoint must be a valid HTTP or HTTPS URL")
   })
 
@@ -90,11 +90,24 @@ describe("Resend Email driver", () => {
   })
 
   it("maps response body read failures to retryable network errors", async () => {
-    const response = new Response(null, { status: 200 })
-    vi.spyOn(response, "text").mockRejectedValue(new Error("connection reset"))
+    const response = new Response(new ReadableStream({ start(controller) { controller.error(new Error("connection reset")) } }), { status: 200 })
     const driver = resend({ apiKey: "re_secret", fetch: async () => response })
 
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: true } })
+  })
+
+  it("cancels and rejects an oversized response body", async () => {
+    const cancel = vi.fn()
+    const response = new Response(new ReadableStream({
+      cancel,
+      start(controller) {
+        controller.enqueue(new Uint8Array(64 * 1024 + 1))
+      },
+    }), { status: 200 })
+    const driver = resend({ apiKey: "re_secret", fetch: async () => response })
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "PROVIDER", retryable: undefined } })
+    expect(cancel).toHaveBeenCalledOnce()
   })
 
   it("forwards cancellation to fetch and classifies aborts", async () => {

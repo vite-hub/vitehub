@@ -9,6 +9,8 @@ export interface ResendEmailDriverOptions {
   fetch?: typeof fetch
 }
 
+const MAX_RESPONSE_BYTES = 64 * 1024
+
 function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
   return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError")
 }
@@ -19,6 +21,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
+}
+
+async function readResponseText(response: Response): Promise<string> {
+  if (!response.body) return ""
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ""
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) return text + decoder.decode()
+    bytes += value.byteLength
+    if (bytes > MAX_RESPONSE_BYTES) {
+      await reader.cancel()
+      throw emailProviderError("resend", "PROVIDER", `Resend response exceeded ${MAX_RESPONSE_BYTES} bytes.`)
+    }
+    text += decoder.decode(value, { stream: true })
+  }
 }
 
 function validateIdempotencyKey(value: string | undefined): string | undefined {
@@ -79,7 +99,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   try {
     const url = new URL(options.endpoint ?? "https://api.resend.com")
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new TypeError("Unsupported protocol")
-    if (url.search || url.hash) throw new TypeError("Unsupported URL components")
+    if (url.username || url.password || url.search || url.hash) throw new TypeError("Unsupported URL components")
     endpoint = url.href.replace(/\/+$/, "")
   }
   catch (cause) {
@@ -142,9 +162,10 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       }
       let text: string
       try {
-        text = await response.text()
+        text = await readResponseText(response)
       }
       catch (cause) {
+        if (isEmailProviderError(cause)) return { data: null, error: cause }
         if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", { cause, retryable: false }) }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: true }) }
       }
