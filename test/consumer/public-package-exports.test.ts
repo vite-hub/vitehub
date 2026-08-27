@@ -260,15 +260,14 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
   await writeFile(join(runnerDir, "exports.ts"), `${source}\n`, "utf8")
   const sourcePath = join(runnerDir, "exports.ts")
   const rootNames = [sourcePath]
+  let hostTypesPath: string | undefined
   if (packageName === "@vite-hub/agent") {
-    const hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
+    hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
     await writeFile(hostTypesPath, [
-      "declare module \"cloudflare:workers\" {",
-      "  export class DurableObject<Env = unknown> {",
-      "    protected ctx: unknown",
-      "    protected env: Env",
-      "    constructor(ctx: unknown, env: Env)",
-      "  }",
+      "export class DurableObject<Env = unknown> {",
+      "  protected ctx: unknown",
+      "  protected env: Env",
+      "  constructor(ctx: unknown, env: Env)",
       "}",
       "",
     ].join("\n"), "utf8")
@@ -278,6 +277,7 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
+    paths: hostTypesPath ? { "cloudflare:workers": [hostTypesPath] } : undefined,
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
