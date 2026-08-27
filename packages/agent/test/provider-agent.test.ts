@@ -2238,7 +2238,7 @@ describe("Provider Agent Driver", () => {
       const threadId = "thread-late-start-lock"
       let finishStartup!: () => void
       const first = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
-      const second = runtime(threadId, [])
+      const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       const adapter = createProviderAgentAdapter({ provider: "codex" })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const firstResult = adapter.generate(context(threadId, { input: { prompt: "hello", timeout: 50 } }) as never)
