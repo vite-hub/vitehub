@@ -82,7 +82,8 @@ function frontmatterLinks(frontmatter) {
 export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const anchors = new Set();
   const occurrences = new Map();
-  visit(parseMarkdown(markdown), (node) => {
+  const renderedMarkdown = markdown.replace(/^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/, "");
+  visit(parseMarkdown(renderedMarkdown), (node) => {
     if (node.type !== "heading") return;
     const rawBase = rawMarkdownSlug(nodeText(node));
     if (!rawBase) return;

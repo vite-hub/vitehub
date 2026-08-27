@@ -113,6 +113,7 @@ https://vitehub.dev/docs/bare-autolink
     ]);
     expect([...markdownAnchors("# A--B\n\n# A-B")]).toEqual(["a-b", "a-b-1"]);
     expect([...markdownAnchors("Install\n---")]).toEqual(["install"]);
+    expect([...markdownAnchors("---\ntitle: Guide\n---\n\n# Install")]).toEqual(["install"]);
   });
 
   it("uses GitHub anchors for public package READMEs", () => {
