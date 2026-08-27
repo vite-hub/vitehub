@@ -1573,6 +1573,43 @@ describe("workspace host sessions", () => {
     expect(reads).toBe(2)
   })
 
+  it("settles an aborted inspection while it waits for a host slot", async () => {
+    const docs = workspace()
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 1 })
+    await docs.writeFile("README.md", "docs")
+    await docs.snapshot({ name: "baseline" })
+    const session = await docs.startSession({ host })
+    const read = host.files.read.bind(host.files)
+    const list = host.files.list.bind(host.files)
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let reads = 0
+    let lists = 0
+    host.files.list = async (path, options) => {
+      lists++
+      return await list(path, options)
+    }
+    host.files.read = async (path, options) => {
+      reads++
+      if (reads === 1) await blocked
+      return await read(path, options)
+    }
+
+    const first = session.diff()
+    await vi.waitFor(() => expect(reads).toBe(1))
+    const abort = new AbortController()
+    const reason = new Error("inspection expired")
+    const second = session.diff({ abortSignal: abort.signal })
+    await vi.waitFor(() => expect(lists).toBe(2))
+    abort.abort(reason)
+
+    await expect(second).rejects.toBe(reason)
+    expect(reads).toBe(1)
+    release()
+    await first
+    await session.close()
+  })
+
   it("rejects invalid host inspection concurrency", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "docs")

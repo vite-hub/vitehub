@@ -31,7 +31,7 @@ import type {
 
 const publicationQueues = new WeakMap<object, Promise<void>>()
 const defaultHostInspectionConcurrency = 16
-const hostInspectionLimiters = new WeakMap<object, <T>(inspect: () => Promise<T>) => Promise<T>>()
+const hostInspectionLimiters = new WeakMap<object, <T>(inspect: () => Promise<T>, signal?: AbortSignal) => Promise<T>>()
 
 function resolveHostInspectionConcurrency(host: WorkspaceSessionHost): number {
   const concurrency = host.inspectionConcurrency ?? defaultHostInspectionConcurrency
@@ -46,26 +46,43 @@ function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
   if (existing) return existing
   const concurrency = resolveHostInspectionConcurrency(host)
   let active = 0
-  const queued: Array<() => void> = []
-  const run = async <T>(inspect: () => Promise<T>): Promise<T> => {
+  const queued: Array<{ grant: () => void }> = []
+  const run = async <T>(inspect: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
+    signal?.throwIfAborted()
     if (active < concurrency) active++
-    else await new Promise<void>(resolve => queued.push(() => {
-      active++
-      resolve()
-    }))
+    else {
+      await new Promise<void>((resolve, reject) => {
+        const entry = {
+          grant: () => {
+            signal?.removeEventListener("abort", abort)
+            active++
+            resolve()
+          },
+        }
+        const abort = () => {
+          const index = queued.indexOf(entry)
+          if (index < 0) return
+          queued.splice(index, 1)
+          reject(signal?.reason)
+        }
+        signal?.addEventListener("abort", abort, { once: true })
+        queued.push(entry)
+        if (signal?.aborted) abort()
+      })
+    }
     try {
       return await inspect()
     }
     finally {
       active--
-      queued.shift()?.()
+      queued.shift()?.grant()
     }
   }
   hostInspectionLimiters.set(host, run)
   return run
 }
 
-async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: readonly T[], visit: (value: T) => Promise<U>) {
+async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: readonly T[], visit: (value: T) => Promise<U>, signal?: AbortSignal) {
   const inspect = resolveHostInspectionLimiter(host)
   const results = new Array<U>(values.length)
   let next = 0
@@ -78,7 +95,7 @@ async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: read
         const index = next++
         if (index >= values.length) return
         try {
-          results[index] = await inspect(async () => failed ? undefined as U : await visit(values[index]!))
+          results[index] = await inspect(async () => failed ? undefined as U : await visit(values[index]!), signal)
         }
         catch (error) {
           if (!failed) failure = error
@@ -325,7 +342,7 @@ async function listHostEntries(
     return probe.code === 0
       ? { ...workspaceEntry, metadata: { ...workspaceEntry.metadata, gitMode: "100755" } }
       : workspaceEntry
-  })
+  }, abortSignal)
   return resolved
     .filter(entry => entry.path && (includeGit || !gitMetadataRoot(entry.path)))
     .sort((left, right) => left.path.localeCompare(right.path))
@@ -367,7 +384,7 @@ async function captureHostEntriesState(host: WorkspaceSessionHost, root: string,
       digest: await sha256(content),
       size: contentToBytes(content).byteLength,
     }
-  })
+  }, abortSignal)
   return { contents, snapshot: await createSnapshotFromEntries(files, name) }
 }
 
