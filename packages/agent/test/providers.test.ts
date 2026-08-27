@@ -982,15 +982,17 @@ describe("agent Vite plugin", () => {
       await configResolved({ command: "build", root })
       await closeBundle.handler()
 
-      expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
-        packages: [
-          { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
-          { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
-          { name: "@openai/codex", resolveFrom: join(root, "package.json") },
-          { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
-        ],
-        rootDir: root,
-      })
+      expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledOnce()
+      const call = vi.mocked(copyVercelFunctionRuntimePackages).mock.calls[0]?.[0]
+      expect(call?.rootDir).toBe(root)
+      expect(typeof call?.packages).toBe("function")
+      const packages = typeof call?.packages === "function" ? await call.packages() : call?.packages
+      expect(packages).toEqual([
+        { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
+        { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
+        { name: "@openai/codex", resolveFrom: join(root, "package.json") },
+        { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
+      ])
     } finally {
       await rm(root, { force: true, recursive: true })
     }

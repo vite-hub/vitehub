@@ -2935,13 +2935,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         } else if (isNetlifyHosting(resolved)) {
           await cleanupNetlifyAgentProviderOutput(resolved)
         }
+        const rootDir = resolved.root
         await copyVercelFunctionRuntimePackages({
-          packages: [
+          packages: () => [
             { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
             { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
-            ...resolveProviderRuntimePackages({ rootDir: resolved.root }),
+            ...resolveProviderRuntimePackages({ rootDir }),
           ],
-          rootDir: resolved.root,
+          rootDir,
         })
       },
     },

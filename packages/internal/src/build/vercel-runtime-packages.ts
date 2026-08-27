@@ -24,14 +24,12 @@ interface NodeRuntimePackagesOptions {
 
 interface VercelFunctionRuntimePackagesOptions {
   outputRoot?: string
-  packages: VercelFunctionRuntimePackage[]
+  packages: VercelFunctionRuntimePackage[] | (() => VercelFunctionRuntimePackage[] | Promise<VercelFunctionRuntimePackage[]>)
   rootDir: string
   serverFunctionName?: string
 }
 
 export async function copyVercelFunctionRuntimePackages(options: VercelFunctionRuntimePackagesOptions): Promise<void> {
-  if (!options.packages.length) return
-
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
   const serverFunctionName = options.serverFunctionName ?? "__server.func"
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
@@ -44,9 +42,12 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     throw error
   }
 
+  const packages = typeof options.packages === "function" ? await options.packages() : options.packages
+  if (!packages.length) return
+
   await copyNodeRuntimePackages({
     outputNodeModules: resolve(serverDir, "node_modules"),
-    packages: options.packages,
+    packages,
     rootDir: options.rootDir,
   })
 }
