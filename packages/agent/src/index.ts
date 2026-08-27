@@ -3874,7 +3874,7 @@ async function resultWithStreamedTextAndUsage(
       raw: result,
       ...(text ? { text } : {}),
       ...(normalized.usage !== undefined || mergedUsage
-        ? { usage: normalizedUsage ? mergedUsage : normalized.usage ?? mergedUsage }
+        ? { usage: normalizedUsage ? mergedUsage : mergedUsage ?? normalized.usage }
         : {}),
       ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }

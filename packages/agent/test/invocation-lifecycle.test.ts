@@ -406,6 +406,26 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it.each([
+    { providerUsage: () => Promise.reject(new Error("usage unavailable")), scenario: "rejects" },
+    { providerUsage: () => Promise.resolve("unusable"), scenario: "resolves to a non-object" },
+  ])("falls back to streamed usage when provider usage $scenario", async ({ providerUsage }) => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {
+      yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
+    })(), { usage: providerUsage() })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, usage: { totalTokens: 2 }, usageRecord: { usage: { totalTokens: 2 } } },
+    })
+  })
+
   it("skips throwing metadata getters on streamed usage events", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
