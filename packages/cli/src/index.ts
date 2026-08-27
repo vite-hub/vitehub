@@ -234,12 +234,10 @@ function trackStream(stream: ViteHubCliStream) {
     stream: {
       write(chunk: string | Uint8Array) {
         const result = stream.write(chunk)
-        if (result && typeof (result as PromiseLike<unknown>).then === "function") {
-          writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
-            value => ({ status: "fulfilled", value }),
-            reason => ({ reason, status: "rejected" }),
-          ))
-        }
+        writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
+          value => ({ status: "fulfilled", value }),
+          reason => ({ reason, status: "rejected" }),
+        ))
         return result
       },
     },
