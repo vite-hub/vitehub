@@ -250,6 +250,9 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "overrides:",
     // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Workflow's optional Nest peers otherwise resolve independently across major versions.
+    "  \"@nestjs/common\": \"11.1.19\"",
+    "  \"@nestjs/core\": \"11.1.19\"",
     ...overrides,
     "",
   ].join("\n")
