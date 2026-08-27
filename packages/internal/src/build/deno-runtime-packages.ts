@@ -17,7 +17,6 @@ const denoRuntimeTargets = [
 interface FinalizeDenoDeploymentOutputOptions {
   alias?: ViteAlias[]
   deploymentName?: string
-  hasCustomAliasResolver?: boolean
   hasScheduleIntegration?: boolean
   outputDir?: string
   rootDir: string
@@ -134,6 +133,31 @@ function maskInertImportText(source: string): string {
         index += length
         continue
       }
+      if (character === "/" && canStartRegexLiteral(output)) {
+        let end = index + 1
+        let inCharacterClass = false
+        while (end < source.length) {
+          if (source[end] === "\\") end += 2
+          else if (source[end] === "[") {
+            inCharacterClass = true
+            end++
+          }
+          else if (source[end] === "]") {
+            inCharacterClass = false
+            end++
+          }
+          else if (source[end] === "/" && !inCharacterClass) {
+            end++
+            while (/[A-Za-z]/.test(source[end] || "")) end++
+            break
+          }
+          else if (source[end] === "\n" || source[end] === "\r") break
+          else end++
+        }
+        output += maskLiteralText(source.slice(index, end))
+        index = end
+        continue
+      }
       if (character === "`") {
         scanTemplate()
         continue
@@ -160,6 +184,13 @@ function maskInertImportText(source: string): string {
 
   scanCode()
   return output
+}
+
+function canStartRegexLiteral(output: string): boolean {
+  const prefix = output.trimEnd()
+  if (!prefix) return true
+  if ("([{,:;=!?&|~%^<>*+-".includes(prefix.at(-1)!)) return true
+  return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(prefix)
 }
 
 export function collectDenoRuntimePackageNames(source: string): string[] {
@@ -470,9 +501,6 @@ export async function finalizeDenoDeploymentOutput(
     }
     hasSchedule = true
     await access(applicationEntrySource)
-    if (options.hasCustomAliasResolver) {
-      throw new Error("[vitehub] Deno Schedule output cannot stage Vite aliases with customResolver. Use a string or RegExp alias with a string replacement.")
-    }
     await mkdir(join(outputDir, "schedule"), { recursive: true })
     await bundleEsmEntry(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"), {
       external: [...builtinModuleNames],
@@ -523,7 +551,7 @@ export async function finalizeDenoDeploymentOutput(
   const denoConfig = {
     deploy: {
       runtime: {
-        type: "dynamic",
+        mode: "dynamic",
         entrypoint: `./${entrypoint}`,
         cwd: ".",
       },

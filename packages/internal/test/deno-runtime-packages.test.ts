@@ -57,6 +57,14 @@ import "real"
 `)).toEqual(["real"])
   })
 
+  it("ignores import-shaped regular expression literals", () => {
+    expect(collectDenoRuntimePackageNames(String.raw`
+const matcher = /import\("healthcheck"\)/
+const characterClass = /[\\/]require\("missing"\)/g
+import "real"
+`)).toEqual(["real"])
+  })
+
   it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -81,9 +89,10 @@ import "real"
     expect(scheduleBundle).not.toContain("./registry.mjs")
     expect(scheduleBundle).not.toContain("../../server/schedules/heartbeat.ts")
     await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
-      deploy: { runtime: { type: "dynamic", entrypoint: "./main.ts", cwd: "." } },
+      deploy: { runtime: { mode: "dynamic", entrypoint: "./main.ts", cwd: "." } },
       tasks: { start: "deno run --unstable-cron -A ./main.ts" },
     })
+    await expect(execFile("deno", ["check", "--config", join(root, ".output/deno.json"), join(root, ".output/main.ts")])).resolves.toMatchObject({ stderr: "" })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
   })
 
@@ -152,18 +161,26 @@ import "real"
     await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
   })
 
-  it("rejects custom alias resolvers only when staging Deno Schedule output", async () => {
+  it("rejects custom alias resolvers only when a staged entrypoint uses the alias", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-custom-alias-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasCustomAliasResolver: true, rootDir: root })).resolves.toBeUndefined()
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
 
-    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import "#server-only"\n', "utf8")
     await writeFile(join(root, "main.ts"), "void 0\n", "utf8")
-    await expect(finalizeDenoDeploymentOutput({ hasCustomAliasResolver: true, hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
-      "cannot stage Vite aliases with customResolver",
+    await writeFile(join(root, "server.ts"), "void 0\n", "utf8")
+    const alias = [
+      { customResolver: true, find: "#client-only", replacement: join(root, "client.ts") },
+      { find: "#server-only", replacement: join(root, "server.ts") },
+    ]
+    await expect(finalizeDenoDeploymentOutput({ alias, hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
+
+    alias[1]!.customResolver = true
+    await expect(finalizeDenoDeploymentOutput({ alias, hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+      "uses customResolver",
     )
   })
 
@@ -361,7 +378,7 @@ import "real"
     expect(deployRunner).toContain('process.env.DENO_DEPLOY_APP || "package-default"')
     for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', '["deploy", ".", "--prod", "--config", "deno.json"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
     await expect(readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
-      deploy: { runtime: { type: "dynamic", entrypoint: "./server/index.mjs", cwd: "." } },
+      deploy: { runtime: { mode: "dynamic", entrypoint: "./server/index.mjs", cwd: "." } },
     })
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
   })

@@ -1943,6 +1943,9 @@ importers:
       dropbox:
         specifier: catalog:storage
         version: 10.34.0(@types/node-fetch@2.6.13)
+      esbuild:
+        specifier: catalog:esbuild-v27
+        version: 0.27.7
       files-sdk:
         specifier: catalog:storage
         version: 2.1.0(@anthropic-ai/claude-agent-sdk@0.3.238(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(zod@4.4.3))(@aws-sdk/client-s3@3.1088.0)(@aws-sdk/lib-storage@3.1088.0(@aws-sdk/client-s3@3.1088.0))(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1088.0)(@azure/core-auth@1.11.0)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@googleapis/drive@20.2.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.1)(@supabase/storage-js@2.105.4)(@vercel/blob@2.6.1)(ai@6.0.228(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(fastify@5.10.0)(google-auth-library@10.6.2)(h3@1.15.11)(hono@4.12.30)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3))(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)

@@ -21,6 +21,7 @@ interface BundleEsmEntryOptions {
 }
 
 export interface ViteAlias {
+  customResolver?: boolean
   find: string | RegExp
   replacement: string
 }
@@ -51,6 +52,11 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
           return find.test(args.path)
         })
         if (!alias) return
+        if (alias.customResolver) {
+          return {
+            errors: [{ text: `[vitehub] Deno Schedule output cannot stage the Vite alias ${JSON.stringify(args.path)} because it uses customResolver.` }],
+          }
+        }
         if (alias.find instanceof RegExp) alias.find.lastIndex = 0
         const replacement = typeof alias.find === "string"
           ? `${alias.replacement}${args.path.slice(alias.find.length)}`
