@@ -631,6 +631,10 @@ describe("access capability", () => {
       startSession(): Promise<WorkspaceSession>
     }
 
+    expect("fs" in wrapped).toBe(true)
+    expect("startSession" in wrapped).toBe(true)
+    expect("exists" in wrapped.fs).toBe(true)
+    expect("glob" in wrapped.fs).toBe(true)
     await expect(wrapped.fs.exists("public/readme.md")).resolves.toBe(true)
     await expect(wrapped.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",

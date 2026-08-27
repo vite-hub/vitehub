@@ -432,6 +432,9 @@ function overridePrototypeMethods<T extends object>(target: T, overrides: Partia
       const value = Reflect.get(target, property, target)
       return typeof value === "function" ? value.bind(target) : value
     },
+    has(_wrapper, property) {
+      return Object.hasOwn(overrides, property) || Reflect.has(target, property)
+    },
   })
 }
 
