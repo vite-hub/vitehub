@@ -48,7 +48,7 @@ export interface MaterializationControl {
   checkpoint<T>(operation: () => Promise<T>): Promise<T>
 }
 
-function sourceSnapshotMetaKey(sourceKey: string) {
+export function sourceSnapshotMetaKey(sourceKey: string) {
   return `source:${sourceKey}:snapshot`
 }
 
@@ -184,7 +184,7 @@ async function removeStaleMaterializedSourceFiles(
   nextPaths: Set<string>,
   scope: WorkspaceMaterializeSourcesOptions | undefined,
   control: MaterializationControl,
-  options: { removeUntracked?: boolean } = {},
+  options: { removeUntracked?: boolean, previousPaths?: Set<string> } = {},
 ) {
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
@@ -193,7 +193,7 @@ async function removeStaleMaterializedSourceFiles(
     if (!materializationPathMatches(entry.path, scope)) continue
     if (nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
-    if (options.removeUntracked || file?.metadata?.source === source.key) {
+    if (options.removeUntracked || options.previousPaths?.has(entry.path) || file?.metadata?.source === source.key) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
       await control.mutate(() => store.rm(entry.path, { force: true }))
     }
@@ -425,7 +425,10 @@ export async function materializeWorkspaceSources(
         }
       }
       throwIfAborted(options.abortSignal)
-      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, control, { removeUntracked: Boolean(source.mountPath) })
+      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, control, {
+        removeUntracked: Boolean(source.mountPath),
+        previousPaths: new Set(Object.keys(existing?.items || {})),
+      })
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []

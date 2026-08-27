@@ -4,7 +4,7 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
-import { sourceSyncMetaKey } from "./sources/sync-state.ts"
+import { sourceSnapshotMetaKey } from "./sources/materialization.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
@@ -164,7 +164,7 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   }
   for (const source of startupSources.filter(source => resetPaths.some(path => sourceMountIntersectsPath(source, path)))) {
     abortSignal?.throwIfAborted()
-    await store.setMeta?.(sourceSyncMetaKey(source.key), {})
+    await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
     abortSignal?.throwIfAborted()
   }
   for (const source of [...previousSources, ...currentSources].filter(source => !source.mountPath)) {
