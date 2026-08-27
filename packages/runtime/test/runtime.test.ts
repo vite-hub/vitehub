@@ -469,6 +469,7 @@ describe("@vite-hub/runtime", () => {
 
   it("falls back to private when a public payload contains shared WebAssembly memory", async () => {
     const log = createTraceEventLog()
+    // SAFETY: This test runs in Node, whose WebAssembly.Memory constructor accepts the asserted shared descriptor.
     const WebAssemblyMemory = (globalThis as typeof globalThis & {
       WebAssembly: {
         Memory: new (descriptor: { initial: number, maximum: number, shared: boolean }) => { buffer: ArrayBufferLike }

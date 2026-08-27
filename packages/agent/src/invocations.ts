@@ -275,30 +275,40 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   }
   if (value instanceof Map) {
     budget.truncated = true
-    const entries = Array.from(value.entries())
-    const length = Math.min(entries.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
-    if (length < entries.length) budget.truncated = true
-    return entries.slice(0, length).map(([key, child]) => [
+    const entries: [unknown, unknown][] = []
+    const limit = Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    for (const entry of value) {
+      if (entries.length >= limit) break
+      entries.push(entry)
+    }
+    if (entries.length < value.size) budget.truncated = true
+    return entries.map(([key, child]) => [
       boundedObservationValue(key, budget, depth + 1, maxStringLength),
       boundedObservationValue(child, budget, depth + 1, maxStringLength),
     ])
   }
   if (value instanceof Set) {
     budget.truncated = true
-    const entries = Array.from(value.values())
-    const length = Math.min(entries.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
-    if (length < entries.length) budget.truncated = true
-    return entries.slice(0, length).map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength))
+    const entries: unknown[] = []
+    const limit = Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    for (const entry of value) {
+      if (entries.length >= limit) break
+      entries.push(entry)
+    }
+    if (entries.length < value.size) budget.truncated = true
+    return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength))
   }
   if (value instanceof ArrayBuffer) {
     budget.truncated = true
-    return boundedObservationValue(Array.from(new Uint8Array(value)), budget, depth + 1, maxStringLength)
+    const length = Math.min(value.byteLength, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength)
   }
   if (ArrayBuffer.isView(value)) {
     budget.truncated = true
+    const length = Math.min(value.byteLength, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
     return {
       bytes: boundedObservationValue(
-        Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)),
+        Array.from(new Uint8Array(value.buffer, value.byteOffset, length)),
         budget,
         depth + 1,
         maxStringLength,
@@ -308,7 +318,10 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   }
   if (value instanceof RegExp) {
     budget.truncated = true
-    return { flags: value.flags, source: value.source }
+    return {
+      flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength),
+      source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength),
+    }
   }
   if (value instanceof Error) {
     budget.truncated = true

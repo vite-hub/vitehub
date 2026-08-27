@@ -416,12 +416,13 @@ function normalizedTraceActivity(activity: TraceActivityContext | undefined): Tr
 
 function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  if (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer) return true
+  if (value instanceof SharedArrayBuffer) return true
+  // SAFETY: The runtime guard below verifies this optional host constructor before instantiation checks.
   const WebAssemblyMemory = (globalThis as typeof globalThis & {
     WebAssembly?: { Memory?: abstract new (...args: never[]) => { buffer: ArrayBufferLike } }
   }).WebAssembly?.Memory
   if (WebAssemblyMemory && value instanceof WebAssemblyMemory) {
-    return typeof SharedArrayBuffer !== "undefined" && value.buffer instanceof SharedArrayBuffer
+    return value.buffer instanceof SharedArrayBuffer
   }
   if (seen.has(value)) return false
   seen.add(value)

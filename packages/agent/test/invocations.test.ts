@@ -281,6 +281,31 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("bounds large structured public payload values before persistence", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          bytes: new Uint8Array(100_000),
+          files: new Map(Array.from({ length: 100_000 }, (_, index) => [index, index])),
+          paths: new Set(Array.from({ length: 100_000 }, (_, index) => index)),
+          pattern: new RegExp("x".repeat(100_000)),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(JSON.stringify(observation?.payload).length).toBeLessThan(70_000)
+  })
+
   it("preserves canonical trace attributes when bounding invocation observations", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-trace-attributes"))
