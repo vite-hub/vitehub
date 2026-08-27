@@ -125,6 +125,44 @@ describe("Workspace runtime preparation", () => {
     resetWorkspaceRegistry()
   })
 
+  it("restarts explicit Source preparation with a fresh registry load", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let firstStarted!: () => void
+    const firstLoading = new Promise<void>((resolve) => { firstStarted = resolve })
+    let attempts = 0
+    setWorkspaceRegistry({
+      [name]: async () => {
+        attempts++
+        if (attempts === 1) {
+          firstStarted()
+          await new Promise(() => {})
+        }
+        return {
+          default: {
+            sources: {
+              docs: custom({
+                async getItem(key) { return { content: "# Ready", key } },
+                async getItems() { return [{ content: "# Ready", key: "ready.md" }] },
+                async getKeys() { return ["ready.md"] },
+              }),
+            },
+            store: { provider: "memory" },
+          },
+        }
+      },
+    })
+    const preparation = createWorkspacePreparation({ sources: ["docs"], workspace: name })
+
+    const first = preparation.start()
+    await firstLoading
+    await preparation.stop()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    expect(attempts).toBe(2)
+    await preparation.stop()
+    resetWorkspaceRegistry()
+  })
+
   it("shares a concurrent registry definition load", async () => {
     const name = `workspace-preparation-${crypto.randomUUID()}`
     let release!: () => void
