@@ -575,13 +575,18 @@ async function writeVercelQueueFunctions(
       mkdirSync(dirname(queueRoot), { recursive: true })
       renameSync(stagedQueueRoot, queueRoot)
     }
-    rmSync(backupQueueRoot, { force: true, recursive: true })
+    await rm(stagedOutputRoot, { force: true, recursive: true })
+    signal?.throwIfAborted()
   }
   catch (error) {
+    rmSync(queueRoot, { force: true, recursive: true })
     if (existsSync(backupQueueRoot)) renameSync(backupQueueRoot, queueRoot)
     throw error
   }
-  await rm(stagedOutputRoot, { force: true, recursive: true })
+  try {
+    rmSync(backupQueueRoot, { force: true, recursive: true })
+  }
+  catch {}
 }
 
 export async function generateProviderOutputs(

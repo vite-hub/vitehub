@@ -139,6 +139,7 @@ interface ProviderDeploymentOutputFinalization {
   controller: AbortController
   handoff?: Promise<void>
   promise: Promise<void>
+  reset?: Promise<void>
 }
 
 const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
@@ -542,9 +543,16 @@ export function contributeProviderDeploymentOutput(
 export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): Promise<void> {
   if (!catalog) return
   const active = providerDeploymentOutputFinalizations.get(catalog)
+  if (active?.reset) {
+    await active.reset
+    return
+  }
   active?.controller.abort(new Error("Provider Output finalization reset"))
   catalog?.resetDeploymentContributions()
-  if (active) await active.promise.catch(() => undefined)
+  if (active) {
+    active.reset = active.promise.catch(() => undefined)
+    await active.reset
+  }
 }
 
 export async function finalizeProviderDeploymentOutputs(

@@ -260,10 +260,11 @@ describe("Provider Output finalizer", () => {
     const reset = resetProviderDeploymentOutputs(catalog)
     const newerWrite = vi.fn(async () => undefined)
     contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: newerWrite })
+    const repeatedReset = resetProviderDeploymentOutputs(catalog)
     const newerFinalization = finalizeProviderDeploymentOutputs(catalog)
     releaseWrite()
 
-    await reset
+    await Promise.all([reset, repeatedReset])
     await expect(failedFinalization).rejects.toThrow("Provider Output finalization reset")
     await newerFinalization
     expect(newerWrite).toHaveBeenCalledOnce()

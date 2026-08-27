@@ -338,7 +338,7 @@ export async function writeVercelScheduleFunctions(options: {
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   const stagedFunctionRoot = `${functionRoot}.pending`
-  const backupFunctionRoot = `${functionRoot}.previous`
+  const backupFunctionRoot = `${outputRoot}.vitehub-schedule.previous`
   await rm(stagedFunctionRoot, { force: true, recursive: true })
   options.signal?.throwIfAborted()
 
@@ -376,6 +376,10 @@ export async function writeVercelScheduleFunctions(options: {
 
   options.signal?.throwIfAborted()
   const configFile = resolve(outputRoot, "config.json")
+  const previousConfig = await readFile(configFile).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
   let installedFunctionRoot = false
   rmSync(backupFunctionRoot, { force: true, recursive: true })
   try {
@@ -459,10 +463,15 @@ export async function writeVercelScheduleFunctions(options: {
   catch (error) {
     if (installedFunctionRoot) rmSync(functionRoot, { force: true, recursive: true })
     if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+    if (previousConfig) await writeFile(configFile, previousConfig)
+    else await rm(configFile, { force: true })
     throw error
   }
   finally {
-    rmSync(backupFunctionRoot, { force: true, recursive: true })
+    try {
+      rmSync(backupFunctionRoot, { force: true, recursive: true })
+    }
+    catch {}
   }
 }
 

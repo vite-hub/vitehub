@@ -1,7 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
@@ -1383,21 +1383,25 @@ async function generateProviderOutputsWithinLock(
       }, options.serverFunctionName)
     : undefined
   const writeOutputs = async () => {
-    const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
-    const activeServerFunctionName = vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined
-    const activeFunctionRoot = activeServerFunctionName
-      ? resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", activeServerFunctionName)
-      : undefined
-    const previouslyOwnedActiveFunction = activeFunctionRoot
-      ? Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
-      : false
-    if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
-      ...options.providerImportAliases,
-      ...options.providerRuntimeImportAliases?.vercel,
-    }, artifacts.vercelNativeFiles)) {
-      assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
-    }
+    const outputRoot = createDefaultVercelOutputRoot(options.rootDir)
+    const previousOutputRoot = `${outputRoot}.vitehub-workflow.previous`
+    await rm(previousOutputRoot, { force: true, recursive: true })
+    let hadPreviousOutput = false
     try {
+      await cp(outputRoot, previousOutputRoot, { recursive: true })
+      hadPreviousOutput = true
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
+    try {
+      if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.vercel,
+      }, artifacts.vercelNativeFiles)) {
+        assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
+      }
       await writeProviderDeploymentOutputs({
         clientOutDir: options.clientOutDir,
         cloudflare: cloudflareOutput,
@@ -1424,13 +1428,12 @@ async function generateProviderOutputsWithinLock(
       })
     }
     catch (error) {
-      if (activeFunctionRoot) {
-        const hasRecoverableActiveFunction = previouslyOwnedActiveFunction
-          && Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
-        if (!hasRecoverableActiveFunction) await rm(activeFunctionRoot, { force: true, recursive: true })
-        if (!hasRecoverableActiveFunction && !options.serverFunctionName) await cleanVercelWorkflowRootConfig(options.rootDir, vercelRootWorkflowRoutes)
-      }
+      await rm(outputRoot, { force: true, recursive: true })
+      if (hadPreviousOutput) await rename(previousOutputRoot, outputRoot)
       throw error
+    }
+    finally {
+      await rm(previousOutputRoot, { force: true, recursive: true }).catch(() => undefined)
     }
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
