@@ -595,8 +595,10 @@ function selectedWorkspacePaths(context: AgentAdapterRunContext): readonly strin
 }
 
 function workspaceSetupObserverOptions(context: AgentAdapterRunContext) {
+  // SAFETY: Agent invocation setup stores this context value as the invocation trace ID string.
+  const invocationId = context.context.get(agentInvocationTraceIdContextKey) as string | undefined
   return {
-    invocationId: context.context.get(agentInvocationTraceIdContextKey) as string | undefined,
+    invocationId,
     runId: context.runtime.run?.runId,
     trace: context.runtime.trace,
     traceLog: context.runtime.traceLog,

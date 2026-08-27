@@ -40,7 +40,7 @@ describe("Workspace setup observability", () => {
       attributes: {
         "agent.invocation.id": "invocation-1",
         "agent.run.id": "run-1",
-        "step.id": "vitehub.workspace.materialization:review-skill:skills/review",
+        "step.id": "vitehub.workspace.materialization:[\"review-skill\",\"skills/review\"]",
         "vitehub.activity.detail": "review-skill · github · 7 files · 4.0 KB · cache miss · commit-123",
         "vitehub.activity.kind": "preparation",
         "vitehub.inspect.target": "workspace",
@@ -53,6 +53,19 @@ describe("Workspace setup observability", () => {
       trace: { id: "trace-1" },
       type: "lifecycle",
     })
+  })
+
+  it("keeps source and path boundaries distinct in materialization step IDs", async () => {
+    const traceLog = createTraceEventLog({ content: "content" })
+    const observer = createWorkspaceSetupObservers({ traceLog }).materialization
+
+    await observer({ mountPath: "", path: "c", source: "a:b", status: "started" })
+    await observer({ mountPath: "", path: "b:c", source: "a", status: "started" })
+
+    expect(traceLog.entries().map(event => event.attributes?.["step.id"])).toEqual([
+      "vitehub.workspace.materialization:[\"a:b\",\"c\"]",
+      "vitehub.workspace.materialization:[\"a\",\"b:c\"]",
+    ])
   })
 
   it("records sandbox preparation failures without letting trace storage break setup", async () => {

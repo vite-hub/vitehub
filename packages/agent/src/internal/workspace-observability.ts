@@ -3,6 +3,7 @@ import type {
   WorkspaceMaterializeSourcesProgressEvent,
   WorkspacePrepareSessionProgressEvent,
 } from "@vite-hub/workspace"
+import { hasRuntimeType } from "./runtime-type.ts"
 
 interface WorkspaceSetupObserversOptions {
   invocationId?: string
@@ -63,14 +64,13 @@ function correlatedEvent(
   options: WorkspaceSetupObserversOptions,
   event: Parameters<TraceEventLog["append"]>[0],
 ): Parameters<TraceEventLog["append"]>[0] {
+  const attributes = { ...event.attributes }
+  if (options.invocationId) attributes["agent.invocation.id"] = options.invocationId
+  if (options.runId) attributes["agent.run.id"] = options.runId
   return {
     ...event,
     trace: event.trace || options.trace,
-    attributes: {
-      ...(options.invocationId ? { "agent.invocation.id": options.invocationId } : {}),
-      ...(options.runId ? { "agent.run.id": options.runId } : {}),
-      ...event.attributes,
-    },
+    attributes,
   }
 }
 
@@ -78,7 +78,7 @@ export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOp
   return {
     async materialization(event) {
       const counts = event.counts
-      const stepId = `vitehub.workspace.materialization:${event.source}:${event.path || "."}`
+      const stepId = `vitehub.workspace.materialization:${JSON.stringify([event.source, event.path || "."])}`
       const title = event.status === "failed"
         ? "Workspace source failed"
         : event.status === "completed"
@@ -125,9 +125,9 @@ export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOp
       }))
     },
     async preparation(event) {
-      const bytes = typeof event.data?.bytes === "number" ? event.data.bytes : undefined
-      const files = typeof event.data?.files === "number" ? event.data.files : undefined
-      const revision = typeof event.data?.revision === "string" ? event.data.revision : undefined
+      const bytes = hasRuntimeType(event.data?.bytes, "number") ? event.data.bytes : undefined
+      const files = hasRuntimeType(event.data?.files, "number") ? event.data.files : undefined
+      const revision = hasRuntimeType(event.data?.revision, "string") ? event.data.revision : undefined
       const stepId = `vitehub.${event.id}`
       await append(options.traceLog, correlatedEvent(options, {
         attributes: {

@@ -14,6 +14,7 @@ const globSource = glob
 const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+import type { WorkspaceMaterializeSourcesProgressEvent } from "../src/core/types.ts"
 
 const tempDirs: string[] = []
 
@@ -566,20 +567,32 @@ describe("lazy sources", () => {
 
     await view.materializeSources({ sources: ["docs"] })
     files.set("b.md", "# B\n")
-    await view.materializeSources({ path: "docs/b.md", sources: ["docs"] })
+    const scoped = await view.materializeSources({ path: "docs/b.md", sources: ["docs"] })
 
-    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+    expect(scoped).toMatchObject({ bytes: 4, files: 1 })
+
+    const progress: WorkspaceMaterializeSourcesProgressEvent[] = []
+    await expect(view.materializeSources({
+      details: "paths",
+      onProgress(event) {
+        progress.push(event)
+      },
+      sources: ["docs"],
+    })).resolves.toMatchObject({
       files: 2,
+      bytes: 8,
       sources: [{
         cacheStatus: "hit",
         counts: { added: 0, removed: 0, unchanged: 2, updated: 0 },
         files: 2,
+        bytes: 8,
         paths: [
           { path: "docs/a.md", status: "unchanged" },
           { path: "docs/b.md", status: "unchanged" },
         ],
       }],
     })
+    expect(progress.at(-1)).toMatchObject({ bytes: 8, files: 2, status: "completed" })
   })
 
   it("reports completed removals before a later cleanup failure", async () => {

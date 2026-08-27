@@ -34,6 +34,7 @@ describe("fetch sources", () => {
 
     const source = fetch(() => ({ url: "https://status.example.com/health" }))
     expect(source).toMatchObject({ name: "fetch" })
+    // SAFETY: This provider's resolver does not inspect the Source context.
     await expect(source.resolve?.({} as never)).resolves.toMatchObject({ name: "fetch" })
   })
 

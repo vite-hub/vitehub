@@ -234,7 +234,7 @@ async function removeStaleMaterializedSourceFiles(
   source: ResolvedWorkspaceSource,
   nextPaths: Set<string>,
   scope: WorkspaceMaterializeSourcesOptions | undefined,
-  options: { onRemoved: (path: string) => void, removeUntracked?: boolean },
+  options: { onRemoved: (path: string, bytes: number) => void, removeUntracked?: boolean },
 ): Promise<void> {
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
@@ -246,7 +246,7 @@ async function removeStaleMaterializedSourceFiles(
     if (options.removeUntracked || file?.metadata?.source === source.key) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
       await store.rm(entry.path, { force: true })
-      options.onRemoved(entry.path)
+      options.onRemoved(entry.path, file ? contentSize(file.content) : 0)
     }
   }
   for (const entry of entries.filter(entry => entry.type === "directory" && staleDirectories.has(entry.path) && !nextDirectories.has(entry.path)).sort((a, b) => b.path.length - a.path.length)) {
@@ -402,20 +402,20 @@ export async function materializeWorkspaceSources(
       const counts = { ...emptyMaterializationCounts(), unchanged: cachedFiles }
       const paths = cachedPaths.map(path => ({ path, status: "unchanged" as const }))
       const reportedPaths = materializationPaths(options, paths)
-      const ready = {
+      const ready: WorkspaceSourceMaterializationStatus = {
         cacheStatus,
         counts: { ...counts },
         durationMs,
         source: source.key,
         mountPath: source.mountPath,
-        ...(reportedPaths ? { paths: reportedPaths } : {}),
         provider: source.source.name,
         status: "ready",
         revision: existing?.revision,
         materializedAt: existing?.materializedAt,
         files: cachedFiles,
         bytes: existing?.bytes,
-      } satisfies WorkspaceSourceMaterializationStatus
+      }
+      if (reportedPaths) ready.paths = reportedPaths
       resultSources.push(ready)
       files += cachedFiles
       bytes += existing?.bytes || 0
@@ -449,6 +449,7 @@ export async function materializeWorkspaceSources(
 
     let sourceFiles = 0
     let sourceBytes = 0
+    let persistedBytesDelta = 0
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
@@ -510,6 +511,7 @@ export async function materializeWorkspaceSources(
         itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
+        persistedBytesDelta += (written.size || 0) - (previousFile ? contentSize(previousFile.content) : 0)
         const unchanged = previousFile && (comparedStream
           ? comparedStream.unchanged()
           : contentEquals(previousFile.content, entry.content ?? ""))
@@ -532,8 +534,10 @@ export async function materializeWorkspaceSources(
       }
       throwIfAborted(options.abortSignal)
       await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, {
-        onRemoved(path) {
+        onRemoved(path, removedBytes) {
           counts.removed++
+          persistedBytesDelta -= removedBytes
+          delete itemMetadata[path]
           paths.push({ path, status: "removed" })
         },
         removeUntracked: Boolean(source.mountPath),
@@ -557,21 +561,25 @@ export async function materializeWorkspaceSources(
       }
       if (completeSource) await writeSourceSnapshotMetadata(store, ready)
       else if (existing?.configHash === configHash) {
+        const scopedItems = checkpointItems(itemMetadata)
         await writeSourceSnapshotMetadata(store, {
           ...existing,
-          items: checkpointItems(itemMetadata),
+          bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
+          files: scopedItems ? Object.keys(scopedItems).length : 0,
+          items: scopedItems,
         })
       }
       const durationMs = Date.now() - sourceStarted
       const reportedPaths = materializationPaths(options, paths)
-      resultSources.push({
+      const resultSource: WorkspaceSourceMaterializationStatus = {
         ...ready,
         cacheStatus,
         counts: { ...counts },
         durationMs,
-        ...(reportedPaths ? { paths: reportedPaths } : {}),
         provider: source.source.name,
-      })
+      }
+      if (reportedPaths) resultSource.paths = reportedPaths
+      resultSources.push(resultSource)
       files += sourceFiles
       bytes += sourceBytes
       directories += directorySet.size
@@ -609,14 +617,15 @@ export async function materializeWorkspaceSources(
       if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint)
       const durationMs = Date.now() - sourceStarted
       const reportedPaths = materializationPaths(options, paths)
-      resultSources.push({
+      const failedSource: WorkspaceSourceMaterializationStatus = {
         ...failed,
         cacheStatus,
         counts: { ...counts },
         durationMs,
-        ...(reportedPaths ? { paths: reportedPaths } : {}),
         provider: source.source.name,
-      })
+      }
+      if (reportedPaths) failedSource.paths = reportedPaths
+      resultSources.push(failedSource)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,
         cacheStatus,
