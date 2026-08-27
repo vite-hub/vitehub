@@ -239,6 +239,27 @@ describe("Agent Invocation Interface lifecycle", () => {
     probe.expectFinished(["driver", "stream:return", "close", "finish"])
   })
 
+  it("finishes raw streams with their consumed text", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+        yield { text: "Final ", type: "text-delta" }
+        yield { text: "answer.", type: "text-delta" }
+      })() },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { text: "Final answer." },
+      text: "Final answer.",
+    })
+  })
+
   it.each([
     { form: "stream", kind: "run" },
     { form: "run", kind: "model" },

@@ -4460,11 +4460,12 @@ async function finalizeAgentInvocationResult<
         const streamed = withStreamedResult(stream, result, undefined, context.toolResults, context.tools)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
-            const finishOutcome = finishOutcomeFromCleanup(outcome, result)
+            const finishResult = streamed.finishResult()
+            const finishOutcome = finishOutcomeFromCleanup(outcome, finishResult)
             const usage = streamed.finishUsage()
             if (!outcome.failed && !outcome.completed) {
               return lifecycle.finish({
-                result,
+                result: finishResult,
                 status: "success",
                 ...(usage ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, context.run) } : {}),
                 usageResolved: true,
