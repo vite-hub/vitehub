@@ -16,6 +16,9 @@ const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "
 const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
 const envSplitStringOptions = new Set(["--split-string", "-S"])
 const commandValueOptions = new Set(["--argv0", "-a"])
+const commandQueryOptions = new Set(["--verbose", "-V", "-v"])
+const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
+const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
 
 function shellTokens(line) {
   const tokens = []
@@ -87,22 +90,32 @@ function commandIndexes(tokens) {
     else if (commandStart && shellCommandPrefixes.has(token)) {
       continue
     }
-    else if (commandStart && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+    else if (commandStart && redirectionPattern.test(token)) {
+      continue
+    }
+    else if (commandStart && !assignmentPattern.test(token)) {
       let executableIndex = index
       while (executableIndex < tokens.length) {
         const wrapper = executableName(tokens[executableIndex])
         if (wrapper === "command" || wrapper === "exec") {
           executableIndex++
+          let queriesOnly = false
           while (executableIndex < tokens.length) {
             const argument = tokens[executableIndex]
             if (argument === "--") {
               executableIndex++
               break
             }
+            if (wrapper === "command" && commandQueryOptions.has(argument)) {
+              queriesOnly = true
+              executableIndex++
+              continue
+            }
             if (commandValueOptions.has(argument)) executableIndex += 2
             else if (argument.startsWith("-")) executableIndex++
             else break
           }
+          if (queriesOnly) executableIndex = tokens.length
           continue
         }
         if (wrapper !== "env") break
@@ -170,6 +183,12 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
 
     const tokens = shellTokens(line)
     const executableIndexes = commandIndexes(tokens)
+    if (executableIndexes.length === 0 && tokens.length > 0 && tokens.every(token => assignmentPattern.test(token))) {
+      for (const token of tokens) {
+        const assignment = assignmentPattern.exec(token)
+        environment.set(assignment[1], assignment[2])
+      }
+    }
     const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
     if (hereDocument && !executableIndexes.some(index => isShellCommand(tokens[index]))) {
       dataHereDocument = { delimiter: hereDocument[2], expand: hereDocument[1] === "" }
@@ -401,12 +420,13 @@ export function inspectGitHubCIInputs(path, source) {
         }
       }
       const line = lineCounter.linePos(runPair.key.range?.[0] ?? 0).line
+      const run = isAlias(runPair.value) ? runPair.value.resolve(document) : runPair.value
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
-      if (!isScalar(runPair.value) || typeof runPair.value.value !== "string") {
+      if (!isScalar(run) || typeof run.value !== "string") {
         failures.push({ line, message: "run must be a string", path })
         continue
       }
-      for (const spec of findExecutablePackageSpecs(runPair.value.value, environment)) {
+      for (const spec of findExecutablePackageSpecs(run.value, environment)) {
         if (!exactPackagePattern.test(spec)) {
           failures.push({ line, message: `transient package executor must use an exact version: ${spec}`, path })
         }
