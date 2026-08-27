@@ -244,8 +244,9 @@ function isStaticSiteDestination(destination) {
 function vueLinks(source) {
   const links = [];
   const constants = new Map();
+  const propertyNames = new Set(["to", "href", "src", "poster", "srcset", ...vueLinkProperties(source)]);
   for (const match of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
-    links.push(...typescriptLinks(match[1]));
+    links.push(...typescriptLinks(match[1], { propertyNames }));
     const file = ts.createSourceFile("component.ts", match[1], ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     for (const statement of file.statements) {
       if (!ts.isVariableStatement(statement)) continue;
@@ -470,7 +471,8 @@ function applicationInventory(docsRoot) {
         for (const anchor of staticHtmlAnchors(source)) anchors.add(anchor);
         const renderedSource = withoutHtmlComments(source);
         for (const [name, componentPath] of components) {
-          if (new RegExp(`<${name}(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
+          const kebabName = name.replace(/\B([A-Z])/g, "-$1").toLowerCase();
+          if (new RegExp(`<(?:${name}|${kebabName})(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
         }
       }
       const linkProperties = extname(file) === ".vue"

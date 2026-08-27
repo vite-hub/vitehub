@@ -255,6 +255,16 @@ mutableTarget = dynamicTarget
     ]);
   });
 
+  it("validates aliased link fields declared in the rendering Vue file", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<script setup>const items = [{ destination: "/docs/missing-local" }]</script><template><NuxtLink v-for="item in items" :to="item.destination" /></template>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing-local" does not exist'),
+    ]);
+  });
+
   it("follows selected links through local re-exports and functions", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
@@ -291,6 +301,18 @@ mutableTarget = dynamicTarget
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('anchor #missing does not exist for route "/examples"'),
+    ]);
+  });
+
+  it("associates kebab-case component tags with their rendered route", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/examples/page.vue": '<template><shared-links /></template>',
+      "docs/app/pages/examples/child.vue": "<template />",
+      "docs/app/components/SharedLinks.vue": '<template><NuxtLink to="./child" /><NuxtLink to="#missing" /></template>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('anchor #missing does not exist for route "/examples/page"'),
     ]);
   });
 
