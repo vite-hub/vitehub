@@ -1,91 +1,132 @@
 # @vite-hub/queue
 
-<p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
-  <img alt="Queue" src="https://img.shields.io/badge/Queue-background%20jobs-9333ea?style=flat-square">
-</p>
+`@vite-hub/queue` discovers background job handlers during a Vite build and connects `runQueue()` to Cloudflare Queues or Vercel Queues. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
 
-`@vite-hub/queue` defines background job handlers by file path and keeps producers on one `runQueue()` API.
+Applications that already use the `vite-hub` framework distribution should enable Queue in `vitehub()` and import from `vite-hub/queue`. Install this owner package directly when you are building a custom composition, another framework integration, or package-level tooling. The [Queue guide](https://vitehub.dev/docs/server-primitives/queue) covers the framework-distribution setup.
 
-## Install
+## Install the owner package
 
 ```sh
 pnpm add @vite-hub/queue
 ```
 
-Add `@vercel/queue` when you use the Vercel provider.
+The package requires Node 24 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output.
 
-Vercel Queue projects that typecheck the generated path need Node and ws ambient types:
+For Vercel Queues, also install the provider package and the ambient types used by generated functions:
 
 ```sh
+pnpm add @vercel/queue
 pnpm add -D @types/node @types/ws
 ```
 
-## Minimal API
+## Build the first Queue Definition
+
+Queue has no in-memory provider for local delivery. The first credential-free result is a build that discovers a Queue Definition and emits provider configuration. This example selects Cloudflare explicitly.
+
+Define the handler in a discoverable file:
 
 ```ts
-// server/queues/welcome-email.ts
-import { defineQueue } from "@vite-hub/queue"
+// src/welcome-email.queue.ts
+import { defineQueue } from "@vite-hub/queue";
 
-export default defineQueue<{ email: string }>(async (job) => {
-  console.log(`Send welcome email to ${job.payload.email}`)
-})
+export default defineQueue<{ email: string }>(async ({ payload }) => {
+  console.log(`Send welcome email to ${payload.email}`);
+});
 ```
+
+Enqueue it by its discovered name:
 
 ```ts
-// server/api/signup.post.ts
-import { runQueue } from "@vite-hub/queue"
-import { defineEventHandler, readBody } from "h3"
+// src/server.ts
+import { runQueue } from "@vite-hub/queue";
 
-export default defineEventHandler(async (event) => {
-  return runQueue("welcome-email", await readBody<{ email: string }>(event))
-})
+export async function enqueueWelcomeEmail(email: string) {
+  return await runQueue("welcome-email", { email });
+}
+
+export default function handleRequest() {
+  return new Response("Queue producer ready");
+}
 ```
+
+Register the standalone Vite integration and give Vite a server entry:
 
 ```ts
 // vite.config.ts
-import { hubQueue } from "@vite-hub/queue/vite"
-import { defineConfig } from "vite"
+import { resolve } from "node:path";
+
+import { hubQueue } from "@vite-hub/queue/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubQueue()],
-  queue: { provider: "cloudflare" },
-})
+  build: {
+    rollupOptions: {
+      input: resolve(import.meta.dirname, "src/server.ts"),
+    },
+    ssr: true,
+  },
+  plugins: [hubQueue({ provider: "cloudflare" })],
+});
 ```
 
-Throw `ViteHubError` when a Queue Definition needs a stable application error code. Queue retry policy belongs to Queue Delivery and provider callbacks, not the error object.
+Run a production-shaped build:
+
+```sh
+pnpm vite build
+```
+
+A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email` definition. It also writes a Cloudflare Worker and `wrangler.json` under `dist`. The Wrangler configuration contains one generated producer binding and one consumer for the Queue Definition.
+
+That build proves discovery and generated output only. `runQueue()` needs the generated runtime, a deployed Cloudflare binding, and an existing queue before it can return `{ status: "queued" }`. Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
+
+## Choose Cloudflare or Vercel
+
+| Provider   | Choose it when                                                                                        | Generated output                                                    | Enqueue options                                                |
+| ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Cloudflare | The deployed runtime supplies request-scoped Cloudflare Queue bindings                                | Worker bundle and `wrangler.json` producer and consumer entries     | `contentType`, `delaySeconds`                                  |
+| Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | Consumer functions and trigger configuration under `.vercel/output` | `delaySeconds`, `idempotencyKey`, `region`, `retentionSeconds` |
+
+The ViteHub framework preset selects Cloudflare for `preset: "cloudflare"` and Vercel for `preset: "vercel"`. With the standalone owner package, set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for local delivery, Deno, or self-hosted Node. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
+
+Cloudflare needs a concrete request-scoped binding at runtime. Its generated queue resources can be created through the ViteHub Cloudflare provision step when the required account credentials are present. Cloudflare rejects Vercel-only options such as `idempotencyKey`, `region`, and `retentionSeconds`.
+
+Vercel needs a generated topic and the `@vercel/queue` runtime. It rejects Cloudflare's `contentType` option. The [Vercel host guide](https://vitehub.dev/docs/frameworks-hosts/vercel) explains the generated Build Output boundary.
+
+## Treat acceptance and delivery separately
+
+`runQueue()` waits for provider enqueue and returns this portable result:
 
 ```ts
-import { ViteHubError } from "@vite-hub/runtime"
-import { defineQueue } from "@vite-hub/queue"
-
-export default defineQueue<{ email?: string }>(async ({ payload }) => {
-  if (!payload.email) {
-    throw new ViteHubError("WELCOME_EMAIL_INVALID_PAYLOAD", "Welcome email payload requires an email address.", {
-      details: { field: "email" },
-    })
-  }
-
-  await sendWelcomeEmail(payload.email)
-})
+type QueueSendResult = {
+  messageId?: string;
+  status: "queued";
+};
 ```
 
-ViteHub's built-in codes remain available as `QueueErrorCode`. ViteHub reports each failed delivery with safe Queue and message identifiers, attempt count, code, details, and the Queue-owned retry decision before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
+The optional message ID identifies provider acceptance. Queue handlers run later and return no value to the producer. Use a [Workflow](https://vitehub.dev/docs/server-primitives/workflows) when the caller needs a tracked run, durable steps, waits, or progress.
 
-## Vite Integration
+`deferQueue()` does not wait for provider acceptance. It schedules enqueue work through the current request's `waitUntil`, logs dispatch failures, and calls the Queue Definition's `onDispatchError` hook when present.
 
-Use `hubQueue()` in Vite to discover `server/queues/<name>.ts` and `src/<name>.queue.ts`. The handler name comes from the file path, while provider output maps it to [Cloudflare Queues](https://developers.cloudflare.com/queues/) or [Vercel Queues](https://vercel.com/docs/queues).
+Providers can retry failed delivery, so handlers must tolerate another invocation after a partial side effect. ViteHub does not expose an exactly-once delivery guarantee. Vercel sends an idempotency key, using the generated message ID by default; pass a stable application key when repeated enqueue attempts should share one key. Cloudflare does not accept `idempotencyKey`, so protect non-repeatable side effects inside the handler.
 
-In Nuxt, install the Queue module instead. It installs the same Vite integration and merges the generated runtime files and provider bindings into Nitro configuration:
+On Cloudflare, successful handlers acknowledge the message. Failed handlers retry by default unless ViteHub identifies a non-retryable built-in error or `onError` returns an explicit acknowledge or retry action. On Vercel, `callbackOptions.retry` can return an explicit directive; returning nothing preserves provider behavior. Application error codes do not choose retry policy.
 
-```ts
-export default defineNuxtConfig({
-  modules: [["@vite-hub/queue/nuxt", { provider: "cloudflare" }]],
-})
-```
+Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-safe `details` may appear in delivery reports. Put credentials, provider responses, and private resource locations in `cause`; serialized errors and Queue reports omit it. See the [Queue error and retry reference](https://vitehub.dev/docs/server-primitives/queue#errors) for built-in codes and provider callbacks.
 
-Run `vite build` to emit Queue Provider Output. Cloudflare output is written under `dist/**/wrangler.json`; Vercel output is written under `.vercel/output/functions/api/vitehub/queues/vercel/**`.
+## Public imports
 
-Learn more at [vitehub.dev](https://vitehub.dev).
+| Import                           | Purpose                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `@vite-hub/queue`                | Queue Definitions, enqueue helpers, direct clients, host adapters, and public types |
+| `@vite-hub/queue/vite`           | Vite discovery and Cloudflare or Vercel Provider Output                             |
+| `@vite-hub/queue/nuxt`           | Nuxt module that composes Queue into Nitro                                          |
+| `@vite-hub/queue/runtime/hosted` | Advanced hosted Vercel callback adapter                                             |
+
+`@vite-hub/queue/internal/*` exists for generated framework integration. Application code should not import it.
+
+## Go deeper
+
+- [Queue guide](https://vitehub.dev/docs/server-primitives/queue)
+- [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
+- [Definitions and discovery](https://vitehub.dev/docs/concepts/definitions-and-discovery)
+- [Public import paths](https://vitehub.dev/docs/reference/import-paths)
