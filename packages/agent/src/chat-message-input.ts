@@ -368,6 +368,7 @@ function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatT
 }
 
 function createChatTriggerHookArgs<TRuntimeConfig extends AgentRuntimeConfig>(
+  _options: AgentChatOptions<TRuntimeConfig>,
   messages: UIMessageLike[],
   run: AgentRunMetadata | undefined,
   session: AgentChatMessageTriggerInput["session"] | undefined,
@@ -404,7 +405,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const providerSessionId = triggerInput?.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId
     ? `${transportSessionId}:chat-session:${selectedSessionId}`
     : transportSessionId)
-  const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
+  const hookArgs = createChatTriggerHookArgs(options, selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
   return {
     hookArgs,
