@@ -598,6 +598,9 @@ importers:
       github-slugger:
         specifier: ^2.0.0
         version: 2.0.0
+      html-entities:
+        specifier: ^2.6.0
+        version: 2.6.0
       remark-gfm:
         specifier: 'catalog:'
         version: 4.0.1

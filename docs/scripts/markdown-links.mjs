@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import GithubSlugger from "github-slugger";
+import { decode } from "html-entities";
 import remarkGfm from "remark-gfm";
 import remarkMdc from "remark-mdc";
 import remarkParse from "remark-parse";
@@ -62,7 +63,7 @@ function markdownSlug(value) {
 function htmlAttribute(tag, attributeName) {
   const attributes = tag.slice(tag.search(/\s/));
   for (const match of attributes.matchAll(/\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
-    if (match[1].toLowerCase() === attributeName) return match[2] ?? match[3] ?? match[4];
+    if (match[1].toLowerCase() === attributeName) return decode(match[2] ?? match[3] ?? match[4] ?? "");
   }
   return undefined;
 }
@@ -175,13 +176,29 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
       }
     }
     if (node.type === "html") {
+      const resourceAttributes = {
+        a: ["href"],
+        audio: ["src"],
+        embed: ["src"],
+        iframe: ["src"],
+        img: ["src", "srcset"],
+        input: ["src"],
+        link: ["href"],
+        object: ["data"],
+        script: ["src"],
+        source: ["src", "srcset"],
+        track: ["src"],
+        video: ["poster", "src"],
+      };
       for (const rawTag of htmlTags(node.value)) {
         const tag = rawTag.match(/^<([a-z]+)/i)?.[1].toLowerCase();
-        if (!tag || !["a", "img", "source"].includes(tag)) continue;
-        const destination = htmlAttribute(rawTag, tag === "a" ? "href" : "src");
-        if (destination) links.push(destination);
-        const sourceSet = tag === "a" ? undefined : htmlAttribute(rawTag, "srcset");
-        if (sourceSet) links.push(...sourceSetLinks(sourceSet));
+        if (!tag) continue;
+        for (const attribute of resourceAttributes[tag] ?? []) {
+          const destination = htmlAttribute(rawTag, attribute);
+          if (!destination) continue;
+          if (attribute === "srcset") links.push(...sourceSetLinks(destination));
+          else links.push(destination);
+        }
       }
     }
   });
@@ -346,12 +363,13 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       if (!path) {
         targetFile = sourcePath;
       } else if (sourceRoute !== undefined || isSiteLink) {
-        targetRoute = path.startsWith("/")
-          ? normalizeRenderedRoute(path)
-          : normalizeRenderedRoute(new URL(path, `${siteOrigin}${sourceRoute ?? "/"}`).pathname);
+        const renderedPath = path.startsWith("/")
+          ? path
+          : new URL(path, `${siteOrigin}${sourceRoute ?? "/"}`).pathname;
+        targetRoute = normalizeRenderedRoute(renderedPath);
         targetFile = routeFiles.get(targetRoute);
-        if (!targetFile) {
-          const publicFile = resolve(publicRoot, `.${targetRoute}`);
+        if (!targetFile && !renderedPath.endsWith("/")) {
+          const publicFile = resolve(publicRoot, `.${renderedPath}`);
           if (publicFile.startsWith(`${publicRoot}${sep}`) && existsSync(publicFile) && statSync(publicFile).isFile()) {
             targetFile = publicFile;
           }

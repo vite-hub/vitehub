@@ -42,6 +42,8 @@ describe("documentation link validation", () => {
 <img data-note=" src=&quot;/images/decoy.png&quot;" src="/images/actual.png">
 <picture><source srcset="/images/dark.png 1x, /images/dark@2x.png 2x"><img src="/images/fallback.png"></picture>
 <source srcset="data:image/svg+xml,%3Csvg%3E 1x, /images/local-after-data.png 2x">
+<video poster="/images/poster.png" src="/media/demo.mp4"><track src="/media/captions.vtt"></video>
+<audio src="/media/audio.mp3"></audio><iframe src="/examples/demo.html"></iframe>
 :u-button[Guide]{to="/docs/inline"}
 :u-avatar[]{src="/images/avatar.png"}
 ::card
@@ -65,7 +67,7 @@ to: #install
 to: "#install"
 ---
 ::
-<a href="/docs/html">HTML</a>
+<a href="/docs/html&#35;install">HTML</a>
 <https://vitehub.dev/docs/autolink>
 https://vitehub.dev/docs/bare-autolink
 
@@ -95,13 +97,18 @@ https://vitehub.dev/docs/bare-autolink
       "/images/fallback.png",
       "data:image/svg+xml,%3Csvg%3E",
       "/images/local-after-data.png",
+      "/images/poster.png",
+      "/media/demo.mp4",
+      "/media/captions.vtt",
+      "/media/audio.mp3",
+      "/examples/demo.html",
       "/docs/inline",
       "/images/avatar.png",
       "/docs/card",
       "/images/card.png",
       "/docs/card#install",
       "#install",
-      "/docs/html",
+      "/docs/html#install",
       "https://vitehub.dev/docs/autolink",
       "https://vitehub.dev/docs/bare-autolink",
     ]);
@@ -271,6 +278,18 @@ https://vitehub.dev/docs/bare-autolink
     });
 
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
+  it("rejects slash-suffixed public asset URLs", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Logo](/vitehub-logo.svg/)",
+      "docs/public/vitehub-logo.svg": "<svg />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/vitehub-logo.svg" does not exist'),
+    ]);
   });
 
   it("accepts relative links to public assets", () => {
