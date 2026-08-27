@@ -3328,6 +3328,7 @@ async function createAgentInvocationContext<
           ? configuration
           : agentTelemetryConfigurationForContent(configuration, {})
         await runtimeContext.traceLog?.append({
+          activity: { owner: "vitehub", phase: "setup" },
           attributes: { "vitehub.agent.configuration": persistedConfiguration },
           name: "vitehub.agent.configured",
           ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),

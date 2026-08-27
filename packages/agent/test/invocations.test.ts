@@ -295,6 +295,13 @@ describe("Agent Invocations", () => {
 
     const configured = (await invocations.getByRunId("metadata-only-instructions"))?.observations
       .findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured).toMatchObject({
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: {
+        "vitehub.activity.owner": "vitehub",
+        "vitehub.activity.phase": "setup",
+      },
+    })
     expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
   })
 
