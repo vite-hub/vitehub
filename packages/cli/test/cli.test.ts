@@ -154,6 +154,26 @@ describe("ViteHub CLI", () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
   })
 
+  it("exits unsuccessfully when an asynchronous callback-less write fails", async () => {
+    const stdout = {
+      write: () => Promise.reject(new Error("write failed")),
+    }
+    const stderr = stream()
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+  })
+
   it("routes package-contributed CLI features", async () => {
     const stdout = stream()
     const stderr = stream()

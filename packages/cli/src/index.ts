@@ -229,20 +229,26 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
 }
 
 function trackStream(stream: ViteHubCliStream) {
-  const writes = new Set<Promise<unknown>>()
+  const writes: Array<Promise<PromiseSettledResult<unknown>>> = []
   return {
     stream: {
       write(chunk: string | Uint8Array) {
         const result = stream.write(chunk)
         if (result && typeof (result as PromiseLike<unknown>).then === "function") {
-          const write = Promise.resolve(result).then(() => {}, () => {}).finally(() => writes.delete(write))
-          writes.add(write)
+          writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>>(
+            value => ({ status: "fulfilled", value }),
+            reason => ({ reason, status: "rejected" }),
+          ))
         }
         return result
       },
     },
     async flush() {
-      await Promise.allSettled(writes)
+      const results = await Promise.all(writes)
+      const rejected = results.find(result => result.status === "rejected")
+      if (rejected) {
+        throw rejected.reason
+      }
       if (stream.flush) {
         await stream.flush()
       }
