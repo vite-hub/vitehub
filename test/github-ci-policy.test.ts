@@ -62,6 +62,9 @@ describe("GitHub CI input policy", () => {
         `image: &pinned-image example/service@sha256:${"a".repeat(64)}`,
         "env:",
         "  TOOL_VERSION: 1.2.3",
+        "defaults:",
+        "  run:",
+        "    shell: npx --package=default-shell@1.2.3 -- bash {0}",
         "jobs:",
         "  test:",
         "    container:",
@@ -369,6 +372,7 @@ jobs:
     "npm --prefix . exec unpinned",
     "npm --user-agent custom exec unpinned",
     "npm exec --package=safe@1.2.3 --package=unpinned -- cmd",
+    "npm exec --package=runner@1.2.3 -c 'npx unpinned'",
     "version=$(npx unpinned --version)",
     "echo \"$(npx unpinned --version)\"",
     'echo "`npx unpinned --version`"',
@@ -394,6 +398,8 @@ jobs:
         "  test:",
         "    steps:",
         "      - run: npx tool@$TOOL_VERSION",
+        "      - run: echo TOOL_VERSION=1.2.3 && npx tool@$TOOL_VERSION",
+        "      - run: TOOL_VERSION=1.2.3 echo ok && npx tool@$TOOL_VERSION",
         "      - run: echo custom shell",
         "        shell: npx --package=shell -- bash {0}",
       ].join("\n"),
@@ -401,7 +407,34 @@ jobs:
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
       expect.objectContaining({ message: expect.stringContaining("shell") }),
+    ])
+  })
+
+  it("rejects transient executors in inherited default run shells", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "defaults:",
+        "  run:",
+        "    shell: npx --package=workflow-shell -- bash {0}",
+        "jobs:",
+        "  workflow-default:",
+        "    steps:",
+        "      - run: echo inherited",
+        "  job-default:",
+        "    defaults:",
+        "      run:",
+        "        shell: pnpx job-shell -- bash {0}",
+        "    steps:",
+        "      - run: echo overridden",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("workflow-shell") }),
+      expect.objectContaining({ message: expect.stringContaining("job-shell") }),
     ])
   })
 

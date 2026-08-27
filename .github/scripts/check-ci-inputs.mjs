@@ -42,8 +42,6 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       let argumentsStart
       let acceptsPackageOptions = false
       const token = tokens[index]
-      const assignment = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(token)
-      if (assignment) environment.set(assignment[1], assignment[2])
 
       if (token === "npx") {
         argumentsStart = index + 1
@@ -78,6 +76,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex >= argumentsStart && shellOperatorPattern.test(candidate))
       const invocation = tokens.slice(argumentsStart, end === -1 ? tokens.length : end)
       const packageSpecs = []
+      const callCommands = []
       if (acceptsPackageOptions) {
         for (let argumentIndex = 0; argumentIndex < invocation.length; argumentIndex++) {
           const argument = invocation[argumentIndex]
@@ -88,12 +87,21 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
           else if (argument === "--package" || argument === "-p") {
             packageSpecs.push(invocation[++argumentIndex] ?? "(missing)")
           }
+          else if (argument.startsWith("--call=")) {
+            callCommands.push(argument.slice(argument.indexOf("=") + 1))
+          }
+          else if (argument === "--call" || argument === "-c") {
+            callCommands.push(invocation[++argumentIndex] ?? "")
+          }
         }
       }
       if (packageSpecs.length === 0) {
         packageSpecs.push(invocation.find(candidate => candidate !== "--" && !candidate.startsWith("-")) ?? "(missing)")
       }
       specs.push(...packageSpecs.map(spec => resolvePackageSpec(spec, environment)))
+      for (const callCommand of callCommands) {
+        specs.push(...findExecutablePackageSpecs(callCommand, environment))
+      }
     }
   }
   return specs
@@ -206,7 +214,15 @@ export function inspectGitHubCIInputs(path, source) {
     }
     return environment
   }
-  const inspectSteps = (steps, inheritedEnvironment = new Map()) => {
+  const defaultRunShell = (map, inherited) => {
+    let defaults = findPair(map, "defaults")?.value
+    if (isAlias(defaults)) defaults = defaults.resolve(document)
+    if (!isMap(defaults)) return inherited
+    let run = findPair(defaults, "run")?.value
+    if (isAlias(run)) run = run.resolve(document)
+    return isMap(run) ? findPair(run, "shell") ?? inherited : inherited
+  }
+  const inspectSteps = (steps, inheritedEnvironment = new Map(), inheritedShell) => {
     const sequenceComment = steps?.comment ?? ""
     if (isAlias(steps)) steps = steps.resolve(document)
     if (!isSeq(steps)) return
@@ -217,7 +233,9 @@ export function inspectGitHubCIInputs(path, source) {
       if (!isMap(step)) continue
       inspectUses(findPair(step, "uses"), aliasComment || step.comment || enclosingSequenceComment)
       const environment = environmentWith(inheritedEnvironment, findPair(step, "env")?.value)
-      const shellPair = findPair(step, "shell")
+      const runPair = findPair(step, "run")
+      if (!runPair) continue
+      const shellPair = findPair(step, "shell") ?? inheritedShell
       if (shellPair) {
         const shell = isAlias(shellPair.value) ? shellPair.value.resolve(document) : shellPair.value
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
@@ -230,8 +248,6 @@ export function inspectGitHubCIInputs(path, source) {
           }
         }
       }
-      const runPair = findPair(step, "run")
-      if (!runPair) continue
       const line = lineCounter.linePos(runPair.key.range?.[0] ?? 0).line
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
       if (!isScalar(runPair.value) || typeof runPair.value.value !== "string") {
@@ -249,6 +265,7 @@ export function inspectGitHubCIInputs(path, source) {
   const root = document.contents
   if (!isMap(root)) return failures
   const workflowEnvironment = environmentWith(new Map(), findPair(root, "env")?.value)
+  const workflowShell = defaultRunShell(root)
 
   const isDirectWorkflow = /^\.github\/workflows\/[^/]+\.ya?ml$/.test(normalizedPath)
   const isActionManifest = /(?:^|\/)action\.ya?ml$/.test(normalizedPath) && !isDirectWorkflow
@@ -262,7 +279,8 @@ export function inspectGitHubCIInputs(path, source) {
       if (!isMap(job)) continue
       inspectUses(findPair(job, "uses"), aliasComment || job.comment || enclosingJobsComment)
       const jobEnvironment = environmentWith(workflowEnvironment, findPair(job, "env")?.value)
-      inspectSteps(findPair(job, "steps")?.value, jobEnvironment)
+      const jobShell = defaultRunShell(job, workflowShell)
+      inspectSteps(findPair(job, "steps")?.value, jobEnvironment, jobShell)
       let services = findPair(job, "services")?.value
       if (isAlias(services)) services = services.resolve(document)
       const serviceContainers = isMap(services) ? services.items.map(pair => pair.value) : []
