@@ -225,10 +225,13 @@ describe("Agent Invocation Vue composables", () => {
     expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
     expect(resource.cursor.value).toBe("new-page-2");
 
-    const refreshedPage = resource.loadMore();
+    const refreshedPages = resource.loadMore();
     expect(calls[3]!.path).toContain("cursor=new-page-2");
-    calls[3]!.resolve({ invocations: [record("inv-1"), record("inv-transitioned")] });
-    await refreshedPage;
+    calls[3]!.resolve({ cursor: "new-page-3", invocations: [record("inv-1"), record("inv-0")] });
+    await settle();
+    expect(calls[4]!.path).toContain("cursor=new-page-3");
+    calls[4]!.resolve({ invocations: [record("inv-transitioned")] });
+    await refreshedPages;
 
     expect(resource.invocations.value.map(invocation => invocation.id)).toEqual([
       "inv-3",

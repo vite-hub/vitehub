@@ -418,7 +418,7 @@ export function useAgentInvocations(
 
   async function loadMore(): Promise<AgentInvocationListResult | undefined> {
     if (stopped || resource.isLoading.value) return;
-    const nextCursor = cursor.value;
+    let nextCursor = cursor.value;
     if (!nextCursor) return;
     loadMoreController?.abort();
     const controller = new AbortController();
@@ -428,21 +428,24 @@ export function useAgentInvocations(
     resource.error.value = null;
     try {
       const query = options.query ? toValue(options.query) : undefined;
-      const result = parseInvocationListResult(
-        await request(
-          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
-          { signal: controller.signal },
-        ),
-      );
-      if (loadMoreController !== controller || revision !== currentRevision) return;
-      const ids = new Set(invocations.value.map(invocation => invocation.id));
-      invocations.value = [
-        ...invocations.value,
-        ...result.invocations.filter(invocation => !ids.has(invocation.id)),
-      ];
-      cursor.value = result.cursor;
-      loadMoreError.value = null;
-      return result;
+      const visited = new Set<string>();
+      while (nextCursor && !visited.has(nextCursor)) {
+        visited.add(nextCursor);
+        const result = parseInvocationListResult(
+          await request(
+            appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
+            { signal: controller.signal },
+          ),
+        );
+        if (loadMoreController !== controller || revision !== currentRevision) return;
+        const ids = new Set(invocations.value.map(invocation => invocation.id));
+        const additions = result.invocations.filter(invocation => !ids.has(invocation.id));
+        if (additions.length > 0) invocations.value = [...invocations.value, ...additions];
+        cursor.value = result.cursor;
+        loadMoreError.value = null;
+        if (additions.length > 0 || !result.cursor) return result;
+        nextCursor = result.cursor;
+      }
     } catch (cause) {
       if (loadMoreController !== controller || isAbortError(cause)) return;
       loadMoreError.value = cause;
