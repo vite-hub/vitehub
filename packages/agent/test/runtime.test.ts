@@ -484,9 +484,15 @@ describe("agent message protocol", () => {
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
+    expect(traceLog.entries().map(event => event.activity)).toEqual([
+      { owner: "agent", phase: "execution" },
+      { owner: "agent", phase: "execution" },
+    ])
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "input.hasPrompt": true,
       "runtime.name": "unknown",
+      "vitehub.activity.owner": "agent",
+      "vitehub.activity.phase": "execution",
     })
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
   })

@@ -128,13 +128,31 @@ export interface TraceContext {
   sampled?: boolean
 }
 
+export type TraceActivityOwner = "agent" | "vitehub"
+export type TraceActivityPhase = "delivery" | "execution" | "setup" | "teardown"
+
+export interface TraceActivityContext {
+  owner: TraceActivityOwner
+  phase: TraceActivityPhase
+}
+
+export type TracePayloadVisibility = "private" | "public" | "redacted" | "summary"
+
+export type TraceEventPayload =
+  | { value: unknown, visibility: "public" }
+  | { summary: string, visibility: "summary" }
+  | { visibility: "redacted" }
+  | { visibility: "private" }
+
 export type TraceEventContentPolicy = "content" | "metadata"
 export type TraceRunStatus = "completed" | "failed" | "running"
 export type TraceStepStatus = "completed" | "failed" | "running"
 
 export interface TraceEvent {
+  activity?: TraceActivityContext
   attributes?: Record<string, unknown>
   name: string
+  payload?: TraceEventPayload
   timestamp?: Date | string
   trace?: TraceContext
   type: "approval" | "capability" | "error" | "lifecycle" | "policy" | "run"
@@ -380,10 +398,56 @@ function metadataAttributes(attributes: Record<string, unknown> | undefined): Re
   return Object.keys(next).length ? next : undefined
 }
 
+function normalizedTraceActivity(activity: TraceActivityContext | undefined): TraceActivityContext | undefined {
+  if (!activity || !hasRuntimeType(activity, "object") || Array.isArray(activity)) return
+  if (activity.owner !== "agent" && activity.owner !== "vitehub") return
+  if (!["delivery", "execution", "setup", "teardown"].includes(activity.phase)) return
+  return { owner: activity.owner, phase: activity.phase }
+}
+
+function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
+  if (!payload || !hasRuntimeType(payload, "object") || Array.isArray(payload)) return payload === undefined ? undefined : { visibility: "private" }
+  if (payload.visibility === "public" && Object.hasOwn(payload, "value")) {
+    return { value: payload.value, visibility: "public" }
+  }
+  if (payload.visibility === "summary" && hasRuntimeType(payload.summary, "string")) {
+    return { summary: payload.summary, visibility: "summary" }
+  }
+  if (payload.visibility === "redacted") return { visibility: "redacted" }
+  return { visibility: "private" }
+}
+
+function traceEventAttributes(
+  event: Pick<TraceEvent, "activity" | "attributes" | "payload">,
+  content: TraceEventContentPolicy,
+): Record<string, unknown> | undefined {
+  const attributes = content === "metadata" ? metadataAttributes(event.attributes) : event.attributes
+  const next: Record<string, unknown> = { ...attributes }
+  if (event.activity) {
+    next["vitehub.activity.owner"] = event.activity.owner
+    next["vitehub.activity.phase"] = event.activity.phase
+  }
+  if (event.payload) {
+    delete next["vitehub.payload.summary"]
+    delete next["vitehub.payload.value"]
+    delete next["vitehub.payload.visibility"]
+    next["vitehub.payload.visibility"] = event.payload.visibility
+    if (event.payload.visibility === "public") next["vitehub.payload.value"] = event.payload.value
+    if (event.payload.visibility === "summary") next["vitehub.payload.summary"] = event.payload.summary
+  }
+  return Object.keys(next).length ? next : undefined
+}
+
 function normalizeTraceEvent(event: TraceEvent, sequence: number, content: TraceEventContentPolicy): TraceEventLogEntry {
+  const { activity: rawActivity, attributes: _attributes, payload: rawPayload, ...rest } = event
+  const activity = normalizedTraceActivity(rawActivity)
+  const payload = normalizedTracePayload(rawPayload)
+  const attributes = traceEventAttributes({ activity, attributes: event.attributes, payload }, content)
   return {
-    ...event,
-    ...(content === "metadata" ? { attributes: metadataAttributes(event.attributes) } : {}),
+    ...rest,
+    ...(activity ? { activity } : {}),
+    ...(attributes ? { attributes } : {}),
+    ...(payload ? { payload } : {}),
     sequence,
     timestamp: timestamp(event.timestamp),
   }
@@ -568,7 +632,7 @@ export function traceEventsToOpenTelemetryLogRecords(events: Iterable<TraceEvent
     const traceId = openTelemetryId(traceRunTraceId(run), 32)
     return run.events.map((event) => {
       const id = stepId(event)
-      const attributes = options.content === "metadata" ? metadataAttributes(event.attributes) : event.attributes
+      const attributes = traceEventAttributes(event, options.content === "metadata" ? "metadata" : "content")
       const error = event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
       return {
         attributes: {
@@ -627,9 +691,10 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
       ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": run.count, "vitehub.trace.truncated": true } }
       : entry)
   })
-  const entries = boundedEntries.map(entry => options.content === "metadata"
-    ? { ...entry, attributes: metadataAttributes(entry.attributes) }
-    : entry)
+  const entries = boundedEntries.map(entry => ({
+    ...entry,
+    attributes: traceEventAttributes(entry, options.content === "metadata" ? "metadata" : "content"),
+  }))
   return deriveTraceRuns(entries).flatMap((run) => {
     const rawParentSpanId = traceRunParentId(run)
     const rawTraceId = traceRunTraceId(run)

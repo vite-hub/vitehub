@@ -307,6 +307,106 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("normalizes activity ownership and explicit payload visibility", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      activity: { owner: "vitehub", phase: "setup" },
+      name: "vitehub.workspace.materialized",
+      payload: { value: { files: 12, source: "github" }, visibility: "public" },
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "run-1" },
+      type: "lifecycle",
+    })
+    await log.append({
+      activity: { owner: "agent", phase: "execution" },
+      name: "agent.tool.finish",
+      payload: { summary: "12 files changed", visibility: "summary" },
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+    await log.append({
+      name: "agent.tool.redacted",
+      payload: { visibility: "redacted" },
+      timestamp: "2026-01-01T00:00:00.020Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+    await log.append({
+      name: "agent.tool.private",
+      payload: { visibility: "private" },
+      timestamp: "2026-01-01T00:00:00.030Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+
+    expect(log.entries()).toMatchObject([
+      {
+        activity: { owner: "vitehub", phase: "setup" },
+        attributes: {
+          "vitehub.activity.owner": "vitehub",
+          "vitehub.activity.phase": "setup",
+          "vitehub.payload.value": { files: 12, source: "github" },
+          "vitehub.payload.visibility": "public",
+        },
+        payload: { value: { files: 12, source: "github" }, visibility: "public" },
+      },
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: {
+          "vitehub.activity.owner": "agent",
+          "vitehub.activity.phase": "execution",
+          "vitehub.payload.summary": "12 files changed",
+          "vitehub.payload.visibility": "summary",
+        },
+        payload: { summary: "12 files changed", visibility: "summary" },
+      },
+      {
+        attributes: { "vitehub.payload.visibility": "redacted" },
+        payload: { visibility: "redacted" },
+      },
+      {
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      },
+    ])
+
+    const records = traceEventsToOpenTelemetryLogRecords(log.entries(), { content: "metadata" })
+    expect(records.map(record => record.attributes)).toEqual([
+      expect.objectContaining({
+        "vitehub.activity.owner": "vitehub",
+        "vitehub.activity.phase": "setup",
+        "vitehub.payload.value": { files: 12, source: "github" },
+        "vitehub.payload.visibility": "public",
+      }),
+      expect.objectContaining({
+        "vitehub.activity.owner": "agent",
+        "vitehub.activity.phase": "execution",
+        "vitehub.payload.summary": "12 files changed",
+        "vitehub.payload.visibility": "summary",
+      }),
+      expect.objectContaining({ "vitehub.payload.visibility": "redacted" }),
+      expect.objectContaining({ "vitehub.payload.visibility": "private" }),
+    ])
+  })
+
+  it("falls back to private when an untyped payload descriptor is malformed", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: { "vitehub.payload.value": "must not leak" },
+      name: "custom.event",
+      // SAFETY: The fixture proves runtime normalization for JavaScript and untyped producers.
+      payload: { value: "must not leak", visibility: "unknown" } as never,
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(JSON.stringify(log.entries())).not.toContain("must not leak")
+  })
+
   it("keeps run errors failed after a later finish", async () => {
     const events = [
       { name: "run.error", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "error" as const },

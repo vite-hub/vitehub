@@ -222,6 +222,23 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
   })
 
+  it("bounds public trace payloads before persisting invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: { value: { files: "x".repeat(100_000) }, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(String((observation?.payload as { value?: { files?: string } })?.value?.files).length).toBeLessThan(100_000)
+  })
+
   it("keeps resolved instructions out of metadata-only invocation journals", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })

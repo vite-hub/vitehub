@@ -5,7 +5,7 @@ import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTrac
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
-import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 
 const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
@@ -124,7 +124,9 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
 function cloneObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   return {
     ...observation,
+    ...(observation.activity ? { activity: { ...observation.activity } } : {}),
     ...(observation.attributes ? { attributes: structuredClone(observation.attributes) } : {}),
+    ...(observation.payload ? { payload: structuredClone(observation.payload) } : {}),
     ...(observation.trace ? { trace: { ...observation.trace } } : {}),
   }
 }
@@ -277,12 +279,30 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     }))
 }
 
+function boundedObservationPayload(payload: TraceEventPayload | undefined, budget: ObservationBudget): TraceEventPayload | undefined {
+  if (payload?.visibility === "public") {
+    return { value: boundedObservationValue(payload.value, budget, 0, MAX_OBSERVATION_CONTENT_STRING_LENGTH), visibility: "public" }
+  }
+  if (payload?.visibility === "summary") {
+    if (payload.summary.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+    return { summary: boundedString(payload.summary)!, visibility: "summary" }
+  }
+  if (payload?.visibility === "redacted") return { visibility: "redacted" }
+  if (payload?.visibility === "private") return { visibility: "private" }
+}
+
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   const budget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
     stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
     truncated: false,
   }
+  const payloadBudget: ObservationBudget = {
+    items: MAX_OBSERVATION_VALUE_ITEMS,
+    stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+    truncated: false,
+  }
+  const payload = boundedObservationPayload(observation.payload, payloadBudget)
   if (observation.attributes && Object.keys(observation.attributes).length > MAX_OBSERVATION_ATTRIBUTES) {
     budget.truncated = true
   }
@@ -294,6 +314,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
           return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]
         }))
     : undefined
+  if (payloadBudget.truncated) budget.truncated = true
   if (budget.truncated) {
     attributes ||= {}
     if (observation.name === "vitehub.agent.configured") {
@@ -308,6 +329,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
     name: boundedString(observation.name)!,
     timestamp: normalizedTimestamp(observation.timestamp),
     ...(attributes ? { attributes } : {}),
+    ...(payload ? { payload } : {}),
     ...(observation.trace
       ? { trace: {
           ...observation.trace,

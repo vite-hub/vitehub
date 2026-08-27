@@ -13,7 +13,7 @@ import type {
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
 import type { Telemetry } from "ai"
-import type { TraceEvent } from "@vite-hub/runtime"
+import type { TraceActivityContext, TraceEvent } from "@vite-hub/runtime"
 
 export const agentInvocationJournalTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalTraceLog")
 export const agentInvocationJournalContentTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalContentTraceLog")
@@ -271,12 +271,20 @@ export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>
     }
     await emitTraceEvent(context.runtime, {
       ...event,
+      activity: event.activity || agentTraceActivity(event),
       ...(attributes ? { attributes } : {}),
       trace: event.trace || context.runtime.trace,
     })
   }
   catch {
     // Trace sinks must not change Agent Invocation behavior.
+  }
+}
+
+function agentTraceActivity(event: TraceEvent): TraceActivityContext {
+  return {
+    owner: "agent",
+    phase: event.name.startsWith("agent.channel.delivery.") ? "delivery" : "execution",
   }
 }
 
