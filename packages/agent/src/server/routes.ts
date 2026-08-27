@@ -5015,7 +5015,10 @@ async function handleChatSdkMessage(
                     try {
                       recoveryStartAttempts++
                       // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
-                      await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
+                      const recoveryStartInput = workflowInputHasParsedMessageMeta
+                        ? restoreParsedAgentMessageMeta(recoveryInput)
+                        : recoveryInput
+                      await runAgent(agent as never, workflowRunContext as never, recoveryStartInput as never)
                       return
                     } catch (recoveryError) {
                       if (isAmbiguousAgentWorkflowStartFailure(recoveryError)) return
@@ -5051,7 +5054,10 @@ async function handleChatSdkMessage(
               // lease was lost. Start a fresh Workflow so persisted custody does not
               // depend on another webhook arriving.
               // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-              await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+              const recoveredWorkflowInput = workflowInputHasParsedMessageMeta
+                ? restoreParsedAgentMessageMeta(workflowInput)
+                : workflowInput
+              await runAgent(agent as never, workflowRunContext as never, recoveredWorkflowInput as never)
               durableHandoff = true
             } catch (retryError) {
               if (isAmbiguousAgentWorkflowStartFailure(retryError)) {

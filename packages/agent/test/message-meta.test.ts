@@ -179,6 +179,10 @@ describe("Agent message metadata", () => {
     await parseAgentMessageMeta(agent, context)
 
     expect(context.get("invoker")).toEqual({
+      email: {
+        address: "user@example.com",
+        domain: "example.com",
+      },
       id: "chat:user-1",
       kind: "chat",
       meta: { audience: "technical", email: "user@example.com" },
