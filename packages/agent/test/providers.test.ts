@@ -2850,7 +2850,10 @@ describe("server helpers", () => {
       },
     })
     // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
-    const handler = createChannelChatRouteHandler(agent as never)
+    const callerAnnotations = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`caller.${index}`, index]))
+    const handler = createChannelChatRouteHandler(agent as never, {
+      mapInput: () => ({ run: { annotations: callerAnnotations } }),
+    })
 
     const response = await handler(
       new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -2902,11 +2905,9 @@ describe("server helpers", () => {
         }),
       }),
     )
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      run: expect.objectContaining({
-        annotations: { triggeredBy: "Acme Customer" },
-      }),
-    }))
+    const annotations = run.mock.calls[0]?.[0].run.annotations
+    expect(annotations).toEqual({ triggeredBy: "Acme Customer", ...callerAnnotations })
+    expect(Object.keys(annotations)[0]).toBe("triggeredBy")
   })
 
   it("consumes only approval responses issued by the server session", async () => {
