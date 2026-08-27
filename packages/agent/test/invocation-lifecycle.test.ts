@@ -289,6 +289,31 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
   })
 
+  it("does not await pending raw-stream usage before streamAgent final rendering", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = new Promise<never>(() => {})
+    const raw = Object.assign((async function* () {
+      yield { text: "complete", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "final-output",
+        output(context) {
+          context.output.final(result => result)
+        },
+      })],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await streamAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ raw, text: "complete" })
+  })
+
   it("finishes immutable raw streams with their consumed text and usage", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -801,7 +826,10 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     expect(error).not.toHaveBeenCalled()
     expect(finish).toHaveBeenCalledOnce()
-    expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "hello" } })
+    // SAFETY: The finish hook receives the normalized result after successful stream consumption.
+    const result = finish.mock.calls[0]![0].result as { raw?: unknown, text?: unknown }
+    expect(result.raw).toBe(raw)
+    expect(result.text).toBe("hello")
   })
 
   it("skips throwing nested descriptor enumeration while finalizing raw streams", async () => {

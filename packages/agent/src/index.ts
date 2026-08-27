@@ -3604,7 +3604,13 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
 
 function toAgentRunResultWithInheritedProperties(result: unknown): AgentRunResult {
   if (!result || !hasRuntimeType(result, "object")) return toAgentRunResult(result)
-  const normalized = toAgentRunResult(result)
+  let normalized: AgentRunResult
+  try {
+    normalized = toAgentRunResult(result)
+  }
+  catch {
+    normalized = { raw: result }
+  }
   for (const key of ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"] as const) {
     if (normalized[key] !== undefined) continue
     try {
@@ -5732,7 +5738,17 @@ async function executeAgentInvocationWithCapacityLease<
             })
           }
           else {
-            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            const finishOutcome = finishOutcomeFromCleanup(outcome)
+            await finishStreamAgentInvocation(
+              invocation,
+              lifecycle,
+              finishResult,
+              finishOutcome.status === "success"
+                ? { ...finishOutcome, usage: streamed.finishUsage(), usageResolved: true }
+                : finishOutcome,
+              streamFailureMessage,
+              outputExtensions,
+            )
           }
         }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
       : tracedStream
