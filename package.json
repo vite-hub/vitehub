@@ -22,7 +22,6 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
-    "@vite-hub/history": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",

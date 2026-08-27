@@ -18,6 +18,7 @@ const run = {
   runId: "12345",
   runAttempt: 2,
   runUrl: "https://github.com/vite-hub/vitehub/actions/runs/12345",
+  observedAt: "2026-08-26T04:09:44Z",
 }
 
 const successfulJobs = { attemptProviders: ["cloudflare", "vercel"], setupStatus: "success" }
@@ -54,6 +55,7 @@ describe("live smoke stage evidence", () => {
 
     expect(report.currentStage).toBe(currentStage)
     expect(report.conclusion).toBe("failure")
+    expect(report.observedAt).toBe(run.observedAt)
     for (const [index, stage] of liveSmokeStages.entries()) {
       expect(report.stages[stage]).toBe(index < currentIndex ? "success" : index === currentIndex ? "failure" : "skipped")
     }
@@ -69,6 +71,16 @@ describe("live smoke stage evidence", () => {
     })
   })
 
+  it("rejects evidence without a valid observation time", () => {
+    expect(() => createStageEvidence({
+      provider: "cloudflare",
+      currentStage: "runtime",
+      conclusion: "success",
+      ...run,
+      observedAt: "not-a-date",
+    })).toThrow("invalid observation timestamp")
+  })
+
   it("aggregates both matrix providers and rejects a partial green run", () => {
     const report = aggregateStageEvidence({
       evidence: [evidence("cloudflare"), evidence("vercel", "deploy", "failure")],
@@ -77,6 +89,7 @@ describe("live smoke stage evidence", () => {
     })
 
     expect(report.conclusion).toBe("failure")
+    expect(report.observedAt).toBe(run.observedAt)
     expect(report.providers.map(provider => [provider.provider, provider.currentStage, provider.conclusion])).toEqual([
       ["cloudflare", "runtime", "success"],
       ["vercel", "deploy", "failure"],
