@@ -5,6 +5,7 @@ import {
   executeBrowserDefinition,
   runBrowser,
 } from "../src/runtime.ts"
+import { loadCloudflarePlaywright as unconfiguredCloudflarePlaywright } from "../src/internal/runtime/unconfigured.ts"
 
 import type { BrowserClient } from "../src/types.ts"
 
@@ -19,6 +20,10 @@ afterEach(() => {
 })
 
 describe("Browser Definitions", () => {
+  it("exports the optional driver loader from the unconfigured runtime fallback", () => {
+    expect(unconfiguredCloudflarePlaywright).toBeUndefined()
+  })
+
   it("reports an unconfigured runtime before opening a default binding", async () => {
     runtimeConfig.provider = undefined
     const definition = defineBrowser(async (_input, { browser }) => {

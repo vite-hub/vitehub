@@ -5,4 +5,6 @@ const config: BrowserRuntimeConfig = {
   engine: "chromium",
 }
 
+export const loadCloudflarePlaywright: undefined = undefined
+
 export default config
