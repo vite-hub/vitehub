@@ -109,7 +109,8 @@ describe("support proof ledger", () => {
     expect(component).toContain("const sections = reactive<");
     expect(component).toContain("scheduleProofRefresh");
     expect(component).toContain('class="support-matrix-evidence-link"');
-    expect(component).toContain(':href="row.values[column.id]!.evidence.url"');
+    expect(component).toContain(':href="row.values[column.id]!.evidence?.url"');
+    expect(component).toMatch(/<\/UTooltip>\s*<a[\s\S]*support-matrix-evidence-link/);
     for (const tier of supportProofTiers) {
       expect(component).toContain(`proofValues("${tier}")`);
     }

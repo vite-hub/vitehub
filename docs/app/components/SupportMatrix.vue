@@ -820,16 +820,6 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
                 >
                   <template #content>
                     <p>{{ row.values[column.id]!.detail }}</p>
-                    <a
-                      v-if="row.values[column.id]!.evidence"
-                      :href="row.values[column.id]!.evidence.url"
-                      target="_blank"
-                      rel="noreferrer"
-                      class="support-matrix-evidence-link"
-                    >
-                      Evidence from {{ row.values[column.id]!.evidence.observedAt }}
-                      <UIcon name="i-ph-arrow-square-out" aria-hidden="true" />
-                    </a>
                   </template>
                   <button
                     type="button"
@@ -848,6 +838,16 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
                     }}</span>
                   </button>
                 </UTooltip>
+                <a
+                  v-if="row.values[column.id]!.evidence"
+                  :href="row.values[column.id]!.evidence?.url"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="support-matrix-evidence-link"
+                >
+                  Evidence from {{ row.values[column.id]!.evidence?.observedAt }}
+                  <UIcon name="i-ph-arrow-square-out" aria-hidden="true" />
+                </a>
               </td>
             </tr>
           </tbody>
