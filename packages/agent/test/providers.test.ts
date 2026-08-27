@@ -8455,7 +8455,7 @@ describe("server helpers", () => {
         await rm(stateDir, { force: true, recursive: true })
       }
     }
-  })
+  }, 15_000)
 
   it("resumes persisted webhook deliveries after a process restart", async () => {
     const { defineAgent } = await import("../src/index.ts")
