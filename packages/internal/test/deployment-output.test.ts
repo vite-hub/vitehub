@@ -807,6 +807,34 @@ describe("provider deployment outputs", () => {
     expect(existsSync(`${serverDir}.previous`)).toBe(false)
   })
 
+  it("restores the previous Vercel function when companion output fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const serverEntry = join(serverDir, "index.mjs")
+    await mkdir(serverDir, { recursive: true })
+    await writeFile(serverEntry, "valid function")
+    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs22.x\"}\n")
+
+    await expect(writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        config: new Date() as never,
+      },
+    })).rejects.toThrow("Provider output config must be a JSON object")
+
+    await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
+    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
+    expect(existsSync(`${serverDir}.pending`)).toBe(false)
+    expect(existsSync(`${serverDir}.previous`)).toBe(false)
+  })
+
   it("settles every started provider write before rejecting", async () => {
     let finishVercelWrite: (() => void) | undefined
     vi.mocked(bundleEsmEntry).mockImplementation(async (_entry, outfile) => {

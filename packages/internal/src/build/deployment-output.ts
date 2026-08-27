@@ -288,6 +288,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const stagedServerDir = `${serverDir}.pending`
   const previousServerDir = `${serverDir}.previous`
   const stagedServerEntry = resolve(stagedServerDir, "index.mjs")
+  let replacedServer = false
 
   try {
     await rm(stagedServerDir, { force: true, recursive: true })
@@ -310,27 +311,32 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     if (existsSync(serverDir)) renameSync(serverDir, previousServerDir)
     try {
       renameSync(stagedServerDir, serverDir)
+      replacedServer = true
     }
     catch (error) {
       if (existsSync(previousServerDir)) renameSync(previousServerDir, serverDir)
       throw error
     }
+
+    const writes = await Promise.allSettled([
+      writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
+      staticIndex
+        ? copyVercelClientOutput(options.rootDir, clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
+        : Promise.resolve(),
+    ])
+    const failedWrite = writes.find(result => result.status === "rejected")
+    if (failedWrite?.status === "rejected") throw failedWrite.reason
+    signal?.throwIfAborted()
     rmSync(previousServerDir, { force: true, recursive: true })
   }
   catch (error) {
     await rm(stagedServerDir, { force: true, recursive: true })
+    if (replacedServer) {
+      rmSync(serverDir, { force: true, recursive: true })
+      if (existsSync(previousServerDir)) renameSync(previousServerDir, serverDir)
+    }
     throw error
   }
-
-  const writes = await Promise.allSettled([
-    writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
-    staticIndex
-      ? copyVercelClientOutput(options.rootDir, clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
-      : Promise.resolve(),
-  ])
-  const failedWrite = writes.find(result => result.status === "rejected")
-  if (failedWrite?.status === "rejected") throw failedWrite.reason
-  signal?.throwIfAborted()
 }
 
 async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOptions, signal?: AbortSignal): Promise<void> {
