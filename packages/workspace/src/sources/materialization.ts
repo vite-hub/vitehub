@@ -453,7 +453,6 @@ export async function materializeWorkspaceSources(
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
-    const previousPaths = new Set(Object.keys(existing?.items || {}))
     try {
       const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
       throwIfAborted(options.abortSignal)
@@ -493,7 +492,7 @@ export async function materializeWorkspaceSources(
         }
         const item = entry.item!
         const metadata = item.metadata || {}
-        const previousFile = previousPaths.has(path) ? await store.readFile(path) : undefined
+        const previousFile = await store.readFile(path)
         const comparedStream = previousFile && entry.contentStream
           ? compareContentStream(entry.contentStream, previousFile.content)
           : undefined
@@ -517,7 +516,7 @@ export async function materializeWorkspaceSources(
           : contentEquals(previousFile.content, entry.content ?? ""))
         const status = unchanged
           ? "unchanged" as const
-          : previousPaths.has(path) ? "updated" as const : "added" as const
+          : previousFile ? "updated" as const : "added" as const
         counts[status]++
         paths.push({ path, status })
         if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {

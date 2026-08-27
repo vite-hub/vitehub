@@ -788,6 +788,51 @@ describe("lazy sources", () => {
     })
   })
 
+  it("reports file deltas when the Store omits snapshot metadata", async () => {
+    let content = "# Same\n"
+    const store = createMemoryWorkspaceStore()
+    Object.defineProperties(store, {
+      getMeta: { value: undefined },
+      setMeta: { value: undefined },
+    })
+    const view = createWorkspaceSourceView({
+      name: "metadata-less-materialization-deltas",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 1, removed: 0, unchanged: 0, updated: 0 },
+        paths: [{ path: "docs/a.md", status: "added" }],
+      }],
+    })
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
+        paths: [{ path: "docs/a.md", status: "unchanged" }],
+      }],
+    })
+
+    content = "# Changed\n"
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 0, updated: 1 },
+        paths: [{ path: "docs/a.md", status: "updated" }],
+      }],
+    })
+  })
+
   it("resolves one immutable source revision for a materialization", async () => {
     const resolveRevision = vi.fn(async () => ({ id: "commit-123", immutable: true, ref: "main" }))
     const observedRevisions: unknown[] = []
