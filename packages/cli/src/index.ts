@@ -281,7 +281,10 @@ export function runViteHubCliEntrypoint(options: RunViteHubCliEntrypointOptions 
       exitCode = await runViteHubCli({ ...options, stderr: stderr.stream, stdout: stdout.stream })
     }
     catch (error: unknown) {
-      stderr.stream.write(`${error instanceof Error ? error.message : error}\n`)
+      try {
+        stderr.stream.write(`${error instanceof Error ? error.message : error}\n`)
+      }
+      catch {}
       exitCode = 1
     }
     const flushes = await Promise.allSettled([stdout.flush(), stderr.flush()])

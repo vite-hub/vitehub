@@ -177,6 +177,34 @@ describe("ViteHub CLI", () => {
     expect(flush).toHaveBeenCalledOnce()
   })
 
+  it("flushes and exits when reporting an error throws synchronously", async () => {
+    const stdoutFlush = vi.fn()
+    const stderrFlush = vi.fn()
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["missing"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr: {
+        flush: stderrFlush,
+        write: () => {
+          throw new Error("write failed")
+        },
+      },
+      stdout: {
+        flush: stdoutFlush,
+        write: vi.fn(),
+      },
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    expect(stdoutFlush).toHaveBeenCalledOnce()
+    expect(stderrFlush).toHaveBeenCalledOnce()
+  })
+
   it("routes package-contributed CLI features", async () => {
     const stdout = stream()
     const stderr = stream()
