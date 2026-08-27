@@ -40,6 +40,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import type { ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
@@ -353,7 +354,7 @@ function deploymentNitroModule(
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
-  resolvedBuildConfig: () => { alias: Record<string, string>, hasScheduleIntegration: boolean },
+  resolvedBuildConfig: () => { alias: ViteAlias[], hasScheduleIntegration: boolean },
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
@@ -387,7 +388,7 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  let resolvedBuildConfig = { alias: {} as Record<string, string>, hasScheduleIntegration: false }
+  let resolvedBuildConfig = { alias: [] as ViteAlias[], hasScheduleIntegration: false }
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
@@ -562,7 +563,11 @@ function deploymentPlugins(
       },
       configResolved(config) {
         resolvedBuildConfig = {
-          alias: Object.fromEntries(config.resolve.alias.flatMap(alias => typeof alias.find === "string" && typeof alias.replacement === "string" ? [[alias.find, alias.replacement]] : [])),
+          alias: config.resolve.alias.flatMap(alias =>
+            (typeof alias.find === "string" || alias.find instanceof RegExp) && typeof alias.replacement === "string"
+              ? [{ find: alias.find, replacement: alias.replacement }]
+              : [],
+          ),
           hasScheduleIntegration: config.plugins.some(plugin => plugin.name === "@vite-hub/schedule/vite"),
         }
         if (plan.preset === "cloudflare") {

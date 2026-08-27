@@ -129,6 +129,43 @@ import "real"
     expect(existsSync(join(root, ".output/node_modules/image-package/node_modules/image-package-linux-x64/package.json"))).toBe(true)
   })
 
+  it("stages external application packages and their native optional dependencies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-entry-package-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeRuntimePackage(root, "image-package", { optionalDependencies: { "image-package-linux-x64": "9.9.9" } })
+    await writeRuntimePackage(root, "image-package-linux-x64", { cpu: ["x64"], os: ["linux"] })
+    await writeFile(join(root, "node_modules/image-package/index.js"), 'export default "image"\n', "utf8")
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'import image from "image-package"\nglobalThis.image = image\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain('from "image-package"')
+    expect(existsSync(join(root, ".output/node_modules/image-package/package.json"))).toBe(true)
+    expect(existsSync(join(root, ".output/node_modules/image-package/node_modules/image-package-linux-x64/package.json"))).toBe(true)
+  })
+
+  it("preserves regex aliases while staging Deno entrypoints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-regex-alias-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import value from "virtual/helper"\nglobalThis.scheduleValue = value\n', "utf8")
+    await writeFile(join(root, "src/helper.ts"), 'export default "aliased"\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'import value from "virtual/helper"\nglobalThis.entryValue = value\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({
+      alias: [{ find: /^virtual\/(.*)$/, replacement: join(root, "src/$1") }],
+      rootDir: root,
+    })
+
+    await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain("aliased")
+    await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toContain("aliased")
+  })
+
   it("filters optional packages for Deno runtimes and hoists the selected closure once", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-platforms-"))
     const outputNodeModules = join(root, ".output/node_modules")

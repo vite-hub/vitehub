@@ -1,8 +1,8 @@
-import { access, cp, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { access, cp, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
-import { bundleEsmEntry } from "./esbuild.ts"
+import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
 
 const builtinModuleNames = new Set([
   ...builtinModules,
@@ -15,7 +15,7 @@ const denoRuntimeTargets = [
 ] as const
 
 interface FinalizeDenoDeploymentOutputOptions {
-  alias?: Record<string, string>
+  alias?: ViteAlias[]
   deploymentName?: string
   hasScheduleIntegration?: boolean
   outputDir?: string
@@ -271,6 +271,7 @@ function isPackageResolutionMiss(error: unknown): boolean {
 }
 
 async function runtimeSourceFiles(serverDir: string): Promise<string[]> {
+  if ((await stat(serverDir)).isFile()) return [serverDir]
   const entries = await readdir(serverDir, { recursive: true, withFileTypes: true })
   return entries
     .filter((entry) => entry.isFile() && runtimeExtensions.has(extname(entry.name)))
@@ -434,6 +435,7 @@ export async function finalizeDenoDeploymentOutput(
       external: [...builtinModuleNames, "./schedule/*", "./server/*"],
       alias: options.alias,
       format: "esm",
+      packages: "external",
       platform: "neutral",
       rootDir: options.rootDir,
       workingDir: options.rootDir,
@@ -448,7 +450,7 @@ export async function finalizeDenoDeploymentOutput(
   }
   const packages = await readRuntimePackages([
     serverDir,
-    ...(hasSchedule ? [join(outputDir, "schedule")] : []),
+    ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
   ], options.rootDir)
 
   await copyRuntimePackagesToNodeModules({

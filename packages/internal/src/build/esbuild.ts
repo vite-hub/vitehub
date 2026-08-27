@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { build as bundle, type Plugin } from "esbuild"
 
 interface BundleEsmEntryOptions {
-  alias?: Record<string, string>
+  alias?: Record<string, string> | ViteAlias[]
   banner?: string
   conditions?: string[]
   external?: string[]
@@ -20,6 +20,11 @@ interface BundleEsmEntryOptions {
   workingDir?: string
 }
 
+export interface ViteAlias {
+  find: string | RegExp
+  replacement: string
+}
+
 const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateFileSuffix = ".template.md"
@@ -27,9 +32,44 @@ const markdownTemplateModuleQuery = "markdown-template"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
-function resolveEsbuildAliases(aliases: Record<string, string> | undefined): Record<string, string> | undefined {
+function resolveEsbuildAliases(aliases: BundleEsmEntryOptions["alias"]): Record<string, string> | undefined {
   if (!aliases) return
-  return Object.fromEntries(Object.entries(aliases).filter(([specifier]) => !specifier.endsWith("/")))
+  const entries = Array.isArray(aliases)
+    ? aliases.flatMap(alias => typeof alias.find === "string" ? [[alias.find, alias.replacement] as const] : [])
+    : Object.entries(aliases)
+  return Object.fromEntries(entries.filter(([specifier]) => !specifier.endsWith("/")))
+}
+
+function createRegexAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin | undefined {
+  if (!Array.isArray(aliases)) return
+  const regexAliases = aliases.filter((alias): alias is ViteAlias & { find: RegExp } => alias.find instanceof RegExp)
+  if (!regexAliases.length) return
+  const resolvingAlias = "vitehubResolvingRegexAlias"
+  return {
+    name: "vitehub-vite-regex-alias",
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, async (args) => {
+        if (args.pluginData?.[resolvingAlias]) return
+        const alias = regexAliases.find(({ find }) => {
+          find.lastIndex = 0
+          return find.test(args.path)
+        })
+        if (!alias) return
+        alias.find.lastIndex = 0
+        return build.resolve(args.path.replace(alias.find, alias.replacement), {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: {
+            ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
+            [resolvingAlias]: true,
+          },
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
+      })
+    },
+  }
 }
 
 function stripMarkdownCode(template: string): string {
@@ -231,6 +271,7 @@ export async function bundleEsmEntry(
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
   const aliases = resolveEsbuildAliases(options.alias)
+  const regexAliasPlugin = createRegexAliasPlugin(options.alias)
   const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({
@@ -262,7 +303,7 @@ export async function bundleEsmEntry(
     outfile,
     packages: options.packages,
     platform,
-    plugins: [...(options.plugins ?? []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
+    plugins: [...(options.plugins ?? []), ...(regexAliasPlugin ? [regexAliasPlugin] : []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
     sourcemap: false,
     target: "es2022",
     write: true,
