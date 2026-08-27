@@ -89,7 +89,7 @@ const defaultProgressSummaryTemplate = [
   "",
   "# Live evidence",
   "Elapsed: {{ elapsed }}",
-  "Reasoning active: {{ reasoningActive }}",
+  "Reasoning active: {{ reasoningActiveText }}",
   "Active tools: {{ activeTools }}",
   "Recently completed tools: {{ completedTools }}",
   "Previous status: {{ previous }}",
@@ -127,7 +127,7 @@ function firstUserText(messages: Message[], input: AgentRunInput): string {
       ? input.prompt
       : ""
   const sanitized = text
-    .replace(/<context>[\s\S]*?<\/context>/gi, "")
+    .replace(/<context>[\s\S]*<\/context>/gi, "")
     .trim()
   if (sanitized.length <= maxProgressSummaryUserTextLength) return sanitized
   return `${sanitized.slice(0, maxProgressSummaryUserTextLength - 1).trimEnd()}…`
@@ -177,7 +177,8 @@ async function renderProgressSummaryTemplate(
       completedTools: input.completedToolsText || "None",
       elapsed: input.elapsedText,
       previous: input.previous || "None",
-      reasoningActive: input.reasoningActive ? "Yes" : "No",
+      reasoningActive: input.reasoningActive,
+      reasoningActiveText: input.reasoningActive ? "Yes" : "No",
       userText: input.userText,
     },
   })

@@ -8649,6 +8649,10 @@ describe("agent message protocol", () => {
   it("builds status evidence from the request, elapsed time, and presence-only activity", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const prompts: string[] = []
+    let observeDriverInvocation: (() => void) | undefined
+    const driverInvoked = new Promise<void>((resolve) => {
+      observeDriverInvocation = resolve
+    })
     const snapshots: Array<{
       activeTools: string[]
       reasoningActive: boolean
@@ -8658,6 +8662,7 @@ describe("agent message protocol", () => {
       capabilities: [progressSummary({
         driver: { run(context) {
           prompts.push(context.prompt || "")
+          observeDriverInvocation?.()
           return "A deliberately long status sentence that describes ongoing inventory analysis without claiming completion and needs truncation for the compact progress surface."
         } },
         intervalMs: 0,
@@ -8679,7 +8684,7 @@ describe("agent message protocol", () => {
       driver: { run: () => (async function* () {
           yield { id: "reasoning-1", type: "reasoning-delta" }
           yield { id: "tool-1", name: "inventory_search", type: "tool-call" }
-          await new Promise(resolve => setTimeout(resolve, 20))
+          await driverInvoked
           yield { type: "finish" }
         })() },
     })
@@ -8704,6 +8709,58 @@ describe("agent message protocol", () => {
     const summary = hasRuntimeType(progressData?.summary, "string") ? progressData.summary : undefined
     expect(summary?.length).toBeLessThanOrEqual(80)
     expect(summary).toMatch(/…$/)
+  })
+
+  it("removes trusted context containing delimiter text from progress evidence", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const prompts: string[] = []
+    const agent = defineAgent({
+      capabilities: [progressSummary({
+        driver: { run(context) {
+          prompts.push(context.prompt || "")
+          return "Checking inventory."
+        } },
+        intervalMs: 0,
+      })],
+      driver: { run: () => (async function* () {
+          yield { id: "reasoning-1", type: "reasoning-delta" }
+          while (prompts.length === 0) await new Promise(resolve => setTimeout(resolve, 0))
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: 'Check inventory.\n<context>{"note":"</context>","token":"secret"}</context>',
+    }) as AsyncIterable<unknown>
+    for await (const _event of stream) { /* consume */ }
+
+    expect(prompts[0]).toContain("Check inventory.")
+    expect(prompts[0]).not.toContain("secret")
+  })
+
+  it("passes reasoning presence as a boolean to string templates", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const prompts: string[] = []
+    const agent = defineAgent({
+      capabilities: [progressSummary({
+        driver: { run(context) {
+          prompts.push(context.prompt || "")
+          return "Checking inventory."
+        } },
+        intervalMs: 0,
+        template: "::if{reasoningActive}\nactive\n::else\ninactive\n::",
+      })],
+      driver: { run: () => (async function* () {
+          yield { id: "tool-1", name: "inventory", type: "tool-call" }
+          while (prompts.length === 0) await new Promise(resolve => setTimeout(resolve, 0))
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Check inventory." }) as AsyncIterable<unknown>
+    for await (const _event of stream) { /* consume */ }
+
+    expect(prompts[0]).toMatch(/# Evidence\ninactive$/)
   })
 
   it("bounds user request evidence before rendering progress prompts", async () => {
