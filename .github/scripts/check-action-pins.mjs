@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml"
+import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml"
 
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
@@ -55,12 +55,13 @@ export function inspectGitHubActionReferences(path, source) {
     if (!pair) return
 
     const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line
-    if (!isScalar(pair.value) || pair.value.value === null) {
+    const value = isAlias(pair.value) ? pair.value.resolve(document) : pair.value
+    if (!isScalar(value) || typeof value.value !== "string") {
       failures.push({ line, message: "uses must be a string", path })
       return
     }
 
-    const reference = pair.value.value
+    const reference = value.value
     if (reference.startsWith("./")) return
     if (!actionCommitPattern.test(reference)) {
       failures.push({

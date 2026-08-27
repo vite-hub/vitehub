@@ -116,6 +116,16 @@ describe("GitHub Action pin policy", () => {
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("allows pinned action references through YAML aliases", async () => {
+    const reference = pinnedCheckout.split(" #")[0]
+    const root = await createFixture({
+      ".github/actions/setup/action.yml": `inputs:\n  checkout:\n    default: &checkout ${reference}\nruns:\n  using: composite\n  steps:\n    - uses: *checkout # v6.1.0\n`,
+      ".github/workflows/ci.yml": `env:\n  CHECKOUT: &checkout ${reference}\njobs:\n  test:\n    steps:\n      - uses: *checkout # v6.1.0\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
   it.each([
     ["movable tag", "actions/checkout@v6 # v6.1.0", "full 40-character commit SHA"],
     ["missing version comment", pinnedCheckout.split(" #")[0], "exact version comment"],
