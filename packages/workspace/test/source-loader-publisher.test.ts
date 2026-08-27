@@ -22,7 +22,7 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
+import type { RmOptions, WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 const ghAuthToken = vi.hoisted(() => vi.fn<(...args: unknown[]) => string>(() => {
   throw new Error("missing gh")
@@ -1062,14 +1062,19 @@ describe("sources, loaders, and publishers", () => {
     const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
     let removalStarted!: () => void
     const removing = new Promise<void>((resolve) => { removalStarted = resolve })
-    const store: WorkspaceStore = {
-      ...base,
-      async rm(path, options) {
-        removalStarted()
-        await removalBlocked
-        await base.rm(path, options)
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property, receiver) {
+        if (property !== "rm") {
+          const value = Reflect.get(target, property, receiver)
+          return typeof value === "function" ? value.bind(target) : value
+        }
+        return async (path: string, options?: RmOptions) => {
+          removalStarted()
+          await removalBlocked
+          await base.rm(path, options)
+        }
       },
-    }
+    })
     const controller = new AbortController()
     const syncing = syncWorkspaceDefinition({ name: "support" }, store, controller.signal)
 

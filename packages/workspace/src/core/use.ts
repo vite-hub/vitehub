@@ -60,6 +60,22 @@ type WorkspaceWithDefinitionSync = Workspace & {
   __syncWorkspaceDefinition?: (abortSignal?: AbortSignal) => Promise<void>
 }
 
+async function waitForWorkspaceSync(pending: Promise<void>, signal?: AbortSignal) {
+  if (!signal) return await pending
+  signal.throwIfAborted()
+  let onAbort!: () => void
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([pending, aborted])
+  }
+  finally {
+    signal.removeEventListener("abort", onAbort)
+  }
+}
+
 export interface UseWorkspaceOptions {
   definition?: WorkspaceDefinition
   mode?: "read" | "write"
@@ -203,11 +219,11 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       const current = syncPromise
       const currentAbortSignal = syncAbortSignal
       try {
-        await current
+        await waitForWorkspaceSync(current, abortSignal)
         return workspace
       }
       catch (error) {
-        if (abortSignal || !currentAbortSignal?.aborted) throw error
+        if (abortSignal?.aborted || !currentAbortSignal?.aborted) throw error
         if (syncPromise === current) {
           syncPromise = undefined
           syncAbortSignal = undefined

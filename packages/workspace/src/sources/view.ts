@@ -220,6 +220,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }))
       const mutations = new Set<Promise<unknown>>()
       const isCurrent = () => selectedSources.every(source => generationBySource.get(source.key) === generations.get(source.key))
+      async function trackMutation<T>(operation: () => Promise<T>) {
+        if (!isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
+        const mutation = operation()
+        mutations.add(mutation)
+        try {
+          return await mutation
+        }
+        finally {
+          mutations.delete(mutation)
+        }
+      }
       for (const source of selectedSources) {
         if (!materializesCompleteSource(source, options)) continue
         materializedSources.delete(source.key)
@@ -231,15 +242,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           isCurrent,
           async mutate(operation) {
             options.abortSignal?.throwIfAborted()
-            if (!isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
-            const mutation = operation()
-            mutations.add(mutation)
-            try {
-              return await mutation
-            }
-            finally {
-              mutations.delete(mutation)
-            }
+            return await trackMutation(operation)
+          },
+          async checkpoint(operation) {
+            return await trackMutation(operation)
           },
         }), options.abortSignal)
       }

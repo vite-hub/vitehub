@@ -1077,6 +1077,34 @@ describe("Workspace Source Resolution", () => {
     ])
   })
 
+  it("masks removed root-mounted startup files after an overlay refresh", async () => {
+    let keys = ["kept.md", "removed.md"]
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        root: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["root"] })
+    keys = ["kept.md"]
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await workspace.fs.materializeSources?.({ sources: ["root"] })
+
+    await expect(workspace.fs.readFile("kept.md")).resolves.toBe("kept.md\n")
+    await expect(workspace.fs.exists("removed.md")).resolves.toBe(false)
+  })
+
   it("does not serve startup snapshots outside the selected scope", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",

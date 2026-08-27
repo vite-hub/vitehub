@@ -45,6 +45,7 @@ interface SourceSnapshotMetadata extends WorkspaceSourceMaterializationStatus {
 export interface MaterializationControl {
   isCurrent(): boolean
   mutate<T>(operation: () => Promise<T>): Promise<T>
+  checkpoint<T>(operation: () => Promise<T>): Promise<T>
 }
 
 function sourceSnapshotMetaKey(sourceKey: string) {
@@ -305,6 +306,7 @@ export async function materializeWorkspaceSources(
   control: MaterializationControl = {
     isCurrent: () => true,
     async mutate(operation) { return await operation() },
+    async checkpoint(operation) { return await operation() },
   },
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const assertCurrent = () => {
@@ -480,7 +482,7 @@ export async function materializeWorkspaceSources(
             ? { ...existing, items: checkpointItems(itemMetadata) }
             : undefined
         : failed
-      if (checkpoint && control.isCurrent()) await control.mutate(() => writeSourceSnapshotMetadata(store, checkpoint))
+      if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))
       resultSources.push(failed)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,
@@ -527,13 +529,15 @@ async function writeMaterializedFile(
   control?: MaterializationControl,
 ): Promise<{ size?: number }> {
   if (file.contentStream) {
-    if (!control && store.writeFileStream) {
-      return await store.writeFileStream(path, {
+    if (store.writeFileStream) {
+      const content = file.contentStream
+      const write = () => store.writeFileStream!(path, {
         path: file.path,
-        content: file.contentStream,
+        content,
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
+      return control ? await control.mutate(write) : await write()
     }
     const content = await contentStreamToBytes(file.contentStream)
     if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))

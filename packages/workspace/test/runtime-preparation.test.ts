@@ -9,7 +9,7 @@ import {
 import { resetWorkspaceRegistry, resolveRegisteredWorkspaceDefinition, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
-import type { SourceContext, WorkspaceSourceItem, WorkspaceStore } from "../src/index.ts"
+import type { SourceContext, WorkspaceFile, WorkspaceSourceItem, WorkspaceStore } from "../src/index.ts"
 
 function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<WorkspaceSourceItem[]>, store?: WorkspaceStore) {
   const name = `workspace-preparation-${crypto.randomUUID()}`
@@ -362,17 +362,22 @@ describe("Workspace runtime preparation", () => {
     let writeStarted!: () => void
     const writing = new Promise<void>((resolve) => { writeStarted = resolve })
     let writes = 0
-    const store: WorkspaceStore = {
-      ...base,
-      async writeFile(path, file) {
-        writes++
-        if (writes === 1) {
-          writeStarted()
-          await writeBlocked
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property, receiver) {
+        if (property !== "writeFile") {
+          const value = Reflect.get(target, property, receiver)
+          return typeof value === "function" ? value.bind(target) : value
         }
-        await base.writeFile(path, file)
+        return async (path: string, file: WorkspaceFile) => {
+          writes++
+          if (writes === 1) {
+            writeStarted()
+            await writeBlocked
+          }
+          await base.writeFile(path, file)
+        }
       },
-    }
+    })
     let attempts = 0
     const name = registerPreparationWorkspace(async () => [{
       content: attempts++ === 0 ? "# Stale" : "# Fresh",

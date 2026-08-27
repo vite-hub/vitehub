@@ -110,6 +110,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
     return {
       content: await workspace.fs.readFile(path as never, { encoding: "binary" } as never) as Uint8Array,
       mediaType: stat?.mediaType,
+      metadata: stat?.metadata,
       path,
     }
   }
