@@ -1108,6 +1108,7 @@ describe("agent public types", () => {
     }
     const customSupportAccessCapability = access<SupportRuntimeConfig>({ workspace: customSupportAccess })
     expectTypeOf(customSupportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
+    expectTypeOf(customSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig, "support">>()
 
     defineAgent({
       workspace,
