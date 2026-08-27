@@ -56,6 +56,25 @@ describe("GitHub Action pin policy", () => {
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("allows Docker actions pinned to full SHA-256 digests", async () => {
+    const digest = "1a".repeat(32)
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - uses: docker://alpine@sha256:${digest} # v3.22.1\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
+  it("rejects Docker actions that use movable tags", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: docker://alpine:3.22\n",
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("full SHA-256 digest") }),
+    ])
+  })
+
   it("ignores uses keys outside action invocation fields", async () => {
     const root = await createFixture({
       ".github/actions/setup/action.yml": `inputs:\n  uses:\n    description: Not an action reference\nruns:\n  using: composite\n  steps:\n    - uses: ${pinnedCheckout}\n`,

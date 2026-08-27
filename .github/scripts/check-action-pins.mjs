@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url"
 import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml"
 
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
+const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
 async function findYamlFiles(directory, filter, ignoredDirectories = new Set(), recursive = true) {
@@ -63,10 +64,16 @@ export function inspectGitHubActionReferences(path, source) {
 
     const reference = value.value
     if (reference.startsWith("./")) return
-    if (!actionCommitPattern.test(reference)) {
+    const isDockerReference = reference.startsWith("docker://")
+    const isImmutable = isDockerReference
+      ? dockerDigestPattern.test(reference)
+      : actionCommitPattern.test(reference)
+    if (!isImmutable) {
       failures.push({
         line,
-        message: `external action must use a full 40-character commit SHA: ${reference}`,
+        message: isDockerReference
+          ? `Docker action must use a full SHA-256 digest: ${reference}`
+          : `external action must use a full 40-character commit SHA: ${reference}`,
         path,
       })
       return
