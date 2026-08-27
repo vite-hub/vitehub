@@ -46,6 +46,28 @@ describe("Netlify Blobs driver", () => {
     expect(init).toMatchObject({ headers: { authorization: "Bearer environment-token" } })
   })
 
+  it.each([
+    {
+      expectedSiteID: "explicit-site",
+      expectedToken: "environment-token",
+      options: { siteID: "explicit-site" },
+    },
+    {
+      expectedSiteID: "environment-site",
+      expectedToken: "explicit-token",
+      options: { token: "explicit-token" },
+    },
+  ])("prefers each explicit credential over its context fallback", async ({ expectedSiteID, expectedToken, options: explicitOptions }) => {
+    vi.stubEnv("NETLIFY_BLOBS_CONTEXT", Buffer.from(JSON.stringify({ siteID: "environment-site", token: "environment-token" })).toString("base64"))
+    mockListPages({ first: { blobs: [], directories: [] } })
+
+    await createDriver({ driver: "netlify-blobs", name: "vitehub-blob", ...explicitOptions }).list()
+
+    const [input, init] = vi.mocked(fetch).mock.calls[0]!
+    expect(new URL(input.toString()).pathname).toBe(`/api/v1/blobs/${expectedSiteID}/site:vitehub-blob`)
+    expect(init).toMatchObject({ headers: { authorization: `Bearer ${expectedToken}` } })
+  })
+
   it("decodes context and resumes cursors without Buffer", async () => {
     const context = btoa(JSON.stringify({ siteID: "environment-site", token: "environment-token" }))
     vi.stubGlobal("Buffer", undefined)

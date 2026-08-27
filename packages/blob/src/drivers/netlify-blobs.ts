@@ -113,8 +113,8 @@ async function fetchWithRetry(url: URL, options: RequestInit, attemptsLeft = MAX
 function createListPageFetcher(options: NetlifyBlobsStoreConfig) {
   const hasExplicitCredentials = !options.deployScoped && options.siteID && options.token
   const context = hasExplicitCredentials ? {} : getEnvironmentContext()
-  const siteID = context.siteID ?? options.siteID
-  const token = context.token ?? options.token
+  const siteID = options.siteID ?? context.siteID
+  const token = options.token ?? context.token
   if (!siteID || !token) {
     throw new Error("The environment has not been configured to use Netlify Blobs. Supply siteID and token when creating the store.")
   }
