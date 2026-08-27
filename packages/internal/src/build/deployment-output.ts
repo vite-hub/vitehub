@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
+import { existsSync, renameSync, rmSync } from "node:fs"
+import { cp, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -284,32 +285,44 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const serverFunctionName = functionOutput.kind === "root" ? "__server.func" : functionOutput.name
   const config = options.config ?? (functionOutput.kind === "root" ? createVercelConfigJson() : {})
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
-  const serverEntry = resolve(serverDir, "index.mjs")
-  const stagedServerEntry = resolve(serverDir, ".index.mjs.pending")
-
-  await mkdir(serverDir, { recursive: true })
-  const staleFiles = (await readdir(serverDir)).filter(file => file !== "node_modules" && file !== ".index.mjs.pending")
+  const stagedServerDir = `${serverDir}.pending`
+  const previousServerDir = `${serverDir}.previous`
+  const stagedServerEntry = resolve(stagedServerDir, "index.mjs")
 
   try {
-    await rm(stagedServerEntry, { force: true })
-    await bundleEsmEntry(options.bundleEntry, stagedServerEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
-    signal?.throwIfAborted()
-    await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
-    if ((await readdir(serverDir)).includes(".index.mjs.pending")) {
-      await rename(stagedServerEntry, serverEntry)
+    await rm(stagedServerDir, { force: true, recursive: true })
+    await mkdir(stagedServerDir, { recursive: true })
+    try {
+      await cp(resolve(serverDir, "node_modules"), resolve(stagedServerDir, "node_modules"), { recursive: true })
     }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    await bundleEsmEntry(options.bundleEntry, stagedServerEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+    await writeFile(
+      resolve(stagedServerDir, ".vc-config.json"),
+      `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
+      "utf8",
+    )
+    signal?.throwIfAborted()
+
+    rmSync(previousServerDir, { force: true, recursive: true })
+    if (existsSync(serverDir)) renameSync(serverDir, previousServerDir)
+    try {
+      renameSync(stagedServerDir, serverDir)
+    }
+    catch (error) {
+      if (existsSync(previousServerDir)) renameSync(previousServerDir, serverDir)
+      throw error
+    }
+    rmSync(previousServerDir, { force: true, recursive: true })
   }
   catch (error) {
-    await rm(stagedServerEntry, { force: true })
+    await rm(stagedServerDir, { force: true, recursive: true })
     throw error
   }
 
   const writes = await Promise.allSettled([
-    writeFile(
-      resolve(serverDir, ".vc-config.json"),
-      `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
-      "utf8",
-    ),
     writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
     staticIndex
       ? copyVercelClientOutput(options.rootDir, clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))

@@ -577,6 +577,7 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
       packages,
       rootDir: options.rootDir,
       serverFunctionName: options.serverFunctionName,
+      signal: options.signal,
     })
   }
   if (!shared) {

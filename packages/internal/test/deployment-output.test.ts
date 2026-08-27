@@ -803,7 +803,8 @@ describe("provider deployment outputs", () => {
 
     await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
     await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
-    expect(existsSync(join(serverDir, ".index.mjs.pending"))).toBe(false)
+    expect(existsSync(`${serverDir}.pending`)).toBe(false)
+    expect(existsSync(`${serverDir}.previous`)).toBe(false)
   })
 
   it("settles every started provider write before rejecting", async () => {

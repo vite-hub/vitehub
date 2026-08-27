@@ -562,6 +562,7 @@ async function writeVercelQueueFunctions(
 
   signal?.throwIfAborted()
   if (isVercelQueueEnabled(queueConfig)) await mkdir(stagedQueueRoot, { recursive: true })
+  signal?.throwIfAborted()
   rmSync(backupQueueRoot, { force: true, recursive: true })
   try {
     renameSync(queueRoot, backupQueueRoot)
