@@ -34,12 +34,15 @@ Importing the provider-neutral package root does not load OpenWorkflow types. Wo
 import { defineWorkflow } from "@vite-hub/workflow";
 
 export default defineWorkflow<{ email: string }>(async ({ id, payload, provider }) => {
-  await createUser(payload.email);
-  await sendWelcomeEmail(payload.email);
+  const idempotencyKey = `onboard-user:${payload.email}`;
+  const user = await upsertUser(payload.email, { idempotencyKey });
+  await sendWelcomeEmail(user.email, { idempotencyKey: `${idempotencyKey}:welcome-email` });
 
   return { id, provider };
 });
 ```
+
+Both external operations receive keys derived from stable input. Preserve that idempotency when adding side effects so retrying a completed operation does not duplicate it.
 
 ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file name becomes the name passed to runtime helpers.
 
@@ -60,6 +63,32 @@ Set `provider` explicitly when the deployment target should not decide it. Other
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 
+### Run an OpenWorkflow worker
+
+`runWorkflow()` only enqueues an OpenWorkflow run. Start one worker in a long-lived Node or Docker process:
+
+```ts
+// worker.ts
+import type { WorkflowDefinition } from "@vite-hub/workflow";
+import { startOpenWorkflowWorker } from "@vite-hub/workflow/runtime/openworkflow-worker";
+import onboardUser from "./server/workflows/onboard-user.ts";
+
+const postgresUrl = process.env.OPENWORKFLOW_POSTGRES_URL;
+if (!postgresUrl) throw new Error("OPENWORKFLOW_POSTGRES_URL is required");
+
+const worker = await startOpenWorkflowWorker({
+  config: {
+    provider: "openworkflow",
+    postgres: { url: postgresUrl },
+  },
+  registry: {
+    "onboard-user": async () => ({ default: onboardUser as WorkflowDefinition }),
+  },
+});
+```
+
+Keep this process running while it should consume queued runs, and do not start a worker per request. `startOpenWorkflowWorker()` installs `SIGINT` and `SIGTERM` handlers. If the host owns shutdown, await `worker.stop()` from its shutdown hook.
+
 ## Start and inspect a run
 
 ```ts
@@ -75,7 +104,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`runWorkflow()` returns a provider-backed run with an id and normalized status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
+`runWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
 
 The other runtime helpers are:
 
