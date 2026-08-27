@@ -100,7 +100,7 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
           memoryHighIncreased || resources.cpuPressure > cpu.resumePressure || resources.memoryPressure > memory.resumePressure
       } else {
         pressurePaused =
-          resources.cpuPressure >= cpu.pausePressure || resources.memoryPressure >= memory.pausePressure || memoryHighIncreased
+          resources.cpuPressure > cpu.pausePressure || resources.memoryPressure > memory.pausePressure || memoryHighIncreased
       }
       if (pressurePaused) {
         return {
