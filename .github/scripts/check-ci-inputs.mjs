@@ -12,6 +12,7 @@ const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`)$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
 const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
+const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "time", "until", "while"])
 
 function shellTokens(line) {
   const tokens = []
@@ -42,6 +43,29 @@ function shellTokens(line) {
   return tokens
 }
 
+function commandIndexes(tokens) {
+  const indexes = []
+  let commandStart = true
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]
+    if (shellOperatorPattern.test(token)) {
+      commandStart = token !== ")"
+    }
+    else if (commandStart && shellCommandPrefixes.has(token)) {
+      continue
+    }
+    else if (commandStart && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+      indexes.push(index)
+      commandStart = false
+    }
+  }
+  return indexes
+}
+
+function isShellCommand(token) {
+  return shellCommands.has(token.slice(token.lastIndexOf("/") + 1))
+}
+
 function resolvePackageSpec(spec, environment) {
   const variable = variablePackagePattern.exec(spec)
   if (!variable) return spec
@@ -52,7 +76,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   const specs = []
   const environment = new Map(inheritedEnvironment)
   let dataHereDocument
-  for (const line of command.split("\n")) {
+  for (const line of command.replaceAll(/\\\r?\n/g, "").split("\n")) {
     if (dataHereDocument) {
       if (line.trim() === dataHereDocument.delimiter) dataHereDocument = undefined
       else if (dataHereDocument.expand) {
@@ -65,26 +89,17 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     if (line.trimStart().startsWith("#")) continue
 
     const tokens = shellTokens(line)
+    const executableIndexes = commandIndexes(tokens)
     const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
-    const commandName = tokens.find(token => !token.includes("=") && !shellOperatorPattern.test(token))
-    if (hereDocument && !shellCommands.has(commandName)) {
+    if (hereDocument && !executableIndexes.some(index => isShellCommand(tokens[index]))) {
       dataHereDocument = { delimiter: hereDocument[2], expand: hereDocument[1] === "" }
     }
-    let commandStart = true
-    for (let index = 0; index < tokens.length; index++) {
+    for (const index of executableIndexes) {
       let argumentsStart
       let acceptsPackageOptions = false
       const token = tokens[index]
 
-      if (shellOperatorPattern.test(token)) {
-        commandStart = token !== ")"
-        continue
-      }
-      if (!commandStart) continue
-      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue
-      commandStart = false
-
-      if (shellCommands.has(token)) {
+      if (isShellCommand(token)) {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
         const invocation = tokens.slice(index + 1, end === -1 ? tokens.length : end)
         const callIndex = invocation.indexOf("-c")

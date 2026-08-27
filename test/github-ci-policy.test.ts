@@ -80,6 +80,9 @@ describe("GitHub CI input policy", () => {
         "      - run: bun x tool@1.2.3 --help",
         "      - run: npm exec --package=runner@1.2.3 --call=\"npx nested@2.3.4\"",
         "      - run: npm exec -c 'echo ok'",
+        "      - run: |",
+        "          npx \\",
+        "            tool@1.2.3",
         "      - run: npx \"tool@$TOOL_VERSION\" --help",
         "      - run: echo '$(npx unpinned)'",
         "      - run: echo npx unpinned",
@@ -387,6 +390,8 @@ jobs:
     "npx tool@$UNRESOLVED_VERSION",
     "(npx unpinned)",
     "bash -c 'npx unpinned'",
+    "if true; then npx unpinned; fi",
+    "while npx unpinned; do echo ok; done",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -450,6 +455,28 @@ jobs:
         "          EOF",
       ].join("\n"),
     })
+    const pathShellRoot = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          /bin/bash <<'EOF'",
+        "          npx unpinned",
+        "          EOF",
+      ].join("\n"),
+    })
+    const pipedShellRoot = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          cat <<'EOF' | bash",
+        "          npx unpinned",
+        "          EOF",
+      ].join("\n"),
+    })
     const expandingDataRoot = await createFixture({
       ".github/workflows/ci.yml": [
         "jobs:",
@@ -465,6 +492,12 @@ jobs:
 
     await expect(checkGitHubCIInputs(dataRoot)).resolves.toEqual([])
     await expect(checkGitHubCIInputs(shellRoot)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+    await expect(checkGitHubCIInputs(pathShellRoot)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+    await expect(checkGitHubCIInputs(pipedShellRoot)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
     await expect(checkGitHubCIInputs(expandingDataRoot)).resolves.toEqual([
