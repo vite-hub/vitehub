@@ -1,21 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput } from "../src/build/cloudflare-provider-output.ts"
+import { composeNitroCloudflareProviderOutput } from "../src/build/cloudflare-provider-output.ts"
+import { contributeCloudflareProviderOutput, createProviderOutputCatalog } from "../src/build/provider-output-catalog.ts"
 
 describe("Cloudflare provider output", () => {
   it("composes current ViteHub resources into Nitro's Wrangler config by identity", () => {
-    const config = {}
-    registerCloudflareProviderOutput(config, "queue", {
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "queue",
       queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
     })
-    registerCloudflareProviderOutput(config, "storage", {
-      queues: {
-        producers: [
-          { binding: "JOBS", queue: "jobs" },
-          { binding: "EMAILS", queue: "emails" },
-        ],
-      },
+    contributeCloudflareProviderOutput(config, { owner: "blob",
       r2Buckets: [{ binding: "BLOB", bucket_name: "assets" }],
+    })
+    contributeCloudflareProviderOutput(config, { owner: "rate-limit",
       rateLimits: [{ name: "UPLOADS", namespace_id: "1", simple: { limit: 10, period: 60 } }],
     })
 
@@ -36,7 +33,6 @@ describe("Cloudflare provider output", () => {
           producers: [
             { binding: "USER", queue: "user", delivery_delay: 1 },
             { binding: "JOBS", queue: "jobs" },
-            { binding: "EMAILS", queue: "emails" },
           ],
         },
         r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }],
@@ -47,8 +43,8 @@ describe("Cloudflare provider output", () => {
   })
 
   it("preserves compatible user resources and rejects conflicting identities", () => {
-    const config = {}
-    registerCloudflareProviderOutput(config, "queue", {
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "queue",
       queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
     })
 
@@ -69,8 +65,8 @@ describe("Cloudflare provider output", () => {
   })
 
   it("composes required secrets without taking ownership of existing names", () => {
-    const config = {}
-    registerCloudflareProviderOutput(config, "env", {
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "env",
       requiredSecrets: ["EXISTING_SECRET", "VITEHUB_TOKEN"],
     })
 
@@ -83,7 +79,7 @@ describe("Cloudflare provider output", () => {
     })
     expect(first).toHaveProperty("cloudflare.wrangler.secrets.required", ["EXISTING_SECRET", "VITEHUB_TOKEN"])
 
-    registerCloudflareProviderOutput(config, "env", {})
+    contributeCloudflareProviderOutput(config, { owner: "env" })
     expect(composeNitroCloudflareProviderOutput(config, first)).toHaveProperty(
       "cloudflare.wrangler.secrets.required",
       ["EXISTING_SECRET"],
@@ -91,8 +87,8 @@ describe("Cloudflare provider output", () => {
   })
 
   it("composes and removes required secrets independently in named environments", () => {
-    const config = {}
-    registerCloudflareProviderOutput(config, "env", {
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "env",
       requiredSecrets: ["EXISTING_SECRET", "VITEHUB_TOKEN"],
     })
 
@@ -110,15 +106,15 @@ describe("Cloudflare provider output", () => {
     expect(first).toHaveProperty("cloudflare.wrangler.env.staging.secrets.required", ["VITEHUB_TOKEN", "EXISTING_SECRET"])
     expect(first).toHaveProperty("cloudflare.wrangler.env.production.secrets.required", ["EXISTING_SECRET", "VITEHUB_TOKEN"])
 
-    registerCloudflareProviderOutput(config, "env", {})
+    contributeCloudflareProviderOutput(config, { owner: "env" })
     const second = composeNitroCloudflareProviderOutput(config, first)
     expect(second).toHaveProperty("cloudflare.wrangler.secrets.required", ["EXISTING_SECRET"])
     expect(second).toHaveProperty("cloudflare.wrangler.env.staging.secrets.required", ["VITEHUB_TOKEN"])
     expect(second).not.toHaveProperty("cloudflare.wrangler.env.production.secrets")
     expect(second).toHaveProperty("cloudflare.wrangler.env.production.name", "production-worker")
 
-    const removalConfig = {}
-    registerCloudflareProviderOutput(removalConfig, "env", { requiredSecrets: ["VITEHUB_TOKEN"] })
+    const removalConfig = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(removalConfig, { owner: "env", requiredSecrets: ["VITEHUB_TOKEN"] })
     const withEnvironment = composeNitroCloudflareProviderOutput(removalConfig, {
       cloudflare: { wrangler: { env: { staging: { name: "staging-worker" } } } },
     })
@@ -132,11 +128,11 @@ describe("Cloudflare provider output", () => {
   })
 
   it("replaces an owner's contribution without changing application policy", () => {
-    const config = {}
-    registerCloudflareProviderOutput(config, "queue", {
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "queue",
       queues: { consumers: [{ queue: "old" }] },
     })
-    registerCloudflareProviderOutput(config, "queue", {
+    contributeCloudflareProviderOutput(config, { owner: "queue",
       queues: { consumers: [{ queue: "current" }] },
     })
 
@@ -149,40 +145,64 @@ describe("Cloudflare provider output", () => {
   })
 
   it("removes an owner's previously composed entries when recomposing", () => {
-    const config = {}
-    registerCloudflareProviderOutput(config, "queue", { queues: { producers: [{ binding: "OLD", queue: "old" }] } })
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "queue", queues: { producers: [{ binding: "OLD", queue: "old" }] } })
     const first = composeNitroCloudflareProviderOutput(config, { cloudflare: { wrangler: {} } })
-    registerCloudflareProviderOutput(config, "queue", { queues: { producers: [{ binding: "NEW", queue: "new" }] } })
+    contributeCloudflareProviderOutput(config, { owner: "queue", queues: { producers: [{ binding: "NEW", queue: "new" }] } })
 
     const second = composeNitroCloudflareProviderOutput(config, first)
     expect(second).toHaveProperty(
       "cloudflare.wrangler.queues.producers",
       [{ binding: "NEW", queue: "new" }],
     )
-    registerCloudflareProviderOutput(config, "queue", {})
+    contributeCloudflareProviderOutput(config, { owner: "queue" })
     expect(composeNitroCloudflareProviderOutput(config, second)).not.toHaveProperty("cloudflare.wrangler.queues")
   })
 
   it("carries applied ownership through copied Nitro configs", () => {
-    const firstConfig = {}
-    registerCloudflareProviderOutput(firstConfig, "queue", {
+    const firstConfig = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(firstConfig, { owner: "queue",
       queues: { producers: [{ binding: "OLD", queue: "old" }] },
     })
     const first = composeNitroCloudflareProviderOutput(firstConfig, {})
     const copied = { ...first, cloudflare: { ...(first.cloudflare as object) } }
-    const finalConfig = {}
-    registerCloudflareProviderOutput(finalConfig, "queue", {})
+    const finalConfig = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(finalConfig, { owner: "queue" })
 
     expect(composeNitroCloudflareProviderOutput(finalConfig, copied)).not.toHaveProperty("cloudflare.wrangler.queues")
   })
 
+  it("shares applied ownership across bundled Internal copies", async () => {
+    vi.resetModules()
+    const firstOutput = await import("../src/build/cloudflare-provider-output.ts")
+    const firstCatalog = await import("../src/build/provider-output-catalog.ts")
+    const initialCatalog = firstCatalog.createProviderOutputCatalog()
+    firstCatalog.contributeCloudflareProviderOutput(initialCatalog, { owner: "queue",
+      queues: { producers: [{ binding: "OLD", queue: "old" }] },
+    })
+    const initial = firstOutput.composeNitroCloudflareProviderOutput(initialCatalog, {})
+
+    vi.resetModules()
+    const finalOutput = await import("../src/build/cloudflare-provider-output.ts")
+    const finalCatalog = await import("../src/build/provider-output-catalog.ts")
+    const replacementCatalog = finalCatalog.createProviderOutputCatalog()
+    finalCatalog.contributeCloudflareProviderOutput(replacementCatalog, { owner: "queue",
+      queues: { producers: [{ binding: "NEW", queue: "new" }] },
+    })
+
+    expect(finalOutput.composeNitroCloudflareProviderOutput(replacementCatalog, initial)).toHaveProperty(
+      "cloudflare.wrangler.queues.producers",
+      [{ binding: "NEW", queue: "new" }],
+    )
+  })
+
   it("preserves non-plain Nitro config outside Wrangler composition", () => {
-    const config = {}
+    const config = createProviderOutputCatalog()
     const external = /^node:/
     const buildBefore = () => undefined
     const hooks = { "build:before": buildBefore }
     const rollupConfig = { external }
-    registerCloudflareProviderOutput(config, "queue", {
+    contributeCloudflareProviderOutput(config, { owner: "queue",
       queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
     })
 

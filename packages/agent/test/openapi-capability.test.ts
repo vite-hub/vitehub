@@ -438,6 +438,28 @@ describe("openapi capability", () => {
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
   })
 
+  it("lets request hooks lower the bounded OpenAPI response limit", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [openapi({
+        hooks: {
+          request: ({ request }) => {
+            expect(request.maxResponseBytes).toBe(100)
+            return { maxResponseBytes: 4 }
+          },
+        },
+        maxResponseBytes: 100,
+        operations: ["listCustomers"],
+        spec: portalSpec(),
+      })],
+    }, runtime(), { prompt: "list" })
+
+    await expect((resolved.tools as AgentToolSet).listCustomers.execute?.({}))
+      .rejects.toThrow("configured 4-byte limit")
+  })
+
   it("allows hooks to fill path params without requiring them in tool input", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

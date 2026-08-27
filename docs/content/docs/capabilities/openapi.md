@@ -67,7 +67,7 @@ ViteHub derives the request server from the OpenAPI document by default:
 1. `servers[0].url`
 2. the OpenAPI spec URL origin
 
-Use `hooks.request` for runtime auth, cookies, tenant values, body additions, query additions, and timeout changes.
+Use `hooks.request` for runtime auth, cookies, tenant values, body additions, query additions, and bounded timeout or response-size changes.
 The hook receives the selected operation, Agent Capability context, visible model input, and a mutable draft request.
 When the hook owns OpenAPI fields such as tenant path params or runtime body tokens, declare them in `provides`; ViteHub removes those fields from the model and generated CLI schemas, strips them from caller input, then validates the final prepared request after the hook runs.
 
@@ -189,14 +189,15 @@ openapi({
 | `spec` | `string \| URL \| object \| function` | required | OpenAPI document URL, inline document, or invocation-scoped document resolver. |
 | `operations` | `readonly string[]` | required | Selected OpenAPI `operationId`s exposed by this Capability. |
 | `description` | `string` | none | Prefix for generated operation-tool descriptions and fallback description for the generated Capability CLI. |
-| `hooks.request` | `(context) => patch \| void` or `{ provides?, handler }` | none | Fetch-style request preparation hook for runtime headers, cookies, path, query, body, and timeout values. |
+| `hooks.request` | `(context) => patch \| void` or `{ provides?, handler }` | none | Fetch-style request preparation hook for runtime headers, cookies, path, query, body, timeout, and `maxResponseBytes` values. |
 | `hooks.request.provides` | `{ body?, path?, query? }` | none | Runtime-owned OpenAPI input fields to remove from model and generated CLI schemas before caller validation. |
 | `server` | `string \| URL \| function` | OpenAPI server | Override escape hatch for specs without a usable `servers[0].url` or spec URL origin. |
 | `cli` | `false \| { name, description? }` | `false` | Generates a Capability CLI instead of one model-facing tool per operation. |
 | `responseType` | `"json" \| "text"` | `"json"` | Response parser for operation results. |
 | `transformResponse` | `(response, context) => output` | none | Maps parsed operation responses before returning them to the Agent. |
 | `specHeaders` | `Record<string, string>` | none | Headers used only when fetching the OpenAPI document. |
-| `timeout` | `number` | none | Default request timeout in milliseconds. |
+| `timeout` | `number` | `30000` | Default request and response-body timeout in milliseconds. |
+| `maxResponseBytes` | `number` | `5242880` | Maximum decoded size of the spec and operation responses. Hooks may lower or raise it up to 25 MiB. |
 
 ## Related pages
 

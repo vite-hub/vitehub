@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, fetch, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
+import { createWorkspaceSourceRequestExecution } from "../src/sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -108,6 +109,46 @@ describe("fetch sources", () => {
     expect((init.headers as Headers).get("authorization")).toBe("Bearer secret")
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=session-token")
     expect((init.headers as Headers).get("x-request-method")).toBe("POST")
+  })
+
+  it("lets request preparation lower the fetch Source response limit", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
+    registerWorkspace("fetch-bounded", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        status: fetch({
+          maxResponseBytes: 100,
+          request: { maxResponseBytes: 4 },
+          responseType: "text",
+          url: "https://status.example.com/large",
+          workspacePath: "status.txt",
+        }),
+      },
+    }))
+
+    await expect(useWorkspace("fetch-bounded").fs.readFile("status.txt"))
+      .rejects.toThrow("configured 4-byte limit")
+  })
+
+  it("enforces response limits for request-only fetch Sources", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
+    registerWorkspace("fetch-request-bounded", defineWorkspace({
+      sources: {
+        status: fetch({
+          maxResponseBytes: 4,
+          responseType: "text",
+          url: "https://status.example.com/large",
+        }),
+      },
+      store: { provider: "memory" },
+    }))
+    const definition = await resolveRegisteredWorkspaceDefinition("fetch-request-bounded")
+    const execution = createWorkspaceSourceRequestExecution(definition)
+
+    await expect(execution?.executeSourceRequest({
+      method: "GET",
+      url: "https://status.example.com/large",
+    })).rejects.toThrow("configured 4-byte limit")
   })
 
   it("serializes top-level JSON strings as valid JSON", async () => {
