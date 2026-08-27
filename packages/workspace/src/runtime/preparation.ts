@@ -83,11 +83,13 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
   const sources = options.sources === undefined
     ? undefined
     : [...new Set(options.sources.map(source => source.trim()))]
+  const workspace = useWorkspace(workspaceName, { mode: "write" })
   let state: WorkspacePreparationState = Object.freeze({
     startedAt: new Date().toISOString(),
     status: "preparing",
   })
   let active: Promise<WorkspacePreparationState> | undefined
+  let starting: Promise<WorkspacePreparationState> | undefined
   let abortController: AbortController | undefined
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let started = false
@@ -122,7 +124,6 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
           throw new Error(`[vitehub] Workspace "${workspaceName}" has no startup sources to prepare.`)
         }
 
-        const workspace = useWorkspace(workspaceName, { mode: "write" })
         const result = await workspace.materializeSources({
           abortSignal: controller.signal,
           sources: selectedSources,
@@ -190,13 +191,22 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
       })
     },
     async start() {
-      if (started) return active ? await active : state
+      if (started) return starting ? await starting : active ? await active : state
       started = true
       stopped = false
       const startLifecycle = ++lifecycle
-      if (active) await active
-      if (!started || stopped || startLifecycle !== lifecycle) return state
-      return await run()
+      const transition = (async () => {
+        if (active) await active
+        if (!started || stopped || startLifecycle !== lifecycle) return state
+        return await run()
+      })()
+      starting = transition
+      try {
+        return await transition
+      }
+      finally {
+        if (starting === transition) starting = undefined
+      }
     },
     async stop() {
       started = false

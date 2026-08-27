@@ -524,7 +524,7 @@ describe("lazy sources", () => {
   })
 
   it("falls back to source metadata when a bulk item omits it", async () => {
-    const getMeta = vi.fn(async () => ({ revision: "fallback" }))
+    const getMeta = vi.fn(async () => ({ digest: "fallback" }))
     const view = createWorkspaceSourceView({
       name: "bulk-item-metadata-fallback",
       sources: {
@@ -541,7 +541,7 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
     })
-    await expect(view.stat("docs/ready.md")).resolves.toMatchObject({ metadata: { revision: "fallback" } })
+    await expect(view.stat("docs/ready.md")).resolves.toMatchObject({ metadata: { digest: "fallback" } })
     expect(getMeta).toHaveBeenCalledOnce()
   })
 

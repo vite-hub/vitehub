@@ -124,9 +124,11 @@ describe("Workspace runtime preparation", () => {
     await firstAttemptStarted
     const stopping = preparation.stop()
     const restarted = preparation.start()
+    const concurrentRestart = preparation.start()
     await expect(first).resolves.toMatchObject({ status: "preparing" })
     await stopping
     await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    await expect(concurrentRestart).resolves.toMatchObject({ status: "ready" })
     expect(attempts).toBe(2)
     await preparation.stop()
   })
