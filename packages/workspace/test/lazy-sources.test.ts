@@ -436,6 +436,31 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("rethrows cancellation during source snapshot setup", async () => {
+    const abort = new AbortController()
+    const store = createMemoryWorkspaceStore()
+    store.getMeta = vi.fn(async () => {
+      abort.abort(new DOMException("Canceled", "AbortError"))
+      abort.signal.throwIfAborted()
+    })
+    const view = createWorkspaceSourceView({
+      name: "snapshot-cancellation",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { content: "", key }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })).rejects.toThrow("Canceled")
+  })
+
   it("reports cache disposition and opt-in file deltas", async () => {
     let files = new Map([
       ["a.md", { content: "# A\n", digest: "a-1" }],
@@ -610,6 +635,7 @@ describe("lazy sources", () => {
 
   it("compares bulk source contents when reporting file deltas", async () => {
     let content = "# Same\n"
+    const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({
       name: "bulk-materialization-deltas",
       sources: {
@@ -627,15 +653,17 @@ describe("lazy sources", () => {
           },
         }),
       },
-    }, createMemoryWorkspaceStore())
+    }, store)
 
     await view.materializeSources({ sources: ["docs"] })
+    const readFile = vi.spyOn(store, "readFile")
     await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
       sources: [{
         counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
         paths: [{ path: "docs/a.md", status: "unchanged" }],
       }],
     })
+    expect(readFile).toHaveBeenCalledOnce()
 
     content = "# Changed\n"
     await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({

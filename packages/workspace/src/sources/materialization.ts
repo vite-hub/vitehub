@@ -1,7 +1,7 @@
 import { posix } from "node:path"
 
 import { workspaceError } from "../core/errors.ts"
-import { contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamChunks, contentStreamToBytes, contentToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
@@ -111,6 +111,28 @@ function contentEquals(left: string | Uint8Array, right: string | Uint8Array) {
   const leftBytes = left instanceof Uint8Array ? left : new TextEncoder().encode(left)
   const rightBytes = right instanceof Uint8Array ? right : new TextEncoder().encode(right)
   return leftBytes.byteLength === rightBytes.byteLength && leftBytes.every((byte, index) => byte === rightBytes[index])
+}
+
+function compareContentStream(
+  stream: WorkspaceContentStream,
+  previous: string | Uint8Array,
+): { contentStream: WorkspaceContentStream, unchanged: () => boolean } {
+  const previousBytes = contentToBytes(previous)
+  let matches = true
+  let offset = 0
+  return {
+    contentStream: (async function* () {
+      for await (const chunk of contentStreamChunks(stream)) {
+        if (matches && (offset + chunk.byteLength > previousBytes.byteLength
+          || !chunk.every((byte, index) => byte === previousBytes[offset + index]))) {
+          matches = false
+        }
+        offset += chunk.byteLength
+        yield chunk
+      }
+    })(),
+    unchanged: () => matches && offset === previousBytes.byteLength,
+  }
 }
 
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
@@ -367,6 +389,7 @@ export async function materializeWorkspaceSources(
         error: message,
         status: "failed",
       })
+      if (options.abortSignal?.aborted) throw error
       continue
     }
     const completeSource = materializesCompleteSource(source, options)
@@ -470,10 +493,13 @@ export async function materializeWorkspaceSources(
         const item = entry.item!
         const metadata = item.metadata || {}
         const previousFile = previousPaths.has(path) ? await store.readFile(path) : undefined
+        const comparedStream = previousFile && entry.contentStream
+          ? compareContentStream(entry.contentStream, previousFile.content)
+          : undefined
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
-          contentStream: entry.contentStream,
+          contentStream: comparedStream?.contentStream || entry.contentStream,
           mediaType: item.mediaType,
           metadata: {
             ...metadata,
@@ -484,8 +510,10 @@ export async function materializeWorkspaceSources(
         itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
-        const currentFile = previousFile ? await store.readFile(path) : undefined
-        const status = previousFile && currentFile && contentEquals(previousFile.content, currentFile.content)
+        const unchanged = previousFile && (comparedStream
+          ? comparedStream.unchanged()
+          : contentEquals(previousFile.content, entry.content ?? ""))
+        const status = unchanged
           ? "unchanged" as const
           : previousPaths.has(path) ? "updated" as const : "added" as const
         counts[status]++
