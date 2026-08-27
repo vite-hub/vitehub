@@ -69,6 +69,18 @@ describe("@vite-hub/runtime", () => {
     expect(context.source).toBe("host")
   })
 
+  it("normalizes explicitly null runtime configuration", () => {
+    const context = createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: null,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expect(context.runtimeConfig).toEqual({})
+  })
+
   it("widens union-typed execution context fields that may be undefined", () => {
     const createContext = (
       capabilities: RuntimeCapabilities | undefined,
@@ -97,6 +109,21 @@ describe("@vite-hub/runtime", () => {
     })
     const configuredContext = createContext("local")
     const omittedContext = createContext(undefined)
+
+    expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
+    expect(configuredContext.runtimeConfig).toBe("local")
+    expect(omittedContext.runtimeConfig).toEqual({})
+  })
+
+  it("widens runtime configuration unions that may be null", () => {
+    const createContext = (runtimeConfig: string | null) => createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const configuredContext = createContext("local")
+    const omittedContext = createContext(null)
 
     expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
     expect(configuredContext.runtimeConfig).toBe("local")

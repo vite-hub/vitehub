@@ -699,11 +699,15 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
+type NormalizedRuntimeConfig<TConfig> = Exclude<TConfig, null | undefined> extends Record<string, unknown>
+  ? Record<string, unknown>
+  : Exclude<TConfig, null | undefined> | Record<string, unknown>
+
 type RuntimeConfigOf<TContext extends RuntimeHostContext<any>> = "runtimeConfig" extends keyof TContext
   ? undefined extends TContext["runtimeConfig"]
-    ? Exclude<TContext["runtimeConfig"], undefined> extends Record<string, unknown>
-      ? Record<string, unknown>
-      : Exclude<TContext["runtimeConfig"], undefined> | Record<string, unknown>
+    ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
+    : null extends TContext["runtimeConfig"]
+      ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
     : TContext["runtimeConfig"]
   : Record<string, unknown>
 

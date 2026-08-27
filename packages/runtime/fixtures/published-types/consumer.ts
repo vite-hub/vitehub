@@ -49,6 +49,15 @@ explicitlyUndefinedContext.capabilities satisfies RuntimeCapabilities
 explicitlyUndefinedContext.runtimeConfig satisfies Record<string, unknown>
 explicitlyUndefinedContext.source satisfies "host"
 
+const explicitlyNullContext = createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig: null,
+  waitUntil: () => {},
+})
+
+explicitlyNullContext.runtimeConfig satisfies Record<string, unknown>
+
 const createMaybeConfiguredContext = (
   capabilities: RuntimeCapabilities | undefined,
   runtimeConfig: { region: string } | undefined,
@@ -73,6 +82,16 @@ const createPrimitiveConfiguredContext = (runtimeConfig: string | undefined) => 
 const primitiveConfiguredContext = createPrimitiveConfiguredContext("local")
 
 primitiveConfiguredContext.runtimeConfig satisfies string | Record<string, unknown>
+
+const createNullableConfiguredContext = (runtimeConfig: string | null) => createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig,
+  waitUntil: () => {},
+})
+const nullableConfiguredContext = createNullableConfiguredContext("local")
+
+nullableConfiguredContext.runtimeConfig satisfies string | Record<string, unknown>
 
 const error = new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
   details: { provider: "fixture" },
