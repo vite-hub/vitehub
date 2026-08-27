@@ -137,6 +137,7 @@ describe("createCrabboxRuntime", () => {
         runtime: createCrabboxRuntime({ profile: "babysitter" }),
       }, {})
       const session = await box.open()
+      expect(session.inspectionConcurrency).toBe(1)
       const sessionRoot = dirname(session.cwd)
       await expect(session.exec("sh", ["-c", "mkdir read-only && touch read-only/file && chmod 400 read-only/file && chmod 500 read-only"], {
         cwd: session.cwd,

@@ -34,7 +34,7 @@ import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
-import { hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
+import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -4438,6 +4438,26 @@ function withChatFinishExtension<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS
   }
 }
 
+function withAgentInvokerRunAnnotation(
+  input: AgentChatMessageTriggerInput,
+  invoker: AgentInvoker,
+): AgentChatMessageTriggerInput {
+  if (!input.run) return input
+  const annotations = { ...input.run.annotations }
+  delete annotations.triggeredBy
+  const triggeredBy = agentInvokerLabel(invoker)
+  return {
+    ...input,
+    run: {
+      ...input.run,
+      annotations: {
+        ...(triggeredBy ? { triggeredBy } : {}),
+        ...annotations,
+      },
+    },
+  }
+}
+
 async function isChatMessageAuthorized(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -4552,6 +4572,7 @@ async function handleChatSdkMessage(
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
+    input = withAgentInvokerRunAnnotation(input, invoker)
 
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
@@ -6230,12 +6251,12 @@ export function createChannelChatRouteHandler(
         invokerInput,
         triggerInput.run,
       )
-      triggerInput = {
+      triggerInput = withAgentInvokerRunAnnotation({
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         ...(withResolvedAgentInvokerInput(triggerInput as never, invoker) as AgentChatMessageTriggerInput),
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         invoker,
-      }
+      }, invoker)
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
       let selectedSessionId = resolveChatSessionId(triggerInput.messages, chatOptions.sessions, triggerInput.session)
       const registration = {
