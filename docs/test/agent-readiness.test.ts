@@ -43,7 +43,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(lockfile).not.toContain("nuxt@4.4.8:");
     expect(lockfile).not.toContain("'@nuxt/devtools@3.2.4':");
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
-    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt");
+    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
   });
 
