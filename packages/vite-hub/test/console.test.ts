@@ -449,6 +449,44 @@ describe("Agent invocation console", () => {
 
     expect(result.invocations.filter(invocation => invocation.status === "pending")).toHaveLength(2)
     expect(result.invocations.filter(invocation => invocation.status === "completed")).toHaveLength(2)
+    expect(result.cursor).toBeDefined()
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(result.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    const next = await invocationsHandler(requestEvent)
+
+    expect(next.invocations.filter(invocation => invocation.status === "pending")).toHaveLength(1)
+    expect(next.invocations.filter(invocation => invocation.status === "completed")).toHaveLength(1)
+    expect(next.cursor).toBeUndefined()
+  })
+
+  it("continues active pagination after terminal sessions are exhausted", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["completed", "pending", "pending", "pending"] as const).entries()) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const first = await invocationsHandler(requestEvent)
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-3", "pending-2", "completed-0"])
+    expect(first.cursor).toBeDefined()
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    const second = await invocationsHandler(requestEvent)
+    expect(second.invocations.map(invocation => invocation.id)).toEqual(["pending-1"])
+    expect(second.cursor).toBeUndefined()
   })
 
   it("searches session text through the console Collection", async () => {
