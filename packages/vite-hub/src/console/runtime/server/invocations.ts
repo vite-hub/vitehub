@@ -32,6 +32,8 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
       "vitehub.activity.progress",
     ],
     store: createLibsqlAgentInvocationStore({
+      maxAgeMs: false,
+      maxRecords: false,
       url: `file:${resolve(dataDirectory, "console.sqlite")}`,
     }),
   })
