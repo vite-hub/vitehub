@@ -105,6 +105,29 @@ describe("ViteHub CLI", () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
   })
 
+  it("exits unsuccessfully when the process stream fails to flush", async () => {
+    const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(((
+      _chunk: string | Uint8Array,
+      callback?: (error?: Error | null) => void,
+    ) => {
+      callback?.(new Error("write failed"))
+      return false
+    }) as typeof process.stdout.write)
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr: stream(),
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    expect(stdoutWrite).toHaveBeenCalledWith("", expect.any(Function))
+  })
+
   it("exits with callback-less configured entrypoint streams", async () => {
     const stdout = stream()
     const stderr = stream()

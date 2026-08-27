@@ -235,7 +235,7 @@ function trackStream(stream: ViteHubCliStream) {
       write(chunk: string | Uint8Array) {
         const result = stream.write(chunk)
         if (result && typeof (result as PromiseLike<unknown>).then === "function") {
-          writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>>(
+          writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
             value => ({ status: "fulfilled", value }),
             reason => ({ reason, status: "rejected" }),
           ))
@@ -267,7 +267,14 @@ function trackStream(stream: ViteHubCliStream) {
 
 function processEntrypointStream(stream: NodeJS.WriteStream): ViteHubCliEntrypointStream {
   return {
-    flush: () => new Promise<void>(resolveFlush => stream.write("", () => resolveFlush())),
+    flush: () => new Promise<void>((resolveFlush, rejectFlush) => stream.write("", (error) => {
+      if (error) {
+        rejectFlush(error)
+      }
+      else {
+        resolveFlush()
+      }
+    })),
     write: chunk => stream.write(chunk),
   }
 }
