@@ -51,11 +51,11 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
   const idle = () => active.size
     ? new Promise<void>((resolve) => { settleIdle = resolve })
     : Promise.resolve()
+  // SAFETY: The proxy preserves the WorkspaceStore contract and only wraps known mutation methods.
   const fenced = new Proxy(store, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
-      if (typeof value !== "function") return value
-      if (!STORE_MUTATIONS.has(String(property))) return value.bind(target)
+      if (!STORE_MUTATIONS.has(String(property))) return value
       return (...args: unknown[]) => {
         abortSignal.throwIfAborted()
         const operation = Promise.resolve(Reflect.apply(value, target, args))
@@ -161,7 +161,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
     const affected = startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))
-    invalidateWorkspaceSourceMaterialization(definition, store, affected.map(source => source.key))
+    await invalidateWorkspaceSourceMaterialization(definition, store, affected.map(source => source.key))
     for (const source of affected) await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
@@ -171,7 +171,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     abortSignal?.throwIfAborted()
     const removedPaths = await rootBuildSourceFilePaths(store, source)
     const affected = startupSources.filter(startup => removedPaths.some(path => sourceMountIntersectsPath(startup, path)))
-    invalidateWorkspaceSourceMaterialization(definition, store, affected.map(startup => startup.key))
+    await invalidateWorkspaceSourceMaterialization(definition, store, affected.map(startup => startup.key))
     for (const startup of affected) await store.setMeta?.(sourceSnapshotMetaKey(startup.key), {})
     abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, removedPaths)

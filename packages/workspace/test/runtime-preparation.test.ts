@@ -9,7 +9,7 @@ import {
 import { resetWorkspaceRegistry, resolveRegisteredWorkspaceDefinition, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
-import type { SourceContext, WorkspaceFile, WorkspaceSourceItem, WorkspaceStore } from "../src/index.ts"
+import type { SourceContext, WorkspaceSourceItem, WorkspaceStore, WorkspaceStreamFile } from "../src/index.ts"
 
 function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<WorkspaceSourceItem[]>, store?: WorkspaceStore) {
   const name = `workspace-preparation-${crypto.randomUUID()}`
@@ -355,7 +355,7 @@ describe("Workspace runtime preparation", () => {
     await preparation.stop()
   })
 
-  it("waits for an accepted Store write before restarting preparation", async () => {
+  it("waits for an accepted native stream write before restarting preparation", async () => {
     const base = createMemoryWorkspaceStore()
     let releaseWrite!: () => void
     const writeBlocked = new Promise<void>((resolve) => { releaseWrite = resolve })
@@ -364,25 +364,25 @@ describe("Workspace runtime preparation", () => {
     let writes = 0
     const store: WorkspaceStore = new Proxy(base, {
       get(target, property, receiver) {
-        if (property !== "writeFile") {
-          const value = Reflect.get(target, property, receiver)
-          return typeof value === "function" ? value.bind(target) : value
+        if (property !== "writeFileStream") {
+          return Reflect.get(target, property, receiver)
         }
-        return async (path: string, file: WorkspaceFile) => {
+        return async (path: string, file: WorkspaceStreamFile) => {
           writes++
           if (writes === 1) {
             writeStarted()
             await writeBlocked
           }
-          await base.writeFile(path, file)
+          const content = new Uint8Array(await new Response(file.content).arrayBuffer())
+          await base.writeFile(path, { ...file, content })
+          return (await base.stat(path))!
         }
       },
     })
     let attempts = 0
-    const name = registerPreparationWorkspace(async () => [{
-      content: attempts++ === 0 ? "# Stale" : "# Fresh",
-      key: "ready.md",
-    }], store)
+    const name = registerPreparationWorkspace(async () => attempts++ === 0
+      ? [{ contentStream: new Blob(["# Stale"]).stream(), key: "ready.md" }]
+      : [{ content: "# Fresh", key: "ready.md" }], store)
     const preparation = createWorkspacePreparation({ workspace: name })
 
     const first = preparation.start()

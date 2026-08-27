@@ -711,9 +711,15 @@ function isUnchangedStartupSourcePath(
   path: string,
 ): boolean {
   const resolved = resolveWorkspacePath(resolvedDefinition, path)
-  return resolved.type === "source"
-    && resolved.materialize === "startup"
-    && resolvedDefinition.sources?.[resolved.sourceKey] === definition.sources?.[resolved.sourceKey]
+  if (resolved.type === "source") {
+    return resolved.materialize === "startup"
+      && resolvedDefinition.sources?.[resolved.sourceKey] === definition.sources?.[resolved.sourceKey]
+  }
+  return normalizeWorkspaceSources(resolvedDefinition.sources).some(source =>
+    !source.mountPath
+    && source.materialize === "startup"
+    && resolvedDefinition.sources?.[source.key] === definition.sources?.[source.key],
+  )
 }
 
 function searchQueryTargetsSource(definition: WorkspaceDefinition, query: WorkspaceSearchQuery): boolean {

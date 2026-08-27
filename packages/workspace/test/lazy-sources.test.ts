@@ -1559,6 +1559,49 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledTimes(2)
   })
 
+  it("fences pending startup materialization before build synchronization resets its mount", async () => {
+    let releaseFirst!: () => void
+    const blocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let firstStarted!: () => void
+    const started = new Promise<void>((resolve) => { firstStarted = resolve })
+    const getItem = vi.fn(async (key: string) => {
+      if (getItem.mock.calls.length === 1) {
+        firstStarted()
+        await blocked
+      }
+      return { key, content: `version ${getItem.mock.calls.length}\n` }
+    })
+    const definition = {
+      name: "startup-pending-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "docs/generated",
+          async getKeys() { return ["result.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    const materializing = view.materializeSources({ sources: ["generated"] })
+    await started
+    const synchronizing = syncWorkspaceDefinition(definition, store)
+    await expect(Promise.race([synchronizing.then(() => "synced"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseFirst()
+    await expect(materializing).rejects.toThrow("superseded")
+    await synchronizing
+
+    await expect(view.readFile("docs/generated/result.md")).resolves.toBe("version 2\n")
+    expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
   it("retries a startup Source after a failed full refresh", async () => {
     let version = 1
     let failRefresh = false
