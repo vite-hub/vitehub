@@ -40,6 +40,7 @@
     "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
+    "github-slugger": "^2.0.0",
     "remark-gfm": "catalog:",
     "remark-mdc": "catalog:",
     "remark-parse": "catalog:",

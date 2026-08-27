@@ -117,10 +117,13 @@ https://vitehub.dev/docs/bare-autolink
   });
 
   it("uses GitHub anchors for public package READMEs", () => {
-    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B", { renderer: "github" })]).toEqual([
+    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B\n\n# &#x20;a\n\n# v½\n\n# under‿score", { renderer: "github" })]).toEqual([
       "123-start",
       "--trim--",
       "a---b",
+      "-a",
+      "v",
+      "under‿score",
     ]);
 
     const repoRoot = fixture({
@@ -281,6 +284,28 @@ to: /docs/missing-card
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs/missing" does not exist'),
+    ]);
+  });
+
+  it("validates protocol-relative same-site routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Missing](//vitehub.dev/docs/missing)\n[External](//example.com/missing)",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing" does not exist'),
+    ]);
+  });
+
+  it("does not rewrite rendered index routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Missing](/docs/index)",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/index" does not exist'),
     ]);
   });
 

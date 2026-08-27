@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import GithubSlugger from "github-slugger";
 import remarkGfm from "remark-gfm";
 import remarkMdc from "remark-mdc";
 import remarkParse from "remark-parse";
@@ -89,12 +90,18 @@ function splitFrontmatter(markdown) {
 export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const anchors = new Set();
   const occurrences = new Map();
+  const githubSlugger = new GithubSlugger();
   const { body } = splitFrontmatter(markdown);
   visit(parseMarkdown(body), (node) => {
     if (node.type !== "heading") return;
+    if (renderer === "github") {
+      const anchor = githubSlugger.slug(nodeText(node));
+      if (anchor) anchors.add(anchor);
+      return;
+    }
     const rawBase = rawMarkdownSlug(nodeText(node));
     if (!rawBase) return;
-    const base = renderer === "github" ? rawBase : markdownSlug(rawBase);
+    const base = markdownSlug(rawBase);
     if (!base) return;
     let anchor = base;
     while (occurrences.has(anchor)) {
@@ -149,7 +156,7 @@ function routeFromContentPath(contentRoot, path) {
 }
 
 function normalizeRoute(route) {
-  const normalized = route.replace(/\/index$/, "").replace(/\/{2,}/g, "/");
+  const normalized = route.replace(/\/{2,}/g, "/");
   return normalized.length > 1 ? normalized.replace(/\/$/, "") : normalized;
 }
 
@@ -246,13 +253,13 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       if (/^(?:mailto:|tel:|data:|javascript:)/i.test(destination)) continue;
       let local = destination;
       let isSiteLink = false;
-      if (/^https?:\/\//i.test(destination)) {
-        const url = new URL(destination);
+      if (/^(?:https?:)?\/\//i.test(destination)) {
+        const url = new URL(destination, siteOrigin);
         if (url.origin !== siteOrigin) continue;
         local = `${url.pathname}${url.search}${url.hash}`;
         isSiteLink = true;
       }
-      if (/^[a-z][a-z\d+.-]*:/i.test(local) || local.startsWith("//")) continue;
+      if (/^[a-z][a-z\d+.-]*:/i.test(local)) continue;
 
       checked += 1;
       const { fragment, path } = splitDestination(local);
