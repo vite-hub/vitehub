@@ -55,6 +55,30 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("resolves Nuxt's configured Vite root from the Nuxt root", async () => {
+    const root = await createProject("nuxt")
+    const loadNuxt = vi.fn(async () => ({
+      options: {
+        rootDir: root,
+        vite: { root: "app" },
+      },
+    }))
+    const resolveViteConfig = vi.fn(async config => ({
+      plugins: config.plugins || [],
+      root: String(config.root),
+    }))
+
+    await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
+      plugins: [],
+      root: join(root, "app"),
+      vitehubConfigResolved: true,
+    })
+    expect(resolveViteConfig).toHaveBeenCalledWith(expect.objectContaining({
+      configFile: false,
+      root: join(root, "app"),
+    }), "serve", "development")
+  })
+
   it("keeps explicit Vite config ownership", async () => {
     const root = await createProject("vite")
     const loadNuxt = vi.fn()
