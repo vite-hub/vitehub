@@ -102,7 +102,7 @@ function rawHtmlBlockEnd(line: string) {
 }
 
 function htmlBlockContinues(end: RegExp, openingLine: string) {
-  return end.source === "^\\s*$" || !end.test(openingLine.slice(openingLine.indexOf(">") + 1));
+  return end.source === "^\\s*$" || !end.test(openingLine);
 }
 
 function isEscaped(source: string, index: number) {
@@ -112,8 +112,11 @@ function isEscaped(source: string, index: number) {
 }
 
 function rewriteInlineLinks(source: string) {
-  let output = "";
+  let protectedSource = "";
   let offset = 0;
+  const codeSpans: string[] = [];
+  let placeholderPrefix = "__VITEHUB_RAW_CODE_SPAN_";
+  while (source.includes(placeholderPrefix)) placeholderPrefix += "_";
 
   for (const opening of source.matchAll(/`+/g)) {
     const openingIndex = opening.index;
@@ -126,12 +129,17 @@ function rewriteInlineLinks(source: string) {
     while (closing && isEscaped(source, closing.index)) closing = closingPattern.exec(source);
     if (!closing) continue;
 
-    output += rewriteMarkdownLinks(source.slice(offset, openingIndex));
-    output += source.slice(openingIndex, closing.index + marker.length);
+    protectedSource += source.slice(offset, openingIndex);
+    const index = codeSpans.push(source.slice(openingIndex, closing.index + marker.length)) - 1;
+    protectedSource += `${placeholderPrefix}${index}__`;
     offset = closing.index + marker.length;
   }
 
-  return output + rewriteMarkdownLinks(source.slice(offset));
+  protectedSource += source.slice(offset);
+  return rewriteMarkdownLinks(protectedSource).replace(
+    new RegExp(`${placeholderPrefix}(\\d+)__`, "g"),
+    (_match, index: string) => codeSpans[Number(index)]!,
+  );
 }
 
 function rewriteLinks(source: string) {
@@ -275,11 +283,15 @@ function cardListsOutsideFences(source: string) {
   let outsideFence = "";
   let fence: Fence | null = null;
   let htmlEnd: RegExp | null = null;
+  const directives: boolean[] = [];
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
     const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
-    const parsedFence = fenceRun(line);
+    const structuralDepth = directives.filter(Boolean).length;
+    const structuralIndent = Math.min(indentationColumns(line), structuralDepth * 2);
+    const deindented = removeIndentation(line, structuralIndent);
+    const parsedFence = fenceRun(deindented);
 
     if (htmlEnd) {
       output.push(lineWithEnding);
@@ -309,23 +321,44 @@ function cardListsOutsideFences(source: string) {
 
     if (fence) {
       if (
-        leadingQuoteDepth(line) < fence.quoteDepth
-        || (fence.listIndent !== null && line.trim() && indentationOutsideQuotes(line) < fence.listIndent)
+        leadingQuoteDepth(deindented) < fence.quoteDepth
+        || (fence.listIndent !== null && deindented.trim() && indentationOutsideQuotes(deindented) < fence.listIndent)
       ) {
         fence = null;
       } else {
         output.push(lineWithEnding);
-        if (closesFence(line, fence)) fence = null;
+        if (closesFence(deindented, fence)) fence = null;
         continue;
       }
     }
 
     outsideFence += lineWithEnding;
+
+    if (/^\s*:{2,}\s*$/.test(deindented)) {
+      directives.pop();
+      continue;
+    }
+
+    const directive = deindented.match(/^\s*:{2,}([a-z][a-z0-9-]*)(?:\{[^}]*\})?\s*$/i);
+    if (directive) directives.push(presentationDirectives.has((directive[1] || "").toLowerCase()));
   }
 
   output.push(cardList(outsideFence));
   return output.join("");
 }
+
+const presentationDirectives = new Set([
+  "component-preview",
+  "important",
+  "note",
+  "steps",
+  "tabs",
+  "tabs-item",
+  "tip",
+  "u-page-card",
+  "u-page-grid",
+  "warning",
+]);
 
 function directiveLabel(name: string, attributes: string | undefined) {
   if (["note", "tip", "warning", "important"].includes(name)) {
@@ -349,19 +382,6 @@ function stripPresentationDirectives(source: string) {
   const directives: boolean[] = [];
   let fence: (Fence & { indent: number }) | null = null;
   let htmlEnd: RegExp | null = null;
-  const presentationDirectives = new Set([
-    "component-preview",
-    "important",
-    "note",
-    "steps",
-    "tabs",
-    "tabs-item",
-    "tip",
-    "u-page-card",
-    "u-page-grid",
-    "warning",
-  ]);
-
   for (const originalLine of source.split("\n")) {
     const leadingColumns = indentationColumns(originalLine);
     const structuralDepth = directives.filter(Boolean).length;

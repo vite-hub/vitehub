@@ -153,6 +153,7 @@ describe("writeDocsArtifacts", () => {
         "::",
         "",
         "[Rendered link](/docs/rendered) and `[literal link](/docs/literal)`.",
+        "[`skills()`](/docs/capabilities/skills) and [before `code` after](/docs/code-label).",
         "\\[escaped link](/docs/escaped-link) and \\![rendered link](/docs/escaped-image).",
         "Escaped \\` delimiter and [rendered link](/docs/escaped) \\` stay outside code.",
         "`multiline literal",
@@ -256,6 +257,14 @@ describe("writeDocsArtifacts", () => {
         "::warning",
         "[raw comment link](/docs/raw-comment)",
         "-->",
+        "<!-- closed -->",
+        "[rendered after one-line comment](/docs/after-one-line-comment)",
+        "<?closed?>",
+        "[rendered after processing instruction](/docs/after-processing-instruction)",
+        "<!DOCTYPE html>",
+        "[rendered after declaration](/docs/after-declaration)",
+        "<![CDATA[closed]]>",
+        "[rendered after CDATA](/docs/after-cdata)",
         "",
         "> ~~~md",
         "> [blockquote literal](/docs/blockquote-literal)",
@@ -311,6 +320,7 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("    ::warning\n    This nested indented code block remains literal.\n    ::");
       expect(raw).toContain("\t  ::important\n\t  This mixed-indentation code block remains literal.\n\t  ::");
       expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
+      expect(raw).toContain("[`skills()`](https://vitehub.dev/docs/capabilities/skills) and [before `code` after](https://vitehub.dev/docs/code-label).");
       expect(raw).toContain("\\[escaped link](/docs/escaped-link) and \\![rendered link](https://vitehub.dev/docs/escaped-image).");
       expect(raw).toContain("Escaped \\` delimiter and [rendered link](https://vitehub.dev/docs/escaped) \\` stay outside code.");
       expect(raw).toContain("`multiline literal\n[link](/docs/multiline)` and [rendered link](https://vitehub.dev/docs/after-code).");
@@ -380,6 +390,10 @@ describe("writeDocsArtifacts", () => {
       ].join("\n"));
       expect(raw).toContain("<div>\n::warning\nRaw block tag directive remains literal.\n::\n[raw block tag link](/docs/raw-block-tag)\n</div>");
       expect(raw).toContain("<!--\n::warning\n[raw comment link](/docs/raw-comment)\n-->");
+      expect(raw).toContain("<!-- closed -->\n[rendered after one-line comment](https://vitehub.dev/docs/after-one-line-comment)");
+      expect(raw).toContain("<?closed?>\n[rendered after processing instruction](https://vitehub.dev/docs/after-processing-instruction)");
+      expect(raw).toContain("<!DOCTYPE html>\n[rendered after declaration](https://vitehub.dev/docs/after-declaration)");
+      expect(raw).toContain("<![CDATA[closed]]>\n[rendered after CDATA](https://vitehub.dev/docs/after-cdata)");
       expect(raw).toContain("> ~~~md\n> [blockquote literal](/docs/blockquote-literal)\n> ~~~");
       expect(raw).toContain("- > ```md\n  > [list blockquote literal](/docs/list-blockquote-literal)\n  > ```");
       expect(raw).toContain("> ```md\n> [unclosed blockquote literal](/docs/unclosed-blockquote-literal)");
