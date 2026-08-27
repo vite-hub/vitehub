@@ -231,6 +231,16 @@ describe("Agent message metadata", () => {
     expect(parses).toBe(1)
   })
 
+  it("does not emit parsed metadata state when no schema is configured", () => {
+    const agent = defineAgent({ driver: { run: () => "ok" } })
+    const input = createChatMessageTriggerInput({}, {
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      user: { id: "chat:user-1" },
+    }).input
+
+    expect(parsedAgentMessageMetaState(agent, input)).toBeUndefined()
+  })
+
   it("revalidates durable metadata when the schema receipt is no longer current", async () => {
     const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
     const prepared = await withParsedAgentMessageMeta(previousAgent, { context: { channel: { meta: { audience: "technical" } } } })

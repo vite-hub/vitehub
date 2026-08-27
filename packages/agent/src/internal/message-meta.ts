@@ -60,7 +60,7 @@ export function parsedAgentMessageMetaState<TRuntimeConfig extends AgentRuntimeC
 ): ParsedAgentMessageMetaState | undefined {
   const invocationContext = createAgentInvocationContextStore(input.context)
   const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
-  if (input.context?.[parsedAgentMessageMetaContextKey] !== receipt) return
+  if (!receipt || input.context?.[parsedAgentMessageMetaContextKey] !== receipt) return
   return {
     ...(hasDerivedChatTriggerInvoker(invocationContext.get("invoker")) ? { derivedInvoker: true } : {}),
     ...(receipt?.revision !== undefined ? { revision: receipt.revision } : {}),
