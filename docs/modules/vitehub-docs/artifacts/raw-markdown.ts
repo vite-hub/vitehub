@@ -5,26 +5,33 @@ type Frontmatter = Record<string, string>;
 
 type Fence = {
   length: number;
+  listIndent: number | null;
   marker: string;
   quoteDepth: number;
 };
 
 function fenceRun(line: string) {
   let rest = line;
+  let consumed = "";
+  let listIndent: number | null = null;
   let quoteDepth = 0;
 
   while (true) {
     const container = rest.match(/^[ \t]*(?:(>)|(?:[-+*]|\d+[.)])[ \t]+)/);
     if (!container) break;
     if (container[1]) quoteDepth += 1;
+    else listIndent = indentationColumns((consumed + container[0]).replace(/[^ \t]/g, " "));
+    consumed += container[0];
     rest = rest.slice(container[0].length);
   }
 
-  const match = rest.match(/^[ \t]*(```+|~~~+)/);
+  const match = rest.match(/^([ \t]*)(```+|~~~+)/);
+  if (!match || indentationColumns(match[1]!) > 3) return null;
   return match ? {
+    listIndent,
     quoteDepth,
     rest: rest.slice(match[0].length),
-    run: match[1]!,
+    run: match[2]!,
   } : null;
 }
 
@@ -33,11 +40,16 @@ function closesFence(line: string, fence: Fence) {
   return parsed?.quoteDepth === fence.quoteDepth
     && parsed.run[0] === fence.marker
     && parsed.run.length >= fence.length
-    && !parsed.rest.trim();
+    && /^[ \t]*$/.test(parsed.rest);
 }
 
 function leadingQuoteDepth(line: string) {
   return (line.match(/^[ \t]*(?:>[ \t]*)+/)?.[0].match(/>/g) || []).length;
+}
+
+function indentationOutsideQuotes(line: string) {
+  const prefix = line.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] || "";
+  return indentationColumns(prefix.replace(/>[ \t]?/g, "") + line.slice(prefix.length));
 }
 
 function splitFrontmatter(source: string): { body: string, frontmatter: Frontmatter } {
@@ -70,9 +82,16 @@ function absoluteUrl(value: string) {
 }
 
 function rewriteMarkdownLinks(line: string) {
-  return line.replace(/(!?\[[^\]]*\]\()([^\s)]+)([^)]*\))/g, (_match, opening: string, target: string, closing: string) => {
+  return line.replace(/(!?\[[^\]]*\]\()([^\s)]+)([^)]*\))/g, (_match, opening: string, target: string, closing: string, offset: number) => {
+    const bracketOffset = offset + (opening.startsWith("!") ? 1 : 0);
+    if (isEscaped(line, bracketOffset) || (opening.startsWith("!") && isEscaped(line, offset))) return _match;
     return `${opening}${absoluteUrl(target)}${closing}`;
   });
+}
+
+function rawHtmlBlockEnd(line: string) {
+  const match = line.match(/^[ \t]{0,3}<(pre|script|style|textarea)(?:[ \t>]|$)/i);
+  return match ? new RegExp(`</${match[1]}>`, "i") : null;
 }
 
 function isEscaped(source: string, index: number) {
@@ -108,6 +127,7 @@ function rewriteLinks(source: string) {
   const output: string[] = [];
   let outsideFence = "";
   let fence: Fence | null = null;
+  let htmlEnd: RegExp | null = null;
   let listIndent: number | null = null;
   let listQuotePrefix = "";
   const protectedLines: string[] = [];
@@ -121,11 +141,26 @@ function rewriteLinks(source: string) {
     const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
     const parsedFence = fenceRun(line);
 
+    if (htmlEnd) {
+      output.push(lineWithEnding);
+      if (htmlEnd.test(line)) htmlEnd = null;
+      continue;
+    }
+
+    const nextHtmlEnd = rawHtmlBlockEnd(line);
+    if (!fence && nextHtmlEnd) {
+      output.push(rewriteOutside(), lineWithEnding);
+      outsideFence = "";
+      if (!nextHtmlEnd.test(line.slice(line.indexOf(">") + 1))) htmlEnd = nextHtmlEnd;
+      continue;
+    }
+
     if (!fence && parsedFence) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
       fence = {
         length: parsedFence.run.length,
+        listIndent: parsedFence.listIndent,
         marker: parsedFence.run[0]!,
         quoteDepth: parsedFence.quoteDepth,
       };
@@ -133,7 +168,10 @@ function rewriteLinks(source: string) {
     }
 
     if (fence) {
-      if (leadingQuoteDepth(line) < fence.quoteDepth) {
+      if (
+        leadingQuoteDepth(line) < fence.quoteDepth
+        || (fence.listIndent !== null && line.trim() && indentationOutsideQuotes(line) < fence.listIndent)
+      ) {
         fence = null;
       } else {
         output.push(lineWithEnding);
@@ -236,6 +274,7 @@ function cardListsOutsideFences(source: string) {
       outsideFence = "";
       fence = {
         length: parsedFence.run.length,
+        listIndent: parsedFence.listIndent,
         marker: parsedFence.run[0]!,
         quoteDepth: parsedFence.quoteDepth,
       };
@@ -243,7 +282,10 @@ function cardListsOutsideFences(source: string) {
     }
 
     if (fence) {
-      if (leadingQuoteDepth(line) < fence.quoteDepth) {
+      if (
+        leadingQuoteDepth(line) < fence.quoteDepth
+        || (fence.listIndent !== null && line.trim() && indentationOutsideQuotes(line) < fence.listIndent)
+      ) {
         fence = null;
       } else {
         output.push(lineWithEnding);
@@ -299,7 +341,13 @@ function stripPresentationDirectives(source: string) {
     const structuralIndent: number = fence?.indent ?? Math.min(leadingColumns, structuralDepth * 2);
     const deindented = removeIndentation(originalLine, structuralIndent);
 
-    if (fence && leadingQuoteDepth(deindented) < fence.quoteDepth) fence = null;
+    if (
+      fence
+      && (
+        leadingQuoteDepth(deindented) < fence.quoteDepth
+        || (fence.listIndent !== null && deindented.trim() && indentationOutsideQuotes(deindented) < fence.listIndent)
+      )
+    ) fence = null;
 
     if (!fence && leadingColumns >= structuralDepth * 2 + 4) {
       output.push(deindented);
@@ -312,6 +360,7 @@ function stripPresentationDirectives(source: string) {
         fence = {
           indent: structuralIndent,
           length: parsedFence.run.length,
+          listIndent: parsedFence.listIndent,
           marker: parsedFence.run[0]!,
           quoteDepth: parsedFence.quoteDepth,
         };

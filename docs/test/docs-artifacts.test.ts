@@ -153,6 +153,7 @@ describe("writeDocsArtifacts", () => {
         "::",
         "",
         "[Rendered link](/docs/rendered) and `[literal link](/docs/literal)`.",
+        "\\[escaped link](/docs/escaped-link) and \\![escaped image](/docs/escaped-image).",
         "Escaped \\` delimiter and [rendered link](/docs/escaped) \\` stay outside code.",
         "`multiline literal",
         "[link](/docs/multiline)` and [rendered link](/docs/after-code).",
@@ -211,6 +212,28 @@ describe("writeDocsArtifacts", () => {
         "  ::",
         "  ```",
         "",
+        "- ```md",
+        "  [unclosed list literal](/docs/unclosed-list-literal)",
+        "",
+        "[rendered after unclosed list fence](/docs/after-unclosed-list-fence)",
+        "",
+        "    ```md",
+        "    [code-indented fence literal](/docs/code-indented-fence)",
+        "",
+        "[rendered after code-indented fence](/docs/after-code-indented-fence)",
+        "",
+        "```md",
+        "```\u00a0",
+        "::warning",
+        "This Unicode-suffixed marker remains literal.",
+        "::",
+        "```",
+        "",
+        "<pre>",
+        "[raw HTML literal](/docs/raw-html-literal)",
+        "</pre>",
+        "[rendered after raw HTML](https://vitehub.dev/docs/already-absolute)",
+        "",
         "> ~~~md",
         "> [blockquote literal](/docs/blockquote-literal)",
         "> ~~~",
@@ -254,6 +277,7 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("    ::warning\n    This nested indented code block remains literal.\n    ::");
       expect(raw).toContain("\t  ::important\n\t  This mixed-indentation code block remains literal.\n\t  ::");
       expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
+      expect(raw).toContain("\\[escaped link](/docs/escaped-link) and \\![escaped image](/docs/escaped-image).");
       expect(raw).toContain("Escaped \\` delimiter and [rendered link](https://vitehub.dev/docs/escaped) \\` stay outside code.");
       expect(raw).toContain("`multiline literal\n[link](/docs/multiline)` and [rendered link](https://vitehub.dev/docs/after-code).");
       expect(raw).toContain("Unmatched ````` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](https://vitehub.dev/docs/outside-span).");
@@ -299,6 +323,12 @@ describe("writeDocsArtifacts", () => {
         "  ::",
         "  ```",
       ].join("\n"));
+      expect(raw).toContain("- ```md\n  [unclosed list literal](/docs/unclosed-list-literal)");
+      expect(raw).toContain("[rendered after unclosed list fence](https://vitehub.dev/docs/after-unclosed-list-fence)");
+      expect(raw).toContain("    ```md\n    [code-indented fence literal](/docs/code-indented-fence)");
+      expect(raw).toContain("[rendered after code-indented fence](https://vitehub.dev/docs/after-code-indented-fence)");
+      expect(raw).toContain("```md\n```\u00a0\n::warning\nThis Unicode-suffixed marker remains literal.\n::\n```");
+      expect(raw).toContain("<pre>\n[raw HTML literal](/docs/raw-html-literal)\n</pre>");
       expect(raw).toContain("> ~~~md\n> [blockquote literal](/docs/blockquote-literal)\n> ~~~");
       expect(raw).toContain("- > ```md\n  > [list blockquote literal](/docs/list-blockquote-literal)\n  > ```");
       expect(raw).toContain("> ```md\n> [unclosed blockquote literal](/docs/unclosed-blockquote-literal)");
