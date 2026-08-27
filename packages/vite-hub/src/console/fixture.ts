@@ -241,6 +241,12 @@ function invocationId(value: unknown, path: string): string {
   if (id === "." || id === "..") {
     throw new TypeError(`[vitehub] Console fixture ${path} must not be a dot segment.`)
   }
+  try {
+    encodeURIComponent(id)
+  }
+  catch {
+    throw new TypeError(`[vitehub] Console fixture ${path} must contain well-formed Unicode.`)
+  }
   return id
 }
 
