@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { once } from "node:events"
-import { createServer as createPortServer } from "node:net"
+import { type AddressInfo, createServer as createPortServer } from "node:net"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -29,8 +29,9 @@ async function availablePort() {
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
 
-  const address = server.address()
-  if (!address || typeof address === "string") throw new Error("Could not allocate an Agent example test port")
+  // SAFETY: A TCP listener bound to an IP address returns AddressInfo rather than a Unix socket path.
+  const address = server.address() as AddressInfo | null
+  if (!address) throw new Error("Could not allocate an Agent example test port")
 
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
   return address.port
