@@ -189,7 +189,12 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   }
   const error =
     input.error === undefined ? undefined : diagnosticError(input.error, `${path}.error`)
-  const cursor = v.safeParse(stringSchema, input.cursor)
+  const cursor = input.cursor === undefined
+    ? undefined
+    : v.safeParse(stringSchema, input.cursor)
+  if (cursor && !cursor.success) {
+    throw new TypeError(`[vitehub] Console fixture ${path}.cursor must be a string.`)
+  }
   const observationSequences = new Set<number>()
   const observations = input.observations.map((entry, observationIndex) => {
     const parsed = observation(entry, `${path}.observations[${observationIndex}]`)
@@ -209,7 +214,7 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     channelId: optionalString(input.channelId, `${path}.channelId`),
     completedAt: optionalTimestamp(input.completedAt, `${path}.completedAt`),
     createdAt: timestamp(input.createdAt, `${path}.createdAt`),
-    cursor: cursor.success ? cursor.output : String(index + 1),
+    cursor: cursor?.output ?? String(index + 1),
     ...(error ? { error } : {}),
     failedAt: optionalTimestamp(input.failedAt, `${path}.failedAt`),
     id: requiredString(input.id, `${path}.id`),

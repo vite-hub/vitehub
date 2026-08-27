@@ -135,6 +135,22 @@ describe("Console fixture CLI", () => {
     expect(fixture.invocations[0]?.agentName).toBe("support")
   })
 
+  it("rejects non-string fixture cursors", () => {
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        agentName: "support",
+        createdAt: "2026-08-27T00:00:00.000Z",
+        cursor: 42,
+        id: "fixture-invocation",
+        observations: [],
+        status: "completed",
+        traceId: "fixture-trace",
+        updatedAt: "2026-08-27T00:00:00.000Z",
+      }],
+      version: 1,
+    })).toThrow("Console fixture invocations[0].cursor must be a string")
+  })
+
   it("rejects fixture Agent names that the Console API cannot select", () => {
     expect(() => parseConsoleFixture({
       invocations: [
