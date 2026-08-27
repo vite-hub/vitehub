@@ -548,6 +548,18 @@ describe("workspace public API", () => {
     await expect(workspace.fs.stat("missing.md" as never)).rejects.toThrow("Workspace file does not exist: missing.md")
   })
 
+  it("exposes Store metadata through the read-only facade", async () => {
+    registerWorkspace("metadata", defineWorkspace({
+      store: { provider: "memory" },
+    }))
+    const writable = useWorkspace("metadata", { mode: "write" })
+    await writable.setMeta?.("snapshot", { status: "ready" })
+
+    const readonly = useWorkspace("metadata")
+
+    await expect(readonly.getMeta?.("snapshot")).resolves.toEqual({ status: "ready" })
+  })
+
   it("merges bundled assets with lazy runtime sources in the read-only facade", async () => {
     setWorkspaceRuntimeAssetsRegistry({
       docs: createWorkspaceAssets({

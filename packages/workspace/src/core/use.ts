@@ -518,7 +518,8 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     } as WritableWorkspaceFacade<Name> & WorkspaceStoreTargetCarrier
   }
 
-  const fs = createReadonlyFs(name, createLazyWorkspace(name, options?.definition))
+  const workspace = createLazyWorkspace(name, options?.definition)
+  const fs = createReadonlyFs(name, workspace)
   const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: opts?.broadSearchPaths,
     cwd: opts?.cwd,
@@ -535,6 +536,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
   tools.none = emptyTools
   return {
     fs,
+    getMeta: async key => await workspace.getMeta?.(key),
     tools,
   }
 }
