@@ -3785,7 +3785,14 @@ function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
     const properties = definedObjectProperties(value)
     if (!value || !hasRuntimeType(value, "object")) return properties
     for (let source: object | null = value; source && source !== Object.prototype; source = Object.getPrototypeOf(source)) {
-      for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(source))) {
+      let descriptors: PropertyDescriptorMap
+      try {
+        descriptors = Object.getOwnPropertyDescriptors(source)
+      }
+      catch {
+        continue
+      }
+      for (const [key, descriptor] of Object.entries(descriptors)) {
         if (key === "constructor" || properties[key] !== undefined) continue
         if (!("get" in descriptor) && !(descriptor.enumerable && "value" in descriptor)) continue
         try {
@@ -3877,6 +3884,8 @@ async function resultWithStreamedTextAndUsage(
       ? {
           ...canonicalUsage,
           ...(normalizedUsage?.details ? { details: normalizedUsage.details } : {}),
+          ...(normalizedUsage?.inputTokenDetails ? { inputTokenDetails: normalizedUsage.inputTokenDetails } : {}),
+          ...(normalizedUsage?.outputTokenDetails ? { outputTokenDetails: normalizedUsage.outputTokenDetails } : {}),
           ...(normalizedUsage?.raw !== undefined ? { raw: normalizedUsage.raw } : {}),
         }
       : undefined

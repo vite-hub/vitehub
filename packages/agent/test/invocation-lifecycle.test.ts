@@ -651,6 +651,28 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("preserves accessor-backed token details from top-level raw usage", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class InputTokenDetails {
+      get cachedTokens() {
+        return 2
+      }
+    }
+    const raw = Object.assign((async function* () {})(), {
+      usage: { inputTokenDetails: new InputTokenDetails() },
+    })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { usage: { inputTokenDetails: { cachedTokens: 2 } } },
+    })
+  })
+
   it("merges raw stream run annotations", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -740,9 +762,14 @@ describe("Agent Invocation Interface lifecycle", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const error = vi.fn()
-    const target = (async function* () {
+    const generator = (async function* () {
       yield { text: "hello", type: "text-delta" }
     })()
+    const target = {
+      [Symbol.asyncIterator]() {
+        return generator
+      },
+    }
     const unreadableMetadata = new Set<PropertyKey>([
       "artifacts",
       "finishReason",
@@ -775,6 +802,25 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(error).not.toHaveBeenCalled()
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "hello" } })
+  })
+
+  it("skips throwing nested descriptor enumeration while finalizing raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const details = new Proxy({}, {
+      ownKeys() {
+        throw new Error("unreadable usage descriptors")
+      },
+    })
+    const raw = Object.assign((async function* () {})(), { usage: { details, totalTokens: 2 } })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0]).toMatchObject({ result: { usage: { totalTokens: 2 } } })
   })
 
   it("preserves inherited usage-record metadata on raw streams", async () => {
