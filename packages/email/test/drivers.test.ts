@@ -31,7 +31,7 @@ describe("Resend Email driver", () => {
     expect(() => resend({ apiKey: "re_secret\n" })).toThrow("apiKey contains an invalid HTTP header character")
   })
 
-  it.each(["", "not a url", "ftp://api.resend.com"])("rejects an invalid endpoint during configuration", (endpoint) => {
+  it.each(["", "not a url", "ftp://api.resend.com", "https://api.resend.com?token=secret", "https://api.resend.com#proxy"])("rejects an invalid endpoint during configuration", (endpoint) => {
     expect(() => resend({ apiKey: "re_secret", endpoint })).toThrow("endpoint must be a valid HTTP or HTTPS URL")
   })
 
@@ -174,6 +174,15 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it("rejects stream selection before fetch", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send(message, { ...context, stream: "transactional" }))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it.each([
     { react: {} },
     { jsx: {} },
@@ -256,6 +265,17 @@ describe("Resend Email driver", () => {
 })
 
 describe("Cloudflare Email driver", () => {
+  it("rejects stream selection before delivery", async () => {
+    const send = vi.fn()
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
+
+    await expect(driver.send(message, { ...context, stream: "transactional" }))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
+    expect(Constructor).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it("rejects multiple personalizations before delivery", async () => {
     const send = vi.fn()
     const Constructor = vi.fn()

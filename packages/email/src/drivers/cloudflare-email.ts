@@ -127,6 +127,9 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
     name: "cloudflare-email",
     async send(message, context) {
       try {
+        if (message.stream !== undefined || context.stream !== undefined) {
+          return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support stream selection.") }
+        }
         const unsupportedOption = (["tracking", "amp", "dsn", "preheader", "locale", "tags", "metadata"] as const)
           .find(option => message[option] !== undefined)
         if (unsupportedOption) {

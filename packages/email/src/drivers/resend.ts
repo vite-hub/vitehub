@@ -79,6 +79,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   try {
     const url = new URL(options.endpoint ?? "https://api.resend.com")
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new TypeError("Unsupported protocol")
+    if (url.search || url.hash) throw new TypeError("Unsupported URL components")
     endpoint = url.href.replace(/\/$/, "")
   }
   catch (cause) {
@@ -87,6 +88,9 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   return {
     name: "resend",
     async send(message, context) {
+      if (message.stream !== undefined || context.stream !== undefined) {
+        return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support stream selection.") }
+      }
       const unsupportedOption = (["tracking", "amp", "dsn", "preheader", "locale"] as const)
         .find(option => message[option] !== undefined)
       if (unsupportedOption) {
