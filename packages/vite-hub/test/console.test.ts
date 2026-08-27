@@ -814,6 +814,21 @@ describe("Agent invocation console", () => {
     await expect(createConsoleInvocations(process.cwd()).list()).resolves.toMatchObject({ invocations: [] })
   })
 
+  it("recognizes percent-encoded in-memory Console database URLs", () => {
+    const databaseUrl = "file:%3Amemory%3A?cache=shared"
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+
+    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({ url: databaseUrl })
+  })
+
+  it("resolves Console database paths that begin with the in-memory name", () => {
+    const projectRoot = join(tmpdir(), "vitehub-console-memory-prefix-project")
+    const databasePath = join(projectRoot, ":memory:backup.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file::memory:backup.sqlite")
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: pathToFileURL(databasePath).href })
+  })
+
   it("configures the Console database authentication token", () => {
     vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "libsql://console.example.com")
     vi.stubEnv("VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN", "console-token")
