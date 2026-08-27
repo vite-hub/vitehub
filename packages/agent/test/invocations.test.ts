@@ -1753,6 +1753,8 @@ describe("Agent Invocations", () => {
       expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAgeMs: value })).toThrow("maxAgeMs")
       expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxRecords: value })).toThrow("maxRecords")
     }
+    expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAgeMs: Number.MAX_SAFE_INTEGER })).toThrow("maxAgeMs")
+    expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxRecords: Number.MAX_SAFE_INTEGER })).not.toThrow()
 
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-unbounded-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })

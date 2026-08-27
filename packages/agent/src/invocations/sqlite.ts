@@ -24,6 +24,7 @@ export interface LibsqlAgentInvocationStoreOptions {
 
 const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
+const maximumDateMs = 8_640_000_000_000_000
 const searchBackfillPageSize = 100
 const searchVersion = 2
 const terminalStatuses = ["completed", "failed", "cancelled"] as const
@@ -101,10 +102,10 @@ function searchValue(search: string | undefined): string | undefined {
   return value || undefined
 }
 
-function retentionValue(value: false | number | undefined, fallback: number, name: string): false | number {
+function retentionValue(value: false | number | undefined, fallback: number, name: string, maximum = Number.MAX_SAFE_INTEGER): false | number {
   if (value === false) return false
   if (value === undefined) return fallback
-  if (!Number.isSafeInteger(value) || value < 1) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
     throw new TypeError(`[vitehub] SQLite Agent Invocation ${name} must be a positive safe integer or false.`)
   }
   return value
@@ -119,7 +120,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     url: options.url!,
   })
   const table = tableName(options.tablePrefix)
-  const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs")
+  const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs)
   const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
   let writes = Promise.resolve()
