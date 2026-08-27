@@ -52,6 +52,7 @@ import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
+import { withParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import {
   isRuntimeBigInt,
   isRuntimeBoolean,
@@ -4545,7 +4546,11 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
-    const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
+    const authorizationInput = await withParsedAgentMessageMeta(
+      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+      createChatMessageTriggerInput(options || {}, input).input,
+      input.run,
+    )
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) {
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
@@ -6472,7 +6477,11 @@ export function createChannelChatRouteHandler(
         resumableClaim = claim
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
-      const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
+      const invokerInput = await withParsedAgentMessageMeta(
+        agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+        createChatMessageTriggerInput(chatOptions, triggerInput).input,
+        triggerInput.run,
+      )
       const invoker = await resolveAgentInvoker(
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,

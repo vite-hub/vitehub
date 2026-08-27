@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, runAgentInline } from "../src/index.ts"
+import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 
 const metaSchema = {
   "~standard": {
@@ -26,6 +27,13 @@ function runtime(run?: { channelId?: string, runId: string }) {
 }
 
 describe("Agent message metadata", () => {
+  it("allows Channel-local metadata schemas with multiple message Channels", () => {
+    expect(() => resolveAgentChannelChatOptions({
+      support: { kind: "support", messages: { meta: metaSchema } },
+      technical: { kind: "technical", messages: {} },
+    }, undefined)).not.toThrow()
+  })
+
   it("validates and transforms shared channel and chat metadata before the driver runs", async () => {
     let observed: unknown
     const agent = defineAgent({
