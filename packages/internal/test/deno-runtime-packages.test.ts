@@ -73,6 +73,8 @@ import "real"
   it("finds imports after division by masked literals", () => {
     expect(collectDenoRuntimePackageNames('const ratio="1"/2;import("real-package")')).toEqual(["real-package"])
     expect(collectDenoRuntimePackageNames('const ratio=/1//2;import("real-package")')).toEqual(["real-package"])
+    expect(collectDenoRuntimePackageNames('const ratio=i++/2;import("real-package")')).toEqual(["real-package"])
+    expect(collectDenoRuntimePackageNames('const ratio=i--/2;import("real-package")')).toEqual(["real-package"])
   })
 
   it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
@@ -118,6 +120,20 @@ import "real"
     await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
       'unsupported computed local import "./helper.ts"',
     )
+  })
+
+  it("rejects computed local imports in relocated Schedule bundles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-schedule-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'await import(new URL("./helper.ts", import.meta.url).href)\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+      'Deno Schedule bundle contains an unsupported computed local import "./helper.ts"',
+    )
+    expect(existsSync(join(root, ".output/schedule/deno-cron.mjs"))).toBe(false)
   })
 
   it("rejects computed application imports through an intermediate base", async () => {

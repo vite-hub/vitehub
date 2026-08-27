@@ -197,6 +197,7 @@ function maskInertImportText(source: string): string {
 function canStartRegexLiteral(output: string): boolean {
   const prefix = output.trimEnd()
   if (!prefix) return true
+  if (prefix.endsWith("++") || prefix.endsWith("--")) return false
   if ("([{,:;=!?&|~%^<>*+-".includes(prefix.at(-1)!)) return true
   if (endsWithDeclaration(prefix)) return true
   if (/\b(?:if|for|while|with)\s*\([^;{}]*\)\s*(?:\{[^{}]*\})?$/.test(prefix)) return true
@@ -414,18 +415,18 @@ async function readRuntimePackages(runtimeDirs: string[], rootDir: string): Prom
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function assertSupportedApplicationEntryImports(source: string): void {
+function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
   const executableSource = maskInertImportText(source)
   for (const match of executableSource.matchAll(/new URL\(\s*["'](\.[^"']*)["']\s*,\s*import\.meta\.url\s*\)/g)) {
     const specifier = match[1]!
-    if (specifier === "./schedule/deno-cron.mjs" || specifier === "./server/index.mjs") continue
-    throw new Error(`Deno application entrypoint contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
+    if (allowedLocalImports.includes(specifier)) continue
+    throw new Error(`Deno ${outputName} contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
   }
   const remaining = executableSource
-    .replaceAll(/import\s*\(\s*new URL\(\s*["']\.\/(?:schedule\/deno-cron\.mjs|server\/index\.mjs)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, "")
+    .replaceAll(/import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, specifier: string) => allowedLocalImports.includes(specifier) ? "" : expression)
     .replaceAll(/import\s*\(\s*["'][^"']*["']\s*\)/g, "")
   if (/\bimport\s*\(/.test(remaining)) {
-    throw new Error("Deno application entrypoint contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.")
+    throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
   }
 }
 
@@ -529,15 +530,24 @@ export async function finalizeDenoDeploymentOutput(
     hasSchedule = true
     await access(applicationEntrySource)
     await mkdir(join(outputDir, "schedule"), { recursive: true })
-    await bundleEsmEntry(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"), {
-      external: [...builtinModuleNames],
-      alias: options.alias,
-      format: "esm",
-      packages: "external",
-      platform: "neutral",
-      rootDir: options.rootDir,
-      workingDir: options.rootDir,
-    })
+    const scheduleOutput = join(outputDir, "schedule", "deno-cron.mjs")
+    const temporaryScheduleOutput = `${scheduleOutput}.vitehub-tmp`
+    try {
+      await bundleEsmEntry(scheduleSource, temporaryScheduleOutput, {
+        external: [...builtinModuleNames],
+        alias: options.alias,
+        format: "esm",
+        packages: "external",
+        platform: "neutral",
+        rootDir: options.rootDir,
+        workingDir: options.rootDir,
+      })
+      assertSupportedRelocatedImports(await readFile(temporaryScheduleOutput, "utf8"), "Schedule bundle")
+      await rename(temporaryScheduleOutput, scheduleOutput)
+    }
+    finally {
+      await rm(temporaryScheduleOutput, { force: true })
+    }
     const applicationOutput = join(outputDir, "main.ts")
     const temporaryApplicationOutput = `${applicationOutput}.vitehub-tmp`
     try {
@@ -550,7 +560,11 @@ export async function finalizeDenoDeploymentOutput(
         rootDir: options.rootDir,
         workingDir: options.rootDir,
       })
-      assertSupportedApplicationEntryImports(await readFile(temporaryApplicationOutput, "utf8"))
+      assertSupportedRelocatedImports(
+        await readFile(temporaryApplicationOutput, "utf8"),
+        "application entrypoint",
+        ["./schedule/deno-cron.mjs", "./server/index.mjs"],
+      )
       await rename(temporaryApplicationOutput, applicationOutput)
     }
     finally {
