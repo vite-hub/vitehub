@@ -270,8 +270,15 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
   })
 
-  it("externalizes package dependencies and embeds a preparation plan", async () => {
+  it("bundles package dependencies for a Definition without a preparation plan", async () => {
     const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "node_modules/kleur"), { recursive: true })
+    await writeFile(join(rootDir, "node_modules/kleur/package.json"), JSON.stringify({
+      exports: "./index.js",
+      name: "kleur",
+      type: "module",
+    }))
+    await writeFile(join(rootDir, "node_modules/kleur/index.js"), `export default { green: value => \`green:\${value}\` }\n`)
     await writeFile(join(rootDir, "package.json"), JSON.stringify({
       dependencies: { kleur: "^4.1.5" },
       packageManager: "pnpm@10.33.0",
@@ -295,10 +302,9 @@ describe("hubSandbox", () => {
       "utf8",
     )
     const artifact = JSON.parse(generated.slice("export default ".length))
-    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain('from "kleur"')
-    expect(artifact.bundle.project.files).toHaveProperty("package.json")
-    expect(artifact.bundle.project.install.command).toBe("pnpm")
-    expect(artifact.bundle.project.digest).toMatch(/^[a-f0-9]{64}$/)
+    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain("ready")
+    expect(artifact.bundle.modules[artifact.bundle.entry]).not.toContain('from "kleur"')
+    expect(artifact.bundle.project).toBeUndefined()
   })
 
   it("keeps Node built-ins out of definition bundle aliases", async () => {
@@ -386,7 +392,13 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-provider-loader.mjs"), "utf8")).resolves.toContain("resolveSandboxBox")
     const generatedDefinition = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs"), "utf8")
     expect(JSON.parse(generatedDefinition.slice("export default ".length))).toMatchObject({
-      bundle: { execution: "module" },
+      bundle: {
+        execution: "module",
+        project: {
+          files: { "package.json": expect.any(Object) },
+          install: { command: "npm" },
+        },
+      },
       options: { timeout: 30_000 },
     })
     const generatedTypes = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")
@@ -506,7 +518,7 @@ describe("hubSandbox", () => {
       routes: ["example.com/*"],
     })
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
-      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d/)
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn/)
 
     const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: {

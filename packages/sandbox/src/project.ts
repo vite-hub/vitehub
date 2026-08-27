@@ -30,6 +30,7 @@ type PackageManifest = {
   optionalDependencies?: Record<string, string>
   packageManager?: unknown
   peerDependencies?: Record<string, string>
+  pnpm?: unknown
   vitehub?: unknown
 }
 
@@ -142,6 +143,12 @@ function parseSandboxProjectOptions(manifest: PackageManifest, path: string): Sa
   }
 
   return { timeout }
+}
+
+function pnpmPatchPaths(manifest: PackageManifest) {
+  if (!isPlainObject(manifest.pnpm) || !isPlainObject(manifest.pnpm.patchedDependencies))
+    return []
+  return Object.values(manifest.pnpm.patchedDependencies).filter((value): value is string => typeof value === 'string')
 }
 
 export function parsePnpmWorkspacePackages(source: string) {
@@ -282,6 +289,14 @@ export async function resolveSandboxProject(
     await addProjectFile(files, installRoot, workspace.file, root)
     await addPnpmWorkspaceDependencies(files, installRoot, root, parsePnpmWorkspacePackages(workspace.source), manifest)
   }
+  const installManifestPath = resolve(installRoot, 'package.json')
+  const installManifest = installRoot === packageRoot
+    ? manifest
+    : await isFile(installManifestPath, root)
+      ? parseManifest(await readFile(installManifestPath, 'utf8'), installManifestPath)
+      : undefined
+  for (const patchPath of pnpmPatchPaths(installManifest || {}))
+    await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
   if (lock) await addProjectFile(files, installRoot, lock.path, root)
 
   const packagePath = relative(installRoot, packageRoot).replaceAll('\\', '/') || '.'

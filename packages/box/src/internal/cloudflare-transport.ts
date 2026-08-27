@@ -1,5 +1,5 @@
 const retryDelays = [1_000, 2_000, 5_000, 10_000, 15_000]
-const retryable = /container is starting|currently provisioning|retry in a moment|network connection lost|not listening in the tcp address|durable object reset|code was updated|aborterror|aborted|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
+const retryable = /container is starting|currently provisioning|retry in a moment|network connection lost|not listening in the tcp address|durable object reset|code was updated|aborterror|aborted|timed out after|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
 
 export const cloudflareControlPlaneTimeout = 15_000
 export const cloudflareExecTimeout = 180_000

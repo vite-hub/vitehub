@@ -113,7 +113,7 @@ describe("remote Box providers", () => {
 
     const result = session.exec("probe");
     const rejection = expect(result).rejects.toThrow("exec timed out after 180000ms");
-    await vi.advanceTimersByTimeAsync(180_000);
+    await vi.runAllTimersAsync();
     await rejection;
     await session.close();
   });
@@ -179,6 +179,8 @@ describe("remote Box providers", () => {
       expect.objectContaining({ message: "initialization failed" }),
       expect.objectContaining({ message: "provider cleanup failed" }),
     ]);
+    expect((failure as AggregateError).message).toContain("initialization failed");
+    expect((failure as AggregateError).message).toContain("provider cleanup failed");
   });
 
   it.each([

@@ -128,7 +128,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
             await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            if (provider.closeAfterRun !== false)
+            if (provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId))
               await sandbox?.close().catch(() => {})
           }
           }

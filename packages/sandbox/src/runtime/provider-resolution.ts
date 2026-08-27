@@ -75,8 +75,8 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
     return sandboxId
 
   const prefix = 'vitehub-'
-  const suffix = `-${hashCloudflareSandboxName(name)}-definition`
-  const slug = encodeURIComponent(name).slice(0, 256 - prefix.length - suffix.length)
+  const suffix = `-${hashCloudflareSandboxName(name)}-${crypto.randomUUID()}`
+  const slug = encodeURIComponent(name).slice(0, 63 - prefix.length - suffix.length)
   return `${prefix}${slug}${suffix}`
 }
 

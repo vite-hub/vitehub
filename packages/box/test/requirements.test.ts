@@ -67,6 +67,16 @@ describe("Box requirement failures", () => {
     );
   });
 
+  it("serializes structured diagnostic output", () => {
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { exitCode: 1, stderr: { message: "provider rejected the credential" } },
+    );
+
+    expect(error.message).toContain('{"message":"provider rejected the credential"}');
+    expect(error.message).not.toContain("[object Object]");
+  });
+
   it("caps diagnostics at 4,000 characters including the ellipsis", () => {
     const error = boxRequirementError(
       { args: [], command: "setup", name: "setup" },

@@ -192,7 +192,11 @@ export async function writeCloudflareSandboxDockerfile(serverDir: string) {
   const dockerfilePath = join(serverDir, 'Dockerfile')
   await writeFileIfChanged(
     dockerfilePath,
-    `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}\n`,
+    [
+      `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}`,
+      'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn',
+      '',
+    ].join('\n'),
   )
   return dockerfilePath
 }

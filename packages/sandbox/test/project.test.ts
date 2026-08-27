@@ -23,6 +23,26 @@ afterEach(async () => {
 })
 
 describe("resolveSandboxProject", () => {
+  it("includes pnpm patch files from the install root", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandboxes/task")
+    await mkdir(join(root, "patches"), { recursive: true })
+    await mkdir(sandbox, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      packageManager: "pnpm@10.33.0",
+      pnpm: { patchedDependencies: { kleur: "patches/kleur.patch" } },
+      private: true,
+    }))
+    await writeFile(join(root, "patches/kleur.patch"), "patched dependency\n")
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['sandboxes/*']\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({ name: "task", private: true, type: "module" }))
+    await writeFile(join(sandbox, "index.ts"), "export default null\n")
+
+    const project = await resolveSandboxProject(join(sandbox, "index.ts"), root)
+
+    expect(project.files["patches/kleur.patch"]).toMatchObject({ encoding: "base64" })
+  })
+
   it("reads timeout from package metadata for executable entries", async () => {
     const root = await createRoot()
     const entry = join(root, "index.ts")

@@ -71,17 +71,16 @@ beforeEach(() => {
 })
 
 describe("Sandbox runtime lifecycle", () => {
-  it("keeps distinct Definition names distinct in default Cloudflare identities", () => {
-    expect(createCloudflareExecutionSandboxId("tools/release-notes")).toMatch(/^vitehub-tools%2Frelease-notes-[a-z0-9]+-definition$/)
-    expect(createCloudflareExecutionSandboxId("api")).toMatch(/^vitehub-api-[a-z0-9]+-definition$/)
-    expect(createCloudflareExecutionSandboxId("tools/release-notes"))
-      .not.toBe(createCloudflareExecutionSandboxId("tools_release-notes"))
-    expect(createCloudflareExecutionSandboxId("Example").toLowerCase())
-      .not.toBe(createCloudflareExecutionSandboxId("example").toLowerCase())
-    expect(createCloudflareExecutionSandboxId("tools/" + "例/".repeat(100))).toHaveLength(256)
+  it("creates unique valid default Cloudflare identities and preserves overrides", () => {
+    const first = createCloudflareExecutionSandboxId("tools/release-notes")
+    const second = createCloudflareExecutionSandboxId("tools/release-notes")
+    expect(first).toMatch(/^vitehub-tools%2Fre-[a-z0-9]+-[0-9a-f-]{36}$/)
+    expect(second).not.toBe(first)
+    expect(createCloudflareExecutionSandboxId("tools/" + "例/".repeat(100)).length).toBeLessThanOrEqual(63)
+    expect(createCloudflareExecutionSandboxId("example", "shared-sandbox")).toBe("shared-sandbox")
   })
 
-  it("composes Cloudflare through Box and leaves the session to idle shutdown", async () => {
+  it("composes Cloudflare through Box and closes a unique default session", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
@@ -91,9 +90,9 @@ describe("Sandbox runtime lifecycle", () => {
     expect(result[0]).toBeNull()
     expect(runtimeMocks.resolveProviderBox).toHaveBeenCalledWith(["node"])
     expect(runtimeMocks.open).toHaveBeenCalledWith({
-      id: expect.stringMatching(/^vitehub-example-[a-z0-9]+-definition$/),
+      id: expect.stringMatching(/^vitehub-example-[a-z0-9]+-[0-9a-f-]{36}$/),
     })
-    expect(runtimeMocks.close).not.toHaveBeenCalled()
+    expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
   it("rejects removed Definition options before resolving a provider", async () => {
@@ -123,7 +122,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenNthCalledWith(2, { id: "per-run" })
   })
 
-  it("serializes concurrent runs that share a Cloudflare Box", async () => {
+  it("runs default Cloudflare executions in distinct Boxes", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
     const releases: Array<() => void> = []
@@ -135,14 +134,12 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runner.executionAuthority).toBe(unknownExecutionAuthority)
     const first = runner.run()
     const second = runner.run()
-    await vi.waitFor(() => expect(runtimeMocks.open).toHaveBeenCalledOnce())
-    releases.shift()?.()
     await vi.waitFor(() => expect(runtimeMocks.open).toHaveBeenCalledTimes(2))
-    expect(runtimeMocks.open.mock.calls[0]?.[0]?.id).toBe(runtimeMocks.open.mock.calls[1]?.[0]?.id)
-    releases.shift()?.()
+    expect(runtimeMocks.open.mock.calls[0]?.[0]?.id).not.toBe(runtimeMocks.open.mock.calls[1]?.[0]?.id)
+    releases.splice(0).forEach(release => release())
     await Promise.all([first, second])
 
-    expect(runtimeMocks.close).not.toHaveBeenCalled()
+    expect(runtimeMocks.close).toHaveBeenCalledTimes(2)
   })
 
   it("closes the Box session after failed definitions", async () => {

@@ -83,7 +83,7 @@ type SandboxDefinitionMetadata = {
   kind: DiscoveredSandboxDefinition['kind']
   name: string
   options?: SandboxDefinitionOptions
-  project: SandboxProject
+  project?: SandboxProject
 }
 
 type SandboxDefinitionCompilerOptions = Partial<DiscoveredDefinitionCompilerOptions> & {
@@ -106,14 +106,14 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
 
 async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefinition[], rootDir: string) {
   return await Promise.all(definitions.map(async (definition) => {
-    const project = await resolveSandboxProject(definition.handler, rootDir, {
-      readSandboxOptions: definition.kind === 'package-entry',
-    })
+    const project = definition.kind === 'package-entry'
+      ? await resolveSandboxProject(definition.handler, rootDir, { readSandboxOptions: true })
+      : undefined
     return {
       kind: definition.kind,
       name: definition.name,
       options: definition.kind === 'package-entry'
-        ? project.options
+        ? project?.options
         : normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
       project,
     } satisfies SandboxDefinitionMetadata

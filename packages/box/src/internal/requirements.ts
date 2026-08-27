@@ -122,7 +122,13 @@ function commandFailureDetails(
 
 function diagnosticText(value: unknown, secrets: readonly string[]) {
   if (value === undefined || value === null) return "";
-  let text = String(value);
+  let text: string | undefined;
+  if (typeof value === "object") {
+    try {
+      text = JSON.stringify(value);
+    } catch {}
+  }
+  text ||= String(value);
   for (const secret of [...new Set(secrets)].sort((left, right) => right.length - left.length)) {
     if (secret) text = text.replaceAll(secret, "[redacted]");
   }

@@ -292,6 +292,7 @@ export async function prepareSandboxRuntime(options: {
       files: [],
       hosting: context.hosting,
       provider: undefined,
+      rootDir,
       stateModule,
     }
   }
@@ -319,6 +320,7 @@ export async function prepareSandboxRuntime(options: {
       files: [],
       hosting: context.hosting,
       provider: getSandboxFeatureProvider(context.config)?.provider,
+      rootDir,
       stateModule,
     }
   }
@@ -339,6 +341,7 @@ export async function prepareSandboxRuntime(options: {
     files: [facadeFile, ...Array.from(emitted.values(), artifact => artifact.dst)],
     hosting: context.hosting,
     provider: getSandboxFeatureProvider(context.config)?.provider,
+    rootDir,
     stateModule,
   }
 }

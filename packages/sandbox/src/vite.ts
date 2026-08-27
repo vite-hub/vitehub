@@ -247,7 +247,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       return false
     config.nitro = await configureCloudflareSandboxNitro(
       config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],
-      typeof config.root === 'string' ? config.root : process.cwd(),
+      prepared.rootDir,
       prepared.cloudflare,
     )
     return true
