@@ -6356,6 +6356,34 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("does not re-await pending raw usage before final output renderers", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = new Promise<never>(() => {})
+    const raw = Object.assign((async function* () {
+      yield { text: "complete", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "pending-usage-output",
+          output(context) {
+            context.output.final(result => result)
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ raw, text: "complete" })
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
+  })
+
   it("exposes explicit stream usage events to final output renderers", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

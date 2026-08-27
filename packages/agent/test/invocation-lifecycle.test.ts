@@ -535,6 +535,22 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("merges raw stream run annotations", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {
+      yield { type: "usage", usageRecord: { run: { annotations: { streamed: "new" } } } }
+    })(), { usageRecord: { run: { annotations: { existing: "kept" } } } })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { usageRecord: { run: { annotations: { existing: "kept", streamed: "new" } } } },
+    })
+  })
+
   it("normalizes inherited usage and ignores undefined existing counters", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

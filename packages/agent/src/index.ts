@@ -3785,7 +3785,12 @@ function mergedUsageRecordMetadata(key: "credentialSource" | "latency" | "respon
       : key === "response"
         ? ["finishReason", "id", "timestamp"]
         : ["annotations", "channelId", "messageId", "origin", "runId", "threadId"]
-  return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
+  const merged = Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
+  if (key === "run") {
+    const annotations = values.map(value => definedObjectPropertiesWithInherited(value, ["annotations"]).annotations)
+    if (annotations.some(Boolean)) merged.annotations = mergedDefinedObjects(...annotations)
+  }
+  return merged
 }
 
 async function resultWithStreamedTextAndUsage(
@@ -3972,7 +3977,9 @@ async function finishStreamAgentInvocation<
   let finishResult: unknown
   let finishUsage: AgentUsageRecord | undefined
   try {
-    const usageRecord = await resolveFinishUsageRecord(context, result)
+    const usageRecord = outcome.usageResolved
+      ? outcome.usage
+      : await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
     if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
@@ -3996,7 +4003,12 @@ async function finishStreamAgentInvocation<
   catch (finishError) {
     await lifecycle.fail({ error: finishError, status: "error" }, finishError, failureMessage)
   }
-  await lifecycle.finish({ result: finishResult, status: "success", usage: finishUsage })
+  await lifecycle.finish({
+    result: finishResult,
+    status: "success",
+    usage: finishUsage,
+    ...(outcome.usageResolved ? { usageResolved: true } : {}),
+  })
 }
 
 function traceUiMessageStream<
@@ -4694,7 +4706,13 @@ async function finalizeAgentInvocationResult<
             ? toReadableAsyncIterableStream(value)
             : value
         }
-        const value = withCapabilityCleanup(streamed.stream, async outcome => finishStreamAgentInvocation(context, lifecycle, await streamed.finishResult(result, !outcome.failed && outcome.completed === true), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
+        const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+          const finishResult = await streamed.finishResult(result, !outcome.failed && outcome.completed === true)
+          const finishOutcome = finishOutcomeFromCleanup(outcome, finishResult)
+          return finishStreamAgentInvocation(context, lifecycle, finishResult, finishOutcome.status === "success"
+            ? { ...finishOutcome, usage: streamed.finishUsage(), usageResolved: true }
+            : finishOutcome, failureMessage, options.outputExtensions)
+        }, {
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
