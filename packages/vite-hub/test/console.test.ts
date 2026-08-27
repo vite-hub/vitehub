@@ -16,9 +16,11 @@ import {
   consoleInvocationsRegistryKey,
   consoleProjectRootKey,
   consoleSectionsKey,
+  consoleSectionsRootKey,
   consoleSectionsRegistryKey,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
+  resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
@@ -68,11 +70,13 @@ afterEach(() => {
   delete scope[consoleInvocationsKey]
   delete scope[consoleProjectRootKey]
   delete scope[consoleSectionsKey]
+  delete scope[consoleSectionsRootKey]
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   vi.unstubAllEnvs()
   Reflect.deleteProperty(process, consoleSectionsKey)
+  Reflect.deleteProperty(process, consoleSectionsRootKey)
   Reflect.deleteProperty(process, consoleSectionsRegistryKey)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -308,8 +312,19 @@ describe("ViteHub Console", () => {
 
     expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["kv"] })
 
-    scope[consoleProjectRootKey] = "/first"
+    scope[consoleSectionsRootKey] = "/first"
     expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["agents"] })
+  })
+
+  it("does not let section registration rebind the invocation project", () => {
+    const first = fakeInvocations("first")
+    installConsoleInvocationFallback(first, "/first")
+
+    installConsoleSections("/second", ["kv"])
+
+    expect(resolveConsoleProjectRoot()).toBe("/first")
+    expect(resolveConsoleInvocations()).toBe(first)
+    expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["kv"] })
   })
 
   it("keeps persisted Agent names alongside discovered definitions", async () => {

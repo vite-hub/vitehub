@@ -6,6 +6,7 @@ export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 export const consoleProjectRootKey: unique symbol = Symbol.for("vitehub.console.project.root")
 export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
+export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
 export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
 
 type ConsoleInvocationsByRoot = {
@@ -31,6 +32,7 @@ export type ConsoleInvocationScope = {
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
   [consoleProjectRootKey]?: string
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
+  [consoleSectionsRootKey]?: string
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
 
@@ -101,7 +103,7 @@ export function installConsoleSectionScope(
   scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
 ): readonly ConsoleSectionId[] {
   const installed = [...new Set(sections)]
-  scope[consoleProjectRootKey] = projectRoot
+  scope[consoleSectionsRootKey] = projectRoot
   scope[consoleSectionsKey] = installed
   const registry = processRegistry(scope)
   if (registry) {
@@ -114,7 +116,7 @@ export function installConsoleSectionScope(
 }
 
 export function resolveConsoleSections(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): readonly ConsoleSectionId[] {
-  const root = scope[consoleProjectRootKey]
+  const root = scope[consoleSectionsRootKey]
   const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
   if (root) return registered?.get(root) ?? scope[consoleSectionsKey] ?? []
   if (registered && registered.size > 1) return scope[consoleSectionsKey] ?? []
