@@ -241,11 +241,11 @@ export type AccessWorkspaceOptionsFor<
 > = AccessWorkspaceOptions<TRuntimeConfig, Name, AccessWorkspaceSourceName<TWorkspace>, TInputContext>
 
 type AccessWorkspaceInputContext<TWorkspace> = TWorkspace extends { resolve?: infer TResolve }
-  ? [Extract<TResolve, (...args: never[]) => unknown>] extends [never]
-      ? Record<string, unknown>
-      : Extract<TResolve, (...args: never[]) => unknown> extends AccessWorkspaceScopeResolver<AgentRuntimeConfig, WorkspaceName, infer TInputContext, string>
-        ? TInputContext
-        : Record<string, unknown>
+  ? Extract<TResolve, (...args: never[]) => unknown> extends (context: infer TContext) => unknown
+    ? TContext extends AccessWorkspaceResolverContext<infer _TRuntimeConfig, infer _Name, infer TInputContext>
+      ? TInputContext
+      : Record<string, unknown>
+    : Record<string, unknown>
   : Record<string, unknown>
 
 interface ResolvedWorkspaceScope {

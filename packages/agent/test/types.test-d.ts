@@ -1097,6 +1097,18 @@ describe("agent public types", () => {
     expectTypeOf(supportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
     expectTypeOf({} as SupportInputContext).toMatchTypeOf<SupportAccessInputContext>()
 
+    interface SupportRuntimeConfig extends AgentRuntimeConfig {
+      supportToken: string
+    }
+    const customSupportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext, SupportRuntimeConfig, "support"> = {
+      resolve({ input }) {
+        expectTypeOf(input.get().context).toEqualTypeOf<SupportInputContext | undefined>()
+        return "customer"
+      },
+    }
+    const customSupportAccessCapability = access<SupportRuntimeConfig>({ workspace: customSupportAccess })
+    expectTypeOf(customSupportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
+
     defineAgent({
       workspace,
       driver: {
