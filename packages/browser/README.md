@@ -147,17 +147,18 @@ const browser = createBrowser({
   provider: localBrowser({ executablePath: "/usr/bin/chromium" }),
 })
 const session = await browser.open()
-const control = await session.attach(playwright())
 
 try {
-  await control.client.page.goto("https://example.com")
-  console.log(await control.client.page.title()) // Example Domain
-} finally {
+  const control = await session.attach(playwright())
+
   try {
-    await control.release()
+    await control.client.page.goto("https://example.com")
+    console.log(await control.client.page.title()) // Example Domain
   } finally {
-    await session.close()
+    await control.release()
   }
+} finally {
+  await session.close()
 }
 ```
 
