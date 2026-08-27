@@ -59,7 +59,15 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
 }
 
 function getEnvironmentContext(): NetlifyEnvironmentContext {
-  const encoded = globalThis.netlifyBlobsContext || process.env.NETLIFY_BLOBS_CONTEXT
+  const runtime = globalThis as typeof globalThis & {
+    Deno?: { env?: { get?: (name: string) => string | undefined } }
+    Netlify?: { env?: { get?: (name: string) => string | undefined } }
+    process?: { env?: Record<string, string | undefined> }
+  }
+  const encoded = globalThis.netlifyBlobsContext
+    || runtime.Netlify?.env?.get?.("NETLIFY_BLOBS_CONTEXT")
+    || runtime.Deno?.env?.get?.("NETLIFY_BLOBS_CONTEXT")
+    || runtime.process?.env?.NETLIFY_BLOBS_CONTEXT
   if (typeof encoded !== "string" || !encoded) return {}
   try {
     return JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as NetlifyEnvironmentContext
@@ -71,7 +79,7 @@ function getEnvironmentContext(): NetlifyEnvironmentContext {
 
 function getRetryDelay(response?: Response) {
   const reset = response?.headers.get(RATE_LIMIT_HEADER)
-  if (!reset) return process.env.NODE_ENV === "test" ? 1 : 5_000
+  if (!reset) return typeof process === "object" && process?.env?.NODE_ENV === "test" ? 1 : 5_000
   return Math.max(Number(reset) * 1_000 - Date.now(), MIN_RETRY_DELAY)
 }
 

@@ -120,6 +120,7 @@
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@azure/identity": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vercel/blob": "catalog:storage",

@@ -23,7 +23,7 @@ describe("optional peer imports", () => {
   })
 
   it("names the provider peers required by bundled Files SDK adapters", async () => {
-    expect(getFilesSdkPeerInstall("azure")).toBe("@azure/storage-blob")
+    expect(getFilesSdkPeerInstall("azure")).toBe("@azure/identity @azure/storage-blob")
     expect(getFilesSdkPeerInstall("google-drive")).toBe("@googleapis/drive google-auth-library")
     expect(getFilesSdkPeerInstall("cloudflare-r2")).toContain("@aws-sdk/client-s3")
 

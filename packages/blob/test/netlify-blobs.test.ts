@@ -56,6 +56,24 @@ describe("Netlify Blobs driver", () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it("supports explicit credentials and retries without process", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("process", undefined)
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ blobs: [], directories: [] }), { status: 200 })))
+
+    try {
+      const listing = createDriver(options).list()
+      await vi.advanceTimersByTimeAsync(5_000)
+      await listing
+      expect(fetch).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("buffers streams and records their actual byte length", async () => {
     store.set.mockResolvedValue({ etag: "etag" })
     const body = new Blob(["streamed"]).stream()

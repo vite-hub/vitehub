@@ -4,7 +4,7 @@ const s3Peers = ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-pres
 
 export const filesSdkDriverPeers = {
   akamai: s3Peers,
-  azure: ["@azure/storage-blob"],
+  azure: ["@azure/identity", "@azure/storage-blob"],
   box: ["box-typescript-sdk-gen"],
   "cloudflare-r2": s3Peers,
   "digitalocean-spaces": s3Peers,
