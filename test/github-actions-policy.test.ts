@@ -93,6 +93,20 @@ describe("GitHub Action pin policy", () => {
     ])
   })
 
+  it("classifies nested action manifests under .github/workflows as actions", async () => {
+    const root = await createFixture({
+      ".github/workflows/actions/setup/action.yml": "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v6\n",
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: ./github/workflows/actions/setup\n",
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("full 40-character commit SHA"),
+        path: ".github/workflows/actions/setup/action.yml",
+      }),
+    ])
+  })
+
   it("follows symlinked composite action manifests", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "steps:\n  - uses: ./tools/setup\n",
@@ -124,6 +138,27 @@ describe("GitHub Action pin policy", () => {
     })
 
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
+  it("inspects action references through aliased step containers and steps", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `step: &unpinned-step
+  uses: actions/checkout@v6
+steps: &unpinned-steps
+  - uses: actions/setup-node@v6
+jobs:
+  container-alias:
+    steps: *unpinned-steps
+  step-alias:
+    steps:
+      - *unpinned-step
+`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("actions/setup-node@v6") }),
+      expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
+    ])
   })
 
   it.each([

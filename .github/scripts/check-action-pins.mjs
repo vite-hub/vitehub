@@ -36,7 +36,7 @@ export async function findGitHubActionPolicyFiles(repoRoot) {
     findYamlFiles(resolve(githubRoot, "workflows"), name => /\.ya?ml$/.test(name)),
     findYamlFiles(repoRoot, name => /^action\.ya?ml$/.test(name), new Set([".git", "node_modules"])),
   ])
-  return [...workflows, ...actions].sort()
+  return [...new Set([...workflows, ...actions])].sort()
 }
 
 export function inspectGitHubActionReferences(path, source) {
@@ -84,8 +84,10 @@ export function inspectGitHubActionReferences(path, source) {
 
   const findPair = (map, key) => map.items.find(pair => isScalar(pair.key) && pair.key.value === key)
   const inspectSteps = (steps) => {
+    if (isAlias(steps)) steps = steps.resolve(document)
     if (!isSeq(steps)) return
-    for (const step of steps.items) {
+    for (let step of steps.items) {
+      if (isAlias(step)) step = step.resolve(document)
       if (isMap(step)) inspectUses(findPair(step, "uses"), step.comment ?? "")
     }
   }
@@ -93,7 +95,7 @@ export function inspectGitHubActionReferences(path, source) {
   const root = document.contents
   if (!isMap(root)) return failures
 
-  if (normalizedPath.startsWith(".github/workflows/")) {
+  if (!/(?:^|\/)action\.ya?ml$/.test(normalizedPath) && normalizedPath.startsWith(".github/workflows/")) {
     const jobs = findPair(root, "jobs")?.value
     if (!isMap(jobs)) return failures
     for (const jobPair of jobs.items) {
