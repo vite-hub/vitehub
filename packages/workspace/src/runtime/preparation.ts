@@ -114,10 +114,17 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
     const attemptLifecycle = lifecycle
     const startedAtMs = Date.now()
     const startedAt = new Date(startedAtMs).toISOString()
-    publish({ startedAt, status: "preparing" })
     const controller = new AbortController()
     abortController = controller
-    const attempt = (async () => {
+    let resolveAttempt!: (state: WorkspacePreparationState) => void
+    let rejectAttempt!: (error: unknown) => void
+    const attempt = new Promise<WorkspacePreparationState>((resolve, reject) => {
+      resolveAttempt = resolve
+      rejectAttempt = reject
+    })
+    active = attempt
+    publish({ startedAt, status: "preparing" })
+    void (async () => {
       try {
         const selectedSources = sources ?? normalizeWorkspaceSources(
           (await waitForAbortable(resolveRegisteredWorkspaceDefinition(workspaceName), controller.signal)).sources,
@@ -176,8 +183,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
       finally {
         if (abortController === controller) abortController = undefined
       }
-    })()
-    active = attempt
+    })().then(resolveAttempt, rejectAttempt)
     try {
       return await attempt
     }

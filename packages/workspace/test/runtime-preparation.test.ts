@@ -60,6 +60,22 @@ describe("Workspace runtime preparation", () => {
     resetWorkspaceRegistry()
   })
 
+  it("stops an attempt from the preparing state callback", async () => {
+    const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
+    let stopping: Promise<void> | undefined
+    let preparation!: ReturnType<typeof createWorkspacePreparation>
+    preparation = createWorkspacePreparation({
+      onStateChange(state) {
+        if (state.status === "preparing") stopping = preparation.stop()
+      },
+      workspace: registerPreparationWorkspace(getItems),
+    })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "stopped" })
+    await stopping
+    expect(getItems).not.toHaveBeenCalled()
+  })
+
   it("does not let an abandoned registry load replace a restarted definition", async () => {
     const name = `workspace-preparation-${crypto.randomUUID()}`
     let releaseFirst!: () => void

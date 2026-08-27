@@ -1018,6 +1018,32 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("ingestion/acme/old.sql")).rejects.toThrow("does not exist")
   })
 
+  it("serves unchanged startup Source snapshots through overlays", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: "prepared\n" }))
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["ready.md"] },
+          getItem,
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+    getItem.mockRejectedValue(new Error("provider unavailable"))
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("docs/ready.md")).resolves.toBe("prepared\n")
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
   it("keeps source-backed paths read-only in writable overlays", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {

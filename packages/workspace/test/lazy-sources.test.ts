@@ -1008,6 +1008,45 @@ describe("lazy sources", () => {
     await assets
   })
 
+  it("serializes path-scoped build Source materialization across views", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let firstStarted!: () => void
+    const started = new Promise<void>((resolve) => { firstStarted = resolve })
+    let active = 0
+    let maxActive = 0
+    const getItem = vi.fn(async (key: string) => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      if (getItem.mock.calls.length === 1) {
+        firstStarted()
+        await blocked
+      }
+      active--
+      return { key, content: key }
+    })
+    const definition = {
+      name: "build-path-coordination",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          async getKeys() { return ["a.md", "b.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/a.md" })
+    await started
+    const second = createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/b.md" })
+    await Promise.resolve()
+    expect(getItem).toHaveBeenCalledOnce()
+
+    release()
+    await Promise.all([first, second])
+    expect(maxActive).toBe(1)
+  })
+
   it("does not share pending materialization across Workspace Definitions", async () => {
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {

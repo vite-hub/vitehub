@@ -197,7 +197,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}) {
     const requestedPath = normalizeWorkspacePath(options.path || "")
-    const selectedSources = sources
+    const selectedSources = allSources
+      .filter(source => source.materialize === "lazy" || source.materialize === "startup" || source.materialize === "build" && Boolean(requestedPath))
       .filter(source => (!options.sources?.length || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
     const predecessors = selectedSources.flatMap((source) => {
       const pending = pendingBySource.get(source.key)

@@ -273,7 +273,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   const selectedWorkspaceScope = options.selectedWorkspaceScope
   const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
-  const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path => !isLazySourcePath(resolvedDefinition, path)))
+  const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path =>
+    !isLazySourcePath(resolvedDefinition, path) || isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
+  ))
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   let readWorkspace!: Workspace
   const fs = attachWorkspaceSourceRequestExecution({
@@ -671,6 +673,17 @@ function isLazySourcePath(definition: WorkspaceDefinition, path: string): boolea
   const normalized = normalizeWorkspacePath(path)
   return normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "lazy" || source.materialize === "startup")
+    .some(source => pathIntersects(source.mountPath, normalized))
+}
+
+function isUnchangedStartupSourcePath(
+  definition: WorkspaceDefinition,
+  resolvedDefinition: WorkspaceDefinition,
+  path: string,
+): boolean {
+  const normalized = normalizeWorkspacePath(path)
+  return normalizeWorkspaceSources(resolvedDefinition.sources)
+    .filter(source => source.materialize === "startup" && resolvedDefinition.sources?.[source.key] === definition.sources?.[source.key])
     .some(source => pathIntersects(source.mountPath, normalized))
 }
 
