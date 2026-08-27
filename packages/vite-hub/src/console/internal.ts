@@ -4,6 +4,7 @@ export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.
 export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
 export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
+export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 
 type ConsoleInvocationsByRoot = {
@@ -18,6 +19,7 @@ export type ConsoleInvocationScope = {
   process?: unknown
   [consoleInvocationsKey]?: AgentInvocations
   [consoleInvocationsIdentityKey]?: string
+  [consoleInvocationsIdentityRootKey]?: string
   [consoleInvocationsRootKey]?: string
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
 }
@@ -48,10 +50,13 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = global
   const registry = processRegistry(scope)
   // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
   const identities = registry?.[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
-  const identity = root
-    ? identities?.get(root) ?? root
-    : scope[consoleInvocationsIdentityKey]
   const registered = invocationsByRoot(registry?.[consoleInvocationsRegistryKey])
+  const scopeIdentity = scope[consoleInvocationsIdentityRootKey] === root
+    ? scope[consoleInvocationsIdentityKey]
+    : undefined
+  const identity = root
+    ? scopeIdentity && registered?.get(scopeIdentity) ? scopeIdentity : identities?.get(root) ?? root
+    : scope[consoleInvocationsIdentityKey]
   if (root) {
     return registered?.get(identity ?? root) ?? scope[consoleInvocationsKey]
   }
@@ -72,6 +77,7 @@ export function installConsoleInvocationFallback(
   scope[consoleInvocationsKey] = invocations
   scope[consoleInvocationsRootKey] = projectRoot
   scope[consoleInvocationsIdentityKey] = identity
+  scope[consoleInvocationsIdentityRootKey] = projectRoot
   const registry = processRegistry(scope)
   if (registry) {
     const journals = invocationsByRoot(registry[consoleInvocationsRegistryKey])

@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsIdentityKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
@@ -59,11 +59,14 @@ function runtime(runId: string): AgentRuntimeContext {
 afterEach(() => {
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsIdentityKey]
+  delete scope[consoleInvocationsIdentityRootKey]
   delete scope[consoleInvocationsRootKey]
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsIdentityKey)
+  Reflect.deleteProperty(process, consoleInvocationsIdentityRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
+  Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -719,6 +722,28 @@ describe("Agent invocation console", () => {
       process,
       [consoleInvocationsRootKey]: "/project",
     })).toBe(fallback)
+  })
+
+  it("resolves the current journal identity from a project-root-only Agent realm", () => {
+    const fixture = fakeInvocations("fixture")
+    installConsoleInvocationFallback(fixture, "/project", { process }, "fixture:/project:/fixture.json")
+
+    expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).get("/project")).toBe("fixture:/project:/fixture.json")
+    expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(fixture)
+  })
+
+  it("keeps each same-root runtime bound to its installed journal identity", () => {
+    const first = fakeInvocations("first")
+    const second = fakeInvocations("second")
+    const firstScope = { process }
+    const secondScope = { process }
+
+    installConsoleInvocationFallback(first, "/project", firstScope, "fixture:/project:/first.json")
+    installConsoleInvocationFallback(second, "/project", secondScope, "fixture:/project:/second.json")
+
+    expect(resolveConsoleInvocations(firstScope)).toBe(first)
+    expect(resolveConsoleInvocations(secondScope)).toBe(second)
+    expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
   })
 
   it("keeps process-shared journals scoped to their project root", () => {
