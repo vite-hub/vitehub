@@ -27,6 +27,12 @@ const packageManifestSchema = object({
   version: optional(string()),
 })
 
+function isPackageDiagnostic(diagnostic: ts.Diagnostic, sourcePath: string, packageRoot: string) {
+  return !diagnostic.file
+    || diagnostic.file.fileName === sourcePath
+    || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)
+}
+
 async function run(command: string, args: string[], cwd: string) {
   try {
     const result = await execFileAsync(command, args, { cwd, maxBuffer })
@@ -262,8 +268,7 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
-    diagnostic.file
-    && (diagnostic.file.fileName === sourcePath || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)),
+    isPackageDiagnostic(diagnostic, sourcePath, packageRoot),
   )
   expect(
     ts.formatDiagnosticsWithColorAndContext(diagnostics, {
@@ -274,6 +279,18 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
     `${packageName} should expose valid declarations with its own dependency closure`,
   ).toBe("")
 }
+
+describe("published declaration diagnostics", () => {
+  it("keeps diagnostics without an associated file", () => {
+    const diagnostic: ts.Diagnostic = {
+      category: ts.DiagnosticCategory.Error,
+      code: 2688,
+      messageText: "Cannot find type definition file for 'missing-types'.",
+    }
+
+    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
+  })
+})
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package exports from tarballs", () => {
   it("installs and exercises every classified export without workspace visibility", async () => {
