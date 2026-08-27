@@ -146,6 +146,7 @@ describe("Agent telemetry", () => {
           "vitehub.payload.value": {
             cyclic,
             date: new Date("2026-01-01T00:00:00.000Z"),
+            invalidDate: new Date(Number.NaN),
             map: new Map([["status", "ready"]]),
             set: new Set(["first", "second"]),
           },
@@ -167,6 +168,7 @@ describe("Agent telemetry", () => {
         values: [
           { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
           { key: "date", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
+          { key: "invalidDate", value: { stringValue: "Invalid Date" } },
           { key: "map", value: { kvlistValue: { values: [{ key: "status", value: { stringValue: "ready" } }] } } },
           { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
         ],

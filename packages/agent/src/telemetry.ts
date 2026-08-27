@@ -42,7 +42,9 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
     for (const byte of bytes) binary += String.fromCharCode(byte)
     return { bytesValue: btoa(binary) }
   }
-  if (value instanceof Date) return { stringValue: value.toISOString() }
+  if (value instanceof Date) {
+    return { stringValue: Number.isFinite(value.getTime()) ? value.toISOString() : String(value) }
+  }
   if (value instanceof RegExp) return { stringValue: String(value) }
   if (value && hasRuntimeType(value, "object")) {
     if (ancestors.has(value)) return { stringValue: "[Circular]" }
