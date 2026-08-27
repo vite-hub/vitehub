@@ -38,6 +38,7 @@ export interface UseAgentInvocationsReturn {
   isLoading: ShallowRef<boolean>;
   isLoadingMore: ShallowRef<boolean>;
   loadMoreError: ShallowRef<unknown>;
+  remainingStatuses: ShallowRef<readonly AgentInvocationRecordStatus[]>;
   loadMore: () => Promise<AgentInvocationListResult | undefined>;
   refresh: () => Promise<AgentInvocationListResult | undefined>;
   stop: () => void;
@@ -111,9 +112,14 @@ function parseInvocationListResult(value: unknown): AgentInvocationListResult {
   if (value.cursor !== undefined && typeof value.cursor !== "string") {
     throw new TypeError("Invalid Agent Invocation list cursor.");
   }
+  if (value.remainingStatuses !== undefined && (!Array.isArray(value.remainingStatuses)
+    || !value.remainingStatuses.every(isInvocationStatus))) {
+    throw new TypeError("Invalid Agent Invocation remaining statuses.");
+  }
   return {
     ...(typeof value.cursor === "string" ? { cursor: value.cursor } : {}),
     invocations: value.invocations.map(parseInvocationSummary),
+    ...(Array.isArray(value.remainingStatuses) ? { remainingStatuses: value.remainingStatuses.filter(isInvocationStatus) } : {}),
   };
 }
 
@@ -283,6 +289,7 @@ export function useAgentInvocations(
   const cursor = shallowRef<string | undefined>();
   const isLoadingMore = shallowRef(false);
   const loadMoreError = shallowRef<unknown>(null);
+  const remainingStatuses = shallowRef<readonly AgentInvocationRecordStatus[]>([]);
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
@@ -305,6 +312,7 @@ export function useAgentInvocations(
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
         cursor.value = result.cursor;
+        remainingStatuses.value = result.remainingStatuses ?? [];
         resetFirstPage = false;
         return;
       }
@@ -317,10 +325,12 @@ export function useAgentInvocations(
       pendingDepartureIds = new Set(result.pendingDepartureIds ?? pendingDepartureIds);
       invocations.value = [...result.invocations, ...retained];
       cursor.value = result.cursor;
+      remainingStatuses.value = result.remainingStatuses ?? [];
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
+      remainingStatuses.value = [];
       pendingDepartureIds = new Set();
     },
     beforeLoad() {
@@ -448,6 +458,7 @@ export function useAgentInvocations(
         const additions = result.invocations.filter(invocation => !ids.has(invocation.id));
         if (additions.length > 0) invocations.value = [...invocations.value, ...additions];
         cursor.value = result.cursor;
+        remainingStatuses.value = result.remainingStatuses ?? [];
         loadMoreError.value = null;
         if (additions.length > 0 || !result.cursor) return result;
         nextCursor = result.cursor;
@@ -474,7 +485,7 @@ export function useAgentInvocations(
   }
 
   onScopeDispose(() => loadMoreController?.abort(), true);
-  return { cursor, invocations, isLoadingMore, loadMore, loadMoreError, ...resource, stop };
+  return { cursor, invocations, isLoadingMore, loadMore, loadMoreError, remainingStatuses, ...resource, stop };
 }
 
 export function useAgentInvocation(

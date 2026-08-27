@@ -1511,6 +1511,42 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(3);
   });
 
+  it("continues across hidden pages while a visible lifecycle still has a cursor", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+        remainingStatuses: ["running", "completed"],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+    await wrapper.setProps({
+      items: [...wrapper.props("items"), { id: "older", status: "completed", title: "Older" }],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+    await wrapper.setProps({
+      items: [...wrapper.props("items"), { id: "oldest", status: "completed", title: "Oldest" }],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+
+    await wrapper.setProps({ remainingStatuses: ["completed"] });
+    await wrapper.setProps({
+      items: [...wrapper.props("items"), { id: "done-last", status: "completed", title: "Done last" }],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+  });
+
   it("rechecks pagination when visible membership changes at the same count", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

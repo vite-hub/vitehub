@@ -480,6 +480,7 @@ onBeforeUnmount(() => {
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoadingMore.value"
+          :remaining-statuses="list.remainingStatuses.value"
           :now="nowMs"
           :retry-key="paginationRetryRevision"
           :selected-id="selectedInvocationId"

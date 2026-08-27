@@ -132,6 +132,7 @@ export const AgentInvocationList = defineComponent({
   props: {
     ariaLabel: { default: "Agent sessions", type: String },
     hasMore: Boolean,
+    remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,
     now: Number,
@@ -164,10 +165,12 @@ export const AgentInvocationList = defineComponent({
       if (item.status === "pending") return queuedOpen.value;
       return doneOpen.value;
     }));
+    const visibleKey = computed(() => visibleItems.value.map(item => `${item.id}:${item.status}`).join("\0"));
     const activeKey = computed(() => props.items
       .filter(item => item.status === "running" || item.status === "pending")
       .map(item => `${item.id}:${item.status}`)
       .join("\0"));
+    const paginationKey = computed(() => props.remainingStatuses.length > 0 ? visibleKey.value : activeKey.value);
     let resizeObserver: ResizeObserver | undefined;
     const requestMoreIfNeeded = () => {
       const element = viewport.value;
@@ -181,15 +184,24 @@ export const AgentInvocationList = defineComponent({
       return false;
     };
     const requestMoreAutomatically = () => {
-      const hasCollapsedGroup = Boolean(viewport.value?.querySelector("details:not([open])"));
-      const key = activeKey.value;
-      if (hasCollapsedGroup && (!visibleItems.value.length || (automaticallyRequestedVisibleKey.value === key && continuedHiddenPageForVisibleKey.value === key))) return;
-      if (requestMoreIfNeeded()) {
-        continuedHiddenPageForVisibleKey.value = automaticallyRequestedVisibleKey.value === key ? key : undefined;
-        automaticallyRequestedVisibleKey.value = key;
+      if (props.remainingStatuses.length === 0) {
+        const hasCollapsedGroup = Boolean(viewport.value?.querySelector("details:not([open])"));
+        const key = activeKey.value;
+        if (hasCollapsedGroup && (!visibleItems.value.length || (automaticallyRequestedVisibleKey.value === key && continuedHiddenPageForVisibleKey.value === key))) return;
+        if (requestMoreIfNeeded()) {
+          continuedHiddenPageForVisibleKey.value = automaticallyRequestedVisibleKey.value === key ? key : undefined;
+          automaticallyRequestedVisibleKey.value = key;
+        }
+        return;
       }
+      const hasMoreVisible = props.remainingStatuses.length === 0 || props.remainingStatuses.some((status) => {
+        if (status === "running") return true;
+        if (status === "pending") return queuedOpen.value;
+        return doneOpen.value;
+      });
+      if (hasMoreVisible) requestMoreIfNeeded();
     };
-    watch([() => props.items.length, activeKey, () => props.hasMore, () => props.loading], ([length, key], [previous, previousKey]) => {
+    watch([() => props.items.length, paginationKey, () => props.hasMore, () => props.loading, () => props.remainingStatuses], ([length, key], [previous, previousKey]) => {
       if (length < previous || (length === previous && key !== previousKey)) requestedLength.value = undefined;
       requestMoreAutomatically();
     }, { flush: "post" });

@@ -139,10 +139,12 @@ describe("Agent Invocation Vue composables", () => {
     calls[1]!.resolve({
       cursor: "next",
       invocations: [record("inv-2")],
+      remainingStatuses: ["completed"],
     } satisfies AgentInvocationListResult);
     await settle();
     expect(resource.invocations.value).toEqual([record("inv-2")]);
     expect(resource.cursor.value).toBe("next");
+    expect(resource.remainingStatuses.value).toEqual(["completed"]);
     expect(resource.isLoading.value).toBe(false);
     expect(resource.error.value).toBeNull();
 
@@ -154,6 +156,7 @@ describe("Agent Invocation Vue composables", () => {
     await older;
     expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-3")]);
     expect(resource.cursor.value).toBeUndefined();
+    expect(resource.remainingStatuses.value).toEqual([]);
     scope.stop();
   });
 
