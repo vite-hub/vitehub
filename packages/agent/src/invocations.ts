@@ -416,7 +416,10 @@ export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
+  if (terminalStatus(record.status) && input.observation && !deliveryOutcomeObservation(input.observation)) return record
   if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
+  if (input.observation?.sequence !== undefined
+    && record.observations.some(observation => observation.sequence === input.observation?.sequence)) return record
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
@@ -872,10 +875,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               const timestamp = normalizedTimestamp(observation.timestamp)
               const persistedObservation = { ...observation, timestamp }
               if (observation.trace) persistedObservation.trace = { ...observation.trace, id: traceId }
-              const updated = await boundedStoreOperation(() => store.update(recordId, {
+              const update = Promise.resolve().then(() => store.update(recordId, {
                 observation: boundedObservation(persistedObservation),
                 timestamp,
               }, claimId))
+              const boundedUpdate = await boundedStoreOperation(() => update)
+              const updated = boundedUpdate === storeOperationTimedOut
+                ? await update.catch(() => undefined)
+                : boundedUpdate
               persisted = updated !== undefined && updated !== storeOperationTimedOut
             }
             finally {
@@ -892,11 +899,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) {
-          registerAgentInvocationRecovery(context, persistLateObservation(observation))
+          if (deliveryOutcomeObservation(observation)) {
+            registerAgentInvocationRecovery(context, persistLateObservation(observation))
+          }
           return
         }
         if (finishing) {
-          terminalRetryObservations.push(observation)
+          if (deliveryOutcomeObservation(observation)) terminalRetryObservations.push(observation)
           return
         }
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS

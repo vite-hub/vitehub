@@ -5313,7 +5313,8 @@ describe("server helpers", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(3)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(3, "telegram:456", expect.stringContaining("stream edit failed"))
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), {
       markdown: "Final answer.",
     })

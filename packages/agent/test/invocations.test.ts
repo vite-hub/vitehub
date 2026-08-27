@@ -164,6 +164,41 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("does not duplicate a late delivery when the store commits before timing out", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            const updated = await memory.update(id, input, claimId)
+            if (input.observation) await new Promise(resolve => setTimeout(resolve, 1_500))
+            return updated
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("slow-late-delivery"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.finish("completed")
+
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Late reply" },
+        name: "agent.channel.delivery.effect",
+        sequence: 42,
+        type: "run",
+      })
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      const record = await invocations.getByRunId("slow-late-delivery")
+      expect(record?.observations.filter(observation => observation.sequence === 42)).toHaveLength(1)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("persists delivery observations emitted while terminal finalization retries", async () => {
     vi.useFakeTimers()
     try {
