@@ -1553,21 +1553,35 @@ describe("workspace host sessions", () => {
 
   it("settles active inspections and skips pending work after a batch fails", async () => {
     const docs = workspace()
-    const host = Object.assign(memoryHost(), { inspectionConcurrency: 2 })
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 3 })
     for (let index = 0; index < 3; index++) await docs.writeFile(`files/${index}.txt`, String(index))
     await docs.snapshot({ name: "baseline" })
     const session = await docs.startSession({ host })
+    const exists = host.files.exists.bind(host.files)
     const read = host.files.read.bind(host.files)
     let batchReads = 0
-    let release!: () => void
-    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let releaseIndependent!: () => void
+    const independentBlocked = new Promise<void>((resolve) => { releaseIndependent = resolve })
+    let releaseBatch!: () => void
+    const batchBlocked = new Promise<void>((resolve) => { releaseBatch = resolve })
+    let independentStarted = false
+    host.files.exists = async (path, options) => {
+      if (path.endsWith("missing.txt")) {
+        independentStarted = true
+        await independentBlocked
+      }
+      return await exists(path, options)
+    }
     host.files.read = async (path, options) => {
       batchReads++
-      if (path.endsWith("files/0.txt")) await blocked
+      if (path.endsWith("files/0.txt")) await batchBlocked
       if (path.endsWith("files/1.txt")) throw new Error("inspection failed")
       return await read(path, options)
     }
 
+    const independent = session.readFile("missing.txt")
+    void independent.catch(() => {})
+    await vi.waitFor(() => expect(independentStarted).toBe(true))
     const diff = session.diff()
     void diff.catch(() => {})
     await vi.waitFor(() => expect(batchReads).toBe(2))
@@ -1575,9 +1589,11 @@ describe("workspace host sessions", () => {
     void diff.finally(() => { settled = true }).catch(() => {})
     await new Promise(resolve => setTimeout(resolve, 1))
     expect(settled).toBe(false)
-    release()
+    releaseBatch()
     await expect(diff).rejects.toThrow("inspection failed")
     expect(batchReads).toBe(2)
+    releaseIndependent()
+    await expect(independent).rejects.toThrow("Workspace file does not exist: missing.txt")
   })
 
   it("settles an aborted inspection while it waits for a host slot", async () => {
