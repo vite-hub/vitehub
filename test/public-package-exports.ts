@@ -42,6 +42,7 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
   ["vite-hub", ["vite"]],
   ["vite-hub/agent/eval", ["evalite", "vitest"]],
+  ["vite-hub/nuxt", ["vite"]],
   ["vite-hub/source/client", ["vue"]],
   ["vite-hub/source/content", ["comark-content"]],
   ["vite-hub/source/content/client", ["comark-content"]],

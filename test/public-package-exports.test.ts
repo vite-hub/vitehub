@@ -34,6 +34,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/source/client", "vue"],
       ["@vite-hub/workspace/collections/client", "vue"],
       ["vite-hub", "vite"],
+      ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/ui", "vue"],
       ["vite-hub/ui/headless", "vue"],
