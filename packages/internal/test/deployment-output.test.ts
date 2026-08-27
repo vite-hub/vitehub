@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, renameSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, relative } from "node:path"
@@ -7,6 +7,11 @@ import { tmpdir } from "node:os"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>()
+  return { ...actual, renameSync: vi.fn(actual.renameSync) }
+})
 
 vi.mock("../src/build/esbuild.ts", () => ({
   bundleEsmEntry: vi.fn(async (_entry: string, outfile: string) => {
@@ -36,6 +41,8 @@ async function writePackage(rootDir: string, name: string, packageJson: Record<s
 }
 
 afterEach(async () => {
+  const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+  vi.mocked(renameSync).mockReset().mockImplementation(actualFs.renameSync)
   vi.mocked(bundleEsmEntry).mockReset().mockImplementation(async (_entry, outfile) => {
     await mkdir(dirname(outfile), { recursive: true })
     await writeFile(outfile, "export default {}\n", "utf8")
@@ -842,6 +849,41 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
     expect(existsSync(`${outputRoot}.pending`)).toBe(false)
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it("removes first-time Vercel output when external static publication fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const clientDir = join(rootDir, "dist", "client")
+    const staticDir = join(rootDir, "public")
+    await mkdir(clientDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "new static")
+    vi.mocked(renameSync).mockImplementation((source, destination) => {
+      if (source === `${staticDir}.pending` && destination === staticDir) {
+        throw new Error("static publication failed")
+      }
+      return actualFs.renameSync(source, destination)
+    })
+
+    await expect(writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        staticOutputDir: staticDir,
+      },
+    })).rejects.toThrow("static publication failed")
+
+    expect(existsSync(outputRoot)).toBe(false)
+    expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+    expect(existsSync(`${staticDir}.pending`)).toBe(false)
   })
 
   it("restores all Vercel output when cancellation begins during companion writes", async () => {

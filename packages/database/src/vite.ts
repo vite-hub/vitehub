@@ -96,7 +96,6 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 }
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
-  let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let providerOutput: ProviderOutputCatalog | undefined
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
@@ -188,25 +187,28 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
 
       try {
-        await writeGeneratedDatabaseArtifacts(runtimeConfig)
-        providerArtifacts = await prepareProviderOutputs({
-          appRootDir: resolved.root,
-          providerOutput,
+        const contributionResolved = resolved
+        const contributionRuntimeConfig = runtimeConfig
+        const contributionProviderOutput = providerOutput
+        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
+        const contributionArtifacts = await prepareProviderOutputs({
+          appRootDir: contributionResolved.root,
+          providerOutput: contributionProviderOutput,
           rootDir: databaseRoot(),
-          runtimeConfig,
+          runtimeConfig: contributionRuntimeConfig,
         })
-        contributeProviderDeploymentOutput(providerOutput, {
+        contributeProviderDeploymentOutput(contributionProviderOutput, {
           owner: "database",
-          rootDir: resolved.root,
+          rootDir: contributionResolved.root,
           write: async ({ write }) => {
-            await writeGeneratedDatabaseArtifacts(runtimeConfig!)
+            await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
             await generateProviderOutputs({
-              artifacts: providerArtifacts,
-              clientOutDir: resolved!.build.outDir,
-              providerOutput,
-              rootDir: resolved!.root,
-              runtimeConfig: runtimeConfig!,
-              serverFunctionName: resolveNitroVercelFunctionName(resolved!, "database"),
+              artifacts: contributionArtifacts,
+              clientOutDir: contributionResolved.build.outDir,
+              providerOutput: contributionProviderOutput,
+              rootDir: contributionResolved.root,
+              runtimeConfig: contributionRuntimeConfig,
+              serverFunctionName: resolveNitroVercelFunctionName(contributionResolved, "database"),
             }, write)
           },
         })

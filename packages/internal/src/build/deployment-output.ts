@@ -354,6 +354,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     : externalStaticNeedsCommit ? `${staticOutputDir}.pending` : staticOutputDir
   const previousStaticOutputDir = `${staticOutputDir}.previous`
   let replacedOutput = false
+  let installedOutput = false
   let replacedExternalStatic = false
 
   try {
@@ -396,6 +397,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     }
     try {
       renameSync(stagedOutputRoot, outputRoot)
+      installedOutput = true
     }
     catch (error) {
       if (replacedOutput && existsSync(previousOutputRoot)) renameSync(previousOutputRoot, outputRoot)
@@ -439,8 +441,8 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
       rmSync(staticOutputDir, { force: true, recursive: true })
       if (existsSync(previousStaticOutputDir)) renameSync(previousStaticOutputDir, staticOutputDir)
     }
+    if (installedOutput) rmSync(outputRoot, { force: true, recursive: true })
     if (replacedOutput) {
-      rmSync(outputRoot, { force: true, recursive: true })
       if (existsSync(previousOutputRoot)) renameSync(previousOutputRoot, outputRoot)
     }
     throw error
