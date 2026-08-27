@@ -493,6 +493,7 @@ describe("Agent Invocation UI", () => {
         {
           attributes: {
             "tool.id": "query",
+            "tool.error": "Result was incomplete.",
             "tool.name": "database_query",
             "tool.output": "  Returned 1 row.\n",
           },
@@ -522,9 +523,11 @@ describe("Agent Invocation UI", () => {
     expect(thread.findAll(".vh-invocation-event__payload > strong").map(item => item.text())).toEqual([
       "Input",
       "Output",
+      "Error",
     ]);
     expect(thread.text()).toContain("Private query omitted.");
-    expect(thread.findAll(".vh-invocation-event__payload pre").at(-1)!.element.textContent).toBe("  Returned 1 row.\n");
+    expect(thread.findAll(".vh-invocation-event__payload pre").at(-2)!.element.textContent).toBe("  Returned 1 row.\n");
+    expect(thread.findAll(".vh-invocation-event__payload pre").at(-1)!.text()).toBe("Result was incomplete.");
 
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     const rows = inspector.findAll(".vh-invocation-timeline__row");

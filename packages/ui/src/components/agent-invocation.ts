@@ -305,10 +305,8 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
           : hasPayloads
             ? h("div", { class: "vh-invocation-event__payloads" }, [
                 renderEventPayload("Input", activity.attributes["tool.input"]),
-                renderEventPayload(
-                  activity.attributes["tool.error"] !== undefined ? "Error" : "Output",
-                  activity.attributes["tool.error"] ?? activity.attributes["tool.output"],
-                ),
+                renderEventPayload("Output", activity.attributes["tool.output"]),
+                renderEventPayload("Error", activity.attributes["tool.error"]),
               ].filter(Boolean))
           : activity.body
             ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])

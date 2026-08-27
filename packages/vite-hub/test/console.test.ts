@@ -783,13 +783,12 @@ describe("Agent invocation console", () => {
       for await (const _event of result as AsyncIterable<unknown>) {}
 
       const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-tool-error")
-      expect(invocation?.observations).toContainEqual(expect.objectContaining({
-        attributes: expect.objectContaining({
-          "content.omitted": expect.not.arrayContaining(["tool.error"]),
-          "tool.error": "Lookup failed",
-        }),
+      const observation = invocation?.observations.find(item => item.name === "agent.tool.error")
+      expect(observation).toEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "tool.error": "Lookup failed" }),
         name: "agent.tool.error",
       }))
+      expect(observation?.attributes["content.omitted"] ?? []).not.toContain("tool.error")
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
