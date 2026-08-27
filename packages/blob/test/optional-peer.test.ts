@@ -26,6 +26,13 @@ describe("optional peer imports", () => {
     expect(built).toContain("vercel-storage.com")
   })
 
+  it("ships the generic Files SDK runtime through the public driver", async () => {
+    const built = await readFile(new URL("../dist/drivers/files.js", import.meta.url), "utf8")
+
+    expect(built).not.toContain('from "files-sdk')
+    expect(built).not.toContain('import("files-sdk')
+  })
+
   it("keeps the Cloudflare-native R2 driver free of HTTP fallback peers", async () => {
     const built = await readFile(new URL("../dist/drivers/cloudflare-native.js", import.meta.url), "utf8")
 

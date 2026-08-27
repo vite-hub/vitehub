@@ -14,6 +14,31 @@ type StoredMetadata = {
   uploadedAt?: string
 }
 
+type FoldedCursor = {
+  directoriesConsumed: boolean
+  index: number
+  page: number
+}
+
+function decodeCursor(cursor: string | undefined): FoldedCursor {
+  if (!cursor) return { directoriesConsumed: false, index: 0, page: 0 }
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Partial<FoldedCursor>
+    return {
+      directoriesConsumed: parsed.directoriesConsumed === true,
+      index: typeof parsed.index === "number" && parsed.index >= 0 ? parsed.index : 0,
+      page: typeof parsed.page === "number" && parsed.page >= 0 ? parsed.page : 0,
+    }
+  }
+  catch {
+    return { directoriesConsumed: false, index: Number.parseInt(cursor) || 0, page: 0 }
+  }
+}
+
+function encodeCursor(cursor: FoldedCursor) {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url")
+}
+
 function createStore(options: NetlifyBlobsStoreConfig) {
   const clientOptions = {
     consistency: options.consistency,
@@ -77,35 +102,49 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         paginate: true,
         prefix: listOptions.prefix,
       })
-      const offset = Number.parseInt(listOptions.cursor || "0") || 0
+      const cursor = decodeCursor(listOptions.cursor)
       const limit = listOptions.limit ?? 1000
       const selected: Array<{ etag: string, key: string }> = []
       const folders = new Set<string>()
-      let seen = 0
       let hasMore = false
+      let nextCursor: FoldedCursor | undefined
+      let pageIndex = 0
       for await (const page of pages) {
-        const pageHasBlobs = page.blobs.length > 0
-        for (const blob of page.blobs) {
-          if (seen++ < offset) continue
-          if (selected.length === limit) {
-            hasMore = true
-            break
-          }
-          selected.push(blob)
+        if (pageIndex < cursor.page) {
+          pageIndex++
+          continue
         }
-        if (!pageHasBlobs || offset < seen) {
+        const startIndex = pageIndex === cursor.page ? cursor.index : 0
+        const includeDirectories = pageIndex !== cursor.page || !cursor.directoriesConsumed
+        if (page.blobs.length === 0) {
+          if (includeDirectories) {
+            for (const directory of page.directories) folders.add(directory)
+          }
+          pageIndex++
+          continue
+        }
+        const directoriesConsumed = includeDirectories && selected.length < limit && startIndex < page.blobs.length
+        if (directoriesConsumed) {
           for (const directory of page.directories) folders.add(directory)
         }
+        for (let blobIndex = startIndex; blobIndex < page.blobs.length; blobIndex++) {
+          if (selected.length === limit) {
+            hasMore = true
+            nextCursor = { directoriesConsumed, index: blobIndex, page: pageIndex }
+            break
+          }
+          selected.push(page.blobs[blobIndex]!)
+        }
         if (hasMore) break
+        pageIndex++
       }
       const blobs = await Promise.all(selected.map(async ({ etag, key }) => {
         const metadata = await store.getMetadata(key, { consistency: options.consistency })
         return toBlobObject(key, etag, metadata?.metadata as StoredMetadata | undefined)
       }))
-      const nextOffset = offset + selected.length
       return {
         blobs,
-        cursor: hasMore ? String(nextOffset) : undefined,
+        cursor: hasMore && nextCursor ? encodeCursor(nextCursor) : undefined,
         folders: listOptions.folded ? [...folders] : undefined,
         hasMore,
       }

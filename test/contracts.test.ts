@@ -238,8 +238,8 @@ describe("package manifest contracts", () => {
     const kvManifest = readPackageManifest("kv")
 
     expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
-    expect(manifest.peerDependencies?.["files-sdk"]).toEqual(expect.any(String))
-    expect(manifest.peerDependenciesMeta?.["files-sdk"]?.optional).toBe(true)
+    expect(manifest.peerDependencies?.["files-sdk"]).toBeUndefined()
+    expect(manifest.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
     expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
     expect(manifest.dependencies?.["@vercel/blob"]).toBeUndefined()
     expect(manifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))

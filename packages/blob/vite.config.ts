@@ -11,7 +11,7 @@ export default defineConfig({
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
     deps: {
       neverBundle: ["vite", "esbuild"],
-      alwaysBundle: [/^@vite-hub\/internal/, /^@vercel\/blob/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vercel\/blob/, /^files-sdk(?:\/|$)/],
       onlyBundle: false,
     },
     entry: [

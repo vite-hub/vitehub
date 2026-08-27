@@ -36,7 +36,7 @@ describe("Netlify Blobs driver", () => {
     expect(result.size).toBe(8)
   })
 
-  it("keeps folder-only pages without leaking folders from cursor-skipped blob pages", async () => {
+  it("advances folder-only pages across folded cursors", async () => {
     store.list.mockReturnValue({
       async *[Symbol.asyncIterator]() {
         yield { blobs: [{ etag: "skip", key: "skip.txt" }], directories: ["skipped/"] }
@@ -46,9 +46,13 @@ describe("Netlify Blobs driver", () => {
     })
     store.getMetadata.mockResolvedValue({ metadata: {} })
 
-    const result = await createDriver(options).list({ cursor: "1", folded: true, limit: 1 })
+    const driver = createDriver(options)
+    const first = await driver.list({ folded: true, limit: 1 })
+    const second = await driver.list({ cursor: first.cursor, folded: true, limit: 1 })
 
-    expect(result.blobs.map(blob => blob.pathname)).toEqual(["keep.txt"])
-    expect(result.folders).toEqual(["folder-only/", "selected/"])
+    expect(first.blobs.map(blob => blob.pathname)).toEqual(["skip.txt"])
+    expect(first.folders).toEqual(["skipped/", "folder-only/"])
+    expect(second.blobs.map(blob => blob.pathname)).toEqual(["keep.txt"])
+    expect(second.folders).toEqual(["selected/"])
   })
 })

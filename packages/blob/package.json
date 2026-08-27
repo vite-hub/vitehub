@@ -92,7 +92,6 @@
     "@aws-sdk/lib-storage": "^3.700.0",
     "@aws-sdk/s3-presigned-post": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
-    "files-sdk": "catalog:storage",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -106,9 +105,6 @@
       "optional": true
     },
     "@aws-sdk/s3-request-presigner": {
-      "optional": true
-    },
-    "files-sdk": {
       "optional": true
     },
     "vite": {
