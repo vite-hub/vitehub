@@ -127,7 +127,9 @@ export default defineScheduleTarget<{ prompt: string }>({
 });
 ```
 
-Create the recurring record from server code after Schedule discovery has registered that target.
+Before creating the recurring record, install the Schedule runtime so it can load the discovered target registry and reconcile stored schedules. A custom host calls `installScheduleRuntime()` from `@vite-hub/schedule/runtime/driver` with its wake driver. A generated Process Runtime does this during application startup.
+
+After runtime installation completes, create the recurring record from server code.
 
 ```ts
 import { schedules } from "@vite-hub/schedule/runtime";
@@ -143,7 +145,7 @@ const report = await schedules.create({
 console.log(report.id);
 ```
 
-Creating the record does not make it run. A host integration must install the runtime through `installScheduleRuntime()` from `@vite-hub/schedule/runtime/driver`. It can supply a native wake driver, or one long-lived process can install `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process`.
+The installed runtime can supply a native wake driver, or one long-lived process can install `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process`.
 
 Static provider cron output does not automatically wake Runtime Schedules. Provider-backed Runtime Schedules need a host-owned wake driver. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
 
