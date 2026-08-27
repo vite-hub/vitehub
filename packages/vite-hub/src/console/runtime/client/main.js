@@ -22,7 +22,11 @@ const router = createRouter({
       component: ConsoleHome,
       name: "vitehub-console",
       path: "/",
-      props: { sectionsBase },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+      },
       meta: { title: "ViteHub Console" },
     },
     {
@@ -34,6 +38,7 @@ const router = createRouter({
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
       },
     },
     {
@@ -45,6 +50,7 @@ const router = createRouter({
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
       },
     },
     {
@@ -56,6 +62,7 @@ const router = createRouter({
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
       },
     },
     {
@@ -63,6 +70,11 @@ const router = createRouter({
       name: "vitehub-console-kv",
       path: "/kv",
       meta: { consoleSection: "kv", title: "KV · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+      },
     },
   ],
 });

@@ -4,48 +4,37 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleSectionId } from "../sections";
 import { resolveConsoleRouteName } from "../console-route";
-import { isConsoleSectionId } from "../sections";
+import {
+  consoleSectionDetails,
+  isConsoleSectionId,
+  prioritizeConsoleSectionIds,
+  readLastConsoleSection,
+} from "../sections";
 import { requestConsole } from "../client/request";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleSearch from "./console-search.vue";
 
-const props = defineProps<{ sectionsBase: string }>();
+const props = defineProps<{
+  agentsBase: string;
+  searchBase: string;
+  sectionsBase: string;
+}>();
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
 const sidebarCollapsed = ref(false);
 const sections = ref<ConsoleSectionId[]>([]);
+const lastSection = ref<ConsoleSectionId>();
 const loading = ref(true);
 const error = ref<unknown>();
 let request: AbortController | undefined;
 
-const sectionDetails = {
-  agents: {
-    description: "Inspect Agent sessions and invocation details.",
-    icon: "i-lucide-bot",
-    label: "Agents",
-    routeName: "vitehub-console-agents",
-  },
-  kv: {
-    description: "Inspect configured KV stores without changing data.",
-    icon: "i-lucide-key-round",
-    label: "KV",
-    routeName: "vitehub-console-kv",
-  },
-} as const satisfies Record<
-  ConsoleSectionId,
-  {
-    description: string;
-    icon: string;
-    label: string;
-    routeName: string;
-  }
->;
-
 const availableSections = computed(() =>
-  sections.value.map((section) => ({
+  prioritizeConsoleSectionIds(sections.value, lastSection.value).map((section) => ({
     id: section,
-    ...sectionDetails[section],
+    lastOpened: section === lastSection.value,
+    ...consoleSectionDetails[section],
   })),
 );
 
@@ -94,7 +83,10 @@ async function openSection(routeName: string): Promise<void> {
   await router.push({ name: resolveConsoleRouteName(route.name, routeName) });
 }
 
-onMounted(() => void loadSections());
+onMounted(() => {
+  lastSection.value = readLastConsoleSection();
+  void loadSections();
+});
 onBeforeUnmount(() => request?.abort());
 </script>
 
@@ -150,6 +142,14 @@ onBeforeUnmount(() => request?.abort());
           class="grid gap-1 px-2"
           :class="collapsed ? 'pt-2' : ''"
         >
+          <div class="pb-2">
+            <UDashboardSearchButton
+              :collapsed="collapsed"
+              block
+              class="w-full bg-transparent ring-default"
+              label="Search console"
+            />
+          </div>
           <UTooltip
             v-for="section in availableSections"
             :key="section.id"
@@ -189,6 +189,12 @@ onBeforeUnmount(() => request?.abort());
       </template>
     </UDashboardSidebar>
 
+    <ConsoleSearch
+      :agents-base="agentsBase"
+      :search-base="searchBase"
+      :sections-base="sectionsBase"
+    />
+
     <UDashboardPanel id="console-home">
       <div class="flex min-h-0 flex-1 flex-col">
         <div class="flex h-14 shrink-0 items-center border-b border-default px-4 lg:hidden">
@@ -201,12 +207,70 @@ onBeforeUnmount(() => request?.abort());
           />
           <span class="ml-2 text-sm font-semibold text-highlighted">ViteHub Console</span>
         </div>
-        <UEmpty
-          class="min-h-0 flex-1"
-          icon="i-lucide-panels-top-left"
-          title="Choose a section"
-          description="The sidebar contains the ViteHub sections enabled for this project."
-        />
+        <main class="min-h-0 flex-1 overflow-y-auto px-5 py-8 sm:px-8 sm:py-10 lg:px-12">
+          <div class="mx-auto w-full max-w-5xl">
+            <div class="max-w-2xl">
+              <span class="text-xs font-semibold uppercase tracking-[.12em] text-muted">
+                ViteHub Console
+              </span>
+              <h1 class="mt-2 text-2xl font-semibold tracking-tight text-highlighted sm:text-3xl">
+                Choose a primitive
+              </h1>
+              <p class="mt-3 text-sm leading-6 text-muted sm:text-base">
+                Inspect the server primitives enabled for this project. Console access is read-only.
+              </p>
+            </div>
+
+            <div v-if="loading" class="mt-8 grid gap-3 sm:grid-cols-2">
+              <USkeleton v-for="index in 2" :key="index" class="h-48 rounded-xl" />
+            </div>
+            <div
+              v-else-if="availableSections.length"
+              class="mt-8 grid gap-3"
+              :class="availableSections.length > 1 ? 'sm:grid-cols-2' : 'max-w-lg'"
+            >
+              <button
+                v-for="section in availableSections"
+                :key="section.id"
+                type="button"
+                class="group flex min-h-48 flex-col rounded-xl border border-default bg-default p-5 text-start shadow-xs transition hover:border-accented hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                :aria-label="`Open ${section.label}`"
+                @click="openSection(section.routeName)"
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <span class="flex size-10 items-center justify-center rounded-lg bg-elevated ring-1 ring-default">
+                    <UIcon :name="section.icon" class="size-5 text-highlighted" />
+                  </span>
+                  <UBadge
+                    v-if="section.lastOpened"
+                    color="neutral"
+                    label="Last opened"
+                    size="sm"
+                    variant="soft"
+                  />
+                </div>
+                <div class="mt-6">
+                  <h2 class="text-base font-semibold text-highlighted">{{ section.label }}</h2>
+                  <p class="mt-1.5 text-sm leading-6 text-muted">{{ section.description }}</p>
+                </div>
+                <span class="mt-auto flex items-center gap-1.5 pt-5 text-sm font-medium text-toned">
+                  Open {{ section.label }}
+                  <UIcon
+                    name="i-lucide-arrow-right"
+                    class="size-4 transition-transform group-hover:translate-x-0.5"
+                  />
+                </span>
+              </button>
+            </div>
+            <UEmpty
+              v-else-if="!error"
+              class="mt-8 min-h-72 rounded-xl border border-dashed border-default"
+              icon="i-lucide-panels-top-left"
+              title="No primitives enabled"
+              description="Enable Agents or KV in the ViteHub configuration to add a Console page."
+            />
+          </div>
+        </main>
       </div>
     </UDashboardPanel>
   </ConsoleFrame>

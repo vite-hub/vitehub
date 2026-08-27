@@ -7,7 +7,7 @@ icon: i-lucide-monitor-dot
 
 The ViteHub Console is a read-only app for inspecting the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
-The Console currently exposes Agents and KV. The home sidebar lists only configured primitives. Opening a section replaces those items with that section's navigation, and **All sections** returns to the Console home. Agents retains its session browser, search, and invocation details. KV is a read-only placeholder while store inspection is being implemented.
+The Console currently exposes Agents and KV. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. KV is a read-only placeholder while store inspection is being implemented.
 
 Console data can contain user prompts, model output, tool activity, and provider metadata. Protect the Console before making it reachable on a production URL.
 

@@ -17,6 +17,7 @@ import {
 } from "../console-route";
 import { requestConsole } from "../client/request";
 import { relativeDuration } from "../client/time";
+import { rememberConsoleSection } from "../sections";
 import ConsoleBackButton from "./console-back-button.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -24,7 +25,12 @@ import ConsoleSearch from "./console-search.vue";
 
 const route = useRoute();
 const router = useRouter();
-const props = defineProps<{ agentsBase: string; apiBase: string; searchBase: string }>();
+const props = defineProps<{
+  agentsBase: string;
+  apiBase: string;
+  searchBase: string;
+  sectionsBase: string;
+}>();
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
@@ -336,6 +342,7 @@ watch(selectedInvocationId, () => {
 });
 
 onMounted(() => {
+  rememberConsoleSection("agents");
   media = window.matchMedia("(min-width: 1024px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
@@ -428,7 +435,7 @@ onBeforeUnmount(() => {
             :collapsed="collapsed"
             block
             class="w-full bg-transparent ring-default"
-            label="Search sessions"
+            label="Search console"
           />
         </div>
         <div
@@ -532,7 +539,12 @@ onBeforeUnmount(() => {
       </template>
     </UDashboardSidebar>
 
-    <ConsoleSearch :agent-names="agentNames" :search-base="searchBase" />
+    <ConsoleSearch
+      :agent-names="agentNames"
+      :agents-base="agentsBase"
+      :search-base="searchBase"
+      :sections-base="sectionsBase"
+    />
 
     <UDashboardPanel id="agent-session">
       <div class="min-h-0 flex-1" aria-live="polite">

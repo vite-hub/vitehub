@@ -12,7 +12,11 @@ useHead({ title: "ViteHub Console" })
 <template>
   <ClientOnly>
     <ConsoleProvider>
-      <ConsoleHome :sections-base="`${appBaseURL}/api/_vitehub/console/sections`" />
+      <ConsoleHome
+        :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
+        :search-base="`${appBaseURL}/api/_vitehub/console/search`"
+        :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
+      />
     </ConsoleProvider>
     <template #fallback>
       <div class="flex h-dvh min-h-[32rem] items-center justify-center text-sm text-muted">

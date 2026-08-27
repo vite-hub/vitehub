@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 
+import { rememberConsoleSection } from "../sections";
 import ConsoleBackButton from "./console-back-button.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleSearch from "./console-search.vue";
+
+defineProps<{
+  agentsBase: string;
+  searchBase: string;
+  sectionsBase: string;
+}>();
 
 const sidebarOpen = ref(false);
 const sidebarCollapsed = ref(false);
+
+onMounted(() => rememberConsoleSection("kv"));
 </script>
 
 <template>
@@ -40,6 +50,14 @@ const sidebarCollapsed = ref(false);
         <div class="px-2 pt-2">
           <ConsoleBackButton :collapsed="collapsed" />
         </div>
+        <div class="px-2 pt-2">
+          <UDashboardSearchButton
+            :collapsed="collapsed"
+            block
+            class="w-full bg-transparent ring-default"
+            label="Search console"
+          />
+        </div>
         <div v-if="!collapsed" class="px-4 pb-3 pt-5">
           <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
             KV storage
@@ -66,6 +84,12 @@ const sidebarCollapsed = ref(false);
         />
       </template>
     </UDashboardSidebar>
+
+    <ConsoleSearch
+      :agents-base="agentsBase"
+      :search-base="searchBase"
+      :sections-base="sectionsBase"
+    />
 
     <UDashboardPanel id="kv">
       <div class="flex min-h-0 flex-1 flex-col">
