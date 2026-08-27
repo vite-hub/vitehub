@@ -34,7 +34,7 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
 
   const filePath = url.startsWith("file://")
     ? fileURLToPath(url)
-    : resolve(projectRoot, url.slice("file:".length))
+    : resolve(projectRoot, decodeURIComponent(url.slice("file:".length)))
   mkdirSync(dirname(filePath), { recursive: true })
   return { url: pathToFileURL(filePath).href }
 }

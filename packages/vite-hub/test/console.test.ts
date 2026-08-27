@@ -752,6 +752,22 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("decodes configured relative Console database file URLs", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-encoded-project-"))
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/my%20journal%231.sqlite")
+    try {
+      const databasePath = join(projectRoot, "data/my journal#1.sqlite")
+      expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: pathToFileURL(databasePath).href })
+      await createConsoleInvocations(projectRoot).list()
+
+      expect(existsSync(databasePath)).toBe(true)
+      expect(existsSync(join(projectRoot, "data/my%20journal%231.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("preserves absolute Console database file URLs", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-file-url-project-"))
     const databasePath = join(await mkdtemp(join(tmpdir(), "vitehub-console-file-url-data-")), "console #1.sqlite")
