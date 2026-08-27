@@ -104,7 +104,7 @@ type QueueSendResult = {
 };
 ```
 
-The optional message ID identifies provider acceptance. Queue handlers run later and return no value to the producer. Use a [Workflow](https://vitehub.dev/docs/server-primitives/workflows) when the caller needs a tracked run, durable steps, waits, or progress.
+The optional message ID is provider-specific. Vercel returns the ID from its enqueue response. Cloudflare returns the input's `id`, generating one locally when omitted; it does not send that ID to Cloudflare, and the later delivery has a different Cloudflare message ID. In both cases, `status: "queued"` is the portable acceptance signal. Queue handlers run later and return no value to the producer. Use a [Workflow](https://vitehub.dev/docs/server-primitives/workflows) when the caller needs a tracked run, durable steps, waits, or progress.
 
 `deferQueue()` does not wait for provider acceptance. It schedules enqueue work through the current request's `waitUntil`, logs dispatch failures, and calls the Queue Definition's `onDispatchError` hook when present.
 
