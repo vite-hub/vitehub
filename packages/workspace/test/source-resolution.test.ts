@@ -1357,9 +1357,9 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
     await expect(workspace.fs.readFile("private/secret.md")).resolves.toBe("secret\n")
-    const session = await ((workspace.fs as unknown) as {
-      startSession(options?: { paths?: string[] }): Promise<{ close(): Promise<void>, readFile(path: string): Promise<string> }>
-    }).startSession({ paths: ["docs"] })
+    const startSession = Reflect.get(workspace.fs, "startSession")
+    expect(startSession).toBeTypeOf("function")
+    const session: { close(): Promise<void>, readFile(path: string): Promise<string> } = await Reflect.apply(startSession, workspace.fs, [{ paths: ["docs"] }])
 
     try {
       await expect(session.readFile("docs/guide.md")).resolves.toBe("needle\n")

@@ -463,6 +463,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
           return decodeFile(await sourceItemContent(item), options)
         }
+        if (resolution.source.materialize === "startup" && !completedSources.has(resolution.sourceKey) && !materializedSources.has(resolution.sourceKey)) {
+          await ensureMaterialized(resolution.sourceKey)
+        }
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
         await ensureMaterialized(resolution.sourceKey)

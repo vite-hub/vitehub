@@ -289,10 +289,11 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   const selectedWorkspaceScope = options.selectedWorkspaceScope
   const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
-  const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path =>
+  const overlayStore = createOverlaySourceStore(workspace, path =>
     !isLazySourcePath(resolvedDefinition, path)
     || selectedScopeCanRead(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
-  ), { reuseStartupSnapshots: true })
+  )
+  const sourceView = createWorkspaceSourceView(sourceViewDefinition, overlayStore, { reuseStartupSnapshots: true })
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   let readWorkspace!: Workspace
   const fs = attachWorkspaceSourceRequestExecution({
@@ -552,6 +553,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   const readonlyWorkspace: ReadonlyWorkspaceFacade<Name> & Partial<Pick<Workspace, "startSession">> = {
     fs,
+    getMeta: async key => await overlayStore.getMeta?.(key),
     tools,
   }
   const starter = workspaceSessionStarter(workspace)

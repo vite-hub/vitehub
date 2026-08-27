@@ -815,6 +815,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
 
   const facade: ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter> = {
     fs,
+    getMeta: async key => await workspace.getMeta?.(key),
     tools,
   }
   if (facadeStarter) {

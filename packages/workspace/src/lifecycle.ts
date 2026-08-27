@@ -54,7 +54,7 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
     : undefined
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
     const snapshot = await store.snapshot({ name: "sync" })
-    await publishWorkspaceSnapshot(definition, store, snapshot)
+    await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
     return
   }
   if (!hasBuildSourceState && !hasExplicitLoaders) return
