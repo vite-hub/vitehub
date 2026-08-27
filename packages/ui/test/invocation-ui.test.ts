@@ -161,6 +161,40 @@ describe("Agent Invocation UI", () => {
       .toBe("M21 12a9 9 0 1 1-6.219-8.56");
   });
 
+  it("groups sessions by lifecycle and sorts each group by recency", () => {
+    const items = [
+      { id: "done-old", status: "completed" as const, title: "Done old", updatedAt: "2026-08-20T00:00:00Z" },
+      { id: "queued-old", status: "pending" as const, title: "Queued old", updatedAt: "2026-08-21T00:00:00Z" },
+      { id: "working-old", status: "running" as const, title: "Working old", updatedAt: "2026-08-22T00:00:00Z" },
+      { id: "done-new", status: "failed" as const, title: "Done new", updatedAt: "2026-08-24T00:00:00Z" },
+      { id: "queued-new", status: "pending" as const, title: "Queued new", updatedAt: "2026-08-25T00:00:00Z" },
+      { id: "working-new", status: "running" as const, title: "Working new", updatedAt: "2026-08-26T00:00:00Z" },
+    ];
+    const wrapper = mount(AgentInvocationList, { props: { items } });
+    const groups = wrapper.findAll(".vh-invocation-list__group");
+
+    expect(groups.map(group => group.attributes("data-group"))).toEqual(["working", "queued", "done"]);
+    expect(groups.map(group => group.element.tagName)).toEqual(["SECTION", "DETAILS", "DETAILS"]);
+    expect(wrapper.get('details[data-group="queued"]').attributes("open")).toBe("");
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBeUndefined();
+    expect(groups.map(group => group.findAll(".vh-invocation-list__title").map(title => title.text()))).toEqual([
+      ["Working new", "Working old"],
+      ["Queued new", "Queued old"],
+      ["Done new", "Done old"],
+    ]);
+  });
+
+  it("reveals the selected terminal session", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "done", status: "completed", title: "Done" }],
+        selectedId: "done",
+      },
+    });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
   it("keeps every session in the accessible navigation list", () => {
     const items = Array.from({ length: 100 }, (_, index) => ({
       description: index === 0 ? "The host stopped before this invocation finished." : undefined,
@@ -1389,7 +1423,7 @@ describe("Agent Invocation UI", () => {
     });
 
     expect(wrapper.get("nav").attributes("aria-busy")).toBeUndefined();
-    expect(wrapper.get("ul").attributes("aria-busy")).toBe("true");
+    expect(wrapper.get(".vh-invocation-list__groups").attributes("aria-busy")).toBe("true");
     expect(wrapper.get('[role="status"]').text()).toBe("Loading sessions…");
     expect(wrapper.get('[role="status"]').element.closest('[aria-busy="true"]')).toBeNull();
     expect(wrapper.findAll("li")).toHaveLength(1);

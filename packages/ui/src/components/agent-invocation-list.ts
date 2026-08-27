@@ -1,4 +1,4 @@
-import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "../types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -65,6 +65,24 @@ function metadataIcon(kind: "agent" | "provider") {
     : [h("path", { d: "M5 7h14M5 12h14M5 17h14" }), h("path", { d: "M7 5v4M17 10v4M10 15v4" })]);
 }
 
+const invocationStatusPriority: Record<AgentInvocationStatus, number> = {
+  running: 0,
+  pending: 1,
+  completed: 2,
+  failed: 2,
+  cancelled: 2,
+};
+
+function invocationUpdatedAt(item: AgentInvocationListItem): number {
+  const timestamp = Date.parse(item.updatedAt ?? item.startedAt ?? "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortInvocationItems(items: readonly AgentInvocationListItem[]): AgentInvocationListItem[] {
+  return [...items].sort((left, right) => invocationStatusPriority[left.status] - invocationStatusPriority[right.status]
+    || invocationUpdatedAt(right) - invocationUpdatedAt(left));
+}
+
 function renderItem(
   item: AgentInvocationListItem,
   selectedId: string | undefined,
@@ -127,6 +145,14 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
+    const groups = computed(() => {
+      const sorted = sortInvocationItems(props.items);
+      return [
+        { collapsible: false, items: sorted.filter(item => item.status === "running"), key: "working", label: "Working" },
+        { collapsible: true, defaultOpen: true, items: sorted.filter(item => item.status === "pending"), key: "queued", label: "Queued" },
+        { collapsible: true, defaultOpen: false, items: sorted.filter(item => item.status !== "running" && item.status !== "pending"), key: "done", label: "Done" },
+      ].filter(group => group.items.length > 0);
+    });
     let resizeObserver: ResizeObserver | undefined;
     const requestMoreIfNeeded = () => {
       const element = viewport.value;
@@ -154,6 +180,27 @@ export const AgentInvocationList = defineComponent({
     });
     onBeforeUnmount(() => resizeObserver?.disconnect());
     const select = (item: AgentInvocationListItem) => emit("select", item);
+    const renderRows = (group: (typeof groups.value)[number]) => h("ul", {
+      class: "vh-invocation-list__group-items",
+      "data-group": group.key,
+    }, group.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)));
+    const renderGroupHeading = (group: (typeof groups.value)[number]) => [
+      h("span", { class: "vh-invocation-list__group-label" }, group.label),
+      h("span", {
+        "aria-label": `${group.items.length} ${group.items.length === 1 ? "session" : "sessions"}`,
+        class: "vh-invocation-list__group-count",
+      }, String(group.items.length)),
+    ];
+    const renderGroup = (group: (typeof groups.value)[number]) => group.collapsible
+      ? h("details", {
+          class: "vh-invocation-list__group vh-invocation-list__group--collapsible",
+          "data-group": group.key,
+          open: group.defaultOpen || group.items.some(item => item.id === props.selectedId),
+        }, [h("summary", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)])
+      : h("section", {
+          class: "vh-invocation-list__group vh-invocation-list__group--static",
+          "data-group": group.key,
+        }, [h("header", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)]);
 
     return () => h("nav", {
       "aria-label": props.ariaLabel,
@@ -166,7 +213,7 @@ export const AgentInvocationList = defineComponent({
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
       props.items.length
-        ? h("ul", { "aria-busy": props.loading ? "true" : undefined }, props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
+        ? h("div", { "aria-busy": props.loading ? "true" : undefined, class: "vh-invocation-list__groups" }, groups.value.map(renderGroup))
         : null,
       props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading", role: "status" }, "Loading sessions…") : null,
       slots.footer?.({ items: props.items }),
