@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -42,6 +42,46 @@ async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.
   catch (error) {
     const failure = error as Error & { stderr?: string, stdout?: string }
     throw new Error(`${command} ${args.join(" ")} failed\n${failure.stdout || ""}${failure.stderr || ""}`, { cause: error })
+  }
+}
+
+async function expectDenoLauncherToStart(appRoot: string) {
+  const child = spawn("deno", ["run", "-A", "--unstable-cron", ".output/main.ts"], {
+    cwd: appRoot,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  let output = ""
+  child.stdout.on("data", chunk => output += chunk)
+  child.stderr.on("data", chunk => output += chunk)
+  const exit = new Promise<{ code: number | null, signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once("error", reject)
+    child.once("exit", (code, signal) => resolve({ code, signal }))
+  })
+
+  try {
+    const started = (async () => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        try {
+          await fetch("http://127.0.0.1:8000/")
+          return
+        }
+        catch {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      throw new Error(`Deno launcher did not listen on port 8000\n${output}`)
+    })()
+    await Promise.race([
+      exit.then(({ code, signal }) => {
+        throw new Error(`Deno launcher exited with ${signal ?? `code ${code}`}\n${output}`)
+      }),
+      started,
+    ])
+  }
+  finally {
+    child.kill("SIGTERM")
+    await exit
   }
 }
 
@@ -95,6 +135,7 @@ describe("host documentation fixtures", () => {
             `${host} should emit ${artifact}`,
           ).resolves.not.toHaveLength(0)
         }
+        if (host === "deno") await expectDenoLauncherToStart(appRoot)
       }
     }
     finally {

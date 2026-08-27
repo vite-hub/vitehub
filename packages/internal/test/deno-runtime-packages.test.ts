@@ -61,14 +61,20 @@ import "real"
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await mkdir(join(root, "server/schedules"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
-    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "Deno.cron\n", "utf8")
+    await writeFile(join(root, "server/schedules/heartbeat.ts"), 'export default { run() { return "heartbeat" } }\n', "utf8")
+    await writeFile(join(root, ".vitehub/schedule/registry.mjs"), 'export default { heartbeat: () => import("../../server/schedules/heartbeat.ts") }\n', "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import registry from "./registry.mjs"\nglobalThis.schedule = registry.heartbeat\n', "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain("./schedule/deno-cron.mjs")
-    await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toBe("Deno.cron\n")
+    const scheduleBundle = await readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")
+    expect(scheduleBundle).toContain("heartbeat")
+    expect(scheduleBundle).not.toContain("./registry.mjs")
+    expect(scheduleBundle).not.toContain("../../server/schedules/heartbeat.ts")
     await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       tasks: { start: "deno run -A ./main.ts" },
     })

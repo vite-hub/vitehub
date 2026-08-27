@@ -2,6 +2,7 @@ import { access, cp, mkdir, readdir, readFile, realpath, rm, writeFile } from "n
 import { builtinModules, createRequire } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
+import { bundleEsmEntry } from "./esbuild.ts"
 
 const builtinModuleNames = new Set([
   ...builtinModules,
@@ -401,7 +402,12 @@ export async function finalizeDenoDeploymentOutput(
     hasSchedule = true
     await access(applicationEntrySource)
     await mkdir(join(outputDir, "schedule"), { recursive: true })
-    await cp(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"))
+    await bundleEsmEntry(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"), {
+      format: "esm",
+      platform: "neutral",
+      rootDir: options.rootDir,
+      workingDir: options.rootDir,
+    })
     await cp(applicationEntrySource, join(outputDir, "main.ts"))
     entrypoint = "main.ts"
   }
