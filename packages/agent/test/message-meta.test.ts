@@ -10,6 +10,8 @@ import {
   withParsedAgentMessageMeta,
 } from "../src/internal/message-meta.ts"
 
+vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+
 const metaSchema = {
   "~standard": {
     validate(input: unknown) {
@@ -99,6 +101,19 @@ describe("Agent message metadata", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("passes explicit null metadata to the schema", async () => {
+    const validate = vi.fn(() => ({ issues: [{ message: "metadata must be an object" }] }))
+    const agent = defineAgent({
+      driver: { run: () => "unreachable" },
+      messages: { meta: { "~standard": { validate } } as never },
+    })
+
+    await expect(runAgentInline(agent, runtime(), {
+      context: { channel: { meta: null } } as never,
+    })).rejects.toThrow("Invalid agent channel metadata")
+    expect(validate).toHaveBeenCalledWith(null)
+  })
+
   it("rejects schemas that transform metadata to a non-object", async () => {
     const agent = defineAgent({
       driver: { run: () => "unreachable" },
@@ -147,6 +162,27 @@ describe("Agent message metadata", () => {
 
     expect(parses).toBe(1)
     expect(restored.context?.channel).toEqual({ meta: { parse: 1 } })
+  })
+
+  it("transforms nonportable metadata before a durable handoff", async () => {
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      messages: {
+        meta: {
+          "~standard": {
+            validate: (input: unknown) => ({ value: { sentAt: (input as { sentAt: Date }).sentAt.toISOString() } }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+    })
+    const input = { context: { channel: { meta: { sentAt: new Date("2026-08-27T09:00:00.000Z") } } } }
+
+    await expect(portableAgentWorkflowInput(input)).rejects.toThrow()
+    const portable = await portableAgentWorkflowInput(await withParsedAgentMessageMeta(agent, input))
+
+    expect(portable.context?.channel).toEqual({ meta: { sentAt: "2026-08-27T09:00:00.000Z" } })
   })
 
   it("does not trust a caller-provided parsed marker", async () => {

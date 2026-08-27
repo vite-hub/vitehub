@@ -29,7 +29,7 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
-import { hasParsedAgentMessageMeta, parseAgentMessageMeta } from "./internal/message-meta.ts"
+import { hasParsedAgentMessageMeta, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
@@ -921,7 +921,10 @@ async function runAgentAsWorkflow<
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
-  const workflowInput = await portableAgentWorkflowInput(input)
+  const parsedInput = hasAgentDefinition(agent)
+    ? await withParsedAgentMessageMeta(agent, input, context.run)
+    : input
+  const workflowInput = await portableAgentWorkflowInput(parsedInput)
   const channelDeliveryBinding = input.context?.[agentChannelDeliveryWorkflowContextKey]
   const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
   const inheritedRun = options.fresh && context.run && !durableChannelDelivery
@@ -934,7 +937,7 @@ async function runAgentAsWorkflow<
     input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
-    ...(hasParsedAgentMessageMeta(input) ? { parsedMessageMeta: true } : {}),
+    ...(hasParsedAgentMessageMeta(parsedInput) ? { parsedMessageMeta: true } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,

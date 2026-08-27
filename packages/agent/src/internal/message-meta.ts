@@ -59,7 +59,11 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   const channel = invocationContext.get("channel")
   const chat = invocationContext.get("chat")
   if (!isRuntimeObject(channel) && !isRuntimeObject(chat)) return
-  const rawMeta = channel?.meta ?? chat?.meta ?? {}
+  const rawMeta = channel?.meta !== undefined
+    ? channel.meta
+    : chat?.meta !== undefined
+      ? chat.meta
+      : {}
   const meta = await parseStandardSchema(schema, rawMeta, "agent channel metadata")
   if (!isRuntimeObject(meta) || Array.isArray(meta)) {
     throw new TypeError("[vitehub] Agent channel metadata schema must return an object.")
