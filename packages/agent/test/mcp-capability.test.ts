@@ -126,6 +126,7 @@ describe("mcp capability", () => {
       }, runtime(), {})
 
       expect(createMCPClient).toHaveBeenCalledWith(expect.objectContaining({
+        initializationOptions: { protocolVersionDiscovery: false },
         transport: expect.objectContaining({ type: "http", url: "https://example.com/mcp" }),
       }))
       expect(resolved.tools?.mcp_github_search.metadata).toMatchObject({
@@ -142,6 +143,72 @@ describe("mcp capability", () => {
       })
       await resolved.close()
       expect(createdClient.close).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
+  it("removes credentials from URL metadata while retaining the endpoint", async () => {
+    const createdClient = createClient({ search: { execute: vi.fn() } })
+    const createMCPClient = vi.fn(async () => createdClient)
+    vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient }))
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+      const endpoint = new URL("https://user:password@example.com/mcp?token=secret#private")
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [mcp({
+          servers: { private: { transport: { type: "http", url: endpoint } } },
+        })],
+      }, runtime(), {})
+
+      expect(createMCPClient).toHaveBeenCalledWith({
+        initializationOptions: { protocolVersionDiscovery: false },
+        transport: { type: "http", url: endpoint },
+      })
+      expect(resolved.tools?.mcp_private_search.metadata).toMatchObject({
+        mcp: {
+          transport: { type: "http", url: "https://example.com/mcp" },
+        },
+      })
+      expect(JSON.stringify(resolved.tools?.mcp_private_search.metadata)).not.toContain("secret")
+      await resolved.close()
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
+  it("uses initialize-first compatibility unless protocol discovery is requested", async () => {
+    const createMCPClient = vi.fn(async () => createClient({ search: { execute: vi.fn() } }))
+    vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient }))
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [mcp({
+          servers: {
+            discovery: {
+              initializationOptions: { protocolVersionDiscovery: true },
+              transport: { type: "http", url: "https://modern.example.com/mcp" },
+            },
+            legacy: { transport: { type: "http", url: "https://legacy.example.com/mcp" } },
+          },
+        })],
+      }, runtime(), {})
+
+      expect(createMCPClient).toHaveBeenNthCalledWith(1, {
+        initializationOptions: { protocolVersionDiscovery: true },
+        transport: { type: "http", url: "https://modern.example.com/mcp" },
+      })
+      expect(createMCPClient).toHaveBeenNthCalledWith(2, {
+        initializationOptions: { protocolVersionDiscovery: false },
+        transport: { type: "http", url: "https://legacy.example.com/mcp" },
+      })
+      await resolved.close()
     }
     finally {
       vi.doUnmock("@ai-sdk/mcp")
@@ -321,6 +388,22 @@ describe("mcp capability", () => {
     expect(second.close).toHaveBeenCalledTimes(1)
   })
 
+  it("attempts every owned client close when one fails", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const first = createClient({ first: { execute: vi.fn() } })
+    const second = createClient({ second: { execute: vi.fn() } })
+    second.close.mockRejectedValueOnce(new Error("second close failed"))
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({ servers: { first: () => first, second: () => second } })],
+    }, runtime(), {})
+
+    await expect(resolved.close()).rejects.toThrow("second close failed")
+    expect(second.close).toHaveBeenCalledTimes(1)
+    expect(first.close).toHaveBeenCalledTimes(1)
+  })
+
   it("admits tools that match an approved integrity baseline", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
@@ -411,6 +494,26 @@ describe("mcp capability", () => {
       integrity: { other: {} },
       servers: { docs: createClient({}) },
     })).toThrow('mcp({ integrity }) references unknown server "other"')
+  })
+
+  it("does not inherit integrity baselines for prototype-named servers", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const docsTools = await createTools({ search: "Search docs." })
+    const inheritedNameClient = createClient({ lookup: { execute: vi.fn() } })
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({
+        integrity: { docs: await fingerprintTools(docsTools) },
+        servers: {
+          constructor: () => inheritedNameClient,
+          docs: () => createClient(docsTools),
+        },
+      })],
+    }, runtime(), {})
+
+    expect(resolved.tools).toHaveProperty("mcp_constructor_lookup")
+    await resolved.close()
   })
 
   it("requires AI SDK tool integrity support only when configured", async () => {

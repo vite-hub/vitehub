@@ -12,6 +12,12 @@ export interface McpClient {
 }
 
 export interface McpClientConfig {
+  initializationOptions?: {
+    maxTotalTimeout?: number
+    protocolVersionDiscovery?: boolean
+    signal?: AbortSignal
+    timeout?: number
+  }
   transport: unknown
 }
 
