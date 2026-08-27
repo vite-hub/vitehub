@@ -27,6 +27,7 @@ type GitHubCommandOptions = {
 }
 
 const exec = promisify(execFile)
+const githubCommandMaxBuffer = 16 * 1024 * 1024
 
 export const githubBotLogin = 'vitehub-bot[bot]'
 export const githubBotEmail = '320448255+vitehub-bot[bot]@users.noreply.github.com'
@@ -87,9 +88,16 @@ export const githubToken = createGitHubTokenProvider({
 
 export async function runGitHub(args: string[], options: GitHubCommandOptions = {}) {
   const { repository, ...commandOptions } = options
-  return await exec('gh', args, {
+  return await runBufferedCommand('gh', args, {
     ...commandOptions,
     env: githubCommandEnvironment(await githubToken({ repository }), options.env),
+  })
+}
+
+export async function runBufferedCommand(command: string, args: string[], options: Omit<GitHubCommandOptions, 'repository'> = {}) {
+  return await exec(command, args, {
+    ...options,
+    maxBuffer: githubCommandMaxBuffer,
   })
 }
 

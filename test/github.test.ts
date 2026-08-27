@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createGitHubTokenProvider, githubAgentEnvironment } from '../server/github.ts'
+import { createGitHubTokenProvider, githubAgentEnvironment, runBufferedCommand } from '../server/github.ts'
 
 const secret = (value: string) => ({ unseal: () => value })
+
+test('buffers GitHub listings larger than the Node child-process default', async () => {
+  const bytes = 2 * 1024 * 1024
+  const result = await runBufferedCommand(process.execPath, [
+    '-e',
+    `process.stdout.write('x'.repeat(${bytes}))`,
+  ])
+
+  assert.equal(Buffer.byteLength(result.stdout), bytes)
+})
 
 test('mints and caches installation authentication from complete App credentials', async () => {
   const calls: unknown[] = []
