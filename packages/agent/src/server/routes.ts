@@ -4441,16 +4441,16 @@ function withAgentInvokerRunAnnotation(
   input: AgentChatMessageTriggerInput,
   invoker: AgentInvoker,
 ): AgentChatMessageTriggerInput {
-  const triggeredBy = agentInvokerLabel(invoker)
-  if (!triggeredBy || !input.run) return input
+  if (!input.run) return input
   const annotations = { ...input.run.annotations }
   delete annotations.triggeredBy
+  const triggeredBy = agentInvokerLabel(invoker)
   return {
     ...input,
     run: {
       ...input.run,
       annotations: {
-        triggeredBy,
+        ...(triggeredBy ? { triggeredBy } : {}),
         ...annotations,
       },
     },

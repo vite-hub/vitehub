@@ -2910,6 +2910,43 @@ describe("server helpers", () => {
     expect(Object.keys(annotations)[0]).toBe("triggeredBy")
   })
 
+  it("removes caller-supplied invoker identity evidence when the invoker has no label", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let annotations: Record<string, boolean | number | string | null> | undefined
+    const agent = defineAgent({
+      capabilities: [defineChatCapability()],
+      driver: {
+        run({ run }) {
+          annotations = run.annotations
+          return "ok"
+        },
+      },
+      invoker: { resolve: () => ({ id: "customer:acme", kind: "customer" }) },
+    })
+    // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
+    const handler = createChannelChatRouteHandler(agent as never, {
+      mapInput: () => ({ run: { annotations: { source: "portal", triggeredBy: "spoofed" } } }),
+    })
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          id: "portal-thread",
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentName: "support" },
+    )
+
+    expect(response.status).toBe(200)
+    await response.text()
+    expect(annotations).toEqual({ source: "portal" })
+  })
+
   it("consumes only approval responses issued by the server session", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-approval-"))
     const agentModule = await import("../src/index.ts")
