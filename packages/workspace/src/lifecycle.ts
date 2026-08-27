@@ -55,7 +55,7 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
   const fenced = new Proxy(store, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
-      if (!STORE_MUTATIONS.has(String(property))) return value
+      if (!STORE_MUTATIONS.has(String(property))) return value?.bind(target)
       return (...args: unknown[]) => {
         abortSignal.throwIfAborted()
         const operation = Promise.resolve(Reflect.apply(value, target, args))
