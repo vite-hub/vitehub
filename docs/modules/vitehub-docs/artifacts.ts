@@ -1,5 +1,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import {
+  array,
+  literal,
+  number,
+  object,
+  safeParse,
+  string,
+} from "valibot";
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
 import { docsLanes, parseDocsLanes } from "./docs-lanes";
 import { toRawMarkdown } from "./artifacts/raw-markdown";
@@ -10,6 +18,14 @@ type DocsArtifactOptions = {
 };
 
 const docsManifestVersion = 1;
+const docsManifestSchema = object({
+  sections: array(
+    object({
+      pages: array(object({ path: string() })),
+    }),
+  ),
+  version: literal(docsManifestVersion),
+});
 
 function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) {
   const segments = relative(contentRoot, absolutePath)
@@ -110,8 +126,19 @@ function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>) {
   return String(meta["navigation.title"] || meta.title || titleCase(pageId === "index" ? "overview" : pageId));
 }
 
+function optionalString(value: unknown) {
+  const result = safeParse(string(), value);
+  return result.success ? result.output : null;
+}
+
+function optionalNumber(value: unknown) {
+  const result = safeParse(number(), value);
+  return result.success ? result.output : null;
+}
+
 function pageOrderFromMeta(meta: Record<string, unknown>) {
-  return typeof meta["navigation.order"] === "number" ? meta["navigation.order"] : Number.MAX_SAFE_INTEGER;
+  const result = optionalNumber(meta["navigation.order"]);
+  return result ?? Number.MAX_SAFE_INTEGER;
 }
 
 function collectPages(rootDir: string, sectionId: string) {
@@ -125,10 +152,10 @@ function collectPages(rootDir: string, sectionId: string) {
       id: pageId,
       path: pagePath(sectionId, pageId),
       title: pageTitleFromMeta(pageId, meta),
-      sourceTitle: typeof meta.title === "string" ? meta.title : null,
-      description: typeof meta.description === "string" ? meta.description : null,
-      icon: typeof meta.icon === "string" ? meta.icon : null,
-      group: typeof meta["navigation.group"] === "string" ? meta["navigation.group"] : null,
+      sourceTitle: optionalString(meta.title),
+      description: optionalString(meta.description),
+      icon: optionalString(meta.icon),
+      group: optionalString(meta["navigation.group"]),
       lanes: parseDocsLanes(meta["navigation.lanes"]),
       navigation: meta.navigation !== false,
       order: pageOrderFromMeta(meta),
@@ -161,9 +188,9 @@ function collectRootPage(localDocsRoot: string) {
     id: "index",
     path: "/docs",
     title: pageTitleFromMeta("index", meta),
-    sourceTitle: typeof meta.title === "string" ? meta.title : null,
-    description: typeof meta.description === "string" ? meta.description : null,
-    icon: typeof meta.icon === "string" ? meta.icon : null,
+    sourceTitle: optionalString(meta.title),
+    description: optionalString(meta.description),
+    icon: optionalString(meta.icon),
     lanes: docsLanes,
     navigation: meta.navigation !== false,
     order: pageOrderFromMeta(meta),
@@ -182,11 +209,11 @@ function createDocsSection(sectionId: string, rootDir: string, order: number) {
   return {
     id: sectionId,
     path: pagePath(sectionId, "index"),
-    title: typeof navigation.title === "string" ? navigation.title : overview?.sourceTitle || titleCase(sectionId),
+    title: optionalString(navigation.title) || overview?.sourceTitle || titleCase(sectionId),
     description: overview?.description || null,
-    icon: typeof navigation.icon === "string" ? navigation.icon : overview?.icon || null,
+    icon: optionalString(navigation.icon) || overview?.icon || null,
     lanes,
-    order: typeof navigation.order === "number" ? navigation.order : order,
+    order: optionalNumber(navigation.order) ?? order,
     pages,
   };
 }
@@ -243,8 +270,7 @@ export function readDocsArtifactsManifest(outputDir: string) {
     return null;
   }
 
-  const manifest = JSON.parse(source.slice(prefix.length, -suffix.length)) as Partial<ReturnType<typeof writeDocsArtifacts>>;
-  return manifest.version === docsManifestVersion
-    ? manifest as ReturnType<typeof writeDocsArtifacts>
-    : null;
+  const manifest: unknown = JSON.parse(source.slice(prefix.length, -suffix.length));
+  const result = safeParse(docsManifestSchema, manifest);
+  return result.success ? result.output : null;
 }

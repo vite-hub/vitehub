@@ -125,7 +125,7 @@ function stripPresentationDirectives(source: string) {
 
   for (const originalLine of source.split("\n")) {
     const leadingSpaces = originalLine.match(/^ */)?.[0].length || 0;
-    const structuralIndent = fence?.indent ?? Math.min(leadingSpaces, depth * 2);
+    const structuralIndent: number = fence?.indent ?? Math.min(leadingSpaces, depth * 2);
     const deindented = originalLine.slice(Math.min(leadingSpaces, structuralIndent));
     const run = fenceRun(deindented);
     if (run) {

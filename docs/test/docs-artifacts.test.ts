@@ -84,6 +84,12 @@ describe("writeDocsArtifacts", () => {
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.group).toBe("Storage");
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.lanes).toEqual(["agents", "server-primitives"]);
       expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")?.navigation).toBe(false);
+      expect(readDocsArtifactsManifest(outputDir)?.sections[0]?.pages.map(page => page.path)).toEqual([
+        "/docs/server-primitives",
+        "/docs/server-primitives/middle",
+        "/docs/server-primitives/kv",
+        "/docs/server-primitives/hidden",
+      ]);
       expect(readFileSync(resolve(outputDir, "raw/docs.md"), "utf8")).toBe("# ViteHub docs\n\nStart here.\n");
       expect(readFileSync(resolve(outputDir, "raw/docs/server-primitives.md"), "utf8")).toBe("# Overview\n\nServer content.\n");
       expect(readFileSync(resolve(outputDir, "raw/blog/agents.md"), "utf8")).toBe("# Agents blog\n");
@@ -226,13 +232,13 @@ describe("writeDocsArtifacts", () => {
     }
   });
 
-  it("rejects cached manifests from before the current schema", () => {
+  it("rejects cached manifests that do not match the current schema", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const outputDir = resolve(rootDir, ".generated");
 
     try {
       writeText(resolve(outputDir, "docs-manifest.mjs"), [
-        "export const docsManifest = {\"rootPage\":null,\"sections\":[]};",
+        "export const docsManifest = {\"version\":1,\"sections\":[{\"pages\":[{\"path\":3}]}]};",
         "",
         "export default docsManifest;",
         "",

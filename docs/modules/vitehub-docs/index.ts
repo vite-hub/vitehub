@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { defineNuxtModule } from "nuxt/kit";
 import { readDocsArtifactsManifest, writeDocsArtifacts } from "./artifacts";
 
-function collectPrerenderRoutes(manifest: NonNullable<ReturnType<typeof readDocsArtifactsManifest>>) {
+function collectPrerenderRoutes(manifest: { sections: Array<{ pages: Array<{ path: string }> }> }) {
   const routes: string[] = ["/docs", "/about", "/contact", "/privacy"];
 
   for (const section of manifest.sections) {
