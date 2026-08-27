@@ -5,6 +5,7 @@ import { decode } from "html-entities";
 import remarkGfm from "remark-gfm";
 import remarkMdc from "remark-mdc";
 import remarkParse from "remark-parse";
+import ts from "typescript";
 import { unified } from "unified";
 import { parse as parseYaml } from "yaml";
 
@@ -130,10 +131,12 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const githubSlugger = new GithubSlugger();
   const { body } = splitFrontmatter(markdown);
   visit(parseMarkdown(body, { renderer }), (node) => {
-    if (renderer === "mdc" && node.type === "html") {
+    if (node.type === "html") {
       for (const tag of htmlTags(node.value)) {
-        const id = htmlAttribute(tag, "id");
-        if (id) anchors.add(id);
+        if (renderer === "mdc") {
+          const id = htmlAttribute(tag, "id");
+          if (id) anchors.add(id);
+        }
         if (/^<a(?:\s|>)/i.test(tag)) {
           const name = htmlAttribute(tag, "name");
           if (name) anchors.add(name);
@@ -211,6 +214,54 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
   });
   if (frontmatter) links.push(...frontmatterLinks(frontmatter));
   return links;
+}
+
+function staticBinding(value) {
+  const quote = value?.[0];
+  if ((quote !== "\"" && quote !== "'") || value.at(-1) !== quote) return undefined;
+  const destination = value.slice(1, -1);
+  return destination.includes("\\") ? undefined : destination;
+}
+
+function isStaticSiteDestination(destination) {
+  return destination.startsWith("/")
+    || destination.startsWith("#")
+    || /^(?:https?:)?\/\//i.test(destination);
+}
+
+export function vueLinks(source) {
+  const links = [];
+  for (const match of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+    const file = ts.createSourceFile("component.ts", match[1], ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    function visitScript(node) {
+      if (ts.isPropertyAssignment(node)) {
+        const name = ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)
+          ? node.name.text
+          : undefined;
+        if (["to", "href", "src", "poster", "srcset"].includes(name)
+          && ts.isStringLiteralLike(node.initializer)) {
+          links.push(node.initializer.text);
+        }
+      }
+      ts.forEachChild(node, visitScript);
+    }
+    visitScript(file);
+  }
+  const templateSource = withoutHtmlComments(source)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+  for (const tag of htmlTags(templateSource)) {
+    for (const attribute of ["to", "href", "src", "poster", "srcset"]) {
+      const staticDestination = htmlAttribute(tag, attribute);
+      const boundDestination = staticBinding(htmlAttribute(tag, `:${attribute}`));
+      for (const destination of [staticDestination, boundDestination]) {
+        if (!destination) continue;
+        if (attribute === "srcset") links.push(...sourceSetLinks(destination));
+        else links.push(destination);
+      }
+    }
+  }
+  return [...new Set(links.filter(isStaticSiteDestination))];
 }
 
 function routeFromContentPath(contentRoot, path) {
@@ -327,6 +378,27 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
     .filter((path) => routeFromContentPath(contentRoot, path) !== undefined);
   const readmes = publicReadmes(repoRoot);
   const markdownFiles = [...contentFiles, ...readmes];
+  const applicationFiles = walk(join(docsRoot, "app"), (path) => path.endsWith(".vue"));
+  const sourceEntries = [
+    ...markdownFiles.map((sourcePath) => {
+      const sourceRoute = sourcePath.startsWith(`${contentRoot}${sep}`)
+        ? routeFromContentPath(contentRoot, sourcePath)
+        : undefined;
+      const renderer = sourceRoute === undefined ? "github" : "mdc";
+      return {
+        destinations: markdownLinks(readFileSync(sourcePath, "utf8"), { renderer }),
+        renderer,
+        sourcePath,
+        sourceRoute,
+      };
+    }),
+    ...applicationFiles.map((sourcePath) => ({
+      destinations: vueLinks(readFileSync(sourcePath, "utf8")),
+      renderer: "vue",
+      sourcePath,
+      sourceRoute: "/",
+    })),
+  ];
   const routeFiles = new Map(contentFiles.map((path) => [routeFromContentPath(contentRoot, path), path]));
   const applicationRoutes = appRoutes(docsRoot);
   const knownRoutes = new Set([...routeFiles.keys(), ...applicationRoutes.keys(), ...docsRoutes.map(normalizeRoute)]);
@@ -342,14 +414,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   const errors = [];
   let checked = 0;
 
-  for (const sourcePath of markdownFiles) {
-    const source = readFileSync(sourcePath, "utf8");
-    const sourceRoute = sourcePath.startsWith(`${contentRoot}${sep}`)
-      ? routeFromContentPath(contentRoot, sourcePath)
-      : undefined;
-    for (const destination of markdownLinks(source, {
-      renderer: sourceRoute === undefined ? "github" : "mdc",
-    })) {
+  for (const { destinations, renderer, sourcePath, sourceRoute } of sourceEntries) {
+    for (const destination of destinations) {
       if (/^(?:mailto:|tel:|data:|javascript:)/i.test(destination)) continue;
       if (sourceRoute === undefined && /^\/(?!\/)/.test(destination)) continue;
       let local = destination;
@@ -368,7 +434,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       let targetRoute;
 
       if (!path) {
-        targetFile = sourcePath;
+        if (renderer === "vue") targetRoute = sourceRoute;
+        else targetFile = sourcePath;
       } else if (sourceRoute !== undefined || isSiteLink) {
         const renderedPath = path.startsWith("/")
           ? path
@@ -409,7 +476,7 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
           const readme = join(targetFile, "README.md");
           if (existsSync(readme)) targetFile = readme;
         }
-        const targetRenderer = sourceRoute === undefined && !isSiteLink ? "github" : "mdc";
+        const targetRenderer = renderer === "github" && !isSiteLink ? "github" : "mdc";
         const targetAnchors = targetRoute === "/docs/frameworks-hosts/support-matrix"
           ? applicationRoutes.get(targetRoute)
           : extname(targetFile) === ".md"
@@ -427,5 +494,5 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
     }
   }
 
-  return { checked, errors, files: markdownFiles.length };
+  return { checked, errors, files: sourceEntries.length };
 }

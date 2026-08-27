@@ -61,6 +61,28 @@ describe("public example link checks", () => {
     ]);
   });
 
+  it("falls back to the original repository when a redirect is not repository-shaped", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input) === "https://github.com/vite-hub/template/generate") {
+        const response = new Response("ok", { status: 200 });
+        Object.defineProperty(response, "url", { value: "https://github.com/new" });
+        return response;
+      }
+      return new Response(JSON.stringify({ default_branch: "main" }), { status: 200 });
+    });
+    const result = await checkExampleLinks([
+      { name: "Template", kind: "template", status: "published", action: { to: "https://github.com/vite-hub/template/generate" }, startPath: "app/index.ts" },
+    ], { attempts: 1, fetchImpl });
+
+    expect(result.failures).toEqual([]);
+    expect(result.checks.map(({ category }) => category)).toEqual([
+      "template-action",
+      "default-branch",
+      "start-path",
+    ]);
+    expect(result.checks[1]?.url).toBe("https://api.github.com/repos/vite-hub/template");
+  });
+
   it("continues auditing after a malformed catalog URL", async () => {
     const fetchImpl = vi.fn(async () => new Response("ok", { status: 200 }));
     const result = await checkExampleLinks([

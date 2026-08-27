@@ -46,6 +46,7 @@
     "remark-gfm": "catalog:",
     "remark-mdc": "catalog:",
     "remark-parse": "catalog:",
+    "typescript": "catalog:tooling",
     "unified": "catalog:",
     "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",

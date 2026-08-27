@@ -39,6 +39,7 @@ describe("GitHub Action pin policy", () => {
       ".github/actions/setup-deno/action.yml",
       ".github/actions/setup/action.yml",
       ".github/workflows/ci.yml",
+      ".github/workflows/docs-external-links.yml",
       ".github/workflows/live-smoke.yml",
       ".github/workflows/pkg-pr-new.yml",
       ".github/workflows/pullfrog.yml",

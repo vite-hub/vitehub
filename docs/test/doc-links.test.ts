@@ -161,7 +161,7 @@ https://vitehub.dev/docs/bare-autolink
   });
 
   it("uses GitHub anchors for public package READMEs", () => {
-    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B\n\n# &#x20;a\n\n# v½\n\n# under‿score\n\n# alpha <em>bravo</em> charlie", { renderer: "github" })]).toEqual([
+    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B\n\n# &#x20;a\n\n# v½\n\n# under‿score\n\n# alpha <em>bravo</em> charlie\n\n<a name=custom></a>", { renderer: "github" })]).toEqual([
       "123-start",
       "--trim--",
       "a---b",
@@ -169,15 +169,39 @@ https://vitehub.dev/docs/bare-autolink
       "v",
       "under‿score",
       "alpha-bravo-charlie",
+      "custom",
     ]);
 
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
       "packages/example/package.json": JSON.stringify({ name: "example" }),
-      "packages/example/README.md": "# Example\n\n[Numeric](#123-start)\n\n## 123 start",
+      "packages/example/README.md": "# Example\n\n[Numeric](#123-start)\n[Custom](#custom)\n\n## 123 start\n\n<a name=custom></a>",
     });
 
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
+  it("validates static links rendered by Vue application files", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/app/components/AppHeader.vue": `<script setup>
+// const retiredLinks = [{ to: "/docs/commented-script" }]
+const links = [{ to: "/docs/missing-script" }]
+</script>
+<template>
+  <NuxtLink to="/docs/missing-template" />
+  <NuxtLink :to="'/docs/missing-bound'" />
+  <img src="/images/missing.png" />
+  <NuxtLink :to="dynamicTarget" />
+</template>`,
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing-script" does not exist'),
+      expect.stringContaining('route "/docs/missing-template" does not exist'),
+      expect.stringContaining('route "/docs/missing-bound" does not exist'),
+      expect.stringContaining('route "/images/missing.png" does not exist'),
+    ]);
   });
 
   it("uses GitHub parsing for public package README destinations", () => {
@@ -235,7 +259,7 @@ https://vitehub.dev/docs/bare-autolink
       "packages/example/README.md": "# Example\n\n[Source](../../docs/content/docs/guide.md#123-start)\n[Site](https://vitehub.dev/docs/guide#_123-start)",
     });
 
-    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [], files: 3 });
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [], files: 4 });
   });
 
   it("uses content anchors when a docs application route renders Markdown", () => {
@@ -372,7 +396,7 @@ description: |
 
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({
       errors: [expect.stringContaining('anchor #orphan does not exist for route "/"')],
-      files: 1,
+      files: 2,
     });
   });
 
@@ -511,7 +535,7 @@ to: /docs/missing-card
 
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({
       errors: [expect.stringContaining('route "/docs/missing" does not exist')],
-      files: 1,
+      files: 2,
     });
   });
 
