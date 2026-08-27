@@ -321,6 +321,26 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("marks lossy public payload scalars as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("lossy-public-payload-scalars"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: { value: { bigint: 1n, nan: Number.NaN }, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("lossy-public-payload-scalars"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: { bigint: "1", nan: null },
+      visibility: "public",
+    })
+  })
+
   it("bounds large structured public payload values before persistence", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-structured-public-payload"))

@@ -257,8 +257,12 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     return value.slice(0, length)
   }
   if (value === null || hasRuntimeType(value, "boolean")) return value
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : null
+  if (hasRuntimeType(value, "number")) {
+    if (!Number.isFinite(value)) budget.truncated = true
+    return Number.isFinite(value) ? value : null
+  }
   if (hasRuntimeType(value, "bigint")) {
+    budget.truncated = true
     const string = String(value)
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
