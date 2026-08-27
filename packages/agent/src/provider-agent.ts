@@ -57,6 +57,7 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -601,7 +602,15 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   if (!materialize || (paths && !paths.length)) return
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
-  await Promise.all((paths || [""]).map(path => materialize.call(owner, { abortSignal: context.input.abortSignal, path })))
+  const observers = createWorkspaceSetupObservers({
+    traceLog: context.runtime.traceLog,
+    workspace: context.workspaceDefinition?.name,
+  })
+  await Promise.all((paths || [""]).map(path => materialize.call(owner, {
+    abortSignal: context.input.abortSignal,
+    onProgress: observers.materialization,
+    path,
+  })))
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
@@ -614,6 +623,10 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
+    onProgress: createWorkspaceSetupObservers({
+      traceLog: context.runtime.traceLog,
+      workspace: context.workspaceDefinition?.name,
+    }).preparation,
     paths,
     target: root,
   }

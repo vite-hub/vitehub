@@ -370,6 +370,7 @@ describe("lazy sources", () => {
 
     expect(progress).toEqual([
       expect.objectContaining({
+        cacheStatus: "disabled",
         mountPath: "docs",
         path: "docs",
         source: "docs",
@@ -377,6 +378,7 @@ describe("lazy sources", () => {
       }),
       expect.objectContaining({
         bytes: 4,
+        counts: { added: 1, removed: 0, unchanged: 0, updated: 0 },
         files: 1,
         mountPath: "docs",
         path: "docs",
@@ -385,6 +387,8 @@ describe("lazy sources", () => {
       }),
       expect.objectContaining({
         bytes: 4,
+        cacheStatus: "disabled",
+        counts: { added: 1, removed: 0, unchanged: 0, updated: 0 },
         durationMs: expect.any(Number),
         files: 1,
         mountPath: "docs",
@@ -393,6 +397,91 @@ describe("lazy sources", () => {
         status: "completed",
       }),
     ])
+  })
+
+  it("reports cache disposition and opt-in file deltas", async () => {
+    let files = new Map([
+      ["a.md", { content: "# A\n", digest: "a-1" }],
+      ["b.md", { content: "# B\n", digest: "b-1" }],
+    ])
+    const getItem = vi.fn(async (key: string) => {
+      const file = files.get(key)
+      if (!file) throw new Error(`Missing ${key}`)
+      return { key, path: key, content: file.content, metadata: { digest: file.digest } }
+    })
+    const view = createWorkspaceSourceView({
+      name: "materialization-deltas",
+      sources: {
+        docs: custom({
+          cache: { maxAge: -1 },
+          materialize: "lazy",
+          name: "fixture",
+          async getKeys() {
+            return [...files.keys()]
+          },
+          getItem,
+          async getMeta(key) {
+            const file = files.get(key)
+            return file ? { digest: file.digest } : undefined
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        cacheStatus: "miss",
+        counts: { added: 2, removed: 0, unchanged: 0, updated: 0 },
+        paths: [
+          { path: "docs/a.md", status: "added" },
+          { path: "docs/b.md", status: "added" },
+        ],
+        provider: "fixture",
+      }],
+    })
+
+    files = new Map([
+      ["a.md", { content: "# A\n", digest: "a-1" }],
+      ["c.md", { content: "# C\n", digest: "c-1" }],
+    ])
+    const updated = await view.materializeSources({ details: "paths", sources: ["docs"] })
+    expect(updated.sources[0]).toMatchObject({
+      cacheStatus: "miss",
+      counts: { added: 1, removed: 1, unchanged: 1, updated: 0 },
+      paths: expect.arrayContaining([
+        { path: "docs/a.md", status: "unchanged" },
+        { path: "docs/b.md", status: "removed" },
+        { path: "docs/c.md", status: "added" },
+      ]),
+    })
+    expect(getItem).toHaveBeenCalledTimes(3)
+  })
+
+  it("returns aggregate cache hits without exposing paths by default", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "# Cached\n" }))
+    const view = createWorkspaceSourceView({
+      name: "materialization-cache",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return ["cached.md"]
+          },
+          getItem,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    const cached = await view.materializeSources({ sources: ["docs"] })
+
+    expect(cached.sources[0]).toMatchObject({
+      cacheStatus: "hit",
+      counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
+    })
+    expect(cached.sources[0]).not.toHaveProperty("paths")
+    expect(getItem).toHaveBeenCalledOnce()
   })
 
   it("resolves one immutable source revision for a materialization", async () => {

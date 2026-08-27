@@ -1412,7 +1412,15 @@ describe("Provider Agent Driver", () => {
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
       readFile: vi.fn(async () => new Uint8Array()),
     }
-    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
+    const materializeSources = vi.fn(async () => ({
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: "",
+      sources: [],
+    }))
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1424,7 +1432,8 @@ describe("Provider Agent Driver", () => {
       workspaceMode: "write",
     }) as never)
 
-    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ paths: undefined, target: expect.any(String) }))
+    expect(materializeSources).toHaveBeenCalledWith(expect.objectContaining({ onProgress: expect.any(Function), path: "" }))
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ onProgress: expect.any(Function), paths: undefined, target: expect.any(String) }))
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
     expect(session.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "chore: save provider work" }))
     expect(session.close).toHaveBeenCalledOnce()

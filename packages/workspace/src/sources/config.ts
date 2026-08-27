@@ -292,6 +292,7 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
 
   const source: WorkspaceSource = {
     ...inferredSourceDefaults(family, input),
+    name: family,
     fingerprint: {
       inferredSource: family,
       options: inferredSourceFingerprintOptions(family, input),

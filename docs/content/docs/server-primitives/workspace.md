@@ -268,8 +268,10 @@ export default defineEventHandler(async (event) => {
 | `snapshot(options?)` | `name?: string` | Captures the current Workspace tree with an optional snapshot name. |
 | `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store while preserving staged paths. A listed path takes its remote version only when both sides changed; any other overlapping change remains a conflict. |
 | `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the supplied snapshot or the Store baseline. |
-| `materializeSources(options?)` | `abortSignal?`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
+| `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
+
+Each materialized Source reports its provider, cache disposition, revision, duration, and added, updated, unchanged, and removed file counts. Set `details: 'paths'` when the caller is allowed to inspect file names; path details stay out of the result by default.
 
 ## Resolve custom Sources
 

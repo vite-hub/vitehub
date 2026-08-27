@@ -462,6 +462,8 @@ export type WorkspaceSourceRequestExecutor = (
 ) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
+  /** Stable provider name used for inspection and diagnostics. */
+  name?: string
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
@@ -718,8 +720,13 @@ export interface WorkspaceSourceSyncResult {
 }
 
 export interface WorkspaceSourceMaterializationStatus {
+  cacheStatus?: "bypassed" | "disabled" | "hit" | "miss"
+  counts?: WorkspaceSourceMaterializationCounts
+  durationMs?: number
   source: string
   mountPath: string
+  paths?: WorkspaceSourceMaterializationPathResult[]
+  provider?: string
   status: "lazy" | "updating" | "ready" | "error"
   revision?: SourceRevision
   materializedAt?: string
@@ -728,20 +735,37 @@ export interface WorkspaceSourceMaterializationStatus {
   error?: string
 }
 
+export interface WorkspaceSourceMaterializationCounts {
+  added: number
+  removed: number
+  unchanged: number
+  updated: number
+}
+
+export interface WorkspaceSourceMaterializationPathResult {
+  path: string
+  status: "added" | "removed" | "unchanged" | "updated"
+}
+
 export interface WorkspaceMaterializeSourcesProgressEvent {
   bytes?: number
+  cacheStatus?: WorkspaceSourceMaterializationStatus["cacheStatus"]
+  counts?: WorkspaceSourceMaterializationCounts
   directories?: number
   durationMs?: number
   error?: string
   files?: number
   mountPath: string
   path: string
+  provider?: string
+  revision?: SourceRevision
   source: string
   status: "started" | "updating" | "completed" | "failed"
 }
 
 export interface WorkspaceMaterializeSourcesOptions {
   abortSignal?: AbortSignal
+  details?: "paths"
   onProgress?: (event: WorkspaceMaterializeSourcesProgressEvent) => void | Promise<void>
   sources?: string[]
   path?: string
