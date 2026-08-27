@@ -230,7 +230,8 @@
     "evalite": "catalog:ai",
     "reka-ui": "^2.10.3",
     "vite": "catalog:vite-compat",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@nuxt/ui": {
@@ -249,6 +250,9 @@
       "optional": true
     },
     "vitest": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

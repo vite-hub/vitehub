@@ -228,6 +228,17 @@ async function addOptionalPeers(appDir: string) {
   return Object.keys(peers)
 }
 
+async function withRequiredVue(appDir: string, runWithVue: () => Promise<void>) {
+  const version = await installedVersion(join(repoRoot, "node_modules/vue/package.json"))
+  await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", `vue@${version}`], appDir)
+  try {
+    await runWithVue()
+  }
+  finally {
+    await run("corepack", ["pnpm", "remove", "--save-dev", "--ignore-scripts", "vue"], appDir)
+  }
+}
+
 async function typecheckPackageExports(packageName: string, packageRoot: string, runnerDir: string) {
   const modules = publicPackageExportContracts.filter(contract =>
     contract.packageName === packageName && isJavaScriptModule(contract.target),
@@ -326,9 +337,14 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       }
 
       const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
+      await withRequiredVue(appDir, async () => {
+        await importSpecifiers(appDir, publicPackageExportContracts
+          .filter(contract => contract.packageName === "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
+          .map(contract => contract.specifier))
+      })
       await assertResolution(appDir, optionalPeers, false)
       await importSpecifiers(appDir, publicPackageExportContracts
-        .filter(contract => isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
+        .filter(contract => contract.packageName !== "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
         .map(contract => contract.specifier))
 
       expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
