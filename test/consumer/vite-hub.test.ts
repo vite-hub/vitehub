@@ -788,7 +788,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       const specs = await packWorkspacePackages(packDir, new Set([
         "@vite-hub/box",
-        "@vite-hub/history",
         "@vite-hub/markdown-template",
         "@vite-hub/runtime",
         "@vite-hub/source",
@@ -797,9 +796,18 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
           import { createWorkspace } from "@vite-hub/workspace"
-          import type { WorkspacePrepareSessionProgressEvent, WorkspaceSessionHost } from "@vite-hub/workspace"
+          import type {
+            History,
+            HistoryCheckpoint,
+            HistoryCheckpointOptions,
+            WorkspacePrepareSessionProgressEvent,
+            WorkspaceSessionHost,
+          } from "@vite-hub/workspace"
 
           declare const host: WorkspaceSessionHost
+          declare const history: History<HistoryCheckpoint>
+          const checkpointOptions: HistoryCheckpointOptions = { message: "packed consumer" }
+          void history.checkpoint(checkpointOptions)
           const workspace = createWorkspace({ name: "packed-consumer" })
           void workspace.startSession({
             abortSignal: new AbortController().signal,
