@@ -157,6 +157,19 @@ describe("createEmail", () => {
     })
   })
 
+  it("preserves the resolved driver on unsubscribe validation errors", async () => {
+    const send = vi.fn()
+    const client = createEmail({ driver: fixtureDriver(send) })
+
+    await expect(
+      client.send({ ...message, unsubscribe: { oneClick: true, url: "http://example.com" } }),
+    ).rejects.toMatchObject({
+      code: "EMAIL_NOT_CONFIGURED",
+      details: { driver: "fixture" },
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it("rejects a successful result without a provider message ID", async () => {
     const client = createEmail({
       driver: fixtureDriver(vi.fn(async () => ({

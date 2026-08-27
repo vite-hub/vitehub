@@ -50,7 +50,7 @@ export function createEmail(options: EmailDefinition): EmailClient {
           })
           await initialization
         }
-        const preparedMessage = applyUnsubscribe(message)
+        const preparedMessage = applyUnsubscribe(message, driver.name)
         const result = await driver.send(preparedMessage, { attempt: 1, driver: driver.name, meta: {}, signal: undefined, stream: preparedMessage.stream })
         if (result.error) throw result.error
         if (typeof result.data.id !== "string" || result.data.id.trim().length === 0) {

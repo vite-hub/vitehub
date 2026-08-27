@@ -71,9 +71,21 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
 export function applyUnsubscribe(message: EmailMessage, driver = "email"): EmailMessage {
   if (!message.unsubscribe) return message;
   const headers = { ...message.headers };
-  const { mailto, oneClick, url } = message.unsubscribe;
-  if (oneClick && !url) {
-    throw emailProviderError(driver, "INVALID_OPTIONS", "one-click unsubscribe requires a URL.");
+  const { oneClick } = message.unsubscribe;
+  const mailto = message.unsubscribe.mailto?.trim();
+  const url = message.unsubscribe.url?.trim();
+  if (oneClick) {
+    let parsedUrl: URL | undefined;
+    try {
+      parsedUrl = url ? new URL(url) : undefined;
+    } catch {}
+    if (parsedUrl?.protocol !== "https:") {
+      throw emailProviderError(
+        driver,
+        "INVALID_OPTIONS",
+        "one-click unsubscribe requires a valid HTTPS URL.",
+      );
+    }
   }
   const values = [url ? `<${url}>` : undefined, mailto ? `<mailto:${mailto}>` : undefined].filter(
     (value) => value !== undefined,

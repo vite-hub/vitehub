@@ -29,6 +29,41 @@ export interface CloudflareEmailDriverOptions {
   EmailMessage?: CloudflareEmailMessageConstructor;
 }
 
+const messageIdAtom = "[!#$%&'*+\\-/=?^_`{|}~0-9A-Za-z]+";
+const messageIdPattern = new RegExp(
+  `^<${messageIdAtom}(?:\\.${messageIdAtom})*@${messageIdAtom}(?:\\.${messageIdAtom})*>$`,
+);
+
+async function sendWithCancellation(
+  binding: CloudflareEmailBinding,
+  value: unknown,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (!signal) return binding.send(value);
+  let abort: (() => void) | undefined;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    abort = () =>
+      reject(
+        emailProviderError(
+          "cloudflare-email",
+          "CANCELLED",
+          "Cloudflare Email send was cancelled.",
+          { cause: signal.reason, retryable: false },
+        ),
+      );
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    if (signal.aborted) {
+      abort!();
+      await cancelled;
+    }
+    await Promise.race([Promise.resolve(binding.send(value)), cancelled]);
+  } finally {
+    signal.removeEventListener("abort", abort!);
+  }
+}
+
 function safeHeader(value: string): string {
   if (/[\u0000-\u0008\u000A-\u001F\u007F]/.test(value)) {
     throw emailProviderError(
@@ -339,7 +374,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
             ),
           };
         const customId = headerValue(message.headers, "message-id");
-        if (customId !== undefined && !/^<[^<>\s@]+@[^<>\s@]+>$/.test(customId)) {
+        if (customId !== undefined && !messageIdPattern.test(customId)) {
           return {
             data: null,
             error: emailProviderError(
@@ -351,8 +386,10 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         }
         const id = customId ?? `<${crypto.randomUUID()}@vitehub.email>`;
         const raw = rawMessage(message, id);
-        await options.binding.send(
+        await sendWithCancellation(
+          options.binding,
           new Constructor(addressValue(from).email, addressValue(recipients[0]!).email, raw),
+          context.signal,
         );
         return { data: { at: new Date(), driver: "cloudflare-email", id }, error: null };
       } catch (cause) {
