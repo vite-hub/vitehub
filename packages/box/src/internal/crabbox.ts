@@ -913,9 +913,8 @@ async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal |
   if (result.exitCode !== 0) throw crabboxError("warm Crabbox", result)
   const timing = result.stderr.trim().split(/\r?\n/).reverse().find(line => line.trim().startsWith("{"))
   try {
-    const parsed: unknown = timing && JSON.parse(timing)
-    const leaseId = parsed === Object(parsed) ? Reflect.get(Object(parsed), "leaseId") : undefined
-    if (leaseId && Object.prototype.toString.call(leaseId) === "[object String]") return String(leaseId)
+    const leaseId = timing && (JSON.parse(timing) as { leaseId?: unknown }).leaseId
+    if (typeof leaseId === "string" && leaseId) return leaseId
   }
   catch {}
   throw new Error("[vitehub] Crabbox warmup did not return a lease id.")

@@ -296,7 +296,7 @@ const reservedRuntimeNames = new Set([
   "vercel",
 ]);
 
-async function resolveBoxRuntime(value: BoxRuntimeDefinition): Promise<BoxRuntime> {
+async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
   if (isBoxRuntime(value)) {
     if (reservedRuntimeNames.has(value.name) && !isBuiltInBoxRuntime(value)) {
       throw new Error(`[vitehub] Custom Box runtimes cannot use the reserved name "${value.name}". Select the built-in runtime by value instead.`);
@@ -326,30 +326,30 @@ async function resolveBoxRuntime(value: BoxRuntimeDefinition): Promise<BoxRuntim
     throw new TypeError("[vitehub] Box requires an explicit built-in runtime value or custom runtime object.");
   }
 
-  const { kind } = value;
+  const { kind, ...options } = value as Record<string, unknown>;
   if (kind === "ascii") {
     const { createAsciiRuntime } = await import("./ascii.ts");
-    return createAsciiRuntime(value);
+    return createAsciiRuntime(options as AsciiBoxOptions);
   }
   if (kind === "crabbox") {
     const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
-    return createCrabboxRuntime(value);
+    return createCrabboxRuntime(options as CrabboxOptions);
   }
   if (kind === "trusted-host") {
     const { createTrustedHostRuntime } = await import("./internal/trusted-host.ts");
-    return createTrustedHostRuntime(value);
+    return createTrustedHostRuntime(options as TrustedHostOptions);
   }
   if (kind === "cloudflare") {
     const { createCloudflareRuntime } = await import("./cloudflare.ts");
-    return createCloudflareRuntime(value);
+    return createCloudflareRuntime(options as unknown as CloudflareBoxOptions);
   }
   if (kind === "cloudflare-computer") {
     const { createCloudflareComputerRuntime } = await import("./cloudflare-computer.ts");
-    return createCloudflareComputerRuntime(value);
+    return createCloudflareComputerRuntime(options as unknown as CloudflareComputerBoxOptions);
   }
   if (kind === "vercel") {
     const { createVercelRuntime } = await import("./vercel.ts");
-    return createVercelRuntime(value);
+    return createVercelRuntime(options as VercelBoxOptions);
   }
   throw new Error(`[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "ascii", "crabbox", "trusted-host", "cloudflare", "cloudflare-computer", or "vercel".`);
 }
