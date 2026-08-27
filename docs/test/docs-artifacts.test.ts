@@ -231,6 +231,17 @@ describe("writeDocsArtifacts", () => {
         "",
         "<pre>",
         "[raw HTML literal](/docs/raw-html-literal)",
+        "::warning",
+        "Raw HTML directive remains literal.",
+        "::",
+        "::u-page-grid",
+        "  :::u-page-card",
+        "  ---",
+        "  title: Raw HTML card",
+        "  to: /docs/raw-html-card",
+        "  ---",
+        "  :::",
+        "::",
         "</pre>",
         "[rendered after raw HTML](https://vitehub.dev/docs/already-absolute)",
         "",
@@ -328,7 +339,22 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("    ```md\n    [code-indented fence literal](/docs/code-indented-fence)");
       expect(raw).toContain("[rendered after code-indented fence](https://vitehub.dev/docs/after-code-indented-fence)");
       expect(raw).toContain("```md\n```\u00a0\n::warning\nThis Unicode-suffixed marker remains literal.\n::\n```");
-      expect(raw).toContain("<pre>\n[raw HTML literal](/docs/raw-html-literal)\n</pre>");
+      expect(raw).toContain([
+        "<pre>",
+        "[raw HTML literal](/docs/raw-html-literal)",
+        "::warning",
+        "Raw HTML directive remains literal.",
+        "::",
+        "::u-page-grid",
+        "  :::u-page-card",
+        "  ---",
+        "  title: Raw HTML card",
+        "  to: /docs/raw-html-card",
+        "  ---",
+        "  :::",
+        "::",
+        "</pre>",
+      ].join("\n"));
       expect(raw).toContain("> ~~~md\n> [blockquote literal](/docs/blockquote-literal)\n> ~~~");
       expect(raw).toContain("- > ```md\n  > [list blockquote literal](/docs/list-blockquote-literal)\n  > ```");
       expect(raw).toContain("> ```md\n> [unclosed blockquote literal](/docs/unclosed-blockquote-literal)");

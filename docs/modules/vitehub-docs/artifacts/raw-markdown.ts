@@ -263,11 +263,26 @@ function cardListsOutsideFences(source: string) {
   const output: string[] = [];
   let outsideFence = "";
   let fence: Fence | null = null;
+  let htmlEnd: RegExp | null = null;
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
     const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
     const parsedFence = fenceRun(line);
+
+    if (htmlEnd) {
+      output.push(lineWithEnding);
+      if (htmlEnd.test(line)) htmlEnd = null;
+      continue;
+    }
+
+    const nextHtmlEnd = rawHtmlBlockEnd(line);
+    if (!fence && nextHtmlEnd) {
+      output.push(cardList(outsideFence), lineWithEnding);
+      outsideFence = "";
+      if (!nextHtmlEnd.test(line.slice(line.indexOf(">") + 1))) htmlEnd = nextHtmlEnd;
+      continue;
+    }
 
     if (!fence && parsedFence) {
       output.push(cardList(outsideFence), lineWithEnding);
@@ -322,6 +337,7 @@ function stripPresentationDirectives(source: string) {
   const output: string[] = [];
   const directives: boolean[] = [];
   let fence: (Fence & { indent: number }) | null = null;
+  let htmlEnd: RegExp | null = null;
   const presentationDirectives = new Set([
     "component-preview",
     "important",
@@ -340,6 +356,12 @@ function stripPresentationDirectives(source: string) {
     const structuralDepth = directives.filter(Boolean).length;
     const structuralIndent: number = fence?.indent ?? Math.min(leadingColumns, structuralDepth * 2);
     const deindented = removeIndentation(originalLine, structuralIndent);
+
+    if (htmlEnd) {
+      output.push(deindented);
+      if (htmlEnd.test(deindented)) htmlEnd = null;
+      continue;
+    }
 
     if (
       fence
@@ -372,6 +394,13 @@ function stripPresentationDirectives(source: string) {
 
     if (fence) {
       output.push(deindented);
+      continue;
+    }
+
+    const nextHtmlEnd = rawHtmlBlockEnd(deindented);
+    if (nextHtmlEnd) {
+      output.push(deindented);
+      if (!nextHtmlEnd.test(deindented.slice(deindented.indexOf(">") + 1))) htmlEnd = nextHtmlEnd;
       continue;
     }
 
