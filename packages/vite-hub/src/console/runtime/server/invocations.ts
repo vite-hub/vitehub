@@ -30,7 +30,11 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
   const configuredUrl = process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
   const url = configuredUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
   const authToken = process.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
-  if (!/^file:/i.test(url)) return { ...(authToken ? { authToken } : {}), url }
+  if (!/^file:/i.test(url)) {
+    const options: ConsoleDatabaseOptions = { url }
+    if (authToken) options.authToken = authToken
+    return options
+  }
 
   const fragmentIndex = url.indexOf("#")
   const urlWithoutFragment = fragmentIndex === -1 ? url : url.slice(0, fragmentIndex)

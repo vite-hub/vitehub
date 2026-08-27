@@ -113,9 +113,10 @@ function retentionValue(value: false | number | undefined, fallback: number, nam
 
 function isSqliteBusy(error: unknown): boolean {
   let current = error
-  while (current && typeof current === "object") {
-    if ((current as { code?: unknown }).code === "SQLITE_BUSY") return true
-    current = (current as { cause?: unknown }).cause
+  while (current instanceof Error) {
+    // SAFETY: libSQL errors extend Error with the conventional SQLite error code.
+    if ((current as Error & { code?: unknown }).code === "SQLITE_BUSY") return true
+    current = current.cause
   }
   return false
 }
