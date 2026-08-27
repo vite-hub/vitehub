@@ -56,6 +56,23 @@ describe("GitHub CI input policy", () => {
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
+  it("allows pinned container images and transient package executors", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    container:",
+        `      image: example/service@sha256:${"a".repeat(64)}`,
+        "    steps:",
+        "      - run: npx first@1.2.3 && npx second@2.3.4",
+        "      - run: pnpm --silent dlx tool@1.2.3 --help",
+        "      - run: npm exec --package=tool@1.2.3 -- tool",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
   it("allows Docker actions pinned to full SHA-256 digests", async () => {
     const digest = "1a".repeat(32)
     const root = await createFixture({
@@ -319,6 +336,39 @@ jobs:
       expect.objectContaining({ line: 4, message: expect.stringContaining(message), path: ".github/workflows/ci.yml" }),
     ])
   })
+
+  it.each([
+    "vp dlx wrangler deploy --dry-run",
+    "pnpm dlx pkg-pr-new publish",
+    "yarn dlx tool --help",
+    "npx tool --help",
+    "bunx tool --help",
+    "npm exec -- tool --help",
+    "vp dlx tool@latest --help",
+    "npx pinned@1.2.3 && npx unpinned",
+    "pnpm --silent dlx unpinned",
+  ])("rejects an unpinned package executor: %s", async (command) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("must use an exact version") }),
+    ])
+  })
+
+  it.each(["example/database", "example/database:latest", `example/database:latest@sha256:${"a".repeat(64)}`])(
+    "rejects a mutable container image: %s",
+    async (image) => {
+      const root = await createFixture({
+        ".github/workflows/ci.yml": `jobs:\n  test:\n    services:\n      database:\n        image: ${image}\n`,
+      })
+
+      await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+        expect.objectContaining({ message: expect.stringContaining("must not use latest") }),
+      ])
+    },
+  )
 
   it("rejects malformed YAML and non-string uses values", async () => {
     const malformedRoot = await createFixture({

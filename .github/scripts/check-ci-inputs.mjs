@@ -7,18 +7,47 @@ import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from "yam
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
 const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|\$(?:\{[A-Z][A-Z0-9_]*\}|[A-Z][A-Z0-9_]*))$/
-const packageExecutorPattern = /\b(?:(?:vp|pnpm|yarn)\s+dlx|npx|bunx|npm\s+exec)\b(.*)$/g
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
+const shellOperatorPattern = /^(?:&&|\|\||;|\|)$/
 
 function findExecutablePackageSpecs(command) {
   const specs = []
   for (const line of command.split("\n")) {
     if (line.trimStart().startsWith("#")) continue
-    packageExecutorPattern.lastIndex = 0
-    for (const match of line.matchAll(packageExecutorPattern)) {
-      const tokens = [...match[1].matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)]
-        .map(token => token[1] ?? token[2] ?? token[3])
-      specs.push(tokens.find(token => token !== "--" && !token.startsWith("-")) ?? "(missing)")
+
+    const tokens = [...line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|])|([^\s;&|]+)/g)]
+      .map(token => token[1] ?? token[2] ?? token[3] ?? token[4])
+    for (let index = 0; index < tokens.length; index++) {
+      let argumentsStart
+      let npmExec = false
+      const token = tokens[index]
+
+      if (token === "npx" || token === "bunx") argumentsStart = index + 1
+      else if (token === "npm" && tokens[index + 1] === "exec") {
+        argumentsStart = index + 2
+        npmExec = true
+      }
+      else if (token === "vp" || token === "pnpm" || token === "yarn") {
+        let subcommand = index + 1
+        while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) subcommand++
+        if (tokens[subcommand] !== "dlx") continue
+        argumentsStart = subcommand + 1
+      }
+      else continue
+
+      const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex >= argumentsStart && shellOperatorPattern.test(candidate))
+      const invocation = tokens.slice(argumentsStart, end === -1 ? tokens.length : end)
+      let spec
+      if (npmExec) {
+        const packageOption = invocation.find(candidate => candidate.startsWith("--package=") || candidate.startsWith("-p="))
+        spec = packageOption?.slice(packageOption.indexOf("=") + 1)
+        if (!spec) {
+          const packageOptionIndex = invocation.findIndex(candidate => candidate === "--package" || candidate === "-p")
+          if (packageOptionIndex !== -1) spec = invocation[packageOptionIndex + 1]
+        }
+      }
+      spec ??= invocation.find(candidate => candidate !== "--" && !candidate.startsWith("-"))
+      specs.push(spec ?? "(missing)")
     }
   }
   return specs
