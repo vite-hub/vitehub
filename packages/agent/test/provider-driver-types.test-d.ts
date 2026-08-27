@@ -32,6 +32,10 @@ describe("provider Agent Driver types", () => {
     claudeCodeDriver({ credentials: "{}" })
     // @ts-expect-error Reasoning summaries use the provider's supported values.
     codexDriver({ reasoningSummary: "verbose" })
+    // @ts-expect-error Codex options are not accepted by model drivers.
+    defineAgent({ driver: { model: "openai/gpt-5", reasoningEffort: "high" } })
+    // @ts-expect-error Provider settings are not accepted by inline run drivers.
+    defineAgent({ driver: { providerSettings: {}, run: async () => new Response() } })
   })
 
   it("preserves structured output inference while invocation input evidences its options", () => {

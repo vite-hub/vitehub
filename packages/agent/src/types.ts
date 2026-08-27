@@ -1231,6 +1231,9 @@ export interface AgentModelDriver<
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -1252,6 +1255,9 @@ export interface AgentRunDriver<
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never

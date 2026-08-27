@@ -25,6 +25,7 @@ export const buildWarningBudget = Object.freeze([
   { name: "Vite chunk size", maximum: 1, text: "[plugin builtin:vite-reporter]" },
   { name: "Nitro Cloudflare assets override", maximum: 1, text: "Wrangler config assetsset" },
   { name: "Nuxt Nitro server unused H3Event import", maximum: 1, text: '"H3Event" is imported from external module' },
+  { name: "Nuxt UI ineffective dynamic imports", maximum: 2, text: "[INEFFECTIVE_DYNAMIC_IMPORT]" },
 ]);
 
 export function assertBuildWarningBudget(output) {
