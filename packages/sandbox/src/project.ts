@@ -151,6 +151,26 @@ function pnpmPatchPaths(manifest: PackageManifest) {
   return Object.values(manifest.pnpm.patchedDependencies).filter((value): value is string => typeof value === 'string')
 }
 
+export function parsePnpmWorkspacePatchPaths(source: string) {
+  const paths: string[] = []
+  let sectionIndent: number | undefined
+  for (const line of source.split(/\r?\n/)) {
+    if (sectionIndent === undefined) {
+      const match = /^(\s*)patchedDependencies\s*:\s*(?:#.*)?$/.exec(line)
+      if (match) sectionIndent = match[1].length
+      continue
+    }
+    if (!line.trim() || /^\s*#/.test(line)) continue
+    const indent = /^\s*/.exec(line)?.[0].length || 0
+    if (indent <= sectionIndent) break
+    const value = /^\s*(?:['"][^'"]+['"]|[^:]+):\s*(.+?)\s*$/.exec(line)?.[1]
+    if (!value) continue
+    const path = value.replace(/\s+#.*$/, '').trim().replace(/^(['"])(.*)\1$/, '$2')
+    if (path) paths.push(path)
+  }
+  return paths
+}
+
 export function parsePnpmWorkspacePackages(source: string) {
   const patterns: string[] = []
   let packagesIndent: number | undefined
@@ -297,6 +317,10 @@ export async function resolveSandboxProject(
       : undefined
   for (const patchPath of pnpmPatchPaths(installManifest || {}))
     await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+  if (workspace) {
+    for (const patchPath of parsePnpmWorkspacePatchPaths(workspace.source))
+      await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+  }
   if (lock) await addProjectFile(files, installRoot, lock.path, root)
 
   const packagePath = relative(installRoot, packageRoot).replaceAll('\\', '/') || '.'

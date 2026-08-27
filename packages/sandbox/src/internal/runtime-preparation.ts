@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rename, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
@@ -223,6 +223,7 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
   const emitted = new Map<string, EmittedArtifact>()
   const typeTemplate = plan.manifest.typeTemplate
   let activated = false
+  const previousGeneration = await readlink(runtimeDir).catch(() => undefined)
 
   try {
     for (const artifact of plan.artifacts || []) {
@@ -276,6 +277,13 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
     await rm(stagedLink, { force: true })
     if (!activated)
       await rm(generationDir, { recursive: true, force: true })
+  }
+
+  const retained = new Set([generationDir, previousGeneration && resolve(generatedDir, previousGeneration)].filter(Boolean))
+  for (const entry of await readdir(generationsDir)) {
+    const path = resolve(generationsDir, entry)
+    if (!retained.has(path))
+      await rm(path, { recursive: true, force: true })
   }
 
   return emitted

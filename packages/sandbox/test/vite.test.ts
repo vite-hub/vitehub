@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -1140,6 +1140,19 @@ describe("hubSandbox", () => {
 
     expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
+
+    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await handleHotUpdate({
+      file: definition,
+      server: {
+        moduleGraph: {
+          getModuleById: () => undefined,
+          invalidateModule: () => {},
+        },
+      },
+    })
+    const generations = await readdir(join(rootDir, ".vitehub/sandbox/.runtime-generations"))
+    expect(generations).toHaveLength(2)
   })
 
   it("removes generated bundles for definitions that no longer exist", async () => {
