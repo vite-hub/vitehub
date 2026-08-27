@@ -94,6 +94,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of result.sources) {
       if (source.status !== "ready") continue
       if (source.cacheStatus !== "hit" && !isLiveSource(source.source)) {
+        const resolvedSource = sources.find(item => item.key === source.source)
+        if (resolvedSource) getSourceContext(resolvedSource).revision = source.revision
         prepareBySource.set(source.source, Promise.resolve())
       }
       let paths = materializedPathsBySource.get(source.source)

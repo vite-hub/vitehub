@@ -642,6 +642,30 @@ describe("lazy sources", () => {
     expect(resolveRevision).toHaveBeenCalledTimes(2)
   })
 
+  it("preserves the resolved revision in persistent non-live Source contexts", async () => {
+    const revision = { id: "commit-123", immutable: true, ref: "main" }
+    const resolveRevision = vi.fn(async () => revision)
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      resolveRevision,
+      async getKeys(context) {
+        return context.revision?.id === revision.id ? ["current.md"] : ["stale.md"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "# Current\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({ name: "materialization-persistent-revision", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ revision, status: "ready" }],
+    })
+    await expect(view.exists("docs/stale.md")).resolves.toBe(false)
+    await expect(view.stat("docs/stale.md")).rejects.toThrow("Workspace path does not exist")
+    expect(resolveRevision).toHaveBeenCalledOnce()
+  })
+
   it("keeps full cache-hit aggregates after scoped materialization", async () => {
     const files = new Map([["a.md", "# A\n"]])
     const view = createWorkspaceSourceView({
