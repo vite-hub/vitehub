@@ -243,6 +243,38 @@ describe("ViteHub Console", () => {
     }
   })
 
+  it("serializes discovered Workspace Definition metadata without initializing stores", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-workspace-host-"))
+    try {
+      await mkdir(join(root, "server/workspaces/docs/workspace"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/workspaces/docs/config.ts"),
+        `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["workspaces"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { handlers: Array<{ route: string }>; plugins: string[] }; root: string } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}]})`)
+      expect(generated).not.toContain("The Console must not initialize")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("serializes discovered Database Definition metadata without loading schemas", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-database-host-"))
     try {

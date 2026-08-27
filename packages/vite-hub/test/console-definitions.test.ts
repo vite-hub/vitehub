@@ -70,6 +70,15 @@ function catalog(name: string): ConsoleDefinitionCatalog {
       name,
       source: "server-workflows",
     }],
+    workspaces: [{
+      fields: [
+        { label: "Kind", value: "Workspace Definition" },
+        { label: "Source root", value: `server/workspaces/${name}` },
+      ],
+      file: `server/workspaces/${name}/workspace.ts`,
+      name,
+      source: "server-workspaces-directory-config",
+    }],
   }
 }
 
@@ -120,6 +129,18 @@ describe("Console definition inspection", () => {
         source: "require-rate-limit",
       }],
       section: "rate-limits",
+    })
+    expect(definitionsHandler(event("?section=workspaces"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Kind", value: "Workspace Definition" },
+          { label: "Source root", value: "server/workspaces/release" },
+        ],
+        file: "server/workspaces/release/workspace.ts",
+        name: "release",
+        source: "server-workspaces-directory-config",
+      }],
+      section: "workspaces",
     })
     expect(definitionsHandler(event("?section=queues"))).toEqual({
       definitions: [{

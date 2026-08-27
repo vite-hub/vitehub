@@ -8,12 +8,14 @@ import { discoverQueueDefinitions } from "@vite-hub/queue/vite"
 import { discoverRateLimitDeclarations } from "@vite-hub/rate-limit/vite"
 import { discoverScheduleDefinitions, readScheduleDefinitionCrons } from "@vite-hub/schedule/vite"
 import { discoverWorkflowDefinitions } from "@vite-hub/workflow/vite"
+import { discoverViteWorkspaceDefinitions } from "@vite-hub/workspace/vite"
 
 import type { DiscoveredDatabaseDefinition } from "@vite-hub/database"
 import type { DiscoveredQueueDefinition } from "@vite-hub/queue"
 import type { RateLimitDeclaration } from "@vite-hub/rate-limit"
 import type { DiscoveredScheduleDefinition } from "@vite-hub/schedule"
 import type { DiscoveredWorkflowDefinition } from "@vite-hub/workflow"
+import type { DiscoveredWorkspaceDefinition } from "@vite-hub/workspace/vite"
 import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
 import type { ConsoleDefinitionCatalog, ConsoleDefinitionField, ConsoleDefinitionSummary } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -92,6 +94,23 @@ function rateLimitDefinition(
   }
 }
 
+function workspaceDefinition(
+  projectRoot: string,
+  definition: DiscoveredWorkspaceDefinition,
+): ConsoleDefinitionSummary {
+  return {
+    fields: [
+      { label: "Kind", value: definition.source === "server-agent-workspaces" ? "Agent workspace" : "Workspace Definition" },
+      ...(definition.sourceRootDir
+        ? [{ label: "Source root", value: relativeDefinitionFile(projectRoot, definition.sourceRootDir) }]
+        : []),
+    ],
+    file: relativeDefinitionFile(projectRoot, definition.handler),
+    name: definition.name,
+    source: definition.source || "workspace",
+  }
+}
+
 function databaseDefinition(
   projectRoot: string,
   definition: DiscoveredDatabaseDefinition,
@@ -155,6 +174,12 @@ export async function discoverConsoleBuildCatalog(options: {
         .filter(definition => definition.source !== "agent-workflow-recovery")
         .map(definition => workflowDefinition(options.projectRoot, definition))
     : []
+  const workspaces = options.sections.includes("workspaces")
+    ? discoverViteWorkspaceDefinitions(options.discoveryRoot, {
+        serverDirs: options.serverDirs,
+        serverRootDir: options.projectRoot,
+      }).map(definition => workspaceDefinition(options.projectRoot, definition))
+    : []
   const rateLimits = options.sections.includes("rate-limits")
     ? discoverRateLimitDeclarations({
         rootDir: options.discoveryRoot,
@@ -181,6 +206,7 @@ export async function discoverConsoleBuildCatalog(options: {
   const definitions: ConsoleDefinitionCatalog = {}
   if (options.sections.includes("databases")) definitions.databases = databases
   if (options.sections.includes("rate-limits")) definitions["rate-limits"] = rateLimits
+  if (options.sections.includes("workspaces")) definitions.workspaces = workspaces
   if (options.sections.includes("workflows")) definitions.workflows = workflows
   if (options.sections.includes("queues")) definitions.queues = queues
   if (options.sections.includes("schedules")) definitions.schedules = schedules

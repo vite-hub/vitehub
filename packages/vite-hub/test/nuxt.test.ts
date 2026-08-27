@@ -472,6 +472,35 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("installs only discovered Workspace metadata for a Workspace-only Console", async () => {
+    const definition = "/tmp/vitehub-nuxt/custom-server/workspaces/docs/config.ts"
+    await mkdir(resolve(definition, "..", "workspace"), { recursive: true })
+    await writeFile(
+      definition,
+      `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
+    )
+    try {
+      const development = createNuxt(true)
+
+      await viteHubNuxtModule({ console: true, preset: "node", workspace: true }, development.nuxt)
+      const pages: Array<{ file: string; name: string; path: string }> = []
+      development.runPagesHook(pages)
+
+      expect(pages).toEqual([
+        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-workspaces", path: "/_vitehub/workspaces" }),
+      ])
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["workspaces"])`)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"custom-server/workspaces/docs/workspace"}],"file":"custom-server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}]})`)
+      expect(generated).not.toContain("The Console must not initialize")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(resolve(definition, ".."), { force: true, recursive: true })
+    }
+  })
+
   it("installs only discovered Database metadata for a Database-only Console", async () => {
     const definition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
     await mkdir(resolve(definition, ".."), { recursive: true })

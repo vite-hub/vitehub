@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "blob", "databases", "kv", "rate-limits", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["agents", "blob", "databases", "kv", "rate-limits", "workspaces", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -32,6 +32,12 @@ export const consoleSectionDetails = {
     icon: "i-lucide-gauge",
     label: "Rate Limits",
     routeName: "vitehub-console-rate-limits",
+  },
+  workspaces: {
+    description: "Inspect discovered Workspace Definitions and their source roots.",
+    icon: "i-lucide-folder-kanban",
+    label: "Workspaces",
+    routeName: "vitehub-console-workspaces",
   },
   workflows: {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
@@ -69,13 +75,14 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; queue?: unknown; rateLimit?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; queue?: unknown; rateLimit?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
   return [
     ...(options.agent ? ["agents" as const] : []),
     ...(options.blob ? ["blob" as const] : []),
     ...(options.database ? ["databases" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
     ...(options.rateLimit ? ["rate-limits" as const] : []),
+    ...(options.workspace ? ["workspaces" as const] : []),
     ...(options.workflow ? ["workflows" as const] : []),
     ...(options.queue ? ["queues" as const] : []),
     ...(options.schedule ? ["schedules" as const] : []),

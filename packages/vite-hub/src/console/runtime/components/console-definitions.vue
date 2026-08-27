@@ -32,6 +32,7 @@ const definitionNotice = computed(() => ({
   queues: "Queue backlog, message, and delivery history are not exposed by ViteHub's provider-independent Queue contract yet.",
   "rate-limits": "Live counters and remaining quota are not included because their accuracy, scope, and availability depend on the provider.",
   schedules: "Runtime-created Schedules and run history are not included in this build-time Definition catalog yet.",
+  workspaces: "Workspace files, Sources, collections, sync state, and processes are not opened or initialized by this build-time catalog.",
   workflows: "Workflow run history is not exposed by ViteHub's provider-independent Workflow contract yet.",
 })[props.section]);
 const filteredDefinitions = computed(() => {
