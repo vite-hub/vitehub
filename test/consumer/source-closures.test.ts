@@ -39,6 +39,9 @@ function workspaceConfig(overrides: Record<string, string>) {
     "allowBuilds:",
     "  esbuild: true",
     "overrides:",
+    // Workflow accepts multiple Nest majors; keep pnpm from auto-installing mismatched peers.
+    "  \"@nestjs/common\": \"11.1.19\"",
+    "  \"@nestjs/core\": \"11.1.19\"",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
     ...Object.entries(overrides)
       .sort(([left], [right]) => left.localeCompare(right))

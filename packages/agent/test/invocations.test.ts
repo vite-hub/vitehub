@@ -7,7 +7,7 @@ import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
-import { bindAgentInvocations } from "../src/invocations.ts"
+import { applyAgentInvocationStoreUpdate, bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
@@ -25,6 +25,37 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("keeps distinct observations that share a locally assigned sequence", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const first = {
+      attributes: { "vitehub.observation.id": "journal-a:1" },
+      name: "agent.channel.delivery.effect",
+      sequence: 1,
+      timestamp: createdAt,
+      type: "run" as const,
+    }
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "concurrent-observations",
+      observations: [first],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal-b:1" },
+        name: "agent.channel.delivery.effect",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(2)
+  })
+
   it("excludes generated cursors from memory-store search", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({
@@ -155,7 +186,7 @@ describe("Agent Invocations", () => {
       const record = await invocations.getByRunId("retry-late-delivery")
       expect(observationAttempts).toBe(2)
       expect(record?.observations).toContainEqual(expect.objectContaining({
-        attributes: { "channel.effect.content": "Late reply" },
+        attributes: expect.objectContaining({ "channel.effect.content": "Late reply" }),
         name: "agent.channel.delivery.effect",
       }))
     }
@@ -231,7 +262,7 @@ describe("Agent Invocations", () => {
         const record = await invocations.getByRunId("retrying-terminal-delivery")
         expect(record).toMatchObject({ status: "completed" })
         expect(record?.observations).toContainEqual(expect.objectContaining({
-          attributes: { "channel.effect.content": "Reply delivered during retry" },
+          attributes: expect.objectContaining({ "channel.effect.content": "Reply delivered during retry" }),
           name: "agent.channel.delivery.effect",
         }))
         expect(Date.parse(record!.updatedAt)).toBeGreaterThanOrEqual(Date.parse(record!.completedAt!))
@@ -285,7 +316,7 @@ describe("Agent Invocations", () => {
       await Promise.all(waitUntilTasks)
       const record = await invocations.getByRunId("exhausted-terminal-delivery")
       expect(record?.observations).toContainEqual(expect.objectContaining({
-        attributes: { "channel.effect.content": "Reply during exhausted retry" },
+        attributes: expect.objectContaining({ "channel.effect.content": "Reply during exhausted retry" }),
         name: "agent.channel.delivery.effect",
       }))
     }
