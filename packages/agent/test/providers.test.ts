@@ -11882,7 +11882,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    await handler(chatWebhookRequest(91_035), "telegram")
+    await expect(handler(chatWebhookRequest(91_035), "telegram")).rejects.toThrow("stream edit failed")
 
     expect(observe).toHaveBeenCalledWith(expect.objectContaining({
       attributes: expect.objectContaining({
@@ -11932,7 +11932,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    await handler(chatWebhookRequest(91_036), "telegram")
+    await expect(handler(chatWebhookRequest(91_036), "telegram")).rejects.toThrow("static post failed")
 
     expect(observe).toHaveBeenCalledWith(expect.objectContaining({
       attributes: expect.objectContaining({

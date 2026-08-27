@@ -4344,7 +4344,7 @@ function createChatFinishExtension(
 ): AgentChatQueuedFinishExtension {
   const messages: QueuedChatFinishMessage[] = []
   const queuedStreams = new WeakMap<object, QueuedChatFinishMessage>()
-  return {
+  const extension: AgentChatQueuedFinishExtension = {
     [chatFinishMessagesKey]: messages,
     [chatFinishDeliveryRegistrarKey]: (message, callback) => {
       if (!isRuntimeObject(message)) return false
@@ -4354,13 +4354,14 @@ function createChatFinishExtension(
       return true
     },
     provider: chatRegistrationOrigin(registration),
-    ...(input.run ? { run: input.run } : {}),
     sendMessage: async (message) => {
       const queued = { callbacks: [], message } satisfies QueuedChatFinishMessage
       messages.push(queued)
       if (isRuntimeObject(message)) queuedStreams.set(message, queued)
     },
   }
+  if (input.run) extension.run = input.run
+  return extension
 }
 
 async function* abortableChatMessage(message: AsyncIterable<string>, abortSignal: AbortSignal): AsyncIterable<string> {
@@ -4402,7 +4403,7 @@ async function collectAbortableChatMessage(message: AsyncIterable<string>, abort
 }
 
 function captureStaticChatFinishMessage(message: AgentChatMessage, capture: ChatFinishDeliveryCapture): void {
-  const content = typeof message === "string"
+  const content = isRuntimeString(message)
     ? message
     : isTextChatMessage(message)
       ? message.text
