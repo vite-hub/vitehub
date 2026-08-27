@@ -204,6 +204,17 @@ const links = [{ to: "/docs/missing-script" }]
     ]);
   });
 
+  it("validates relative and locally bound Vue destinations", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<script setup>const target = "/missing-bound"</script><template><NuxtLink href="./missing-relative" /><NuxtLink :to="target" /></template>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-relative" does not exist'),
+      expect.stringContaining('route "/missing-bound" does not exist'),
+    ]);
+  });
+
   it("validates rendered aliased link fields without scanning unused exports", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
@@ -213,6 +224,20 @@ const links = [{ to: "/docs/missing-script" }]
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs/missing-imported" does not exist'),
+    ]);
+  });
+
+  it("follows selected links through local re-exports and functions", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
+      "docs/app/components/LandingPaths.vue": '<script setup>import { links } from "./barrel"</script><template><NuxtLink v-for="link in links()" :to="link.to" /></template>',
+      "docs/app/components/barrel.ts": 'export * from "./named"',
+      "docs/app/components/named.ts": 'export { links } from "./content"',
+      "docs/app/components/content.ts": 'export function links() { return [{ to: "/missing-reexported" }] }',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-reexported" does not exist'),
     ]);
   });
 

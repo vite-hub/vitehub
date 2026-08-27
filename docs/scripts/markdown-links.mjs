@@ -216,7 +216,8 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
   return links;
 }
 
-function staticBinding(value) {
+function staticBinding(value, constants = new Map()) {
+  if (value && /^[A-Za-z_$][\w$]*$/.test(value)) return constants.get(value);
   const quote = value?.[0];
   if ((quote !== "\"" && quote !== "'") || value.at(-1) !== quote) return undefined;
   const destination = value.slice(1, -1);
@@ -224,15 +225,25 @@ function staticBinding(value) {
 }
 
 function isStaticSiteDestination(destination) {
-  return destination.startsWith("/")
-    || destination.startsWith("#")
-    || /^(?:https?:)?\/\//i.test(destination);
+  return destination.startsWith("#")
+    || /^(?:https?:)?\/\//i.test(destination)
+    || !/^[a-z][a-z\d+.-]*:/i.test(destination);
 }
 
 function vueLinks(source) {
   const links = [];
+  const constants = new Map();
   for (const match of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
     links.push(...typescriptLinks(match[1]));
+    const file = ts.createSourceFile("component.ts", match[1], ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    for (const statement of file.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer && ts.isStringLiteralLike(declaration.initializer)) {
+          constants.set(declaration.name.text, declaration.initializer.text);
+        }
+      }
+    }
   }
   const templateSource = withoutHtmlComments(source)
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
@@ -240,7 +251,7 @@ function vueLinks(source) {
   for (const tag of htmlTags(templateSource)) {
     for (const attribute of ["to", "href", "src", "poster", "srcset"]) {
       const staticDestination = htmlAttribute(tag, attribute);
-      const boundDestination = staticBinding(htmlAttribute(tag, `:${attribute}`));
+      const boundDestination = staticBinding(htmlAttribute(tag, `:${attribute}`), constants);
       for (const destination of [staticDestination, boundDestination]) {
         if (!destination) continue;
         if (attribute === "srcset") links.push(...sourceSetLinks(destination));
@@ -282,6 +293,10 @@ function typescriptLinks(source, { exportNames, propertyNames } = {}) {
       else if (exportNames.has("default") && ts.isExportAssignment(statement)) {
         collect(statement.expression);
       }
+      else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement))
+        && statement.name && exportNames.has(statement.name.text)) {
+        collect(statement);
+      }
     }
   }
   return [...new Set(links.filter(isStaticSiteDestination))];
@@ -297,8 +312,16 @@ function applicationImports(source, extension) {
   return scripts.flatMap((script) => {
     const file = ts.createSourceFile("application.ts", script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     return file.statements.flatMap((statement) => {
-      if (!ts.isImportDeclaration(statement)
-        || !statement.importClause
+      if (ts.isExportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+        const names = statement.exportClause && ts.isNamedExports(statement.exportClause)
+          ? statement.exportClause.elements.map((element) => ({
+              imported: element.propertyName?.text ?? element.name.text,
+              local: element.name.text,
+            }))
+          : [{ imported: "*", local: "*" }];
+        return [{ names, specifier: statement.moduleSpecifier.text }];
+      }
+      if (!ts.isImportDeclaration(statement) || !statement.importClause
         || !ts.isStringLiteralLike(statement.moduleSpecifier)) return [];
       const names = [];
       if (statement.importClause.name) {
@@ -434,8 +457,19 @@ function applicationInventory(docsRoot) {
           if (new RegExp(`<${name}(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
         }
       }
-      const linkProperties = extname(file) === ".vue" ? vueLinkProperties(source) : new Set();
-      for (const { names, specifier } of applicationImports(source, extname(file))) {
+      const linkProperties = extname(file) === ".vue"
+        ? vueLinkProperties(source)
+        : importedProperties.get(file) ?? new Set();
+      for (const applicationImport of applicationImports(source, extname(file))) {
+        const { specifier } = applicationImport;
+        const selectedNames = importedNames.get(file);
+        const exportAll = applicationImport.names.some(({ local }) => local === "*");
+        const names = exportAll && selectedNames && !selectedNames.has("*")
+          ? [...selectedNames].map((name) => ({ imported: name, local: name }))
+          : extname(file) === ".vue" || !selectedNames
+            ? applicationImport.names
+            : applicationImport.names.filter(({ local }) => selectedNames.has("*") || selectedNames.has(local));
+        if (!names.length) continue;
         const importedPath = resolveImport(file, specifier);
         if (importedPath) {
           importedFiles.add(importedPath);
