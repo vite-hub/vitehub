@@ -15,6 +15,7 @@ Most applications install `vite-hub` and enable Auth through the framework prese
 
 ```sh
 pnpm add @vite-hub/auth better-auth
+pnpm add -D vite
 ```
 
 ## First local session
