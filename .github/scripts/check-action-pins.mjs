@@ -105,11 +105,12 @@ export function inspectGitHubActionReferences(path, source) {
   if (!isActionManifest && normalizedPath.startsWith(".github/workflows/")) {
     const jobs = findPair(root, "jobs")?.value
     if (!isMap(jobs)) return failures
+    const enclosingJobsComment = jobs.items.length === 1 ? jobs.comment ?? "" : ""
     for (const jobPair of jobs.items) {
       const aliasComment = jobPair.value?.comment ?? ""
       const job = isAlias(jobPair.value) ? jobPair.value.resolve(document) : jobPair.value
       if (!isMap(job)) continue
-      inspectUses(findPair(job, "uses"), aliasComment || job.comment || jobs.comment || "")
+      inspectUses(findPair(job, "uses"), aliasComment || job.comment || enclosingJobsComment)
       inspectSteps(findPair(job, "steps")?.value)
     }
   }
