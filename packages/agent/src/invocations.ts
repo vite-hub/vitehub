@@ -258,7 +258,7 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   }
   if (value === null || hasRuntimeType(value, "boolean")) return value
   if (hasRuntimeType(value, "number")) {
-    if (!Number.isFinite(value)) budget.truncated = true
+    if (!Number.isFinite(value) || Object.is(value, -0)) budget.truncated = true
     return Number.isFinite(value) ? value : null
   }
   if (hasRuntimeType(value, "bigint")) {
@@ -274,7 +274,7 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   if (Array.isArray(value)) {
     const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
     if (length < value.length) budget.truncated = true
-    return value.slice(0, length).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
+    return value.slice(0, length).map(item => boundedObservationValue(item, budget, depth + 1, maxStringLength))
   }
   if (value instanceof Date) {
     budget.truncated = true

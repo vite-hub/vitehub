@@ -289,6 +289,7 @@ describe("Agent Invocations", () => {
       name: "workspace.materialized",
       payload: {
         value: {
+          array: [undefined],
           direct: undefined,
           files: new Map([["README.md", undefined]]),
           paths: new Set([undefined]),
@@ -309,6 +310,7 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
     expect(observation?.payload).toEqual({
       value: {
+        array: [null],
         direct: null,
         files: [["README.md", null]],
         paths: [null],
@@ -321,23 +323,39 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it("marks lossy public payload scalars as truncated", async () => {
+  it("marks each lossy public payload scalar as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("lossy-public-payload-scalars"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.context.traceLog?.append({
-      name: "workspace.materialized",
-      payload: { value: { bigint: 1n, nan: Number.NaN }, visibility: "public" },
+      name: "workspace.bigint",
+      payload: { value: 1n, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.nan",
+      payload: { value: Number.NaN, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.negative-zero",
+      payload: { value: -0, visibility: "public" },
       type: "lifecycle",
     })
     await journal.finish("completed")
 
-    const observation = (await invocations.getByRunId("lossy-public-payload-scalars"))?.observations
-      .find(entry => entry.name === "workspace.materialized")
-    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
-    expect(observation?.payload).toEqual({
-      value: { bigint: "1", nan: null },
-      visibility: "public",
+    const observations = (await invocations.getByRunId("lossy-public-payload-scalars"))?.observations
+    expect(observations?.find(entry => entry.name === "workspace.bigint")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: "1", visibility: "public" },
+    })
+    expect(observations?.find(entry => entry.name === "workspace.nan")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: null, visibility: "public" },
+    })
+    expect(observations?.find(entry => entry.name === "workspace.negative-zero")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: -0, visibility: "public" },
     })
   })
 
@@ -1740,6 +1758,11 @@ describe("Agent Invocations", () => {
       const agent = defineAgent({
         driver: { async run(context) {
           await context.traceLog?.append({ attributes: { nan: Number.NaN }, name: "numbers", type: "run" })
+          await context.traceLog?.append({
+            name: "negative-zero",
+            payload: { value: -0, visibility: "public" },
+            type: "run",
+          })
           return "persisted"
         } },
         invocations,
@@ -1769,9 +1792,14 @@ describe("Agent Invocations", () => {
         "vitehub.agent.configured",
         "agent.invocation.start",
         "numbers",
+        "negative-zero",
         "agent.invocation.finish",
       ])
       expect((await restored.getByRunId("durable-run"))?.observations[2]?.attributes).toMatchObject({ nan: null })
+      expect((await restored.getByRunId("durable-run"))?.observations[3]).toMatchObject({
+        attributes: { "vitehub.observation.truncated": true },
+        payload: { value: 0, visibility: "public" },
+      })
       await expect(restored.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
