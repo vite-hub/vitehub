@@ -508,6 +508,15 @@ function traceEventAttributes(
   return Object.keys(next).length ? next : undefined
 }
 
+function aggregateTraceAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!attributes) return undefined
+  const next = { ...attributes }
+  delete next["vitehub.payload.summary"]
+  delete next["vitehub.payload.value"]
+  delete next["vitehub.payload.visibility"]
+  return Object.keys(next).length ? next : undefined
+}
+
 function normalizeTraceEvent(event: TraceEvent, sequence: number, content: TraceEventContentPolicy): TraceEventLogEntry {
   const { activity: rawActivity, attributes: _attributes, payload: rawPayload, ...rest } = event
   const activity = normalizedTraceActivity(rawActivity)
@@ -771,7 +780,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
     const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
-    const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
+    const attributes = aggregateTraceAttributes(Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {})))
     const spanEvents = (events: TraceEventLogEntry[]): OpenTelemetrySpanEventView[] => events.map(event => ({
       ...(event.attributes ? { attributes: event.attributes } : {}),
       name: event.name,
@@ -800,7 +809,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
       } satisfies OpenTelemetrySpanView,
       ...run.steps.map(step => ({
         attributes: {
-          ...step.attributes,
+          ...aggregateTraceAttributes(step.attributes),
           "vitehub.run.id": run.id,
           "vitehub.step.id": step.id,
         },

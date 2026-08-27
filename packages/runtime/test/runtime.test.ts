@@ -461,7 +461,7 @@ describe("@vite-hub/runtime", () => {
     expect(traceEventsToOpenTelemetryLogRecords(log.entries())[0]?.attributes).toMatchObject({
       "vitehub.payload.visibility": "private",
     })
-    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.attributes).toMatchObject({
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.events?.[0]?.attributes).toMatchObject({
       "vitehub.payload.visibility": "private",
     })
     expect(JSON.stringify(log.entries())).not.toContain("bytes")
@@ -495,7 +495,7 @@ describe("@vite-hub/runtime", () => {
     expect(traceEventsToOpenTelemetryLogRecords(log.entries())[0]?.attributes).toMatchObject({
       "vitehub.payload.visibility": "private",
     })
-    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.attributes).toMatchObject({
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.events?.[0]?.attributes).toMatchObject({
       "vitehub.payload.visibility": "private",
     })
     expect(JSON.stringify(log.entries())).not.toContain("memory")
@@ -614,6 +614,33 @@ describe("@vite-hub/runtime", () => {
       "vitehub.payload.visibility": "public",
     })
     expect(spans[0]?.events?.[0]?.attributes?.["content.omitted"]).toBeUndefined()
+  })
+
+  it("keeps payload metadata on span events instead of aggregate spans", () => {
+    const events = [
+      {
+        name: "run.start",
+        payload: { value: "public value", visibility: "public" } as const,
+        sequence: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        trace: { id: "run-1" },
+        type: "run" as const,
+      },
+      {
+        name: "run.finish",
+        payload: { visibility: "private" } as const,
+        sequence: 2,
+        timestamp: "2026-01-01T00:00:00.010Z",
+        trace: { id: "run-1" },
+        type: "run" as const,
+      },
+    ]
+
+    const spans = traceEventsToOpenTelemetrySpans(events)
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.payload.visibility")
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.payload.visibility"])).toEqual(["public", "private"])
+    expect(spans[0]?.events?.[0]?.attributes?.["vitehub.payload.value"]).toBe("public value")
   })
 
   it("removes regenerated canonical attributes from supplied omission markers", async () => {
