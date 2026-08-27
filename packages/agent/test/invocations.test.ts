@@ -197,6 +197,30 @@ describe("Agent Invocations", () => {
     ]))
   })
 
+  it("guards metadata content inspection for custom trace attributes", async () => {
+    const invocations = defineAgentInvocations({
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const append = vi.spyOn(traceLog, "append")
+    const journal = await bindAgentInvocations(invocations, { ...runtime("hostile-metadata-content"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const attributes = new Proxy({ "message.content": "persisted" }, {
+      has() {
+        throw new Error("membership unavailable")
+      },
+    })
+
+    await expect(journal.context.traceLog?.append({ attributes, name: "custom", type: "run" })).resolves.toBeDefined()
+    await journal.finish("completed")
+
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ name: "custom" }))
+    const observation = (await invocations.getByRunId("hostile-metadata-content"))?.observations
+      .find(entry => entry.name === "custom")
+    expect(observation?.attributes?.["message.content"]).toBe("persisted")
+  })
+
   it("marks bounded Agent configuration as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-configuration"))

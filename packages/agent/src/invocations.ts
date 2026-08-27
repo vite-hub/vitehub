@@ -739,12 +739,15 @@ function journalTraceLog(
       const safeEntryPromise = createTraceEventLog({ content }).append(event)
       const metadataContentValues = new Map<string, unknown>()
       for (const key of metadataContent) {
-        if (key in (event.attributes || {})) {
-          try {
-            metadataContentValues.set(key, structuredClone(event.attributes?.[key]))
+        try {
+          const attributes = event.attributes
+          if (!attributes) continue
+          const descriptor = Object.getOwnPropertyDescriptor(attributes, key)
+          if (descriptor && "value" in descriptor) {
+            metadataContentValues.set(key, structuredClone(descriptor.value))
           }
-          catch {}
         }
+        catch {}
       }
       let entry: TraceEventLogEntry
       try {
