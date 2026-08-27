@@ -472,7 +472,7 @@ function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
     || hasNonEmptyScopeGrant(value)
 }
 
-function normalizeSelection(value: unknown): NormalizedWorkspaceScopeSelection | undefined {
+function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
   const candidate = value as { role?: unknown, scope?: unknown }

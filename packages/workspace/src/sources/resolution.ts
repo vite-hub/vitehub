@@ -176,7 +176,10 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       return await memory.diff(options)
     },
     async getMeta(key) {
-      return await memory.getMeta?.(key) ?? await (await resolveWorkspaceMetadataTarget(workspace))?.getMeta?.(key)
+      const internalMetadata = await resolveWorkspaceMetadataTarget(workspace)
+      return await memory.getMeta?.(key)
+        ?? await internalMetadata?.getMeta?.(key)
+        ?? await workspace.getMeta?.(key)
     },
     async setMeta(key, value) {
       await memory.setMeta?.(key, value)

@@ -179,6 +179,7 @@ async function materializeWorkspaceSources(workspace: Workspace, options?: Works
 function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition): Workspace {
   let workspacePromise: Promise<Workspace> | undefined
   let syncPromise: Promise<void> | undefined
+  let syncAbortSignal: AbortSignal | undefined
 
   async function resolveWorkspace() {
     workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition)) : useRegisteredWorkspace(name)
@@ -187,13 +188,32 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
 
   async function resolveSyncedWorkspace(abortSignal?: AbortSignal) {
     const workspace = await resolveWorkspace()
-    if (!syncPromise) {
-      const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.(abortSignal) ?? Promise.resolve()
-      syncPromise = next
-      next.catch(() => { syncPromise = undefined })
+    while (true) {
+      if (!syncPromise) {
+        const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.(abortSignal) ?? Promise.resolve()
+        syncPromise = next
+        syncAbortSignal = abortSignal
+        next.catch(() => {
+          if (syncPromise === next) {
+            syncPromise = undefined
+            syncAbortSignal = undefined
+          }
+        })
+      }
+      const current = syncPromise
+      const currentAbortSignal = syncAbortSignal
+      try {
+        await current
+        return workspace
+      }
+      catch (error) {
+        if (abortSignal || !currentAbortSignal?.aborted) throw error
+        if (syncPromise === current) {
+          syncPromise = undefined
+          syncAbortSignal = undefined
+        }
+      }
     }
-    await syncPromise
-    return workspace
   }
 
   const workspace = {

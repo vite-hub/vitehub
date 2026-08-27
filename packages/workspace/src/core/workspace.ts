@@ -11,6 +11,7 @@ import type {
   Workspace,
   WorkspaceDefinition,
   WorkspaceSession,
+  WorkspaceStore,
 } from "./types.ts"
 
 type WorkspaceWithDefinitionSync = Workspace & {
