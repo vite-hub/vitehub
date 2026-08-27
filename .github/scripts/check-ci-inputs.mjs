@@ -264,6 +264,26 @@ function functionScopeCounts(tokens) {
   }
 }
 
+function applyLeadingPersistentAssignments(tokens, environment) {
+  let command = []
+  for (const token of tokens) {
+    if (token === ";" || token === "&&") {
+      if (command.length === 0) continue
+      const assignments = []
+      for (const candidate of command) {
+        const assignment = assignmentPattern.exec(candidate)
+        if (!assignment) return
+        assignments.push(assignment)
+      }
+      for (const assignment of assignments) environment.set(assignment[1], assignment[2])
+      command = []
+      continue
+    }
+    if (shellOperatorPattern.test(token)) return
+    command.push(token)
+  }
+}
+
 function pipedShellSource(tokens, shellIndex) {
   if (tokens[shellIndex - 1] !== "|") return
   let start = shellIndex - 2
@@ -301,6 +321,10 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const { closes: closesFunction, opens: opensFunction } = functionScopeCounts(tokens)
     const activeConditionalDepth = Math.max(0, conditionalDepth - closesConditional)
     const activeFunctionDepth = Math.max(0, functionDepth - closesFunction)
+    if (activeConditionalDepth === 0 && opensConditional === 0
+      && activeFunctionDepth === 0 && opensFunction === 0) {
+      applyLeadingPersistentAssignments(tokens, environment)
+    }
     if (executableIndexes.length === 0 && activeConditionalDepth === 0 && opensConditional === 0
       && activeFunctionDepth === 0 && opensFunction === 0
       && tokens.length > 0 && tokens.every(token => assignmentPattern.test(token))) {
@@ -326,6 +350,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     for (const index of executableIndexes) {
       let argumentsStart
       let acceptsPackageOptions = false
+      let inspectsTerminatedCommand = false
       const token = tokens[index]
       const executable = executableName(token)
 
@@ -374,6 +399,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         if (tokens[subcommand] !== "exec" && tokens[subcommand] !== "x") continue
         argumentsStart = subcommand + 1
         acceptsPackageOptions = true
+        inspectsTerminatedCommand = true
       }
       else if (executable === "vp" || executable === "pnpm" || executable === "yarn") {
         let subcommand = index + 1
@@ -390,10 +416,16 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       const invocation = tokens.slice(argumentsStart, end === -1 ? tokens.length : end)
       const packageSpecs = []
       const callCommands = []
+      const terminatedCommands = []
       if (acceptsPackageOptions) {
         for (let argumentIndex = 0; argumentIndex < invocation.length; argumentIndex++) {
           const argument = invocation[argumentIndex]
-          if (argument === "--") break
+          if (argument === "--") {
+            if (inspectsTerminatedCommand) {
+              terminatedCommands.push(invocation.slice(argumentIndex + 1).join(" "))
+            }
+            break
+          }
           if (argument.startsWith("--package=") || argument.startsWith("-p=")) {
             packageSpecs.push(argument.slice(argument.indexOf("=") + 1))
           }
@@ -414,6 +446,9 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       specs.push(...packageSpecs.map(spec => resolvePackageSpec(spec, environment)))
       for (const callCommand of callCommands) {
         specs.push(...findExecutablePackageSpecs(callCommand, environment))
+      }
+      for (const terminatedCommand of terminatedCommands) {
+        specs.push(...findExecutablePackageSpecs(terminatedCommand, environment))
       }
     }
     conditionalDepth = Math.max(0, conditionalDepth + opensConditional - closesConditional)

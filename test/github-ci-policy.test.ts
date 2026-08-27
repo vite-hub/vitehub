@@ -400,6 +400,7 @@ jobs:
     "npm --prefix . exec unpinned",
     "npm --user-agent custom exec unpinned",
     "npm exec --package=safe@1.2.3 --package=unpinned -- cmd",
+    "npm exec --package=semver@7.7.2 -- npx unpinned",
     "npm exec --package=runner@1.2.3 -c 'npx unpinned'",
     "npm exec --package=runner@1.2.3 --call=\"npx unpinned\"",
     "version=$(npx unpinned --version)",
@@ -478,6 +479,16 @@ jobs:
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it("persists assignment-only commands before same-line separators", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: VERSION=latest && npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
   })
 
   it.each([
