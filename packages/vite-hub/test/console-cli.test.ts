@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { runConsoleDevCli } from "../src/console/cli.ts"
-import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
+import { consoleFixtureEnvironmentVariable, parseConsoleFixture } from "../src/console/fixture.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 
@@ -112,6 +112,25 @@ describe("Console fixture CLI", () => {
 
     expect(spawn).not.toHaveBeenCalled()
     expect(stderr.output()).toContain("invocations[0].agentName must be a non-empty string")
+  })
+
+  it("normalizes fixture Agent names for Console selection", () => {
+    const fixture = parseConsoleFixture({
+      invocations: [
+        {
+          agentName: " support ",
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id: "fixture-invocation",
+          observations: [],
+          status: "completed",
+          traceId: "fixture-trace",
+          updatedAt: "2026-08-27T10:01:00.000Z",
+        },
+      ],
+      version: 1,
+    })
+
+    expect(fixture.invocations[0]?.agentName).toBe("support")
   })
 
   it("translates child termination signals to shell exit statuses", async () => {
