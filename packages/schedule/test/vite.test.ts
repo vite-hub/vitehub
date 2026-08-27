@@ -590,8 +590,8 @@ describe("Vite schedule integration", () => {
           triggers: { crons: ["0 0 * * *", "*/15 * * * *"] },
         },
       },
-      modules: ["existing-module", "./.vitehub/nitro/schedule/module.mjs"],
-      plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      modules: ["existing-module", join(root, ".vitehub/nitro/schedule/module.mjs")],
+      plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"*/15 * * * *\"")

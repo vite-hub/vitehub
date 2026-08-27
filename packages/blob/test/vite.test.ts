@@ -484,7 +484,7 @@ describe("hubBlob", () => {
       { binding: "ASSETS", bucket_name: "assets" },
     ])
     expect(userConfig).toHaveProperty("nitro.handlers", [{
-      handler: ".vitehub/nitro/blob/middleware.ts",
+      handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"),
       middleware: true,
       route: "/**",
     }])

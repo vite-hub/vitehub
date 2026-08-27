@@ -1,6 +1,5 @@
 import { browserProviderError } from "../errors.ts"
 import { cloudflareBrowserTerminated } from "../internal/connections.ts"
-import { importBrowserOptionalPeer } from "../internal/optional-peer.ts"
 
 import type { BrowserEngine, BrowserProvider } from "../types.ts"
 import type { CloudflareBrowserBindingConnection } from "../internal/connections.ts"
@@ -27,7 +26,7 @@ export interface CloudflareBrowserOptions {
 
 async function loadDriver(): Promise<CloudflarePlaywrightDriver> {
   try {
-    return await importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright")
+    return await import("@cloudflare/playwright") as unknown as CloudflarePlaywrightDriver
   }
   catch (error) {
     throw browserProviderError("cloudflare", "load @cloudflare/playwright", { cause: error })
