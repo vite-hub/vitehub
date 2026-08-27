@@ -579,6 +579,40 @@ test('keeps healthy repositories when one listing fails', async (t) => {
   assert.deepEqual(jobs.map(job => job.repository), ['vite-hub/brief'])
 })
 
+test('recovers pull requests left with stale working labels', async () => {
+  const reserved = { ...pullRequest(1), labels: [{ name: 'Agent: Working' }] }
+  const available = { ...pullRequest(2), labels: [{ name: 'Agent: Queued' }] }
+  const jobs = await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [reserved, available],
+    async () => null,
+    policyFingerprint,
+  )
+
+  assert.deepEqual(jobs.map(job => job.pullRequest.number), [1, 2])
+})
+
+test('excludes transient lifecycle labels from completion fingerprints', () => {
+  const current = pullRequest(1)
+  const clean = successfulPassFingerprint('vite-hub/vitehub', current, policyFingerprint)
+  const working = successfulPassFingerprint('vite-hub/vitehub', {
+    ...current,
+    labels: [{ name: 'product' }, { name: 'Agent: Working' }],
+  }, policyFingerprint)
+  const queued = successfulPassFingerprint('vite-hub/vitehub', {
+    ...current,
+    labels: [{ name: 'product' }, { name: 'Agent: Queued' }],
+  }, policyFingerprint)
+  const product = successfulPassFingerprint('vite-hub/vitehub', {
+    ...current,
+    labels: [{ name: 'product' }],
+  }, policyFingerprint)
+
+  assert.equal(working, product)
+  assert.equal(queued, product)
+  assert.notEqual(clean, product)
+})
+
 test('keeps the backlog available beyond the active owner count', async () => {
   const jobs = await selectPullRequestJobs(
     ['vite-hub/vitehub'],

@@ -1,5 +1,71 @@
+diff --git a/dist/agent-driver-WPLXzOPJ.js b/dist/agent-driver-WPLXzOPJ.js
+index a1e28ca1f27d35113c80a77ca9ee8827087beff4..194261fa2467504e412bd71752a22c7930e1192a 100644
+--- a/dist/agent-driver-WPLXzOPJ.js
++++ b/dist/agent-driver-WPLXzOPJ.js
+@@ -14,20 +14,37 @@ function assertNoUnsupportedOptions(value, allowed, label) {
+ function normalizeAgentDriverCapacity(value) {
+ 	if (value === void 0) return;
+ 	if (!isPlainObject(value)) throw new TypeError("[vitehub] defineAgent({ driver.capacity }) must be an object.");
+-	assertNoUnsupportedOptions(value, new Set(["concurrency", "queue"]), "defineAgent({ driver.capacity })");
++	assertNoUnsupportedOptions(value, new Set(["adaptive", "concurrency", "queue"]), "defineAgent({ driver.capacity })");
+ 	if (!Number.isInteger(value.concurrency) || value.concurrency <= 0) throw new TypeError("[vitehub] defineAgent({ driver.capacity.concurrency }) must be a positive integer.");
+-	if (value.queue === void 0) return { concurrency: value.concurrency };
+-	if (!isPlainObject(value.queue)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.");
+-	assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })");
+-	if (!Number.isInteger(value.queue.maxPending) || value.queue.maxPending <= 0) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.");
+-	if (value.queue.timeout !== void 0 && (typeof value.queue.timeout !== "number" || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0 || value.queue.timeout > 2147483647)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number no greater than 2147483647.");
+-	return {
++	if (value.queue !== void 0) {
++		if (!isPlainObject(value.queue)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.");
++		assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })");
++		if (!Number.isInteger(value.queue.maxPending) || value.queue.maxPending <= 0) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.");
++		if (value.queue.timeout !== void 0 && (typeof value.queue.timeout !== "number" || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0 || value.queue.timeout > 2147483647)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number no greater than 2147483647.");
++	}
++	if (value.adaptive !== void 0) {
++		if (!isPlainObject(value.adaptive)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive }) must be an object.");
++		assertNoUnsupportedOptions(value.adaptive, new Set(["fallbackConcurrency", "intervalMs", "rampUp", "sample"]), "defineAgent({ driver.capacity.adaptive })");
++		if (typeof value.adaptive.sample !== "function") throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.sample }) must be a function.");
++		if (value.adaptive.fallbackConcurrency !== void 0 && (!Number.isInteger(value.adaptive.fallbackConcurrency) || value.adaptive.fallbackConcurrency < 0 || value.adaptive.fallbackConcurrency > value.concurrency)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.fallbackConcurrency }) must be an integer between zero and concurrency.");
++		if (value.adaptive.intervalMs !== void 0 && (!Number.isFinite(value.adaptive.intervalMs) || value.adaptive.intervalMs < 100 || value.adaptive.intervalMs > 2147483647)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.intervalMs }) must be a finite number between 100 and 2147483647.");
++		if (value.adaptive.rampUp !== void 0 && (!Number.isInteger(value.adaptive.rampUp) || value.adaptive.rampUp <= 0)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.rampUp }) must be a positive integer.");
++	}
++	const normalized = {
+ 		concurrency: value.concurrency,
+-		queue: {
++		...value.adaptive === void 0 ? {} : { adaptive: {
++			fallbackConcurrency: value.adaptive.fallbackConcurrency ?? 1,
++			intervalMs: value.adaptive.intervalMs ?? 5e3,
++			rampUp: value.adaptive.rampUp ?? 1,
++			sample: value.adaptive.sample
++		} },
++		...value.queue === void 0 ? {} : { queue: {
+ 			maxPending: value.queue.maxPending,
+ 			...value.queue.timeout === void 0 ? {} : { timeout: value.queue.timeout }
+-		}
++		} }
+ 	};
++	if (value[Symbol.for("vitehub.agent.shared-capacity")]) Object.defineProperty(normalized, Symbol.for("vitehub.agent.shared-capacity"), { value: value[Symbol.for("vitehub.agent.shared-capacity")] });
++	return normalized;
+ }
+ const modelDriverKeys = new Set([
+ 	"capacity",
+diff --git a/dist/cli.js b/dist/cli.js
+index b6efd109b26827410e7ca235032721a9f1bbd6bc..172180cdf1535d3adbfbaa2a21a9e1e6a7e50380 100644
+--- a/dist/cli.js
++++ b/dist/cli.js
+@@ -105,6 +105,10 @@ function agentInfoCapacity(config) {
+ 	const capacity = config?.driver?.capacity;
+ 	if (!capacity) return "unlimited";
+ 	const queue = capacity.queue ? `${capacity.pending}/${capacity.queue.maxPending} pending${capacity.queue.timeout ? `, ${capacity.queue.timeout}ms timeout` : ""}` : "queue disabled";
++	if (capacity.effectiveConcurrency !== void 0) {
++		const reason = capacity.reason ? `, ${capacity.reason}` : "";
++		return `${capacity.active} active, ${capacity.effectiveConcurrency} admitted, ${capacity.concurrency} hard max, ${queue}${reason}`;
++	}
+ 	return `${capacity.active}/${capacity.concurrency} active, ${queue}`;
+ }
+ function agentInfoExecutionAuthority(authority) {
 diff --git a/dist/invocations/sqlite.d.ts b/dist/invocations/sqlite.d.ts
-index b7e3da127412bc7bbac6307f157689cd24d8317f..f364b1ef84998e1e6b605fc00bddb9c68d0385d7 100644
+index b7e3da127412bc7bbac6307f157689cd24d8317f..02acfe8c43bfab7f317d91a66ae64f7956ab351d 100644
 --- a/dist/invocations/sqlite.d.ts
 +++ b/dist/invocations/sqlite.d.ts
 @@ -5,6 +5,8 @@ import { Client } from "@libsql/client";
@@ -72,3 +138,363 @@ index e5b0a3f74a191d96e0f329064d61a53d4d1ca883..5f8f132e69154d7320f560309967a387
  				return {
  					created: result.rowsAffected > 0,
  					record
+diff --git a/dist/runtime/process.d.ts b/dist/runtime/process.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ca86ef4dbee0e31162244c1c8dab79486eaa0a3d
+--- /dev/null
++++ b/dist/runtime/process.d.ts
+@@ -0,0 +1,33 @@
++import type { AgentDriverCapacityOptions, AgentDriverCapacityQueueOptions } from "../index.js";
++
++export interface ProcessAgentCapacitySampleContext {
++  active: number;
++  concurrency: number;
++  pending: number;
++}
++
++export interface ProcessAgentCapacitySample {
++  concurrency: number;
++  reason?: string;
++}
++
++export interface ProcessAgentCapacityOptions {
++  concurrency: number;
++  fallbackConcurrency?: number;
++  intervalMs?: number;
++  rampUp?: number;
++  queue?: AgentDriverCapacityQueueOptions;
++  cpu?: {
++    pausePressure?: number;
++    resumePressure?: number;
++  };
++  memory?: {
++    perInvocationBytes?: number;
++    reserveBytes?: number;
++    pausePressure?: number;
++    resumePressure?: number;
++  };
++  sample?: (context: ProcessAgentCapacitySampleContext) => ProcessAgentCapacitySample | Promise<ProcessAgentCapacitySample>;
++}
++
++export declare function createProcessAgentCapacity(options: ProcessAgentCapacityOptions): AgentDriverCapacityOptions;
+diff --git a/dist/runtime/process.js b/dist/runtime/process.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c39051e8fad426b73026892b9942ddc8c70786
+--- /dev/null
++++ b/dist/runtime/process.js
+@@ -0,0 +1,121 @@
++import { readFile } from "node:fs/promises";
++import { availableParallelism, freemem } from "node:os";
++
++const sharedAgentCapacity = Symbol.for("vitehub.agent.shared-capacity");
++
++export function createProcessAgentCapacity(options) {
++	if (!options || !Number.isInteger(options.concurrency) || options.concurrency <= 0) throw new TypeError("[vitehub] createProcessAgentCapacity({ concurrency }) must be a positive integer.");
++	const fallbackConcurrency = options.fallbackConcurrency ?? 1;
++	const intervalMs = options.intervalMs ?? 5e3;
++	const rampUp = options.rampUp ?? 1;
++	if (!Number.isInteger(fallbackConcurrency) || fallbackConcurrency < 0 || fallbackConcurrency > options.concurrency) throw new TypeError("[vitehub] createProcessAgentCapacity({ fallbackConcurrency }) must be an integer between zero and concurrency.");
++	if (!Number.isFinite(intervalMs) || intervalMs < 100 || intervalMs > 2147483647) throw new TypeError("[vitehub] createProcessAgentCapacity({ intervalMs }) must be a finite number between 100 and 2147483647.");
++	if (!Number.isInteger(rampUp) || rampUp <= 0) throw new TypeError("[vitehub] createProcessAgentCapacity({ rampUp }) must be a positive integer.");
++	const cpu = {
++		pausePressure: options.cpu?.pausePressure ?? .25,
++		resumePressure: options.cpu?.resumePressure ?? .1
++	};
++	const memory = {
++		perInvocationBytes: options.memory?.perInvocationBytes ?? 1024 ** 3,
++		reserveBytes: options.memory?.reserveBytes ?? 1024 ** 3,
++		pausePressure: options.memory?.pausePressure ?? .05,
++		resumePressure: options.memory?.resumePressure ?? .01
++	};
++	assertPressure(cpu, "cpu");
++	assertPressure(memory, "memory");
++	if (!Number.isFinite(memory.perInvocationBytes) || memory.perInvocationBytes <= 0) throw new TypeError("[vitehub] createProcessAgentCapacity({ memory.perInvocationBytes }) must be a positive finite number.");
++	if (!Number.isFinite(memory.reserveBytes) || memory.reserveBytes < 0) throw new TypeError("[vitehub] createProcessAgentCapacity({ memory.reserveBytes }) must be a non-negative finite number.");
++	if (options.sample !== void 0 && typeof options.sample !== "function") throw new TypeError("[vitehub] createProcessAgentCapacity({ sample }) must be a function.");
++	let pressurePaused = false;
++	let lastMemoryHighEvents;
++	const sample = options.sample ?? (async (context) => {
++		const resources = await readProcessResources();
++		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents;
++		lastMemoryHighEvents = resources.memoryHighEvents;
++		if (pressurePaused) pressurePaused = resources.cpuPressure >= cpu.resumePressure || resources.memoryPressure >= memory.resumePressure;
++		else pressurePaused = resources.cpuPressure >= cpu.pausePressure || resources.memoryPressure >= memory.pausePressure || memoryHighIncreased;
++		if (pressurePaused) return { concurrency: 0, reason: memoryHighIncreased ? "memory.high event" : `resource pressure (cpu=${formatPressure(resources.cpuPressure)}, memory=${formatPressure(resources.memoryPressure)})` };
++		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
++		const availableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : resources.availableMemory;
++		const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes) / memory.perInvocationBytes));
++		const memoryConcurrency = context.active + additional;
++		const cpuConcurrency = Math.max(1, resources.parallelism);
++		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency, cpuConcurrency));
++		return concurrency > context.active
++			? { concurrency, reason: `capacity available (${formatBytes(availableMemory)} memory headroom)` }
++			: { concurrency, reason: `waiting for capacity (${formatBytes(availableMemory)} memory headroom)` };
++	});
++	const capacity = {
++		adaptive: { fallbackConcurrency, intervalMs, rampUp, sample },
++		concurrency: options.concurrency,
++		...options.queue ? { queue: options.queue } : {}
++	};
++	Object.defineProperty(capacity, sharedAgentCapacity, { value: {} });
++	return capacity;
++}
++
++function assertPressure(value, name) {
++	if (!Number.isFinite(value.pausePressure) || value.pausePressure < 0 || value.pausePressure > 1) throw new TypeError(`[vitehub] createProcessAgentCapacity({ ${name}.pausePressure }) must be between zero and one.`);
++	if (!Number.isFinite(value.resumePressure) || value.resumePressure < 0 || value.resumePressure > value.pausePressure) throw new TypeError(`[vitehub] createProcessAgentCapacity({ ${name}.resumePressure }) must be between zero and pausePressure.`);
++}
++
++async function readProcessResources() {
++	const cgroup = await readCgroupResources().catch(() => void 0);
++	return {
++		availableMemory: typeof process.availableMemory === "function" ? process.availableMemory() : freemem(),
++		cpuPressure: cgroup?.cpuPressure ?? 0,
++		memoryCurrent: cgroup?.memoryCurrent ?? 0,
++		memoryHigh: cgroup?.memoryHigh ?? Infinity,
++		memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
++		memoryMax: cgroup?.memoryMax ?? Infinity,
++		memoryPressure: cgroup?.memoryPressure ?? 0,
++		parallelism: availableParallelism()
++	};
++}
++
++async function readCgroupResources() {
++	const membership = await readFile("/proc/self/cgroup", "utf8");
++	const relative = membership.split(/\r?\n/).map(line => line.split(":")).find(parts => parts[0] === "0")?.[2];
++	if (relative === void 0) throw new Error("cgroup v2 membership is unavailable");
++	const root = `/sys/fs/cgroup${relative === "/" ? "" : relative}`;
++	const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
++		readFile(`${root}/memory.current`, "utf8"),
++		readFile(`${root}/memory.high`, "utf8"),
++		readFile(`${root}/memory.max`, "utf8"),
++		readFile(`${root}/memory.events`, "utf8"),
++		readFile(`${root}/cpu.pressure`, "utf8"),
++		readFile(`${root}/memory.pressure`, "utf8")
++	]);
++	return {
++		cpuPressure: parsePressure(cpuPressure),
++		memoryCurrent: Number(current.trim()),
++		memoryHigh: parseLimit(high),
++		memoryHighEvents: parseEvent(events, "high"),
++		memoryMax: parseLimit(max),
++		memoryPressure: parsePressure(memoryPressure)
++	};
++}
++
++function parseLimit(value) {
++	const parsed = value.trim();
++	return parsed === "max" ? Infinity : Number(parsed);
++}
++
++function parseEvent(value, name) {
++	const line = value.split(/\r?\n/).find(entry => entry.startsWith(`${name} `));
++	return line ? Number(line.slice(name.length + 1)) : 0;
++}
++
++function parsePressure(value) {
++	const match = /^some\s+.*?avg10=([\d.]+)/m.exec(value);
++	return match ? Number(match[1]) / 100 : 0;
++}
++
++function formatPressure(value) {
++	return `${Math.round(value * 100)}%`;
++}
++
++function formatBytes(value) {
++	if (!Number.isFinite(value)) return "unlimited";
++	return `${(value / 1024 ** 3).toFixed(1)} GiB`;
++}
+diff --git a/dist/types-DBmG3aNn.d.ts b/dist/types-DBmG3aNn.d.ts
+index 806afb8f8e9c1dc70e4108c66bd14836ad573578..8ce80db31c787e3f551f7eae3becf533312dbde7 100644
+--- a/dist/types-DBmG3aNn.d.ts
++++ b/dist/types-DBmG3aNn.d.ts
+@@ -1830,7 +1830,23 @@ interface AgentDriverCapacityQueueOptions {
+   maxPending: number;
+   timeout?: number;
+ }
++interface AgentDriverCapacitySampleContext {
++  active: number;
++  concurrency: number;
++  pending: number;
++}
++interface AgentDriverCapacitySample {
++  concurrency: number;
++  reason?: string;
++}
++interface AgentDriverAdaptiveCapacityOptions {
++  fallbackConcurrency?: number;
++  intervalMs?: number;
++  rampUp?: number;
++  sample: (context: AgentDriverCapacitySampleContext) => MaybePromise<AgentDriverCapacitySample>;
++}
+ interface AgentDriverCapacityOptions {
++  adaptive?: AgentDriverAdaptiveCapacityOptions;
+   concurrency: number;
+   queue?: AgentDriverCapacityQueueOptions;
+ }
+@@ -2309,7 +2325,10 @@ interface AgentInspectionProviderMetadata {
+ interface AgentInspectionDriverMetadata {
+   capacity?: AgentDriverCapacityOptions & {
+     active: number;
++    effectiveConcurrency: number;
++    lastSampleAt?: number;
+     pending: number;
++    reason?: string;
+   };
+   readonly executionAuthority: ExecutionAuthority;
+   execution?: AgentInspectionModelExecutionMetadata;
+diff --git a/dist/workspace-agent-D8iU4quY.js b/dist/workspace-agent-D8iU4quY.js
+index 6dbd2030da2edbd06a4d3ff6766fa04d59fe11f6..3df998c426e206251c1b65476d97e4751bbe4443 100644
+--- a/dist/workspace-agent-D8iU4quY.js
++++ b/dist/workspace-agent-D8iU4quY.js
+@@ -6,6 +6,8 @@ import { noExecutionAuthority, normalizeExecutionAuthority, unknownExecutionAuth
+ import { normalizeWorkspaceSourcesMetadata, workspaceSourceGrantPaths } from "@vite-hub/workspace/source-metadata";
+ //#region src/internal/agent-capacity.ts
+ const agentCapacityScope = Symbol("vitehub.agentCapacityScope");
++const sharedAgentCapacity = Symbol.for("vitehub.agent.shared-capacity");
++const sharedAgentCapacityScopes = /* @__PURE__ */ new WeakMap();
+ function capacityError(code, message, name = "Error") {
+ 	return Object.assign(new Error(message), {
+ 		code,
+@@ -19,18 +21,29 @@ var AgentCapacityScheduler = class {
+ 	options;
+ 	active = 0;
+ 	queue = [];
++	effectiveConcurrency;
++	lastSampleAt;
++	refreshPromise;
++	refreshTimer;
++	reason;
++	draining = false;
+ 	constructor(options) {
+ 		this.options = options;
++		this.effectiveConcurrency = options.adaptive?.fallbackConcurrency ?? options.concurrency;
+ 	}
+ 	status() {
+ 		return {
+ 			active: this.active,
+-			pending: this.queue.length
++			pending: this.queue.length,
++			effectiveConcurrency: this.effectiveConcurrency,
++			...this.lastSampleAt === void 0 ? {} : { lastSampleAt: this.lastSampleAt },
++			...this.reason === void 0 ? {} : { reason: this.reason }
+ 		};
+ 	}
+ 	async acquire(signal) {
+ 		if (signal?.aborted) throw capacityAbortError(signal);
+-		if (this.active < this.options.concurrency && this.queue.length === 0) {
++		await this.refresh();
++		if (this.active < this.effectiveConcurrency && this.queue.length === 0) {
+ 			this.active++;
+ 			return this.createRelease();
+ 		}
+@@ -59,6 +72,7 @@ var AgentCapacityScheduler = class {
+ 			signal?.addEventListener("abort", onAbort, { once: true });
+ 			if (queue.timeout !== void 0) timer = setTimeout(() => settle(capacityError("AGENT_CAPACITY_QUEUE_TIMEOUT", `[vitehub] Agent invocation timed out after ${queue.timeout}ms while waiting for driver capacity.`, "TimeoutError")), queue.timeout);
+ 			this.queue.push(entry);
++			this.scheduleRefresh();
+ 		});
+ 	}
+ 	createRelease() {
+@@ -67,25 +81,76 @@ var AgentCapacityScheduler = class {
+ 			if (released) return;
+ 			released = true;
+ 			this.active--;
+-			this.drain();
++			void this.drain();
+ 		};
+ 	}
+-	drain() {
+-		while (this.active < this.options.concurrency && this.queue.length) {
+-			const entry = this.queue.shift();
+-			if (entry.settled) continue;
+-			entry.settled = true;
+-			entry.cleanup();
+-			this.active++;
+-			entry.resolve(this.createRelease());
++	async refresh() {
++		const adaptive = this.options.adaptive;
++		if (!adaptive) return;
++		const now = Date.now();
++		if (this.lastSampleAt !== void 0 && now - this.lastSampleAt < adaptive.intervalMs) return;
++		if (this.refreshPromise) return await this.refreshPromise;
++		this.refreshPromise = Promise.resolve().then(() => adaptive.sample({
++			active: this.active,
++			concurrency: this.options.concurrency,
++			pending: this.queue.length
++		})).then((sample) => {
++			if (!sample || !Number.isFinite(sample.concurrency)) throw new TypeError("[vitehub] Adaptive Agent capacity sample must contain a finite concurrency.");
++			const target = Math.max(0, Math.min(this.options.concurrency, Math.floor(sample.concurrency)));
++			this.effectiveConcurrency = target > this.effectiveConcurrency ? Math.min(target, this.effectiveConcurrency + adaptive.rampUp) : target;
++			this.reason = typeof sample.reason === "string" && sample.reason ? sample.reason : void 0;
++		}).catch((error) => {
++			this.effectiveConcurrency = Math.min(this.options.concurrency, adaptive.fallbackConcurrency);
++			this.reason = `sample-error: ${error instanceof Error ? error.message : String(error)}`;
++		}).finally(() => {
++			this.lastSampleAt = Date.now();
++			this.refreshPromise = void 0;
++		});
++		return await this.refreshPromise;
++	}
++	scheduleRefresh() {
++		if (!this.options.adaptive || this.refreshTimer !== void 0 || !this.queue.length) return;
++		const elapsed = this.lastSampleAt === void 0 ? this.options.adaptive.intervalMs : Date.now() - this.lastSampleAt;
++		this.refreshTimer = setTimeout(() => {
++			this.refreshTimer = void 0;
++			void this.drain();
++		}, Math.max(0, this.options.adaptive.intervalMs - elapsed));
++	}
++	async drain() {
++		if (this.draining) return;
++		this.draining = true;
++		try {
++			await this.refresh();
++			while (this.active < this.effectiveConcurrency && this.queue.length) {
++				const entry = this.queue.shift();
++				if (entry.settled) continue;
++				entry.settled = true;
++				entry.cleanup();
++				this.active++;
++				entry.resolve(this.createRelease());
++			}
++		}
++		finally {
++			this.draining = false;
++			this.scheduleRefresh();
+ 		}
+ 	}
+ };
+ function configureAgentCapacity(agent, options) {
+ 	if (!options) return;
++	let scope;
++	if (options[sharedAgentCapacity]) {
++		const sharedKey = options[sharedAgentCapacity];
++		scope = sharedAgentCapacityScopes.get(sharedKey);
++		if (!scope) {
++			scope = { options };
++			sharedAgentCapacityScopes.set(sharedKey, scope);
++		}
++	}
++	else scope = { options };
+ 	Object.defineProperty(agent, agentCapacityScope, {
+ 		configurable: true,
+-		value: { options }
++		value: scope
+ 	});
+ }
+ function inheritAgentCapacity(source, target) {
+diff --git a/package.json b/package.json
+index 23f95f2c8e9b7c5aa85a03f8af9a7de0061532a5..73c6fad9dbbac3db69d45a91df271903b5a776ca 100644
+--- a/package.json
++++ b/package.json
+@@ -93,6 +93,10 @@
+       "types": "./dist/runtime/empty-registry.d.ts",
+       "import": "./dist/runtime/empty-registry.js"
+     },
++    "./runtime/process": {
++      "types": "./dist/runtime/process.d.ts",
++      "import": "./dist/runtime/process.js"
++    },
+     "./runtime/workflow": {
+       "types": "./dist/runtime/workflow.d.ts",
+       "import": "./dist/runtime/workflow.js"

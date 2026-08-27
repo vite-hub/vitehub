@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 export const defaultMaxOwners = '1'
 export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v3'
 const parkDisposition = '<!-- babysitter:disposition:park -->'
+const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
 export type PullRequestFeedback = {
   comments: { count: number, latestId: string | null }
@@ -18,6 +19,7 @@ export type PullRequest = {
   headRefOid: string
   headRepository: { nameWithOwner: string } | null
   isDraft: boolean
+  labels?: unknown
   mergeStateStatus: string
   number: number
   reviewDecision: string | null
@@ -141,6 +143,7 @@ export function successfulPassFingerprint(
   const completionState: Record<string, unknown> = {
     ...completedPullRequest,
     comments: completedPullRequest.feedback?.comments ?? feedbackCollectionState(completedPullRequest.comments),
+    labels: stableLabels(completedPullRequest.labels),
     requiredStatusCheckRollup: checkState,
     reviews: completedPullRequest.feedback?.reviews ?? feedbackCollectionState(completedPullRequest.reviews),
     statusCheckRollup: checkState,
@@ -148,6 +151,12 @@ export function successfulPassFingerprint(
   delete completionState.feedback
   delete completionState.updatedAt
   return fingerprintPullRequestState(repository, completionState, policyFingerprint)
+}
+
+function stableLabels(labels: unknown) {
+  if (!Array.isArray(labels)) return labels
+  return labels.filter(label => !label || typeof label !== 'object'
+    || !lifecycleLabels.has(String((label as Record<string, unknown>).name)))
 }
 
 export function completedPassFingerprint(

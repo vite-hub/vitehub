@@ -1,8 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createGitHubTokenProvider, githubAgentEnvironment } from '../server/github.ts'
+import {
+  createGitHubTokenProvider,
+  githubAgentEnvironment,
+  parseGitHubGraphQLRateLimit,
+  runBufferedCommand,
+} from '../server/github.ts'
 
 const secret = (value: string) => ({ unseal: () => value })
+
+test('buffers GitHub listings larger than the Node child-process default', async () => {
+  const bytes = 2 * 1024 * 1024
+  const result = await runBufferedCommand(process.execPath, [
+    '-e',
+    `process.stdout.write('x'.repeat(${bytes}))`,
+  ])
+
+  assert.equal(Buffer.byteLength(result.stdout), bytes)
+})
 
 test('mints and caches installation authentication from complete App credentials', async () => {
   const calls: unknown[] = []
@@ -92,4 +107,18 @@ test('projects the bot token and commit identity into the agent environment', ()
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_TERMINAL_PROMPT: '0',
   })
+})
+
+test('parses the GraphQL budget used for admission', () => {
+  assert.deepEqual(parseGitHubGraphQLRateLimit({
+    resources: { graphql: { remaining: 1499, reset: 2_000_000_000 } },
+  }, 123), {
+    checkedAt: 123,
+    remaining: 1499,
+    resetAt: 2_000_000_000_000,
+  })
+  assert.throws(
+    () => parseGitHubGraphQLRateLimit({ resources: { graphql: { remaining: -1 } } }),
+    /valid GraphQL rate limit/,
+  )
 })

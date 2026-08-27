@@ -2,9 +2,12 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { useServerEnv } from '#vitehub/env/server'
 import { defineEventHandler } from 'h3'
+import { createAgentInspectionMetadata } from 'vite-hub/agent'
+import babysitterAgent from '../agents/babysitter/agent.ts'
+import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
-import { githubToken } from '../github.ts'
+import { githubGraphQLRateLimitSnapshot, githubToken } from '../github.ts'
 import { invocations } from '../invocations.ts'
 import { useSessionSnapshotStore } from '../session-snapshots.ts'
 
@@ -18,6 +21,8 @@ export default defineEventHandler(async () => {
   const { maxOwners, repositories: configuredRepositories, repository } = useServerEnv().babysitter
   const repositories = resolveRepositories(configuredRepositories, repository)
   const ownerLimit = resolveMaxOwners(maxOwners)
+  const capacity = createAgentInspectionMetadata(babysitterAgent).config?.driver.capacity
+  const githubBudget = githubGraphQLRateLimitSnapshot()
   const [github, codex, recent] = await Promise.all([
     checkGitHub(),
     checkCodex(),
@@ -33,12 +38,26 @@ export default defineEventHandler(async () => {
   const healthy = github.status === 'ok' && codex.status === 'ok'
   const diagnostics: Diagnostic[] = [
     github,
+    {
+      label: 'GitHub budget',
+      status: githubBudget.limited ? 'warning' : 'ok',
+      value: githubBudget.limited ? 'Work queued' : 'Available',
+      detail: githubBudget.limited
+        ? `${githubBudget.remaining} GraphQL points · resumes ${new Date(githubBudget.resetAt).toISOString()}`
+        : 'GraphQL admission reserve available',
+    },
     codex,
     { label: 'Model', status: 'ok', value: 'gpt-5.6-sol', detail: 'High reasoning effort' },
     { label: 'Agent', status: 'ok', value: 'babysitter', detail: 'Pull-request convergence' },
     { label: 'Runtime', status: 'ok', value: `Node ${process.version}`, detail: formatUptime(process.uptime()) },
     { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
-    { label: 'Scheduler', status: 'ok', value: 'Every 5 minutes', detail: `${ownerLimit} concurrent owner${ownerLimit === 1 ? '' : 's'}` },
+    {
+      label: 'Admission',
+      status: capacity?.reason?.startsWith('sample-error:') ? 'warning' : 'ok',
+      value: `Adaptive · ${capacity?.active ?? 0} active · ${capacity?.effectiveConcurrency ?? ownerLimit} admitted`,
+      detail: `${capacity?.pending ?? 0} queued · hard max ${ownerLimit}${capacity?.reason ? ` · ${capacity.reason}` : ''}`,
+    },
+    { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 30s repair scan' },
     { label: 'Console delivery', status: consoleClient ? 'ok' : 'neutral', value: consoleClient ? 'Connected' : 'Optional · not configured' },
     { label: 'State', status: 'ok', value: 'SQLite', detail: `${snapshots.count} immutable workspace snapshot${snapshots.count === 1 ? '' : 's'}` },
   ]
@@ -48,7 +67,7 @@ export default defineEventHandler(async () => {
     diagnostics,
     status: healthy ? 'healthy' : 'degraded',
     summary: healthy ? 'Babysitter is operational' : 'Babysitter needs attention',
-    workload: { ...counts, snapshots: snapshots.count },
+    workload: { ...counts, ...babysitterWorkload(), queued: capacity?.pending ?? 0, snapshots: snapshots.count },
   }
 })
 
