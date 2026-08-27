@@ -172,6 +172,7 @@ function detailPath(baseURL: string, id: string): string {
 interface InvocationResourceOptions<T> {
   apply: (value: T) => void;
   beforeLoad?: () => void;
+  canPoll?: () => boolean;
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
@@ -200,6 +201,10 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
     if (interval === false || interval === undefined || !Number.isFinite(interval) || interval <= 0)
       return;
     timer = setTimeout(() => {
+      if (options.canPoll && !options.canPoll()) {
+        schedule();
+        return;
+      }
       void refresh();
     }, interval);
   }
@@ -336,6 +341,7 @@ export function useAgentInvocations(
       loadMoreController = undefined;
       isLoadingMore.value = false;
     },
+    canPoll: () => !isLoadingMore.value,
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
     load: async (signal) => {

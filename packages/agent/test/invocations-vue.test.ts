@@ -243,6 +243,32 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("lets duplicate-page replay finish before polling again", async () => {
+    vi.useFakeTimers();
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+
+    const replay = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+    expect(calls[2]!.path).toContain("cursor=page-3");
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls).toHaveLength(3);
+
+    calls[2]!.resolve({ invocations: [record("inv-0")] });
+    await replay;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-2", "inv-1", "inv-0"]);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls).toHaveLength(4);
+    scope.stop();
+  });
+
   it("keeps pagination failures separate from first-page refreshes", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
