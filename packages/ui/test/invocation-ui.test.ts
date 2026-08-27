@@ -1289,6 +1289,36 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
   });
 
+  it("renders truncation after work when the latest user has no response", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "truncated-unanswered-turn",
+      observations: [{
+        attributes: { "message.content": "Unanswered question", "message.id": "user", "message.role": "user" },
+        name: "agent.message",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }, {
+        attributes: { "error.message": "Model request failed", "tool.name": "generate" },
+        name: "agent.tool.error",
+        sequence: 2,
+        timestamp,
+        type: "error" as const,
+      }],
+      observationsTruncated: true,
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const rows = wrapper.findAll(".vh-invocation-activities > li");
+
+    expect(rows.at(-2)?.classes()).toContain("vh-invocation-work");
+    expect(rows.at(-1)?.attributes("data-activity-id")).toBe("trace-truncated");
+  });
+
   it("renders grouped delivery outcomes, reaction intents, and truncation honestly", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const event = (sequence: number, attributes: Record<string, unknown>) => ({
