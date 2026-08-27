@@ -286,6 +286,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       result: expect.objectContaining({ raw, text: "complete" }),
     }))
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
   })
 
   it("finishes immutable raw streams with their consumed text and usage", async () => {

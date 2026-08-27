@@ -3819,7 +3819,7 @@ async function resultWithStreamedTextAndUsage(
         try {
           resolvedUsage = await Promise.race([
             Promise.resolve(resolvedUsage).catch(() => undefined),
-            Promise.resolve(pendingUsage),
+            new Promise(resolve => setTimeout(resolve, 0, pendingUsage)),
           ])
           if (resolvedUsage === pendingUsage) resolvedUsage = undefined
         }
@@ -3874,13 +3874,13 @@ async function resultWithStreamedTextAndUsage(
           ...(mergedUsage ? { usage: mergedUsage } : {}),
         }
       : undefined
+    const normalizedWithoutUsage = { ...normalized }
+    delete normalizedWithoutUsage.usage
     const finishResult = {
-      ...normalized,
+      ...normalizedWithoutUsage,
       raw: result,
       ...(text ? { text } : {}),
-      ...(normalized.usage !== undefined || mergedUsage
-        ? { usage: normalizedUsage ? mergedUsage : mergedUsage ?? normalized.usage }
-        : {}),
+      ...(mergedUsage ? { usage: mergedUsage } : {}),
       ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }
     Object.defineProperty(finishResult, Symbol.asyncIterator, {
