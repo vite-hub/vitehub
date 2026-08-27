@@ -69,6 +69,25 @@ describe("@vite-hub/runtime", () => {
     expect(context.source).toBe("host")
   })
 
+  it("widens union-typed execution context fields that may be undefined", () => {
+    const createContext = (
+      capabilities: RuntimeCapabilities | undefined,
+      runtimeConfig: { region: string } | undefined,
+    ) => createExecutionContext({
+      capabilities,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const context = createContext(undefined, undefined)
+
+    expectTypeOf(context.capabilities).toEqualTypeOf<RuntimeCapabilities>()
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expect(context.capabilities).toEqual({})
+    expect(context.runtimeConfig).toEqual({})
+  })
+
   it("registers, finds, and resolves capability handles", () => {
     const db = defineCapability("db", { query: vi.fn() }, { name: "primary" })
     const context = createExecutionContext({

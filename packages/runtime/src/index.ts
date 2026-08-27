@@ -699,35 +699,37 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
-type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRuntimeConfig }
-  ? [Exclude<TRuntimeConfig, undefined>] extends [never]
+type RuntimeConfigOf<TContext extends RuntimeHostContext<any>> = "runtimeConfig" extends keyof TContext
+  ? undefined extends TContext["runtimeConfig"]
     ? Record<string, unknown>
-    : Exclude<TRuntimeConfig, undefined>
+    : TContext["runtimeConfig"]
   : Record<string, unknown>
 
-type RuntimeCapabilitiesOf<TContext> = TContext extends { capabilities: infer TCapabilities }
-  ? [Exclude<TCapabilities, undefined>] extends [never]
+type RuntimeCapabilitiesOf<TContext extends RuntimeHostContext<any>> = "capabilities" extends keyof TContext
+  ? undefined extends TContext["capabilities"]
     ? RuntimeCapabilities
-    : Exclude<TCapabilities, undefined>
+    : TContext["capabilities"]
   : RuntimeCapabilities
 
-export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
-  context: TContext,
-): Omit<TContext, "capabilities" | "runtimeConfig">
+type CreatedExecutionContext<TContext extends RuntimeHostContext<any>> = Omit<TContext, "capabilities" | "runtimeConfig">
   & {
     capabilities: RuntimeCapabilitiesOf<TContext>
     runtimeConfig: RuntimeConfigOf<TContext>
-  } {
+  }
+
+export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
+  context: TContext,
+): CreatedExecutionContext<TContext> {
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const capabilities = (context.capabilities ?? {}) as RuntimeCapabilitiesOf<TContext>
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const runtimeConfig = (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>
+
   return {
     ...context,
-    capabilities: context.capabilities ?? {},
-    // SAFETY: Execution Context construction establishes the asserted host contract.
-    runtimeConfig: (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>,
-  } as unknown as Omit<TContext, "capabilities" | "runtimeConfig">
-    & {
-      capabilities: RuntimeCapabilitiesOf<TContext>
-      runtimeConfig: RuntimeConfigOf<TContext>
-    }
+    capabilities,
+    runtimeConfig,
+  }
 }
 
 export function defineCapability<TKind extends string, TValue>(
