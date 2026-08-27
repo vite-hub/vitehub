@@ -786,6 +786,16 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("recognizes one-slash absolute Console database file URLs", () => {
+    const databasePath = join(tmpdir(), "vitehub-console-one-slash", "console.sqlite")
+    const databaseUrl = pathToFileURL(databasePath).href.replace("file:///", "file:/")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+
+    expect(resolveConsoleDatabaseOptions(join(tmpdir(), "vitehub-console-project"))).toEqual({
+      url: pathToFileURL(databasePath).href,
+    })
+  })
+
   it("preserves query parameters on configured Console database file URLs", () => {
     const projectRoot = join(tmpdir(), "vitehub-console-query-project")
     const databasePath = join(projectRoot, "data/invocations.sqlite")

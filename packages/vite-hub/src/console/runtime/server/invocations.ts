@@ -37,11 +37,12 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
   const queryIndex = urlWithoutFragment.indexOf("?")
   const fileUrl = queryIndex === -1 ? urlWithoutFragment : urlWithoutFragment.slice(0, queryIndex)
   const query = queryIndex === -1 ? "" : urlWithoutFragment.slice(queryIndex)
-  const relativeFilePath = fileUrl.startsWith("file://")
+  const isAbsoluteFileUrl = fileUrl.startsWith("file:/")
+  const relativeFilePath = isAbsoluteFileUrl
     ? undefined
     : decodeURIComponent(fileUrl.slice("file:".length))
   if (relativeFilePath === ":memory:") return { url: urlWithoutFragment }
-  const filePath = fileUrl.startsWith("file://")
+  const filePath = isAbsoluteFileUrl
     ? fileURLToPath(fileUrl)
     : resolve(projectRoot, relativeFilePath!)
   mkdirSync(dirname(filePath), { recursive: true })
