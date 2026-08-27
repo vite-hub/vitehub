@@ -1,72 +1,172 @@
 # @vite-hub/schedule
 
-<p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
-  <img alt="Schedule" src="https://img.shields.io/badge/Schedule-cron%20runtime-0284c7?style=flat-square">
-</p>
+`@vite-hub/schedule` discovers recurring work, generates cron output for supported hosts, and manages recurring schedules that an application creates while it runs.
 
-`@vite-hub/schedule` keeps cron definitions and runtime schedules behind one schedule registry.
+## Choose the package
 
-## Install
+Install `vite-hub` for an application. It includes Schedule and exposes application imports under `vite-hub/schedule`.
+
+```sh
+pnpm add vite-hub
+```
+
+Enable Schedule with the framework integration and import application helpers from its feature path:
+
+```ts
+// vite.config.ts
+import { vitehub } from "vite-hub";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [vitehub({ preset: "cloudflare", schedule: true })],
+});
+```
+
+```ts
+import { defineSchedule } from "vite-hub/schedule";
+```
+
+Install the owner package directly when a library or custom integration needs Schedule without the framework distribution.
 
 ```sh
 pnpm add @vite-hub/schedule
 ```
 
-Add `@vite-hub/kv` when using the default KV-backed stores or the generated Process Runtime. Static Schedules, memory stores, and custom `ScheduleKVStorage` implementations do not require it.
+Direct integrations use `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, and `@vite-hub/schedule/vite`. Add Vite when the project uses `hubSchedule()`. Add `@vite-hub/kv` when using the default KV-backed stores or the generated Process Runtime. Static Schedule Definitions, memory stores, and custom `ScheduleKVStorage` implementations do not require KV.
 
-## Minimal API
+Both packages require Node.js 24.15 or newer.
+
+## Choose the schedule kind
+
+| Kind                       | Create it with                                       | Use it when                                                                                                 |
+| -------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Static Schedule Definition | `defineSchedule()` in a discovered source file       | The cron is part of the deployment and can produce host Provider Output.                                    |
+| Schedule Target            | `defineScheduleTarget()` in a discovered source file | Runtime Schedules need a named handler with no build-time cron. A target never produces static cron output. |
+| Runtime Schedule           | `schedules.create()` in server code                  | The application must create, update, pause, or delete a recurring schedule while it runs.                   |
+
+A Runtime Schedule must name a Schedule Target. A Static Schedule Definition can also become a target when it sets `allowRuntimeSchedules: true`.
+
+## Run one occurrence
+
+This smoke test uses the direct owner-package import. If the application installed `vite-hub`, import the same names from `vite-hub/schedule`. It defines a Static Schedule and executes one fixed occurrence without a Vite config or hosted scheduler.
 
 ```ts
-// server/schedules/daily-report.ts
-import { defineSchedule } from "@vite-hub/schedule"
+import { defineSchedule, executeStaticSchedule } from "@vite-hub/schedule";
 
-export default defineSchedule({
+const dailyReport = defineSchedule({
   cron: "0 8 * * *",
-  allowRuntimeSchedules: true,
-  handler: async ({ scheduledAt }) => {
-    console.log(`Generating daily report for ${scheduledAt.toISOString()}`)
+  handler({ scheduledAt }) {
+    console.log(`Report scheduled for ${scheduledAt.toISOString()}`);
   },
-})
+});
+
+const run = await executeStaticSchedule({
+  cron: dailyReport.cron,
+  definition: dailyReport,
+  name: "daily-report",
+  scheduledAt: new Date("2026-08-27T08:00:00.000Z"),
+});
+
+console.log(run.status);
 ```
 
-```ts
-// server/schedules/report.ts
-import { defineScheduleTarget } from "@vite-hub/schedule"
-
-export default defineScheduleTarget<{ prompt: string }>({
-  handler: async ({ input }) => {
-    if (input) await generateReport(input.prompt)
-  },
-})
+```txt
+Report scheduled for 2026-08-27T08:00:00.000Z
+succeeded
 ```
 
-```ts
-// server/api/schedules.post.ts
-import { schedules } from "@vite-hub/schedule/runtime"
-import { defineEventHandler } from "h3"
+The example uses the default in-memory Schedule Run store. It proves the handler and run bookkeeping, but it does not install a recurring wake or generate Provider Output.
 
-export default defineEventHandler(() => {
-  return schedules.create({
-    cron: "30 3 * * 1",
-    input: { prompt: "Summarize yesterday" },
-    target: "report",
-    timeZone: "Europe/Copenhagen",
-  })
-})
-```
+## Discover a static schedule
 
-Runtime Schedule updates preserve `timeZone` when it is omitted; set it to `UTC` to reset UTC evaluation. DST gaps skip missing local occurrences, and DST overlaps run both repeated instants.
+Register the direct owner-package integration in Vite.
 
 ```ts
 // vite.config.ts
-import { hubSchedule } from "@vite-hub/schedule/vite"
-import { defineConfig } from "vite"
+import { hubSchedule } from "@vite-hub/schedule/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [hubSchedule()],
+});
+```
+
+Then export a definition from `server/schedules/<name>.ts` or `src/<name>.schedule.ts`.
+
+```ts
+// server/schedules/daily-report.ts
+import { defineSchedule } from "@vite-hub/schedule";
+
+export default defineSchedule({
+  cron: "0 8 * * *",
+  async handler({ scheduledAt, waitUntil }) {
+    await sendDailyReport(scheduledAt);
+    waitUntil(recordDelivery());
+  },
+});
+```
+
+Static Schedule Definitions use five-field UTC cron expressions. They cannot set `timeZone`. The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, and Nitro's Cloudflare schedule hook. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+
+Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
+
+Direct Nuxt projects can register `@vite-hub/schedule/nuxt` instead of `hubSchedule()`. The module installs the Vite integration and merges Schedule output into Nitro config.
+
+## Create a Runtime Schedule
+
+Define a cronless target for work that runs only through Runtime Schedules.
+
+```ts
+// server/schedules/report.ts
+import { defineScheduleTarget } from "@vite-hub/schedule";
+
+export default defineScheduleTarget<{ prompt: string }>({
+  async handler({ input }) {
+    if (input) await generateReport(input.prompt);
+  },
+});
+```
+
+Create the recurring record from server code after Schedule discovery has registered that target.
+
+```ts
+import { schedules } from "@vite-hub/schedule/runtime";
+
+const report = await schedules.create({
+  cron: "30 8 * * 1-5",
+  id: "weekday-report",
+  input: { prompt: "Summarize yesterday" },
+  target: "report",
+  timeZone: "Europe/Copenhagen",
+});
+
+console.log(report.id);
+```
+
+Creating the record does not make it run. A host integration must install the runtime through `installScheduleRuntime()` from `@vite-hub/schedule/runtime/driver`. It can supply a native wake driver, or one long-lived process can install `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process`.
+
+Static provider cron output does not automatically wake Runtime Schedules. Provider-backed Runtime Schedules need a host-owned wake driver. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
+
+## Understand time zones
+
+Static Schedule Definitions and their Provider Output always use UTC. Runtime Schedules use UTC when `timeZone` is absent and accept IANA time-zone names when the cron must follow local clock time.
+
+Omitting `timeZone` during an update preserves the stored zone. Set it to `UTC` to return to UTC evaluation. Numeric offsets such as `+01:00` are rejected. During a daylight-saving gap, ViteHub skips a local time that does not exist. During an overlap, both distinct instants that share the repeated local time are due.
+
+## Choose storage and wake ownership
+
+Memory stores are the default for direct calls. They are process-local and lose Runtime Schedules and Schedule Run history on restart. Use `createKVRuntimeScheduleStore()` and `createKVScheduleRunStore()` when those records must survive a restart. The default KV-backed stores require `@vite-hub/kv`; custom stores can implement the public store interfaces instead.
+
+The generated Process Runtime creates both stores through the default KV store configured by `hubKv()`. It scans inside the Node.js process and runs discovered Static Schedule Definitions with stored Runtime Schedules. Configure it only for one long-lived replica:
+
+```ts
+import { hubKv } from "@vite-hub/kv/vite";
+import { hubSchedule } from "@vite-hub/schedule/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
+    hubKv(),
     hubSchedule({
       runtime: {
         driver: "process",
@@ -74,53 +174,22 @@ export default defineConfig({
       },
     }),
   ],
-})
+});
 ```
 
-The explicit `process` runtime generates Nitro wiring for a long-running process. It runs discovered Static Schedule Definitions and persisted Runtime Schedules through one driver queue, creates both stores through the default KV store configured by `hubKv()`, applies the Schedule prefix, and closes the driver with Nitro. The defaults are prefix `vitehub:schedule`, `intervalMs: 60_000`, and `concurrency: 1`; the interval cannot exceed the one-minute cron resolution. `providerOutput` remains independent, so static provider wake output can be enabled or disabled separately.
+Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, and concurrency `1`. The interval cannot exceed one minute. `concurrency` limits wake delivery only inside that process. The KV run store records occurrences but does not provide distributed leader election or locking, so multiple replicas can execute the same work. A stopped process does not backfill minutes that it missed.
 
-Run exactly one long-lived process or replica with this driver. The KV run store records occurrences but does not provide distributed leader election or locking. Do not select the process driver for request-scoped or serverless hosts that may stop between requests. Those hosts need a provider or host wake integration through `@vite-hub/schedule/runtime/driver`.
+Process Runtime selection and static `providerOutput` selection are independent. Set `providerOutput: false` when only the process should wake Static Schedules.
 
-## Vite Integration
+`installScheduleRuntime()` returns only after its driver reconciles the complete stored snapshot, including disabled Runtime Schedules. Later creates, updates, and deletes persist first and reconcile one at a time. If host reconciliation fails, ViteHub restores the previous stored record and rejects the change.
 
-Use `hubSchedule()` in Vite to discover `server/schedules/<name>.ts` and `src/<name>.schedule.ts`. `defineSchedule()` declarations can produce provider cron output, including [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs/). Cronless `defineScheduleTarget()` declarations are available only to Runtime Schedules and never emit static provider output. For Nitro apps on Cloudflare, Schedule Provider Wake writes generated `.vitehub/nitro/schedule/*` files so Nitro can register the `cloudflare:scheduled` runtime hook and emit `cloudflare.wrangler.triggers.crons` during standalone `nitro build`. In Nuxt apps, install `@vite-hub/schedule/nuxt` so the same Provider Wake output is merged into Nuxt's top-level Nitro config. In automatic mode, `server/schedules/*` routes through Nitro Provider Wake while suffix schedules keep standalone provider output.
+When a custom host installs a wake driver, call and await `controller.close()` during shutdown. Closing stops new wakes, drains active wakes and `waitUntil()` work, and releases driver resources. It does not delete Schedule Definitions, Runtime Schedules, or run history. The generated Nitro Process Runtime connects the same close operation to Nitro shutdown and process termination signals.
 
-Runtime Schedule `input` is opaque to Schedule. Create stores a snapshot; update replaces the complete snapshot when `input` is provided and preserves it when omitted. The configured store must support the value's serialization requirements.
+## Documentation and support
 
-When a host owns its own Cloudflare scheduled-event bridge, use the runtime helper instead of reimplementing registry matching:
-
-```ts
-import scheduleRegistry from "#vitehub/schedule/registry"
-import { executeCloudflareStaticSchedules } from "@vite-hub/schedule/runtime/static"
-
-export default {
-  async scheduled(event) {
-    await executeCloudflareStaticSchedules(event, { registry: scheduleRegistry })
-  },
-}
-```
+- Read the [Schedule guide](https://vitehub.dev/docs/server-primitives/schedule) for every public import, Runtime Helper, store, wake driver, and Vite option.
+- Check [Provider Output](https://vitehub.dev/docs/reference/provider-output) for generated files and deployment inspection.
+- Check [runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for current proof and host qualifications.
+- Report package problems in the [ViteHub issue tracker](https://github.com/vite-hub/vitehub/issues).
 
 Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
-
-## Runtime Wake Drivers
-
-Host integrations can connect dynamic Runtime Schedules to a native scheduler through `@vite-hub/schedule/runtime/driver`:
-
-```ts
-import { installScheduleRuntime } from "@vite-hub/schedule/runtime/driver"
-
-const controller = await installScheduleRuntime({
-  createDriver: context => hostScheduler.driver(context),
-  registry: scheduleRegistry,
-  runtimeScheduleStore,
-  scheduleRunStore,
-})
-```
-
-The driver receives the complete stored Runtime Schedule snapshot, including disabled records. Installation finishes only after the initial snapshot is reconciled. Later creates, updates, and deletes persist first, reconcile serially, and roll back the stored record if host reconciliation fails. A native wake calls `context.wake({ scheduleId, scheduledAt })`; `controller.close()` releases driver resources without deleting schedule state.
-
-Long-running hosts can use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when they install the runtime directly. It keeps wake registration inside the current process; it does not install cron, systemd, or another operating-system scheduler.
-
-`startScheduleRunner()` has been removed. Existing self-hosted processes should install `createProcessScheduleWakeDriver()` through `installScheduleRuntime()` as shown above, then await `controller.close()` during host shutdown.
-
-Learn more at [vitehub.dev](https://vitehub.dev).
