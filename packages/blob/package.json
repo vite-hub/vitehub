@@ -30,26 +30,71 @@
     ".": "./dist/index.js",
     "./config": "./dist/config.js",
     "./content-type": "./dist/content-type.js",
-    "./drivers/akamai": "./dist/drivers/akamai.js",
-    "./drivers/azure": "./dist/drivers/azure.js",
-    "./drivers/box": "./dist/drivers/box.js",
+    "./drivers/akamai": {
+      "types": "./dist/drivers/akamai.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/azure": {
+      "types": "./dist/drivers/azure.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/box": {
+      "types": "./dist/drivers/box.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
     "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
     "./drivers/cloudflare-native": "./dist/drivers/cloudflare-native.js",
-    "./drivers/digitalocean-spaces": "./dist/drivers/digitalocean-spaces.js",
-    "./drivers/dropbox": "./dist/drivers/dropbox.js",
+    "./drivers/digitalocean-spaces": {
+      "types": "./dist/drivers/digitalocean-spaces.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/dropbox": {
+      "types": "./dist/drivers/dropbox.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
     "./drivers/files": "./dist/drivers/files.js",
     "./drivers/files-sdk": "./dist/drivers/files-sdk.js",
-    "./drivers/fs": "./dist/drivers/fs.js",
-    "./drivers/gcs": "./dist/drivers/gcs.js",
-    "./drivers/google-drive": "./dist/drivers/google-drive.js",
-    "./drivers/hetzner": "./dist/drivers/hetzner.js",
-    "./drivers/minio": "./dist/drivers/minio.js",
+    "./drivers/fs": {
+      "types": "./dist/drivers/fs.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/gcs": {
+      "types": "./dist/drivers/gcs.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/google-drive": {
+      "types": "./dist/drivers/google-drive.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/hetzner": {
+      "types": "./dist/drivers/hetzner.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/minio": {
+      "types": "./dist/drivers/minio.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
     "./drivers/netlify-blobs": "./dist/drivers/netlify-blobs.js",
-    "./drivers/onedrive": "./dist/drivers/onedrive.js",
-    "./drivers/s3": "./dist/drivers/s3.js",
-    "./drivers/storj": "./dist/drivers/storj.js",
-    "./drivers/supabase": "./dist/drivers/supabase.js",
-    "./drivers/uploadthing": "./dist/drivers/uploadthing.js",
+    "./drivers/onedrive": {
+      "types": "./dist/drivers/onedrive.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/s3": {
+      "types": "./dist/drivers/s3.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/storj": {
+      "types": "./dist/drivers/storj.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/supabase": {
+      "types": "./dist/drivers/supabase.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
+    "./drivers/uploadthing": {
+      "types": "./dist/drivers/uploadthing.d.ts",
+      "default": "./dist/drivers/files.js"
+    },
     "./drivers/vercel": "./dist/drivers/vercel.js",
     "./ensure": "./dist/ensure.js",
     "./errors": "./dist/errors.js",

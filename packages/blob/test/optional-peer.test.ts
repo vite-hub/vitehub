@@ -79,4 +79,34 @@ describe("package exports", () => {
     expect(manifest.exports).toHaveProperty("./drivers/vercel")
     expect(manifest.exports).not.toHaveProperty("./drivers/vercel-bundled")
   })
+
+  it("routes provider-specific Files SDK exports through the bundled runtime", async () => {
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports: Record<string, string | { types: string, default: string }>
+    }
+    const providers = [
+      "akamai",
+      "azure",
+      "box",
+      "digitalocean-spaces",
+      "dropbox",
+      "fs",
+      "gcs",
+      "google-drive",
+      "hetzner",
+      "minio",
+      "onedrive",
+      "s3",
+      "storj",
+      "supabase",
+      "uploadthing",
+    ]
+
+    for (const provider of providers) {
+      expect(manifest.exports[`./drivers/${provider}`]).toEqual({
+        types: `./dist/drivers/${provider}.d.ts`,
+        default: "./dist/drivers/files.js",
+      })
+    }
+  })
 })
