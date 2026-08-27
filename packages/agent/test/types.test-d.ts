@@ -45,8 +45,8 @@ describe("agent public types", () => {
   })
 
   it("accepts optional MCP servers without conditional capability arrays", () => {
-    const enabled = false as boolean
-    const optionalClient = undefined as MCPClient | undefined
+    const enabled: boolean = false
+    const optionalClient: MCPClient | undefined = undefined
 
     mcp({
       servers: {
