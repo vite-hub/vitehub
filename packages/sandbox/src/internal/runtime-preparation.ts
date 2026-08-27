@@ -11,6 +11,7 @@ import { resolve } from 'pathe'
 import { discoverSandboxDefinitions } from '../discovery'
 import { createSandboxFeaturePlan, resolveSandboxFeatureConfig } from '../feature'
 import { getSandboxFeatureProvider } from '../module-types'
+import { pruneSandboxRuntimeGeneration, resolveSandboxRuntimeLinkType } from './runtime-generation'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
 import type { AgentSandboxConfig } from '../module-types'
@@ -242,7 +243,7 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
       await writeFileIfChanged(resolve(generationDir, relativePath), artifact.contents)
     }
     await writeFileIfChanged(resolve(generationDir, 'sandbox.mjs'), facadeContents)
-    await symlink(generationDir, stagedLink, 'dir')
+    await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(process.platform))
 
     try {
       await rename(stagedLink, runtimeDir)
@@ -270,7 +271,7 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
         }
         throw activationError
       }
-      await rm(legacyRuntimeDir, { recursive: true, force: true })
+      await pruneSandboxRuntimeGeneration(legacyRuntimeDir)
     }
   }
   finally {
@@ -283,7 +284,7 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
   for (const entry of await readdir(generationsDir)) {
     const path = resolve(generationsDir, entry)
     if (!retained.has(path))
-      await rm(path, { recursive: true, force: true })
+      await pruneSandboxRuntimeGeneration(path)
   }
 
   return emitted
