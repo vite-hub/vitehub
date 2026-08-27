@@ -23,7 +23,7 @@ Then install the dependency required by the selected provider:
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Cloudflare Workflows | None in application code                                           | Cloudflare owns run state.                                               |
 | Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
-| OpenWorkflow         | `openworkflow`                                                     | Requires explicit SQLite or Postgres storage.                            |
+| OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Requires explicit SQLite or Postgres storage.                            |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`.
 
@@ -59,8 +59,6 @@ import {
   setWorkflowRuntimeConfig,
   setWorkflowRuntimeRegistry,
 } from "@vite-hub/workflow/runtime/state";
-import onboardUser from "./workflows/onboard-user.ts";
-
 const postgresUrl = {
   kind: "env-variable",
   source: { kind: "env", name: "OPENWORKFLOW_POSTGRES_URL" },
@@ -72,7 +70,9 @@ export const workflowConfig = {
 } satisfies ResolvedWorkflowOptions;
 
 const workflowRegistry = {
-  "onboard-user": async () => ({ default: onboardUser as WorkflowDefinition }),
+  "onboard-user": async () => ({
+    default: (await import("./workflows/onboard-user.ts")).default as WorkflowDefinition,
+  }),
 } satisfies WorkflowDefinitionRegistry;
 
 export function installWorkflowRuntime() {
