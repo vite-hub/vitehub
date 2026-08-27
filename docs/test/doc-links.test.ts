@@ -41,6 +41,7 @@ describe("documentation link validation", () => {
 <img data-src="/images/metadata.png" src="/images/html-diagram.png" alt="HTML diagram">
 <img data-note=" src=&quot;/images/decoy.png&quot;" src="/images/actual.png">
 <picture><source srcset="/images/dark.png 1x, /images/dark@2x.png 2x"><img src="/images/fallback.png"></picture>
+<source srcset="data:image/svg+xml,%3Csvg%3E 1x, /images/local-after-data.png 2x">
 :u-button[Guide]{to="/docs/inline"}
 :u-avatar[]{src="/images/avatar.png"}
 ::card
@@ -92,6 +93,8 @@ https://vitehub.dev/docs/bare-autolink
       "/images/dark.png",
       "/images/dark@2x.png",
       "/images/fallback.png",
+      "data:image/svg+xml,%3Csvg%3E",
+      "/images/local-after-data.png",
       "/docs/inline",
       "/images/avatar.png",
       "/docs/card",
@@ -183,7 +186,7 @@ https://vitehub.dev/docs/bare-autolink
   it("accepts explicit HTML anchors in docs content", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": '# Docs\n\n[Install](#install)\n[Legacy](#legacy)\n\n<h2 data-note=" id=decoy" id="install">Install</h2>\n<a id=legacy></a>\n\n[Decoy](#decoy)',
+      "docs/content/docs/index.md": '# Docs\n\n[Install](#install)\n[Legacy](#legacy)\n\n<h2 data-note=">" id="install">Install</h2>\n<a id=legacy></a>\n\n[Decoy](#decoy)',
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
@@ -456,6 +459,19 @@ to: /docs/missing-card
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('file "./dark.svg" does not exist'),
       expect.stringContaining('file "./dark@2x.svg" does not exist'),
+    ]);
+  });
+
+  it("uses anchors rendered by the support matrix component", () => {
+    const repoRoot = fixture({
+      "docs/app/components/SupportMatrix.vue": '<script>const sections = [{ anchor: "runtime" }]</script><template><section id="qualifications" /></template>',
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Runtime](/docs/frameworks-hosts/support-matrix#runtime)\n[Missing](/docs/frameworks-hosts/support-matrix#markdown-only)",
+      "docs/content/docs/frameworks-hosts/support-matrix.md": "# Matrix\n\n## Markdown only",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining("anchor #markdown-only does not exist"),
     ]);
   });
 

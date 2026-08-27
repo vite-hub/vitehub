@@ -71,9 +71,31 @@ function withoutHtmlComments(value) {
   return value.replace(/<!--[\s\S]*?-->/g, "");
 }
 
+function htmlTags(value) {
+  return withoutHtmlComments(value).match(/<[a-z][^'">]*(?:"[^"]*"|'[^']*'|[^'">]*)*>/gi) ?? [];
+}
+
 function sourceSetLinks(value) {
-  if (/^\s*data:/i.test(value)) return [value.trim()];
-  return value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0]).filter(Boolean);
+  const links = [];
+  let position = 0;
+  while (position < value.length) {
+    while (/[\s,]/.test(value[position] ?? "")) position += 1;
+    const start = position;
+    while (position < value.length && !/\s/.test(value[position])) position += 1;
+    let url = value.slice(start, position);
+    const trailingCommas = url.match(/,+$/)?.[0].length ?? 0;
+    if (trailingCommas) url = url.slice(0, -trailingCommas);
+    if (url) links.push(url);
+    if (trailingCommas) continue;
+    let parentheses = 0;
+    while (position < value.length) {
+      const character = value[position++];
+      if (character === "(") parentheses += 1;
+      else if (character === ")") parentheses = Math.max(0, parentheses - 1);
+      else if (character === "," && parentheses === 0) break;
+    }
+  }
+  return links;
 }
 
 function frontmatterLinks(frontmatter) {
@@ -105,8 +127,8 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const { body } = splitFrontmatter(markdown);
   visit(parseMarkdown(body, { renderer }), (node) => {
     if (renderer === "mdc" && node.type === "html") {
-      for (const match of withoutHtmlComments(node.value).matchAll(/<[^>]+>/g)) {
-        const id = htmlAttribute(match[0], "id");
+      for (const tag of htmlTags(node.value)) {
+        const id = htmlAttribute(tag, "id");
         if (id) anchors.add(id);
       }
     }
@@ -153,11 +175,12 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
       }
     }
     if (node.type === "html") {
-      for (const match of withoutHtmlComments(node.value).matchAll(/<(a|img|source)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
-        const tag = match[1].toLowerCase();
-        const destination = htmlAttribute(match[0], tag === "a" ? "href" : "src");
+      for (const rawTag of htmlTags(node.value)) {
+        const tag = rawTag.match(/^<([a-z]+)/i)?.[1].toLowerCase();
+        if (!tag || !["a", "img", "source"].includes(tag)) continue;
+        const destination = htmlAttribute(rawTag, tag === "a" ? "href" : "src");
         if (destination) links.push(destination);
-        const sourceSet = tag === "a" ? undefined : htmlAttribute(match[0], "srcset");
+        const sourceSet = tag === "a" ? undefined : htmlAttribute(rawTag, "srcset");
         if (sourceSet) links.push(...sourceSetLinks(sourceSet));
       }
     }
@@ -195,7 +218,16 @@ function publicReadmes(repoRoot) {
 }
 
 function staticHtmlAnchors(source) {
-  return new Set([...withoutHtmlComments(source).matchAll(/\sid\s*=\s*["']([^"']+)["']/g)].map((match) => match[1]));
+  return new Set(htmlTags(source).map((tag) => htmlAttribute(tag, "id")).filter(Boolean));
+}
+
+function supportMatrixAnchors(docsRoot) {
+  const path = join(docsRoot, "app/components/SupportMatrix.vue");
+  if (!existsSync(path)) return undefined;
+  const source = readFileSync(path, "utf8");
+  const anchors = staticHtmlAnchors(source);
+  for (const match of source.matchAll(/\banchor\s*:\s*["']([^"']+)["']/g)) anchors.add(match[1]);
+  return anchors;
 }
 
 function isStaticApplicationRoute(route) {
@@ -236,6 +268,8 @@ function appRoutes(docsRoot) {
     if (isStaticApplicationRoute(route)) routeAnchors.set(normalizeRoute(`/${route}`), new Set());
   }
   for (const route of ["/llms.txt", "/llms-full.txt", "/mcp"]) routeAnchors.set(route, new Set());
+  const matrixAnchors = supportMatrixAnchors(docsRoot);
+  if (matrixAnchors) routeAnchors.set("/docs/frameworks-hosts/support-matrix", matrixAnchors);
   return routeAnchors;
 }
 
@@ -342,7 +376,9 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
 
       if (fragment && targetFile) {
         const targetRenderer = sourceRoute === undefined && !isSiteLink ? "github" : "mdc";
-        const targetAnchors = extname(targetFile) === ".md" ? anchorsFor(targetFile, targetRenderer) : undefined;
+        const targetAnchors = targetRoute && applicationRoutes.has(targetRoute)
+          ? applicationRoutes.get(targetRoute)
+          : extname(targetFile) === ".md" ? anchorsFor(targetFile, targetRenderer) : undefined;
         if (targetAnchors && !targetAnchors.has(fragment)) {
           errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist in ${relative(repoRoot, targetFile)}`);
         }
