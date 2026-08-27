@@ -20,15 +20,20 @@ function fenceRun(line: string) {
     rest = rest.slice(container[0].length);
   }
 
-  const run = rest.match(/^[ \t]*(```+|~~~+)/)?.[1];
-  return run ? { quoteDepth, run } : null;
+  const match = rest.match(/^[ \t]*(```+|~~~+)/);
+  return match ? {
+    quoteDepth,
+    rest: rest.slice(match[0].length),
+    run: match[1]!,
+  } : null;
 }
 
 function closesFence(line: string, fence: Fence) {
   const parsed = fenceRun(line);
   return parsed?.quoteDepth === fence.quoteDepth
     && parsed.run[0] === fence.marker
-    && parsed.run.length >= fence.length;
+    && parsed.run.length >= fence.length
+    && !parsed.rest.trim();
 }
 
 function leadingQuoteDepth(line: string) {
