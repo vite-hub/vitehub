@@ -764,6 +764,55 @@ describe("Agent Driver capacity", () => {
     }
   })
 
+  it("keeps existing queued work visible during a later adaptive sample", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveNextSample!: (sample: { concurrency: number }) => void
+      const nextSample = new Promise<{ concurrency: number }>((resolve) => {
+        resolveNextSample = resolve
+      })
+      const nextSampleStarted = deferred()
+      let samples = 0
+      const agent = defineAgent({
+        driver: {
+          capacity: {
+            adaptive: {
+              fallbackConcurrency: 0,
+              intervalMs: 100,
+              sample: () => {
+                samples++
+                if (samples === 1) return { concurrency: 0 }
+                nextSampleStarted.resolve()
+                return nextSample
+              },
+            },
+            concurrency: 1,
+            queue: { maxPending: 1 },
+          },
+          run: () => "done",
+        },
+        runtime: false,
+      })
+
+      const invocation = runAgentInline(agent, runtime(), {})
+      await vi.advanceTimersByTimeAsync(0)
+      expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+        effectiveConcurrency: 0,
+        pending: 1,
+      })
+
+      await vi.advanceTimersByTimeAsync(100)
+      await nextSampleStarted.promise
+      expect(createAgentInspectionMetadata(agent).config?.driver.capacity?.pending).toBe(1)
+
+      resolveNextSample({ concurrency: 1 })
+      await expect(invocation).resolves.toBe("done")
+      expect(samples).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("allows prompt abort while sampling adaptive capacity without a queue", async () => {
     vi.useFakeTimers()
     try {

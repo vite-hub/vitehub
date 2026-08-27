@@ -5,6 +5,7 @@ type AgentCapacityRelease = () => void
 interface AgentCapacityQueueEntry {
   cleanup: () => void
   reject: (error: Error) => void
+  reservedAdmission: boolean
   resolve: (release: AgentCapacityRelease) => void
   settled: boolean
 }
@@ -75,7 +76,14 @@ class AgentCapacityScheduler {
     const queue = this.options.queue
     if (queue && this.refreshDue()) {
       const prospectiveAdmissions = Math.max(0, this.options.concurrency - this.active)
-      return await this.enqueue(queue, signal, queue.maxPending + prospectiveAdmissions)
+      const reservedAdmissions = this.queue.filter(entry => entry.reservedAdmission).length
+      const reserveAdmission = reservedAdmissions < prospectiveAdmissions
+      return await this.enqueue(
+        queue,
+        signal,
+        queue.maxPending + prospectiveAdmissions,
+        reserveAdmission,
+      )
     }
 
     await this.refreshForAdmission(signal)
@@ -98,6 +106,7 @@ class AgentCapacityScheduler {
     queue: NonNullable<AgentDriverCapacityOptions["queue"]>,
     signal: AbortSignal | undefined,
     maxWaiting = queue.maxPending,
+    reservedAdmission = false,
   ): Promise<AgentCapacityRelease> {
     if (this.queue.length >= maxWaiting) {
       return Promise.reject(capacityError(
@@ -115,6 +124,7 @@ class AgentCapacityScheduler {
       const entry: AgentCapacityQueueEntry = {
         cleanup,
         reject,
+        reservedAdmission,
         resolve,
         settled: false,
       }
@@ -253,6 +263,7 @@ class AgentCapacityScheduler {
     this.draining = true
     try {
       await this.refresh()
+      for (const entry of this.queue) entry.reservedAdmission = false
       const queue = this.options.queue
       if (queue) {
         const maxWaiting = Math.max(0, this.effectiveConcurrency - this.active) + queue.maxPending
@@ -283,9 +294,10 @@ class AgentCapacityScheduler {
   }
 
   private pendingCount(): number {
-    if (!this.refreshPromise) return this.queue.length
-    const prospectiveAdmissions = Math.max(0, this.options.concurrency - this.active)
-    return Math.max(0, this.queue.length - prospectiveAdmissions)
+    return this.queue.reduce(
+      (pending, entry) => pending + (entry.reservedAdmission ? 0 : 1),
+      0,
+    )
   }
 }
 
