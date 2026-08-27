@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
@@ -13,7 +13,7 @@ import { dbPackageName, generateProviderOutputs, prepareProviderOutputs } from "
 import { createDatabaseProvisionStep } from "./provision.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
-import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -97,7 +97,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
-  let providerOutput: ComposedProviderOutput | undefined
+  let providerOutput: ProviderOutputCatalog | undefined
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
@@ -149,7 +149,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async configResolved(config) {
       resolved = config
-      providerOutput = useComposedProviderOutput(config)
+      providerOutput = useProviderOutputCatalog(config)
       await refreshRuntimeConfig()
     },
     configEnvironment(name, config) {
@@ -162,7 +162,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     buildStart() {
-      resetComposedProviderOutput(providerOutput)
+      resetProviderOutputRuntime(providerOutput)
     },
     async handleHotUpdate(context) {
       if (!runtimeConfig) return

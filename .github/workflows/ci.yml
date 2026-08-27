@@ -47,7 +47,8 @@ jobs:
       - run: vp run typecheck
       - run: vp run test:contracts
       - run: vp run examples:verify
-      - run: vp run test
+      - name: Package tests
+        run: vp run test
 
   docs:
     name: docs

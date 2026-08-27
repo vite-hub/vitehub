@@ -35,7 +35,8 @@ function visit(node, callback) {
 }
 
 function nodeText(node) {
-  if (typeof node.value === "string") return node.value;
+  if (node.type === "html") return node.value.replace(/<[^>]*>/g, "");
+  if (node.value?.constructor === String) return node.value;
   if (node.type === "image") return node.alt ?? "";
   return (node.children ?? []).map(nodeText).join("");
 }
@@ -67,15 +68,15 @@ function htmlAttribute(tag, attributeName) {
 
 function frontmatterLinks(frontmatter) {
   const value = parseYaml(frontmatter);
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  if (value?.constructor !== Object) return [];
   const links = [];
-  if (typeof value.image === "string") links.push(value.image);
+  if (value.image?.constructor === String) links.push(value.image);
   for (const link of value.links ?? []) {
-    if (typeof link?.to === "string") links.push(link.to);
+    if (link?.to?.constructor === String) links.push(link.to);
   }
   for (const author of value.authors ?? []) {
-    if (typeof author?.avatar?.src === "string") links.push(author.avatar.src);
-    if (typeof author?.to === "string") links.push(author.to);
+    if (author?.avatar?.src?.constructor === String) links.push(author.avatar.src);
+    if (author?.to?.constructor === String) links.push(author.to);
   }
   return links;
 }
@@ -131,7 +132,7 @@ export function markdownLinks(markdown) {
     }
     if (node.type === "containerComponent" || node.type === "leafComponent" || node.type === "textComponent") {
       const destination = node.fmAttributes?.to ?? node.attributes?.to;
-      if (typeof destination === "string") links.push(destination);
+      if (destination?.constructor === String) links.push(destination);
     }
     if (node.type === "html" && !node.value.startsWith("<!--")) {
       for (const match of node.value.matchAll(/<(a|img)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
@@ -148,7 +149,7 @@ function routeFromContentPath(contentRoot, path) {
   const parts = relative(contentRoot, path).split(sep);
   const collection = parts.shift();
   if (!contentCollectionPrefixes.has(collection)) return undefined;
-  const clean = parts.map((part) => part.replace(/^\d+\./, ""));
+  const clean = collection === "docs" ? parts : parts.map((part) => part.replace(/^\d+\./, ""));
   clean[clean.length - 1] = clean.at(-1).replace(/\.md$/, "");
   if (clean.at(-1) === "index") clean.pop();
   const prefix = contentCollectionPrefixes.get(collection);
@@ -269,13 +270,9 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       if (!path) {
         targetFile = sourcePath;
       } else if (sourceRoute !== undefined || isSiteLink) {
-        const sourceIsIndex = /(?:^|[/\\])index\.md$/.test(sourcePath);
-        const routeBase = sourceRoute === undefined
-          ? "/"
-          : sourceIsIndex ? sourceRoute : normalizeRoute(`${sourceRoute}/..`);
         targetRoute = path.startsWith("/")
           ? normalizeRoute(path)
-          : normalizeRoute(new URL(path, `${siteOrigin}${routeBase.endsWith("/") ? routeBase : `${routeBase}/`}`).pathname);
+          : normalizeRoute(new URL(path, `${siteOrigin}${sourceRoute ?? "/"}`).pathname);
         targetFile = routeFiles.get(targetRoute);
         if (!targetFile) {
           const publicFile = resolve(publicRoot, `.${targetRoute}`);

@@ -24,6 +24,7 @@ export const buildWarningBudget = Object.freeze([
   { name: "Rollup pure annotations", maximum: 2, text: "contains an annotation that Rollup cannot interpret", warningTokenRequired: false },
   { name: "Vite chunk size", maximum: 1, text: "[plugin builtin:vite-reporter]" },
   { name: "Nitro Cloudflare assets override", maximum: 1, text: "Wrangler config assetsset" },
+  { name: "Nuxt Nitro server unused H3Event import", maximum: 1, text: '"H3Event" is imported from external module' },
 ]);
 
 export function assertBuildWarningBudget(output) {

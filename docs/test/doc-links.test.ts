@@ -117,13 +117,14 @@ https://vitehub.dev/docs/bare-autolink
   });
 
   it("uses GitHub anchors for public package READMEs", () => {
-    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B\n\n# &#x20;a\n\n# v½\n\n# under‿score", { renderer: "github" })]).toEqual([
+    expect([...markdownAnchors("# 123 start\n\n# --trim--\n\n# A---B\n\n# &#x20;a\n\n# v½\n\n# under‿score\n\n# alpha <em>bravo</em> charlie", { renderer: "github" })]).toEqual([
       "123-start",
       "--trim--",
       "a---b",
       "-a",
       "v",
       "under‿score",
+      "alpha-bravo-charlie",
     ]);
 
     const repoRoot = fixture({
@@ -138,13 +139,35 @@ https://vitehub.dev/docs/bare-autolink
   it("accepts relative routes and anchors across docs and public package READMEs", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": "# Docs\n\n[Guide](./guide#install)\n[Repeated](./guide#install-1)",
+      "docs/content/docs/index.md": "# Docs\n\n[Guide](/docs/guide#install)\n[Repeated](/docs/guide#install-1)",
       "docs/content/docs/guide.md": "# Guide\n\n## Install\n\n## Install",
       "packages/example/package.json": JSON.stringify({ name: "example" }),
       "packages/example/README.md": "# Example\n\n[Source](../../docs/content/docs/guide.md#install)\n[Site](https://vitehub.dev/docs/guide#install)",
     });
 
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [], files: 3 });
+  });
+
+  it("preserves ordered filenames in docs routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Install](/docs/reference/1.install#setup)",
+      "docs/content/docs/reference/1.install.md": "# Install\n\n## Setup",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
+  it("resolves relative links from the deployed page URL", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Wrong](./guide)",
+      "docs/content/docs/guide.md": "# Guide",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/guide" does not exist'),
+    ]);
   });
 
   it("accepts root-served public assets", () => {
@@ -329,7 +352,7 @@ to: /docs/missing-card
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
-      expect.stringContaining('route "/docs/guide.md" does not exist'),
+      expect.stringContaining('route "/guide.md" does not exist'),
     ]);
   });
 
