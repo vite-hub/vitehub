@@ -661,6 +661,30 @@ describe("access capability", () => {
     )
   })
 
+  it("preserves own Workspace properties when model-safe facades are spread", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    const history = { rebase: vi.fn() }
+    const capabilities = vi.fn(() => ({ sync: true }))
+    const workspace = { ...base, capabilities, history } as ReadonlyWorkspaceFacade & {
+      capabilities: typeof capabilities
+      history: typeof history
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const spread = { ...resolved.workspace } as typeof workspace
+
+    expect(spread.history).toBe(history)
+    expect(spread.capabilities).toBe(capabilities)
+    expect(spread.fs).not.toBe(base.fs)
+    await expect(spread.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
   it("falls back to default scope when an explicit resolver returns no scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")

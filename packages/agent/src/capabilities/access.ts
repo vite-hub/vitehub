@@ -453,6 +453,14 @@ function overridePrototypeMethods<T extends object>(target: T, overrides: Partia
     has(_wrapper, property) {
       return Object.hasOwn(overrides, property) || Reflect.has(target, property)
     },
+    ownKeys() {
+      return [...new Set([...Reflect.ownKeys(target), ...Reflect.ownKeys(overrides)])]
+    },
+    getOwnPropertyDescriptor(_wrapper, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(overrides, property)
+        ?? Reflect.getOwnPropertyDescriptor(target, property)
+      return descriptor ? { ...descriptor, configurable: true } : undefined
+    },
   })
 }
 
