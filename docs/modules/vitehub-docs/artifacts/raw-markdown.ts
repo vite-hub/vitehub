@@ -60,7 +60,7 @@ function cardList(source: string) {
 function cardListsOutsideFences(source: string) {
   const output: string[] = [];
   let outsideFence = "";
-  let fence: string | null = null;
+  let fence: { length: number, marker: string } | null = null;
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
@@ -70,13 +70,13 @@ function cardListsOutsideFences(source: string) {
     if (!fence && fenceMatch) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
-      fence = fenceMatch[1]![0]!;
+      fence = { length: fenceMatch[1]!.length, marker: fenceMatch[1]![0]! };
       continue;
     }
 
     if (fence) {
       output.push(lineWithEnding);
-      if (fenceMatch?.[1]?.[0] === fence) fence = null;
+      if (fenceMatch?.[1]?.[0] === fence.marker && fenceMatch[1].length >= fence.length) fence = null;
       continue;
     }
 
@@ -107,7 +107,7 @@ function directiveLabel(name: string, attributes: string | undefined) {
 function stripPresentationDirectives(source: string) {
   const output: string[] = [];
   let depth = 0;
-  let fence: { indent: number, marker: string } | null = null;
+  let fence: { indent: number, length: number, marker: string } | null = null;
 
   for (const originalLine of source.split("\n")) {
     const leadingSpaces = originalLine.match(/^ */)?.[0].length || 0;
@@ -116,8 +116,8 @@ function stripPresentationDirectives(source: string) {
     const fenceMatch = deindented.match(/^\s*(```+|~~~+)/);
     if (fenceMatch) {
       const marker = fenceMatch[1]![0]!;
-      if (!fence) fence = { indent: structuralIndent, marker };
-      else if (fence.marker === marker) fence = null;
+      if (!fence) fence = { indent: structuralIndent, length: fenceMatch[1]!.length, marker };
+      else if (fence.marker === marker && fenceMatch[1]!.length >= fence.length) fence = null;
       output.push(rewriteLinks(deindented));
       continue;
     }

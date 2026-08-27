@@ -125,6 +125,15 @@ describe("writeDocsArtifacts", () => {
         "::",
         "```",
         "",
+        "````md",
+        "```md",
+        "::warning",
+        "This nested fence remains literal.",
+        "::",
+        "```",
+        "::u-page-grid",
+        "````",
+        "",
         "::steps",
         "  ::tabs",
         "    :::tabs-item{label=\"Example\"}",
@@ -151,6 +160,16 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("| Choice | Result |");
       expect(raw).toContain("> **Warning**");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
+      expect(raw).toContain([
+        "````md",
+        "```md",
+        "::warning",
+        "This nested fence remains literal.",
+        "::",
+        "```",
+        "::u-page-grid",
+        "````",
+      ].join("\n"));
       expect(raw).toContain([
         "### Example",
         "",

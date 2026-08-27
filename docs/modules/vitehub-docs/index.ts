@@ -34,6 +34,12 @@ export default defineNuxtModule({
 
     const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, outputDir });
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
+    nuxt.hook("builder:watch", (_event, path) => {
+      const normalizedPath = path.replace(/\\/g, "/");
+      if (/content\/(?:docs|blog|trust)\/.*\.md$/.test(normalizedPath)) {
+        writeDocsArtifacts({ docsRoot, outputDir });
+      }
+    });
     nuxt.hook("prerender:routes", (context) => {
       for (const route of collectPrerenderRoutes(manifest)) {
         context.routes.add(route);
