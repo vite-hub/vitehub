@@ -8,6 +8,8 @@ import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { describe, expect, it } from "vitest";
 
+import { viteHubTypesPlugin } from "../src/internal/types.ts";
+
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const cliReference = join(repoRoot, "docs/content/docs/development/cli.md");
 const evalFixtureRoot = join(repoRoot, "packages/agent/test/fixtures");
@@ -40,7 +42,12 @@ describe("CLI documentation contract", () => {
     const agent = createAgentCliContributor({ rootDir: evalFixtureRoot });
     const database = createDbCliContributor();
     if (!agent || !database) throw new TypeError("Expected the default CLI contributors.");
-    const plugins = [{ vitehub: { cli: agent } }, { vitehub: { cli: database } }, hubWorkspace()];
+    const plugins = [
+      { vitehub: { cli: agent } },
+      { vitehub: { cli: database } },
+      hubWorkspace(),
+      viteHubTypesPlugin(),
+    ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
 
