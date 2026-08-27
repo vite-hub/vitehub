@@ -48,6 +48,7 @@ function createInvocationDriverFixture(
     const method = form === "run" ? modelGenerate : modelStream
     method.mockImplementationOnce(execute)
     return {
+      // SAFETY: The mocked model is never called directly; the hoisted method handles execution.
       driver: { execution: { workspaceFallback: false }, model: {} as never },
       execute,
     }
@@ -84,6 +85,7 @@ async function createLifecycleProbe(
       id: "lifecycle",
       ...(scenario.input ? { input: () => scenario.input!(events) } : {}),
     })],
+    // SAFETY: The fixture constructs only the two normalized driver forms exercised below.
     driver: driver.driver as never,
     hooks: {
       "agent:error": error,
@@ -182,6 +184,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       },
     })
 
+    // SAFETY: This scenario makes execution and lifecycle finish fail, producing AggregateError.
     const error = await runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" }).catch(error => error) as AggregateError
     expect(error).toBeInstanceOf(AggregateError)
     expect(error.message).toBe("[vitehub] Agent run failed and finish lifecycle also failed.")
@@ -225,6 +228,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       },
     })
 
+    // SAFETY: The fixture returns fullStream, so streamAgent exposes an async iterable.
     const stream = await streamAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     probe.expectPending(["driver"])
 
@@ -253,6 +257,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -285,6 +290,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -307,6 +313,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -338,6 +345,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -348,6 +356,28 @@ describe("Agent Invocation Interface lifecycle", () => {
         usageRecord: { ...usageRecord, model: "provider/model" },
       },
     })
+  })
+
+  it("preserves promise-backed usage on raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = Promise.resolve({ inputTokens: 2, totalTokens: 2 })
+    const raw = Object.assign((async function* () {
+      yield { text: "answer", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, text: "answer", usage },
+    })
+    expect(finish.mock.calls[0]![0].result.usage).toBe(usage)
   })
 
   it("merges nested usage on immutable raw streams", async () => {
@@ -365,6 +395,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -395,6 +426,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -436,6 +468,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": finish },
     })
 
+    // SAFETY: RawStream implements the async iterable returned unchanged by the driver.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -467,6 +500,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     for (let run = 0; run < 2; run++) {
+      // SAFETY: The reusable driver returns the same raw async iterable for each invocation.
       const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
       for await (const _event of stream) {}
     }
@@ -492,6 +526,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       hooks: { "agent:finish": vi.fn() },
     })
 
+    // SAFETY: runAgent preserves this plain stream result and enriches it after consumption.
     const preserved = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof result & {
       usage?: unknown
       usageRecord?: unknown
@@ -525,6 +560,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       ? await runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })
       : await streamAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })
     expect(result).toBeInstanceOf(Response)
+    // SAFETY: The preceding assertion verifies the handled result is a Response.
     const response = result as Response
     expect(response).not.toBe(source)
     expect(response.status).toBe(202)

@@ -3601,11 +3601,13 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
   return { raw: result, text }
 }
 
-function toAgentRunResultWithInheritedProperties(result: object): AgentRunResult {
+function toAgentRunResultWithInheritedProperties(result: unknown): AgentRunResult {
+  if (!result || !hasRuntimeType(result, "object")) return toAgentRunResult(result)
   const normalized = toAgentRunResult(result)
   for (const key of ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"] as const) {
     if (normalized[key] !== undefined || !Reflect.has(result, key)) continue
     try {
+      // SAFETY: The key list is limited to writable AgentRunResult properties.
       normalized[key] = Reflect.get(result, key) as never
     }
     catch {
@@ -3728,7 +3730,9 @@ function resultWithStreamedTextAndUsage(
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
-    const normalizedUsage = normalized.usage && hasRuntimeType(normalized.usage, "object")
+    const normalizedUsage = normalized.usage
+      && hasRuntimeType(normalized.usage, "object")
+      && !hasRuntimeType(Reflect.get(normalized.usage, "then"), "function")
       ? normalized.usage
       : undefined
     const mergedUsage = normalized.usageRecord?.usage || normalizedUsage || streamedUsageRecord?.usage
