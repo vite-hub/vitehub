@@ -1500,6 +1500,38 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
+  it("rechecks pagination when visible sessions become terminal", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "transitioning", status: "running", title: "Transitioning" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "transitioning", status: "completed", title: "Transitioning" },
+        { id: "done", status: "completed", title: "Done" },
+      ],
+    });
+
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
   it("checks pagination when a collapsed group is expanded", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

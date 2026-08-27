@@ -158,6 +158,11 @@ export const AgentInvocationList = defineComponent({
         { collapsible: true, defaultOpen: false, items: sorted.filter(item => item.status !== "running" && item.status !== "pending"), key: "done", label: "Done" },
       ].filter(group => group.items.length > 0);
     });
+    const visibleLength = computed(() => props.items.filter((item) => {
+      if (item.status === "running") return true;
+      if (item.status === "pending") return queuedOpen.value;
+      return doneOpen.value;
+    }).length);
     let resizeObserver: ResizeObserver | undefined;
     const requestMoreIfNeeded = () => {
       const element = viewport.value;
@@ -172,16 +177,11 @@ export const AgentInvocationList = defineComponent({
     };
     const requestMoreAutomatically = () => {
       const hasCollapsedGroup = Boolean(viewport.value?.querySelector("details:not([open])"));
-      const visibleLength = props.items.filter((item) => {
-        if (item.status === "running") return true;
-        if (item.status === "pending") return queuedOpen.value;
-        return doneOpen.value;
-      }).length;
-      if (hasCollapsedGroup && (!visibleLength || automaticallyRequestedVisibleLength.value === visibleLength)) return;
-      if (requestMoreIfNeeded()) automaticallyRequestedVisibleLength.value = visibleLength;
+      if (hasCollapsedGroup && (!visibleLength.value || automaticallyRequestedVisibleLength.value === visibleLength.value)) return;
+      if (requestMoreIfNeeded()) automaticallyRequestedVisibleLength.value = visibleLength.value;
     };
-    watch([() => props.items.length, () => props.hasMore, () => props.loading], ([length], [previous]) => {
-      if (length < previous) requestedLength.value = undefined;
+    watch([() => props.items.length, visibleLength, () => props.hasMore, () => props.loading], ([length, visible], [previous, previousVisible]) => {
+      if (length < previous || visible < previousVisible) requestedLength.value = undefined;
       requestMoreAutomatically();
     }, { flush: "post" });
     watch(() => props.retryKey, () => {
