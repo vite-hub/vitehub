@@ -521,6 +521,44 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledOnce()
   })
 
+  it("compares bulk source contents when reporting file deltas", async () => {
+    let content = "# Same\n"
+    const view = createWorkspaceSourceView({
+      name: "bulk-materialization-deltas",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getItems() {
+            return [{ key: "a.md", path: "a.md", content }]
+          },
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
+        paths: [{ path: "docs/a.md", status: "unchanged" }],
+      }],
+    })
+
+    content = "# Changed\n"
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 0, updated: 1 },
+        paths: [{ path: "docs/a.md", status: "updated" }],
+      }],
+    })
+  })
+
   it("resolves one immutable source revision for a materialization", async () => {
     const resolveRevision = vi.fn(async () => ({ id: "commit-123", immutable: true, ref: "main" }))
     const observedRevisions: unknown[] = []

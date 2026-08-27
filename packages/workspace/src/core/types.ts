@@ -145,6 +145,7 @@ export interface WorkspaceSessionOptions {
   abortSignal?: AbortSignal
   attach?: boolean
   host?: WorkspaceSessionHost
+  materializeSources?: false
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   target?: string

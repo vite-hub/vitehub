@@ -107,6 +107,12 @@ function contentSize(content: string | Uint8Array) {
   return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
 }
 
+function contentEquals(left: string | Uint8Array, right: string | Uint8Array) {
+  const leftBytes = left instanceof Uint8Array ? left : new TextEncoder().encode(left)
+  const rightBytes = right instanceof Uint8Array ? right : new TextEncoder().encode(right)
+  return leftBytes.byteLength === rightBytes.byteLength && leftBytes.every((byte, index) => byte === rightBytes[index])
+}
+
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
   if (options?.sources?.length && !options.sources.includes(source.key)) return false
   const requested = normalizeWorkspacePath(options?.path || "")
@@ -463,6 +469,7 @@ export async function materializeWorkspaceSources(
         }
         const item = entry.item!
         const metadata = item.metadata || {}
+        const previousFile = previousPaths.has(path) ? await store.readFile(path) : undefined
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
@@ -477,7 +484,10 @@ export async function materializeWorkspaceSources(
         itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
-        const status = previousPaths.has(path) ? "updated" as const : "added" as const
+        const currentFile = previousFile ? await store.readFile(path) : undefined
+        const status = previousFile && currentFile && contentEquals(previousFile.content, currentFile.content)
+          ? "unchanged" as const
+          : previousPaths.has(path) ? "updated" as const : "added" as const
         counts[status]++
         paths.push({ path, status })
         if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {

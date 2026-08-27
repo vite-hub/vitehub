@@ -630,6 +630,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
+    materializeSources: false,
     onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,

@@ -324,7 +324,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     materializeSources,
     startSession: async (options) => {
       const paths = options?.paths?.length ? options.paths : [""]
-      await Promise.all(paths.map(path => materializeSources({ path })))
+      if (options?.materializeSources !== false) await Promise.all(paths.map(path => materializeSources({ path })))
       return await startOverlayWorkspaceSession(resolvedDefinition, readWorkspace, options)
     },
   } as ReadonlyWorkspaceFacade<Name>["fs"] & Pick<Workspace, "startSession">, sourceRequestExecution)
@@ -479,7 +479,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       snapshot: workspace.snapshot,
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
-        await Promise.all(paths.map(path => materializeSources({ path })))
+        if (options?.materializeSources !== false) await Promise.all(paths.map(path => materializeSources({ path })))
         const startBoxSession: unknown = Reflect.get(workspace, Symbol.for("vitehub.workspace.start-box-session"))
         const session = options?.host
           ? await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)

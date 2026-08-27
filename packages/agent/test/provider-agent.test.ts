@@ -1433,7 +1433,7 @@ describe("Provider Agent Driver", () => {
     }) as never)
 
     expect(materializeSources).toHaveBeenCalledWith(expect.objectContaining({ onProgress: expect.any(Function), path: "" }))
-    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ onProgress: expect.any(Function), paths: undefined, target: expect.any(String) }))
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ materializeSources: false, onProgress: expect.any(Function), paths: undefined, target: expect.any(String) }))
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
     expect(session.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "chore: save provider work" }))
     expect(session.close).toHaveBeenCalledOnce()
