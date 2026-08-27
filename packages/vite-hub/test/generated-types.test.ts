@@ -129,6 +129,10 @@ function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
   return feature
 }
 
+function contributesCli(plugin: Plugin): plugin is Plugin & ViteHubCliContributingPlugin {
+  return "vitehub" in plugin
+}
+
 afterEach(async () => {
   await Promise.all(tempDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
 })
@@ -243,7 +247,9 @@ describe("framework generated types", () => {
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot, [VITEHUB_SERVER_DIRS]: [serverDir] })
-    const context = { rootDir: viteRoot, stdout: { write: vi.fn() } } as unknown as ViteHubCliContext
+    const rawContext: unknown = { rootDir: viteRoot, stdout: { write: vi.fn() } }
+    // SAFETY: The feature uses only the rootDir and stdout fields supplied by this focused fixture.
+    const context = rawContext as ViteHubCliContext
     await prepareFeature(plugin).run([], context)
 
     await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
@@ -288,8 +294,11 @@ describe("framework generated types", () => {
     const [source, types] = frameworkHubSource({ importBase: "custom-source" })
     await configResolved(source!)({ root: viteRoot })
     await configResolved(types!)({ root: viteRoot })
-    const context = { rootDir: viteRoot, stdout: { write: vi.fn() } } as unknown as ViteHubCliContext
-    await prepareFeature(types! as Plugin & ViteHubCliContributingPlugin).run([], context)
+    const rawContext: unknown = { rootDir: viteRoot, stdout: { write: vi.fn() } }
+    // SAFETY: The feature uses only the rootDir and stdout fields supplied by this focused fixture.
+    const context = rawContext as ViteHubCliContext
+    if (!types || !contributesCli(types)) throw new TypeError("Expected a CLI-contributing types plugin.")
+    await prepareFeature(types).run([], context)
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
       'from "custom-source/server"',

@@ -1119,6 +1119,7 @@ describe("ViteHub Nuxt integration", () => {
     })
     expect(defaultPrepareSources).not.toHaveBeenCalled()
     expect(setPrepareSources).toHaveBeenCalledWith(selectedPrepareSources)
+    // SAFETY: The Nuxt replay path has normalized this fixture's plugin list before this assertion.
     const configuredPlugins = nuxt.options.vite.plugins as Plugin[]
     expect(configuredPlugins.indexOf(selectedSource)).toBeLessThan(
       configuredPlugins.findIndex(plugin => plugin.name === "vite-hub/types"),

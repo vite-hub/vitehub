@@ -769,6 +769,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     ))
   }
   if (options.workspace) {
+    // SAFETY: ViteHub supplies its internal hosting context in addition to the public Workspace options.
     plugins.push(hubWorkspace({
       ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
@@ -778,6 +779,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const sourcePlugin = hubSource({ importBase: "vite-hub/source" })
   plugins.push(sourcePlugin)
   plugins.push(viteHubTypesPlugin({ prepareSources: sourcePlugin.api.prepareSources }))
+  // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]
 }
 
