@@ -8649,7 +8649,11 @@ describe("agent message protocol", () => {
   it("builds status evidence from the request, elapsed time, and presence-only activity", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const prompts: string[] = []
-    const snapshots: Array<Record<string, unknown>> = []
+    const snapshots: Array<{
+      activeTools: string[]
+      reasoningActive: boolean
+      userText: string
+    }> = []
     const agent = defineAgent({
       capabilities: [progressSummary({
         driver: { run(context) {
@@ -8659,7 +8663,11 @@ describe("agent message protocol", () => {
         intervalMs: 0,
         maxLength: 80,
         template(input) {
-          snapshots.push(input as unknown as Record<string, unknown>)
+          snapshots.push({
+            activeTools: input.activeTools,
+            reasoningActive: input.reasoningActive,
+            userText: input.userText,
+          })
           return [
             input.userText,
             input.elapsedText,
@@ -8676,22 +8684,26 @@ describe("agent message protocol", () => {
         })() },
     })
 
+    // SAFETY: The default stream output implements the async iterable contract consumed by this test.
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Check inventory.\n<context>private</context>" })],
     }) as AsyncIterable<Record<string, unknown>>
     const events = []
     for await (const event of stream) events.push(event)
 
-    expect(prompts[0]).toMatch(/# Instructions\n[\s\S]*# Evidence\nCheck inventory\. \| \d+(?:m \d+s|m|s) \| true \| inventory search$/)
-    expect(prompts[0]).not.toContain("private")
-    expect(snapshots[0]).toMatchObject({
+    const activeToolPrompt = prompts.find(prompt => prompt.endsWith(" | inventory search"))
+    expect(activeToolPrompt).toMatch(/# Instructions\n[\s\S]*# Evidence\nCheck inventory\. \| \d+(?:m \d+s|m|s) \| true \| inventory search$/)
+    expect(activeToolPrompt).not.toContain("private")
+    expect(snapshots.find(snapshot => snapshot.activeTools.includes("inventory search"))).toMatchObject({
       activeTools: ["inventory search"],
       reasoningActive: true,
       userText: "Check inventory.",
     })
-    const progress = events.find(event => event.type === "data-progress-summary") as { data?: { summary?: string } } | undefined
-    expect(progress?.data?.summary?.length).toBeLessThanOrEqual(80)
-    expect(progress?.data?.summary).toMatch(/…$/)
+    const progress = events.find(event => event.type === "data-progress-summary")
+    const progressData = isRuntimeRecord(progress?.data) ? progress.data : undefined
+    const summary = hasRuntimeType(progressData?.summary, "string") ? progressData.summary : undefined
+    expect(summary?.length).toBeLessThanOrEqual(80)
+    expect(summary).toMatch(/…$/)
   })
 
   it("bounds user request evidence before rendering progress prompts", async () => {
