@@ -26,6 +26,7 @@ import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
+import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
@@ -1082,6 +1083,30 @@ function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
   const channelId = run?.channelId || trigger?.channelId
   const channel = channelId ? channels?.[channelId] : undefined
   return channel && channelId ? { channel, channelId, trigger } : undefined
+}
+
+async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  invocationContext: AgentInvocationContextStore,
+  run?: AgentRunMetadata,
+): Promise<void> {
+  const activeMessages = activeAgentChannel(definition?.channels, invocationContext, run)?.channel.messages
+  const schema = activeMessages
+    ? activeMessages.meta ?? definition?.messages?.meta
+    : definition?.messages?.meta
+  if (!schema) return
+  if (!schema["~standard"] || !hasRuntimeType(schema["~standard"].validate, "function")) {
+    throw new TypeError("[vitehub] defineAgent({ messages: { meta } }) requires a Standard Schema.")
+  }
+  const channel = invocationContext.get("channel")
+  const chat = invocationContext.get("chat")
+  if (!channel && !chat) return
+  const meta = await parseStandardSchema(schema, channel?.meta ?? chat?.meta ?? {}, "agent channel metadata")
+  if (!isRuntimeObject(meta) || Array.isArray(meta)) {
+    throw new TypeError("[vitehub] Agent channel metadata schema must return an object.")
+  }
+  if (channel) invocationContext.set("channel", { ...channel, meta }, { overwrite: true })
+  if (chat) invocationContext.set("chat", { ...chat, meta }, { overwrite: true })
 }
 
 async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -2973,6 +2998,7 @@ async function createAgentInvocationContext<
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  await parseAgentMessageMeta(definition, invocationContext, context.run)
   const telemetryInvocationId = createTraceId()
   let telemetryScheduler: AgentTelemetryScheduler | undefined
   const telemetryChanged = (entry: TraceEventLogEntry) => telemetryScheduler?.changed(entry)

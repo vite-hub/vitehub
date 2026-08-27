@@ -1613,6 +1613,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
+  meta?: StandardSchemaV1<unknown, Record<string, unknown>>
   sessions?: boolean | AgentChatSessionOptions
   state?: AgentChatStateResolver<TRuntimeConfig>
   stream?: boolean

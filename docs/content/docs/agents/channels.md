@@ -178,6 +178,20 @@ teams({
 
 `deliveryKind` is `direct`, `mention`, or `subscribed`. Returning `false` posts no fallback error because the Agent never started.
 
+Set `messages.meta` to a Standard Schema when application-owned Channel metadata must be validated before Capabilities, hooks, or the Driver run. The schema may normalize or add defaults, but its output must be an object. Put the schema on shared Agent message settings or on one Channel to override it for that Channel.
+
+```ts
+import { defineAgent } from 'vite-hub/agent'
+import * as v from 'valibot'
+
+export default defineAgent({
+  driver: { run: ({ context }) => context.get('channel')?.meta },
+  messages: {
+    meta: v.object({ audience: v.optional(v.picklist(['support', 'technical'])) }),
+  },
+})
+```
+
 Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
 
 Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. `steer` queues overlapping messages and preserves that Workflow handoff. Other overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.

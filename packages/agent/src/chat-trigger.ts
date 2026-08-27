@@ -214,22 +214,24 @@ export type AgentChannelContext<
 > = AgentChatContext<TMeta, TUser, TMessageMetadata> & { run?: AgentRunMetadata }
 
 declare global {
-  interface ViteHubAgentChannelMeta {}
-  interface ViteHubAgentChannelUser {}
   interface ViteHubAgentInvocationContextValues {
-    chat: AgentChatContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
-    channel: AgentChannelContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
+    chat: AgentChatContext
+    channel: AgentChannelContext
   }
   interface ViteHubWorkspaceSourceResolutionContextMap {
-    channel: AgentChannelContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
+    channel: AgentChannelContext
   }
 }
 
-export function getAgentChatContext(
+export function getAgentChatContext<
+  TMeta extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
+>(
   input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
-): AgentChatContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser> | undefined {
+): AgentChatContext<TMeta, TUser> | undefined {
   const store = "get" in input ? input : input.context
-  return store.get(agentChatContextKey)
+  // SAFETY: The caller supplies the Agent-owned metadata contract for this context lookup.
+  return store.get(agentChatContextKey) as AgentChatContext<TMeta, TUser> | undefined
 }
 
 async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(

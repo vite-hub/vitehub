@@ -25,15 +25,6 @@ declare global {
     "support.customerScope": { customers: string[] }
     trustedScope: string
   }
-  interface ViteHubAgentChannelMeta {
-    access?: string
-    audience?: string
-    customer?: string
-  }
-  interface ViteHubAgentChannelUser {
-    id?: string
-    email?: string
-  }
 }
 
 describe("agent public types", () => {
@@ -1459,9 +1450,9 @@ describe("agent public types", () => {
         {
           id: "support-audience",
           prepare({ actor, channel, invoker }) {
-            expectTypeOf(channel?.meta?.customer).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.meta?.customer).toEqualTypeOf<unknown>()
             expectTypeOf(channel?.run?.origin).toEqualTypeOf<string | undefined>()
-            expectTypeOf(channel?.user?.email).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.user?.email).toEqualTypeOf<unknown>()
             expectTypeOf(actor.id).toEqualTypeOf<string>()
             expectTypeOf(invoker.id).toEqualTypeOf<string>()
           },
