@@ -204,11 +204,11 @@ const links = [{ to: "/docs/missing-script" }]
     ]);
   });
 
-  it("validates links stored in application data imported by a rendered component", () => {
+  it("validates rendered aliased link fields without scanning unused exports", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
-      "docs/app/components/landing/Paths.vue": '<script setup lang="ts">import { links } from "./content"</script><template><NuxtLink v-for="link in links" :to="link.to" /></template>',
-      "docs/app/components/landing/content.ts": 'export const links = [{ to: "/docs/missing-imported" }]',
+      "docs/app/components/landing/Paths.vue": '<script setup lang="ts">import { links } from "./content"</script><template><NuxtLink v-for="link in links" :to="link.tutorialPath" /></template>',
+      "docs/app/components/landing/content.ts": 'export const links = [{ tutorialPath: "/docs/missing-imported" }]; export const unused = [{ to: "#missing-unused" }]',
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([

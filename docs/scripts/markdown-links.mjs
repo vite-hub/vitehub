@@ -229,7 +229,7 @@ function isStaticSiteDestination(destination) {
     || /^(?:https?:)?\/\//i.test(destination);
 }
 
-export function vueLinks(source) {
+function vueLinks(source) {
   const links = [];
   for (const match of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
     links.push(...typescriptLinks(match[1]));
@@ -251,39 +251,92 @@ export function vueLinks(source) {
   return [...new Set(links.filter(isStaticSiteDestination))];
 }
 
-function typescriptLinks(source) {
+function typescriptLinks(source, { exportNames, propertyNames } = {}) {
   const links = [];
   const file = ts.createSourceFile("application.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  function visit(node) {
+  const linkProperties = propertyNames ?? new Set(["to", "href", "src", "poster", "srcset"]);
+  function collect(node) {
     if (ts.isPropertyAssignment(node)) {
       const name = ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)
         ? node.name.text
         : undefined;
-      if (["to", "href", "src", "poster", "srcset"].includes(name)
+      if (linkProperties.has(name)
         && ts.isStringLiteralLike(node.initializer)) {
         links.push(node.initializer.text);
       }
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, collect);
   }
-  visit(file);
+  if (!exportNames || exportNames.has("*")) {
+    collect(file);
+  }
+  else {
+    for (const statement of file.statements) {
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name) && exportNames.has(declaration.name.text) && declaration.initializer) {
+            collect(declaration.initializer);
+          }
+        }
+      }
+      else if (exportNames.has("default") && ts.isExportAssignment(statement)) {
+        collect(statement.expression);
+      }
+    }
+  }
   return [...new Set(links.filter(isStaticSiteDestination))];
 }
 
 function applicationImports(source, extension) {
+  const templateSource = extension === ".vue"
+    ? withoutHtmlComments(source).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    : undefined;
   const scripts = extension === ".vue"
     ? [...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1])
     : [source];
   return scripts.flatMap((script) => {
     const file = ts.createSourceFile("application.ts", script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     return file.statements.flatMap((statement) => {
-      if ((ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement))
-        && statement.moduleSpecifier && ts.isStringLiteralLike(statement.moduleSpecifier)) {
-        return [statement.moduleSpecifier.text];
+      if (!ts.isImportDeclaration(statement)
+        || !statement.importClause
+        || !ts.isStringLiteralLike(statement.moduleSpecifier)) return [];
+      const names = [];
+      if (statement.importClause.name) {
+        names.push({ imported: "default", local: statement.importClause.name.text });
       }
-      return [];
+      const bindings = statement.importClause.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        names.push(...bindings.elements.map((element) => ({
+          imported: element.propertyName?.text ?? element.name.text,
+          local: element.name.text,
+        })));
+      }
+      else if (bindings && ts.isNamespaceImport(bindings)) {
+        names.push({ imported: "*", local: bindings.name.text });
+      }
+      const renderedNames = templateSource === undefined
+        ? names
+        : names.filter(({ local }) => new RegExp(`\\b${local}\\b`).test(templateSource));
+      return renderedNames.length ? [{ names: renderedNames, specifier: statement.moduleSpecifier.text }] : [];
     });
   });
+}
+
+function vueLinkProperties(source) {
+  const properties = new Set();
+  const templateSource = withoutHtmlComments(source)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+  for (const tag of htmlTags(templateSource)) {
+    for (const attribute of ["to", "href", "src", "poster", "srcset"]) {
+      const binding = htmlAttribute(tag, `:${attribute}`);
+      const property = binding && !staticBinding(binding)
+        ? binding.match(/\.([A-Za-z_$][\w$]*)\s*$/)?.[1]
+        : undefined;
+      if (property) properties.add(property);
+    }
+  }
+  return properties;
 }
 
 function routeFromContentPath(contentRoot, path) {
@@ -343,6 +396,8 @@ function applicationInventory(docsRoot) {
   }));
   const sourceRoutes = new Map();
   const importedFiles = new Set();
+  const importedNames = new Map();
+  const importedProperties = new Map();
   function resolveImport(sourcePath, specifier) {
     if (!specifier.startsWith(".") && !specifier.startsWith("~/")) return undefined;
     const unresolved = specifier.startsWith("~/")
@@ -379,10 +434,15 @@ function applicationInventory(docsRoot) {
           if (new RegExp(`<${name}(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
         }
       }
-      for (const specifier of applicationImports(source, extname(file))) {
+      const linkProperties = extname(file) === ".vue" ? vueLinkProperties(source) : new Set();
+      for (const { names, specifier } of applicationImports(source, extname(file))) {
         const importedPath = resolveImport(file, specifier);
         if (importedPath) {
           importedFiles.add(importedPath);
+          if (!importedNames.has(importedPath)) importedNames.set(importedPath, new Set());
+          if (!importedProperties.has(importedPath)) importedProperties.set(importedPath, new Set());
+          for (const { imported } of names) importedNames.get(importedPath).add(imported);
+          for (const property of linkProperties) importedProperties.get(importedPath).add(property);
           pending.push(importedPath);
         }
       }
@@ -396,7 +456,7 @@ function applicationInventory(docsRoot) {
   for (const route of ["/llms.txt", "/llms-full.txt", "/mcp"]) routeAnchors.set(route, new Set());
   const matrixAnchors = supportMatrixAnchors(docsRoot);
   if (matrixAnchors) routeAnchors.set("/docs/frameworks-hosts/support-matrix", matrixAnchors);
-  return { importedFiles, routeAnchors, sourceRoutes };
+  return { importedFiles, importedNames, importedProperties, routeAnchors, sourceRoutes };
 }
 
 function decodeFragment(fragment) {
@@ -450,7 +510,10 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
     ...applicationFiles.map((sourcePath) => ({
       destinations: extname(sourcePath) === ".vue"
         ? vueLinks(readFileSync(sourcePath, "utf8"))
-        : typescriptLinks(readFileSync(sourcePath, "utf8")),
+        : typescriptLinks(readFileSync(sourcePath, "utf8"), {
+            exportNames: application.importedNames.get(sourcePath),
+            propertyNames: application.importedProperties.get(sourcePath),
+          }),
       renderer: "vue",
       renderedRoutes: [...(application.sourceRoutes.get(sourcePath) ?? [])],
       sourcePath,
