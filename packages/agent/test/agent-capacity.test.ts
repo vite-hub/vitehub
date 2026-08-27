@@ -670,6 +670,41 @@ describe("Agent Driver capacity", () => {
     await expect(Promise.all(results)).resolves.toEqual(["first", "second", "third"])
   })
 
+  it("keeps prospective adaptive admissions outside the pending queue", async () => {
+    let resolveSample!: (sample: { concurrency: number }) => void
+    const sample = new Promise<{ concurrency: number }>((resolve) => {
+      resolveSample = resolve
+    })
+    const gate = deferred()
+    const starts: string[] = []
+    const agent = defineAgent({
+      driver: {
+        capacity: {
+          adaptive: { sample: () => sample },
+          concurrency: 6,
+          queue: { maxPending: 1 },
+        },
+        async run({ input }) {
+          starts.push(input.prompt as string)
+          await gate.promise
+          return input.prompt
+        },
+      },
+      runtime: false,
+    })
+
+    const invocations = ["first", "second"].map(prompt => runAgentInline(agent, runtime(), { prompt }))
+    await vi.waitFor(() => expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+      active: 0,
+      pending: 0,
+    }))
+
+    resolveSample({ concurrency: 6 })
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
+    gate.resolve()
+    await expect(Promise.all(invocations)).resolves.toEqual(["first", "second"])
+  })
+
   it("rejects promptly when aborted during a stuck sample and recovers later admissions", async () => {
     vi.useFakeTimers()
     try {

@@ -4,6 +4,7 @@ type AgentCapacityRelease = () => void
 
 interface AgentCapacityQueueEntry {
   cleanup: () => void
+  reject: (error: Error) => void
   resolve: (release: AgentCapacityRelease) => void
   settled: boolean
 }
@@ -58,7 +59,7 @@ class AgentCapacityScheduler {
   status(): AgentCapacityStatus {
     return {
       active: this.active,
-      pending: this.queue.length,
+      pending: this.pendingCount(),
       ...(this.options.adaptive
         ? {
             effectiveConcurrency: this.effectiveConcurrency,
@@ -72,7 +73,10 @@ class AgentCapacityScheduler {
   async acquire(signal?: AbortSignal): Promise<AgentCapacityRelease> {
     if (signal?.aborted) throw capacityAbortError(signal)
     const queue = this.options.queue
-    if (queue && this.refreshDue()) return await this.enqueue(queue, signal)
+    if (queue && this.refreshDue()) {
+      const prospectiveAdmissions = Math.max(0, this.options.concurrency - this.active)
+      return await this.enqueue(queue, signal, queue.maxPending + prospectiveAdmissions)
+    }
 
     await this.refreshForAdmission(signal)
     if (signal?.aborted) throw capacityAbortError(signal)
@@ -93,8 +97,9 @@ class AgentCapacityScheduler {
   private enqueue(
     queue: NonNullable<AgentDriverCapacityOptions["queue"]>,
     signal: AbortSignal | undefined,
+    maxWaiting = queue.maxPending,
   ): Promise<AgentCapacityRelease> {
-    if (this.queue.length >= queue.maxPending) {
+    if (this.queue.length >= maxWaiting) {
       return Promise.reject(capacityError(
         "AGENT_CAPACITY_QUEUE_FULL",
         `[vitehub] Agent driver capacity is full (${this.active} active, ${queue.maxPending} queued).`,
@@ -109,6 +114,7 @@ class AgentCapacityScheduler {
       }
       const entry: AgentCapacityQueueEntry = {
         cleanup,
+        reject,
         resolve,
         settled: false,
       }
@@ -247,6 +253,20 @@ class AgentCapacityScheduler {
     this.draining = true
     try {
       await this.refresh()
+      const queue = this.options.queue
+      if (queue) {
+        const maxWaiting = Math.max(0, this.effectiveConcurrency - this.active) + queue.maxPending
+        while (this.queue.length > maxWaiting) {
+          const entry = this.queue.pop()!
+          if (entry.settled) continue
+          entry.settled = true
+          entry.cleanup()
+          entry.reject(capacityError(
+            "AGENT_CAPACITY_QUEUE_FULL",
+            `[vitehub] Agent driver capacity is full (${this.active} active, ${queue.maxPending} queued).`,
+          ))
+        }
+      }
       while (this.active < this.effectiveConcurrency && this.queue.length) {
         const entry = this.queue.shift()!
         if (entry.settled) continue
@@ -260,6 +280,12 @@ class AgentCapacityScheduler {
       this.clearRefreshTimerIfIdle()
       this.scheduleRefresh()
     }
+  }
+
+  private pendingCount(): number {
+    if (!this.refreshPromise) return this.queue.length
+    const prospectiveAdmissions = Math.max(0, this.options.concurrency - this.active)
+    return Math.max(0, this.queue.length - prospectiveAdmissions)
   }
 }
 
