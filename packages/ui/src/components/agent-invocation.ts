@@ -151,12 +151,13 @@ function matchingPayloadRows(
   rows: Array<{ path: string; value: string }> = [],
   depth = 0,
 ) {
-  if (rows.length >= 500 || depth >= 12) return rows;
+  if (rows.length >= 500) return rows;
   if (typeof value !== "object" || value === null) {
     const label = jsonValueLabel(value);
     if (`${path} ${label}`.toLocaleLowerCase().includes(query)) rows.push({ path, value: label });
     return rows;
   }
+  if (depth >= 12) return rows;
   for (const [key, item] of Object.entries(value)) {
     matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, rows, depth + 1);
     if (rows.length >= 500) break;
@@ -187,18 +188,24 @@ function renderPayloadTree(
     ]);
   }
   const entries = Object.entries(value);
-  const visibleEntries = entries.slice(0, Math.max(0, budget.remaining - 1));
-  const truncated = visibleEntries.length < entries.length;
+  const children: ReturnType<typeof h>[] = [];
+  for (let index = 0; index < entries.length; index++) {
+    if (budget.remaining <= 0) break;
+    if (budget.remaining === 1) {
+      budget.remaining--;
+      children.push(h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden"));
+      break;
+    }
+    const [key, item] = entries[index]!;
+    children.push(renderPayloadTree(item, key, depth + 1, budget));
+  }
   return h("li", { class: "vh-invocation-payload__branch" }, [
     h("details", { open: depth < 1 }, [
       h("summary", [
         label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
         h("span", Array.isArray(value) ? `Array(${entries.length})` : `{${entries.length}}`),
       ]),
-      h("ul", [
-        ...visibleEntries.map(([key, item]) => renderPayloadTree(item, key, depth + 1, budget)),
-        truncated ? h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden") : null,
-      ]),
+      h("ul", children),
     ]),
   ]);
 }
@@ -1123,11 +1130,12 @@ export const AgentInvocation = defineComponent({
     }
 
     async function focusActivity(id: string | undefined) {
-      clearSelectedElement();
-      if (!id) return;
       await nextTick();
       const target = [...(root.value?.querySelectorAll<HTMLElement>("[data-activity-id]") ?? [])]
         .find(element => element.dataset.activityId === id);
+      if (target && target === selectedElement) return;
+      clearSelectedElement();
+      if (!id) return;
       if (!target) return;
       let details = target.closest("details");
       while (details) {
@@ -1142,7 +1150,7 @@ export const AgentInvocation = defineComponent({
       selectedElement = target;
     }
 
-    watch([() => props.selectedActivityId, activities], ([id]) => void focusActivity(id), { immediate: true });
+    watch([() => props.selectedActivityId, activities], ([id]) => void focusActivity(id), { flush: "post", immediate: true });
     onBeforeUnmount(clearSelectedElement);
 
     return () => {

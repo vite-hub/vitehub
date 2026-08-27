@@ -582,6 +582,11 @@ describe("Agent Invocation UI", () => {
       props: { invocation: { ...regroupedInvocation, status: "running" }, selectedActivityId: regroupedActivityId },
     });
     await nextTick();
+    const focusedEvent = regrouped.get(`[data-activity-id="${regroupedActivityId}"]`).element;
+    const focus = vi.spyOn(focusedEvent as HTMLElement, "focus");
+    await regrouped.setProps({ invocation: { ...regroupedInvocation, status: "running" } });
+    await nextTick();
+    expect(focus).not.toHaveBeenCalled();
     await regrouped.setProps({ invocation: regroupedInvocation });
     await nextTick();
     const regroupedEvent = regrouped.get(`[data-activity-id="${regroupedActivityId}"]`);
@@ -597,6 +602,7 @@ describe("Agent Invocation UI", () => {
       big: 12n,
       circular,
       fields: Object.fromEntries(Array.from({ length: 800 }, (_, index) => [`field${index}`, index])),
+      siblings: Object.fromEntries(Array.from({ length: 800 }, (_, index) => [`sibling${index}`, index])),
       first: shared,
       second: shared,
     };
@@ -618,7 +624,7 @@ describe("Agent Invocation UI", () => {
     expect(payload.find(".vh-invocation-payload__tree").exists()).toBe(false);
     (payload.element as HTMLDetailsElement).open = true;
     await payload.trigger("toggle");
-    expect(payload.findAll(".vh-invocation-payload__leaf").length).toBeLessThanOrEqual(500);
+    expect(payload.findAll("li")).toHaveLength(500);
     expect(payload.text()).toContain("More fields hidden");
 
     await payload.get('button[aria-pressed="false"]').trigger("click");
@@ -626,6 +632,21 @@ describe("Agent Invocation UI", () => {
     expect(raw.match(/"value": "shared"/g)).toHaveLength(2);
     expect(raw).toContain('"self": "[Circular]"');
     expect(raw).toContain('"big": "12n"');
+
+    const deep = Array.from({ length: 11 }).reduce<Record<string, unknown>>(
+      value => ({ nested: value }),
+      { needle: "visible boundary" },
+    );
+    const deepWrapper = mount(AgentInvocation, { props: { invocation: {
+      ...invocation,
+      observations: [{ attributes: { "tool.id": "inspect", "tool.input": deep, "tool.name": "inspect" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const }],
+      status: "running" as const,
+    } } });
+    const deepPayload = deepWrapper.get(".vh-invocation-event__payload");
+    (deepPayload.element as HTMLDetailsElement).open = true;
+    await deepPayload.trigger("toggle");
+    await deepPayload.get('input[type="search"]').setValue("visible boundary");
+    expect(deepPayload.text()).toContain("$.nested");
   });
 
   it("renders unsafe payloads before a tool reaches a terminal state", () => {
