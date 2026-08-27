@@ -12,6 +12,9 @@ import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
 import {
+  consoleBlobKey,
+  consoleBlobRegistryKey,
+  consoleBlobRootKey,
   consoleInvocationsKey,
   consoleInvocationsRegistryKey,
   consoleProjectRootKey,
@@ -67,10 +70,15 @@ function runtime(runId: string): AgentRuntimeContext {
 }
 
 afterEach(() => {
+  delete scope[consoleBlobKey]
+  delete scope[consoleBlobRootKey]
   delete scope[consoleInvocationsKey]
   delete scope[consoleProjectRootKey]
   delete scope[consoleSectionsKey]
   delete scope[consoleSectionsRootKey]
+  Reflect.deleteProperty(process, consoleBlobKey)
+  Reflect.deleteProperty(process, consoleBlobRootKey)
+  Reflect.deleteProperty(process, consoleBlobRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
@@ -108,10 +116,11 @@ describe("ViteHub Console", () => {
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
+        blobStores: ["default", "archive"],
         console: { exposure: "host-managed" },
         kvStores: ["default", "cache"],
         preset: "node",
-        sections: ["agents", "kv"],
+        sections: ["agents", "blob", "kv"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -133,18 +142,22 @@ describe("ViteHub Console", () => {
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
         "/api/_vitehub/console/search",
+        "/api/_vitehub/console/blob",
         "/api/_vitehub/console/kv",
         "/_vitehub",
         "/_vitehub/**",
       ])
       expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" })])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
-      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","kv"])`)
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","blob","kv"])`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `fallbackName: "review"`,
+      )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`,

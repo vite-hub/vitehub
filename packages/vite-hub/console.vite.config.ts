@@ -11,6 +11,7 @@ export default defineConfig({
     alias: {
       "vite-hub/agent/vue": resolve(import.meta.dirname, "../agent/src/vue.ts"),
       "vite-hub/source/client": resolve(import.meta.dirname, "../source/src/client.ts"),
+      "vue-router": resolve(import.meta.dirname, "node_modules/vue-router"),
     },
     dedupe: ["vue", "vue-router"],
   },

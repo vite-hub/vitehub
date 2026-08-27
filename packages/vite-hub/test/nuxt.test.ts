@@ -318,7 +318,7 @@ describe("ViteHub Nuxt integration", () => {
     const development = createNuxt(true)
     const existingConsoleHandler = vi.fn()
     development.nuxt.options.devServerHandlers = [{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }]
-    await viteHubNuxtModule({ agent: true, console: true, kv: true, preset: "node" }, development.nuxt)
+    await viteHubNuxtModule({ agent: true, blob: true, console: true, kv: true, preset: "node" }, development.nuxt)
     const pages: Array<{ file: string; name: string; path: string }> = []
     development.runPagesHook(pages)
 
@@ -331,6 +331,7 @@ describe("ViteHub Nuxt integration", () => {
         name: "vitehub-console-invocation",
         path: "/_vitehub/agents/:agent/invocations/:invocation",
       }),
+      expect.objectContaining({ name: "vitehub-console-blob", path: "/_vitehub/blob" }),
       expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
@@ -340,6 +341,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
         { route: "/api/_vitehub/console/search" },
+        { route: "/api/_vitehub/console/blob" },
         { route: "/api/_vitehub/console/kv" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
@@ -347,13 +349,16 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.devServerHandlers).toEqual([{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }])
     expect(development.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleSections("/tmp/vitehub-nuxt", ["agents","kv"])`,
+      `installConsoleSections("/tmp/vitehub-nuxt", ["agents","blob","kv"])`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `const vitehubConsoleInvocations = installConsoleInvocations("/tmp/vitehub-nuxt")`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleAgentDefinitions([], vitehubConsoleInvocations)`,
+    )
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["default"])`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default"])`,

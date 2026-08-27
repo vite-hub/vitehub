@@ -7,9 +7,9 @@ icon: i-lucide-monitor-dot
 
 The ViteHub Console is a read-only app for inspecting the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
-The Console currently exposes Agents, KV, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. KV lists configured stores and keys, then fetches a value only after the key is selected. Workflow, Queue, and Schedule list discovered Definitions and their source metadata without loading the Definition modules. Static Schedule Definitions also show their cron expression and UTC time zone; runtime targets show whether runtime Schedules are allowed.
+The Console currently exposes Agents, Blob, KV, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. KV lists configured stores and keys, then fetches a value only after the key is selected. Workflow, Queue, and Schedule list discovered Definitions and their source metadata without loading the Definition modules. Static Schedule Definitions also show their cron expression and UTC time zone; runtime targets show whether runtime Schedules are allowed.
 
-Console data can contain user prompts, model output, tool activity, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
+Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
 ## Enable the Console
 
@@ -22,6 +22,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
+    blob: true,
     console: true,
     preset: 'node',
     kv: true,
@@ -155,6 +156,8 @@ The Console API accepts `GET` requests only. Responses set `Cache-Control: no-st
 
 KV inspection calls the configured store's `keys`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. The key list returns at most 200 entries and reports when more keys match, so use the prefix field to narrow a large store. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 
+Blob inspection calls only the configured store's `list` operation. It returns at most 100 objects initially and 250 per request, follows provider cursors only when you choose **Load more**, and supports a pathname prefix. It does not call `get`, `head`, `serve`, `sign`, `put`, or `del`. Object contents and provider URLs never enter the Console response. Listing can still incur provider requests and cost.
+
 ## Inspect usage
 
 Session details show recorded token totals when the invocation trace contains provider usage. Add the [Usage Capability](/docs/capabilities/usage) when the provider needs an explicit usage request or the Agent must expose the normalized Agent Usage Record at finish.
@@ -168,6 +171,8 @@ The Console does not calculate missing provider data. Token counts, model metada
 | `/_vitehub` returns `404` | Confirm `console: true`, then restart the development server. Omitted and false configurations register no route. |
 | Agents is absent from the Console home | Configure `agent`. The Console only lists primitives active in the same ViteHub configuration. |
 | KV is absent from the Console home | Configure `kv`. The Console only lists stores from the active KV configuration. |
+| Blob is absent from the Console home | Configure `blob` with a preset that supports Blob or an explicit Blob store. |
+| Blob inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to list the configured store. |
 | A KV key list stops at 200 entries | Enter a key prefix to narrow the list. The Console reports the total returned by the provider and does not fetch values until selection. |
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |

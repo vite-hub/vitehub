@@ -90,6 +90,7 @@
     "./channels": "./dist/channels.js",
     "./channels/server": "./dist/channels/server.js",
     "./console": "./dist/console.js",
+    "./console/runtime/server/blob.get": "./dist/console/runtime/server/blob.get.js",
     "./console/server": "./dist/console/server.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",

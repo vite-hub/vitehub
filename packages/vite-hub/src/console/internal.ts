@@ -1,4 +1,5 @@
 import type { AgentInvocations } from "@vite-hub/agent"
+import type { BlobStorage } from "@vite-hub/blob"
 import type { KVStorage } from "@vite-hub/kv"
 import type { ConsoleDefinitionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -9,6 +10,9 @@ export const consoleDefinitionsRootKey: unique symbol = Symbol.for("vitehub.cons
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
 export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
+export const consoleBlobKey: unique symbol = Symbol.for("vitehub.console.blob")
+export const consoleBlobRegistryKey: unique symbol = Symbol.for("vitehub.console.blob.registry")
+export const consoleBlobRootKey: unique symbol = Symbol.for("vitehub.console.blob.root")
 export const consoleKVKey: unique symbol = Symbol.for("vitehub.console.kv")
 export const consoleKVRegistryKey: unique symbol = Symbol.for("vitehub.console.kv.registry")
 export const consoleKVRootKey: unique symbol = Symbol.for("vitehub.console.kv.root")
@@ -34,6 +38,17 @@ export interface ConsoleKVInspection {
   stores: readonly string[]
 }
 
+export interface ConsoleBlobInspection {
+  storage: BlobStorage
+  stores: readonly string[]
+}
+
+type ConsoleBlobByRoot = {
+  get(key: string): ConsoleBlobInspection | undefined
+  set(key: string, value: ConsoleBlobInspection): unknown
+  readonly size: number
+}
+
 type ConsoleKVByRoot = {
   get(key: string): ConsoleKVInspection | undefined
   set(key: string, value: ConsoleKVInspection): unknown
@@ -49,6 +64,8 @@ type ConsoleSectionsByRoot = {
 type ConsoleRuntimeRegistry = Record<
   symbol,
   | AgentInvocations
+  | ConsoleBlobByRoot
+  | ConsoleBlobInspection
   | ConsoleDefinitionCatalog
   | ConsoleDefinitionsByRoot
   | ConsoleInvocationsByRoot
@@ -62,6 +79,9 @@ type ConsoleRuntimeRegistry = Record<
 
 export type ConsoleInvocationScope = {
   process?: unknown
+  [consoleBlobKey]?: ConsoleBlobInspection
+  [consoleBlobRegistryKey]?: ConsoleBlobByRoot
+  [consoleBlobRootKey]?: string
   [consoleDefinitionsKey]?: ConsoleDefinitionCatalog
   [consoleDefinitionsRegistryKey]?: ConsoleDefinitionsByRoot
   [consoleDefinitionsRootKey]?: string
@@ -103,6 +123,17 @@ function definitionsByRoot(value: unknown): ConsoleDefinitionsByRoot | undefined
   if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
   // SAFETY: The preceding checks validate every ConsoleDefinitionsByRoot member.
   return registry as ConsoleDefinitionsByRoot
+}
+
+function blobByRoot(value: unknown): ConsoleBlobByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleBlobByRoot member before use.
+  const registry = value as Partial<ConsoleBlobByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleBlobByRoot member.
+  return registry as ConsoleBlobByRoot
 }
 
 function kvByRoot(value: unknown): ConsoleKVByRoot | undefined {
@@ -189,6 +220,32 @@ export function resolveConsoleDefinitions(
   // SAFETY: installConsoleDefinitionScope is the only writer for this process registry key.
   return (processRegistry(scope)?.[consoleDefinitionsKey] as ConsoleDefinitionCatalog | undefined)
     ?? scope[consoleDefinitionsKey]
+}
+
+export function installConsoleBlobScope(
+  projectRoot: string,
+  inspection: ConsoleBlobInspection,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleBlobInspection {
+  scope[consoleBlobRootKey] = projectRoot
+  scope[consoleBlobKey] = inspection
+  const registry = processRegistry(scope)
+  if (registry) {
+    const inspections = blobByRoot(registry[consoleBlobRegistryKey]) ?? new Map<string, ConsoleBlobInspection>()
+    inspections.set(projectRoot, inspection)
+    registry[consoleBlobRegistryKey] = inspections
+    registry[consoleBlobKey] = inspection
+  }
+  return inspection
+}
+
+export function resolveConsoleBlob(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleBlobInspection | undefined {
+  const root = scope[consoleBlobRootKey]
+  const registered = blobByRoot(processRegistry(scope)?.[consoleBlobRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleBlobKey]
+  if (registered && registered.size > 1) return scope[consoleBlobKey]
+  // SAFETY: installConsoleBlobScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleBlobKey] as ConsoleBlobInspection | undefined) ?? scope[consoleBlobKey]
 }
 
 export function installConsoleKVScope(

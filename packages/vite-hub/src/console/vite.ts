@@ -36,6 +36,7 @@ export type ConsoleOptions =
   | { access?: never, exposure: "host-managed" }
 
 interface ConsoleVitePluginOptions {
+  blobStores?: readonly string[]
   console?: true | ConsoleOptions
   kvStores?: readonly string[]
   preset?: string
@@ -97,6 +98,7 @@ function generatedRegistration(value: string, path: string): boolean {
 
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
   const sections = options.sections ?? []
+  const blobStores = options.blobStores ?? []
   const kvStores = options.kvStores ?? []
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
@@ -106,6 +108,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     await writeConsoleNitroPlugin(generatedPlugin, {
+      blobStores,
       catalog: await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs }),
       kvStores,
       projectRoot,
@@ -134,6 +137,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot = resolveViteHubProjectRoot(root)
       generatedPlugin = resolve(root, generatedConsolePlugin)
       await writeConsoleNitroPlugin(generatedPlugin, {
+        blobStores,
         catalog: await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections }),
         kvStores,
         projectRoot,
@@ -147,6 +151,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
+                join(consoleRuntimeRoot, "server/blob.get.js"),
                 join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
                 join(consoleRuntimeRoot, "server/invocations.get.js"),
@@ -188,6 +193,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 route: "/api/_vitehub/console/search",
               },
             ]
+          : []),
+        ...(sections.includes("blob")
+          ? [{
+              handler: join(consoleRuntimeRoot, "server/blob.get.js"),
+              route: "/api/_vitehub/console/blob",
+            }]
           : []),
         ...(sections.includes("kv")
           ? [{

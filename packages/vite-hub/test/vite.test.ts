@@ -10,6 +10,12 @@ const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
+  resolveBlobViteConfig: vi.fn((blob?: { driver?: string, stores?: Record<string, unknown> }, input?: { hosting?: string }) => ({
+    blob: {
+      store: blob?.driver ? { driver: blob.driver } : input?.hosting === "cloudflare-module" ? { driver: "cloudflare-r2" } : undefined,
+      stores: blob?.stores,
+    },
+  })),
   hubBrowser: vi.fn(() => ({ name: "@vite-hub/browser/vite" })),
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
@@ -46,7 +52,10 @@ vi.mock("@vite-hub/auth/vite", () => ({
   hubAuth: integrationMocks.hubAuth,
   resolveAuthViteConfig: integrationMocks.resolveAuthViteConfig,
 }))
-vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
+vi.mock("@vite-hub/blob/vite", () => ({
+  hubBlob: integrationMocks.hubBlob,
+  resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
+}))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))

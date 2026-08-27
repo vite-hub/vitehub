@@ -45,6 +45,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-blob.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-definitions.vue",
         to: "dist/console/runtime/components",
       },
@@ -73,6 +77,7 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/blob.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/queues.vue", to: "dist/console/runtime/pages" },
@@ -103,6 +108,7 @@ export default defineConfig({
       "src/console/runtime/definitions.ts",
       "src/console/runtime/sections.ts",
       "src/console/runtime/server/agents.get.ts",
+      "src/console/runtime/server/blob.get.ts",
       "src/console/runtime/server/definitions.get.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",

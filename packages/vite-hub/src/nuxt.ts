@@ -5,6 +5,7 @@ import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
+import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -169,6 +170,7 @@ async function installConsole(
   projectRoot: string,
   discoveryRoot: string,
   sections: readonly ConsoleSectionId[],
+  blobStores: readonly string[],
   kvStores: readonly string[],
   serverDirs?: string[],
 ): Promise<void> {
@@ -209,6 +211,13 @@ async function installConsole(
               path: "/_vitehub/agents/:agent/invocations/:invocation",
             },
           ]
+        : []),
+      ...(sections.includes("blob")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/blob.vue"),
+            name: "vitehub-console-blob",
+            path: "/_vitehub/blob",
+          }]
         : []),
       ...(sections.includes("kv")
         ? [
@@ -282,6 +291,12 @@ async function installConsole(
           },
         ]
       : []),
+    ...(sections.includes("blob")
+      ? [{
+          handler: join(consoleRuntimeRoot, "server/blob.get.js"),
+          route: "/api/_vitehub/console/blob",
+        }]
+      : []),
     ...(sections.includes("kv")
       ? [{
           handler: join(consoleRuntimeRoot, "server/kv.get.js"),
@@ -296,6 +311,7 @@ async function installConsole(
   const plugin = join(projectRoot, generatedConsolePlugin)
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     await writeConsoleNitroPlugin(plugin, {
+      blobStores,
       catalog: await discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections, serverDirs }),
       kvStores,
       projectRoot,
@@ -527,7 +543,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
-  const consoleSections = resolveConsoleSectionIds(options)
+  const explicitBlob = Boolean(options.blob && typeof options.blob === "object" && ("driver" in options.blob || "stores" in options.blob))
+  const consoleBlobEnabled = Boolean(options.blob) && (plan.services.blob.supported || explicitBlob)
+  const resolvedConsoleBlob = consoleBlobEnabled
+    ? resolveBlobViteConfig(options.blob === true ? undefined : options.blob, { hosting: plan.nitroPreset }).blob
+    : false
+  const consoleBlobStores = resolvedConsoleBlob
+    ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
+    : []
+  const consoleSections = resolveConsoleSectionIds({ ...options, blob: consoleBlobEnabled })
   const configuredConsoleKV = options.kv && options.kv !== true ? options.kv : undefined
   const resolvedConsoleKV = options.kv
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
@@ -551,7 +575,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       development: Boolean(nuxt.options.dev),
       preset: plan.preset,
     })
-    await installConsole(nuxt, projectRoot, viteRoot, consoleSections, consoleKVStores, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined)
+    await installConsole(nuxt, projectRoot, viteRoot, consoleSections, consoleBlobStores, consoleKVStores, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined)
   }
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {

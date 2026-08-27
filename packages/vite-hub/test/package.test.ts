@@ -205,6 +205,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
+      "./console/runtime/server/blob.get",
       "./console/server",
       "./database/drizzle",
       "./nuxt",
@@ -295,6 +296,8 @@ describe("framework package contract", () => {
     const consoleIndexRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/index.vue`, "utf8")
     expect(consoleIndexRoute).toContain("<ConsoleHome")
     expect(consoleIndexRoute).toContain(":sections-base=")
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/blob.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-blob.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true)
@@ -315,10 +318,12 @@ describe("framework package contract", () => {
     const consoleClient = readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.js`, "utf8")
     expect(consoleClient).toContain("ViteHub")
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation")
+    expect(consoleClient).toContain("/blob")
     expect(consoleClient).toContain("/kv")
     expect(consoleClient).toContain("/workflows")
     expect(consoleClient).toContain("/queues")
     expect(consoleClient).toContain("/schedules")
+    expect(consoleClient).toContain("currentRoute.value")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8")).toContain("vitehub-console")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
