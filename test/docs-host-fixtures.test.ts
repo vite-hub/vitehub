@@ -46,7 +46,14 @@ async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.
 }
 
 async function expectDenoLauncherToStart(appRoot: string) {
-  const child = spawn("deno", ["run", "-A", "--unstable-cron", ".output/main.ts"], {
+  const child = spawn("deno", [
+    "run",
+    "--unstable-cron",
+    "--allow-env",
+    "--allow-read=.output",
+    "--allow-net=0.0.0.0:8000",
+    ".output/main.ts",
+  ], {
     cwd: appRoot,
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],

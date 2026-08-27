@@ -403,12 +403,19 @@ export async function finalizeDenoDeploymentOutput(
     await access(applicationEntrySource)
     await mkdir(join(outputDir, "schedule"), { recursive: true })
     await bundleEsmEntry(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"), {
+      external: ["node:*"],
       format: "esm",
       platform: "neutral",
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
-    await cp(applicationEntrySource, join(outputDir, "main.ts"))
+    await bundleEsmEntry(applicationEntrySource, join(outputDir, "main.ts"), {
+      external: ["node:*", "./schedule/*", "./server/*"],
+      format: "esm",
+      platform: "neutral",
+      rootDir: options.rootDir,
+      workingDir: options.rootDir,
+    })
     entrypoint = "main.ts"
   }
   catch (error) {
