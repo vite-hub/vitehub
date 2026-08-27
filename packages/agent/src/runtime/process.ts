@@ -160,10 +160,7 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
 
 async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessResourceSample, "availableMemory" | "parallelism">> {
   const membership = await readFile("/proc/self/cgroup", { encoding: "utf8", signal })
-  const relative = membership
-    .split(/\r?\n/)
-    .map((line) => line.split(":"))
-    .find((parts) => parts[0] === "0")?.[2]
+  const relative = membership.split(/\r?\n/).find((line) => line.startsWith("0::"))?.slice(3)
   if (relative === undefined) throw new Error("cgroup v2 membership is unavailable")
   const mountinfo = await readFile("/proc/self/mountinfo", { encoding: "utf8", signal })
   const root = resolveLinuxCgroupV2Path(mountinfo, relative)

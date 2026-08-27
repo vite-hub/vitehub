@@ -104,12 +104,12 @@ describe("process Agent capacity", () => {
     await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
   })
 
-  it("resolves cgroup files through a namespaced cgroup v2 mount", async () => {
+  it("resolves colon-containing membership paths through a namespaced cgroup v2 mount", async () => {
     vi.mocked(readFile).mockImplementation(async (path) => {
       const value = String(path)
-      if (value === "/proc/self/cgroup") return "0::/tenant.slice/service\n"
+      if (value === "/proc/self/cgroup") return "0::/tenant.slice/foo:bar/service\n"
       if (value === "/proc/self/mountinfo") {
-        return "29 23 0:26 /tenant.slice/service /run/cgroup\\040view rw - cgroup2 cgroup rw\n"
+        return "29 23 0:26 /tenant.slice/foo:bar/service /run/cgroup\\040view rw - cgroup2 cgroup rw\n"
       }
       if (value.endsWith("/memory.current")) return String(resources.memoryCurrent)
       if (value.endsWith("/memory.high")) return String(resources.memoryHigh)
