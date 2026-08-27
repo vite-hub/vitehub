@@ -430,37 +430,43 @@ export async function finalizeProviderDeploymentOutputs(
   if (existing) return await existing
 
   const finalization = (async () => {
-    const contributions = catalog.takeDeploymentContributions()
-    if (!contributions.length) return
     const order = new Map(providerDeploymentOutputOwnerOrder.map((owner, index) => [owner, index]))
-    contributions.sort((left, right) => order.get(left.owner)! - order.get(right.owner)!)
-    const grouped = new Map<string, ProviderDeploymentOutputContribution[]>()
-    for (const contribution of contributions) {
-      const rootDir = resolve(contribution.rootDir)
-      const rootContributions = grouped.get(rootDir) ?? []
-      rootContributions.push(contribution)
-      grouped.set(rootDir, rootContributions)
-    }
     const controller = new AbortController()
     const abort = () => controller.abort(options.signal?.reason)
     if (options.signal?.aborted) abort()
     else options.signal?.addEventListener("abort", abort, { once: true })
     try {
-      await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
-        await withProviderDeploymentOutputRootLock(rootDir, async () => {
-          for (const contribution of rootContributions) {
-            throwIfProviderOutputAborted(controller.signal)
-            try {
-              await contribution.write({ signal: controller.signal, write: writeProviderDeploymentOutputsNow })
+      while (true) {
+        const contributions = catalog.takeDeploymentContributions()
+        if (!contributions.length) return
+        contributions.sort((left, right) => order.get(left.owner)! - order.get(right.owner)!)
+        const grouped = new Map<string, ProviderDeploymentOutputContribution[]>()
+        for (const contribution of contributions) {
+          const rootDir = resolve(contribution.rootDir)
+          const rootContributions = grouped.get(rootDir) ?? []
+          rootContributions.push(contribution)
+          grouped.set(rootDir, rootContributions)
+        }
+        await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
+          await withProviderDeploymentOutputRootLock(rootDir, async () => {
+            for (const contribution of rootContributions) {
+              throwIfProviderOutputAborted(controller.signal)
+              try {
+                await contribution.write({ signal: controller.signal, write: writeProviderDeploymentOutputsNow })
+              }
+              catch (error) {
+                controller.abort(error)
+                throw error
+              }
+              throwIfProviderOutputAborted(controller.signal)
             }
-            catch (error) {
-              controller.abort(error)
-              throw error
-            }
-            throwIfProviderOutputAborted(controller.signal)
-          }
-        })
-      }))
+          })
+        }))
+      }
+    }
+    catch (error) {
+      catalog.resetDeploymentContributions()
+      throw error
     }
     finally {
       options.signal?.removeEventListener("abort", abort)

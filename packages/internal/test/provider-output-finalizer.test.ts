@@ -62,6 +62,36 @@ describe("Provider Output finalizer", () => {
     expect(write).toHaveBeenCalledTimes(2)
   })
 
+  it("drains contributions registered during active finalization", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const writes: string[] = []
+    let releaseFirst!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => {
+        writes.push("agent")
+        await new Promise<void>(resolve => releaseFirst = resolve)
+      },
+    })
+
+    const firstFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(writes).toEqual(["agent"]))
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async () => {
+        writes.push("blob")
+      },
+    })
+    const overlappingFinalization = finalizeProviderDeploymentOutputs(catalog)
+    releaseFirst()
+    await Promise.all([firstFinalization, overlappingFinalization])
+
+    expect(writes).toEqual(["agent", "blob"])
+  })
+
   it("isolates concurrent roots", async () => {
     const first = createProviderOutputCatalog()
     const second = createProviderOutputCatalog()
