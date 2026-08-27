@@ -212,12 +212,11 @@ async function removeStaleMaterializedSourceFiles(
   source: ResolvedWorkspaceSource,
   nextPaths: Set<string>,
   scope: WorkspaceMaterializeSourcesOptions | undefined,
-  options: { removeUntracked?: boolean } = {},
-): Promise<string[]> {
+  options: { onRemoved: (path: string) => void, removeUntracked?: boolean },
+): Promise<void> {
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
-  const removed: string[] = []
   for (const entry of entries) {
     if (!materializationPathMatches(entry.path, scope)) continue
     if (nextPaths.has(entry.path) || entry.type !== "file") continue
@@ -225,7 +224,7 @@ async function removeStaleMaterializedSourceFiles(
     if (options.removeUntracked || file?.metadata?.source === source.key) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
       await store.rm(entry.path, { force: true })
-      removed.push(entry.path)
+      options.onRemoved(entry.path)
     }
   }
   for (const entry of entries.filter(entry => entry.type === "directory" && staleDirectories.has(entry.path) && !nextDirectories.has(entry.path)).sort((a, b) => b.path.length - a.path.length)) {
@@ -234,7 +233,6 @@ async function removeStaleMaterializedSourceFiles(
     }
     catch {}
   }
-  return removed
 }
 
 async function* iterateSourceItems(source: ResolvedWorkspaceSource, ctx: SourceContext): AsyncGenerator<WorkspaceSourceItem> {
@@ -376,8 +374,10 @@ export async function materializeWorkspaceSources(
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
     if (cacheHit) {
       const durationMs = Date.now() - sourceStarted
-      const counts = { ...emptyMaterializationCounts(), unchanged: existing?.files || 0 }
-      const paths = Object.keys(existing?.items || {}).map(path => ({ path, status: "unchanged" as const }))
+      const cachedPaths = Object.keys(existing?.items || {})
+      const cachedFiles = existing?.items ? cachedPaths.length : existing?.files || 0
+      const counts = { ...emptyMaterializationCounts(), unchanged: cachedFiles }
+      const paths = cachedPaths.map(path => ({ path, status: "unchanged" as const }))
       const reportedPaths = materializationPaths(options, paths)
       const ready = {
         cacheStatus,
@@ -390,18 +390,18 @@ export async function materializeWorkspaceSources(
         status: "ready",
         revision: existing?.revision,
         materializedAt: existing?.materializedAt,
-        files: existing?.files,
+        files: cachedFiles,
         bytes: existing?.bytes,
       } satisfies WorkspaceSourceMaterializationStatus
       resultSources.push(ready)
-      files += existing?.files || 0
+      files += cachedFiles
       bytes += existing?.bytes || 0
       await reportMaterializationProgress(options, source, {
         bytes: existing?.bytes || 0,
         cacheStatus,
         counts: { ...counts },
         durationMs,
-        files: existing?.files || 0,
+        files: cachedFiles,
         revision: existing?.revision,
         status: "completed",
       })
@@ -503,9 +503,13 @@ export async function materializeWorkspaceSources(
         }
       }
       throwIfAborted(options.abortSignal)
-      const removedPaths = await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, { removeUntracked: Boolean(source.mountPath) })
-      counts.removed += removedPaths.length
-      paths.push(...removedPaths.map(path => ({ path, status: "removed" as const })))
+      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, {
+        onRemoved(path) {
+          counts.removed++
+          paths.push({ path, status: "removed" })
+        },
+        removeUntracked: Boolean(source.mountPath),
+      })
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []

@@ -521,6 +521,93 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledOnce()
   })
 
+  it("keeps full cache-hit aggregates after scoped materialization", async () => {
+    const files = new Map([["a.md", "# A\n"]])
+    const view = createWorkspaceSourceView({
+      name: "materialization-scoped-cache",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return [...files.keys()]
+          },
+          async getItem(key) {
+            return { key, path: key, content: files.get(key) || "" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    files.set("b.md", "# B\n")
+    await view.materializeSources({ path: "docs/b.md", sources: ["docs"] })
+
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      files: 2,
+      sources: [{
+        cacheStatus: "hit",
+        counts: { added: 0, removed: 0, unchanged: 2, updated: 0 },
+        files: 2,
+        paths: [
+          { path: "docs/a.md", status: "unchanged" },
+          { path: "docs/b.md", status: "unchanged" },
+        ],
+      }],
+    })
+  })
+
+  it("reports completed removals before a later cleanup failure", async () => {
+    let files = ["a.md", "b.md", "c.md"]
+    const progress: unknown[] = []
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-removal-failure",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return files
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    files = ["c.md"]
+    const remove = store.rm.bind(store)
+    store.rm = vi.fn(async (path, options) => {
+      if (path === "docs/b.md") throw new Error("remove failed")
+      await remove(path, options)
+    })
+
+    const result = await view.materializeSources({
+      details: "paths",
+      onProgress(event) {
+        progress.push(event)
+      },
+      sources: ["docs"],
+    })
+
+    expect(result.sources[0]).toMatchObject({
+      counts: { added: 0, removed: 1, unchanged: 1, updated: 0 },
+      error: "remove failed",
+      paths: expect.arrayContaining([{ path: "docs/a.md", status: "removed" }]),
+      status: "error",
+    })
+    expect(progress.at(-1)).toMatchObject({
+      counts: { added: 0, removed: 1, unchanged: 1, updated: 0 },
+      error: "remove failed",
+      status: "failed",
+    })
+    await expect(store.stat("docs/a.md")).resolves.toBeUndefined()
+    await expect(store.stat("docs/b.md")).resolves.toMatchObject({ type: "file" })
+  })
+
   it("compares bulk source contents when reporting file deltas", async () => {
     let content = "# Same\n"
     const view = createWorkspaceSourceView({
