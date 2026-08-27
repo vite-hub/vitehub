@@ -3722,6 +3722,31 @@ function resultWithPreservedProperties(result: unknown, descriptors: PropertyDes
   return cloneWithPropertyDescriptors(result, descriptors)
 }
 
+function definedObjectProperties(value: unknown): Record<string, unknown> {
+  if (!value || !hasRuntimeType(value, "object")) return {}
+  return Object.fromEntries(Object.entries(value).filter(([, property]) => property !== undefined))
+}
+
+function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
+  if (!value || !hasRuntimeType(value, "object") || hasRuntimeType(Reflect.get(value, "then"), "function")) return undefined
+  const usage: Record<string, unknown> = { ...definedObjectProperties(value) }
+  for (const key of ["details", "inputTokenDetails", "inputTokens", "outputTokenDetails", "outputTokens", "raw", "totalTokens"] as const) {
+    if (usage[key] !== undefined || !Reflect.has(value, key)) continue
+    try {
+      const property = Reflect.get(value, key)
+      if (property !== undefined) usage[key] = property
+    }
+    catch {
+      // Ignore provider getters that cannot be read during usage normalization.
+    }
+  }
+  return usage as AgentUsage
+}
+
+function mergedDefinedObjects(...values: unknown[]): Record<string, unknown> {
+  return Object.assign({}, ...values.map(definedObjectProperties))
+}
+
 function resultWithStreamedTextAndUsage(
   result: unknown,
   text: string,
@@ -3731,40 +3756,28 @@ function resultWithStreamedTextAndUsage(
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
-    const normalizedUsage = normalized.usage
-      && hasRuntimeType(normalized.usage, "object")
-      && !hasRuntimeType(Reflect.get(normalized.usage, "then"), "function")
-      ? normalized.usage as AgentUsage
-      : undefined
+    const normalizedUsage = normalizedAgentUsage(normalized.usage)
     const mergedUsage = normalized.usageRecord?.usage || normalizedUsage || streamedUsageRecord?.usage
       ? {
-          ...streamedUsageRecord?.usage,
-          ...normalized.usageRecord?.usage,
-          ...normalizedUsage,
+          ...mergedDefinedObjects(streamedUsageRecord?.usage, normalized.usageRecord?.usage, normalizedUsage),
           ...((streamedUsageRecord?.usage?.details || normalized.usageRecord?.usage?.details || normalizedUsage?.details)
             ? {
                 details: {
-                  ...streamedUsageRecord?.usage?.details,
-                  ...normalized.usageRecord?.usage?.details,
-                  ...normalizedUsage?.details,
+                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.details, normalized.usageRecord?.usage?.details, normalizedUsage?.details),
                 },
               }
             : {}),
           ...((streamedUsageRecord?.usage?.inputTokenDetails || normalized.usageRecord?.usage?.inputTokenDetails || normalizedUsage?.inputTokenDetails)
             ? {
                 inputTokenDetails: {
-                  ...streamedUsageRecord?.usage?.inputTokenDetails,
-                  ...normalized.usageRecord?.usage?.inputTokenDetails,
-                  ...normalizedUsage?.inputTokenDetails,
+                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.inputTokenDetails, normalized.usageRecord?.usage?.inputTokenDetails, normalizedUsage?.inputTokenDetails),
                 },
               }
             : {}),
           ...((streamedUsageRecord?.usage?.outputTokenDetails || normalized.usageRecord?.usage?.outputTokenDetails || normalizedUsage?.outputTokenDetails)
             ? {
                 outputTokenDetails: {
-                  ...streamedUsageRecord?.usage?.outputTokenDetails,
-                  ...normalized.usageRecord?.usage?.outputTokenDetails,
-                  ...normalizedUsage?.outputTokenDetails,
+                  ...mergedDefinedObjects(streamedUsageRecord?.usage?.outputTokenDetails, normalized.usageRecord?.usage?.outputTokenDetails, normalizedUsage?.outputTokenDetails),
                 },
               }
             : {}),
@@ -3772,8 +3785,13 @@ function resultWithStreamedTextAndUsage(
       : undefined
     const mergedUsageRecord = normalized.usageRecord || streamedUsageRecord
       ? {
-          ...streamedUsageRecord,
-          ...normalized.usageRecord,
+          ...mergedDefinedObjects(streamedUsageRecord, normalized.usageRecord),
+          ...(["credentialSource", "latency", "response", "run"] as const).reduce<Record<string, unknown>>((properties, key) => {
+            if (streamedUsageRecord?.[key] || normalized.usageRecord?.[key]) {
+              properties[key] = mergedDefinedObjects(streamedUsageRecord?.[key], normalized.usageRecord?.[key])
+            }
+            return properties
+          }, {}),
           ...(mergedUsage ? { usage: mergedUsage } : {}),
         }
       : undefined

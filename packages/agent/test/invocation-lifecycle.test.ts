@@ -388,6 +388,7 @@ describe("Agent Invocation Interface lifecycle", () => {
         type: "usage",
         usageRecord: {
           model: "provider/model",
+          response: { finishReason: "stop" },
           usage: {
             details: { streamed: 4 },
             inputTokenDetails: { cacheWriteTokens: 3 },
@@ -399,6 +400,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       }
     })(), {
       usageRecord: {
+        response: { id: "response-id" },
         usage: {
           details: { existing: 1 },
           inputTokenDetails: { cachedTokens: 2 },
@@ -429,7 +431,43 @@ describe("Agent Invocation Interface lifecycle", () => {
       result: {
         raw,
         usage,
-        usageRecord: { model: "provider/model", usage },
+        usageRecord: {
+          model: "provider/model",
+          response: { finishReason: "stop", id: "response-id" },
+          usage,
+        },
+      },
+    })
+  })
+
+  it("normalizes inherited usage and ignores undefined existing counters", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class Usage {
+      get inputTokens() {
+        return undefined
+      }
+
+      get outputTokens() {
+        return 3
+      }
+    }
+    const raw = Object.assign((async function* () {
+      yield { type: "usage", usageRecord: { usage: { inputTokens: 2, totalTokens: 5 } } }
+    })(), { usage: new Usage() })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        raw,
+        usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
       },
     })
   })
