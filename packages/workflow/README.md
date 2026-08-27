@@ -162,21 +162,21 @@ interface OnboardPayload {
   email: string;
 }
 
-async function createUserStep(email: string) {
+async function upsertUserStep(email: string) {
   "use step";
 
-  return await createUser(email);
+  return await upsertUser(email, { idempotencyKey: `onboard-user:${email}` });
 }
 
 async function durableOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
   "use workflow";
 
-  const user = await createUserStep(payload.email);
+  const user = await upsertUserStep(payload.email);
   return { userId: user.id };
 }
 
 async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
-  const user = await createUser(payload.email);
+  const user = await upsertUser(payload.email, { idempotencyKey: `onboard-user:${payload.email}` });
   return { userId: user.id };
 }
 
