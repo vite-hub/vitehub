@@ -462,6 +462,16 @@ describe("@vite-hub/runtime", () => {
     expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
   })
 
+  it("accepts unsupported values in ordinary trace attributes", async () => {
+    const callback = () => "ok"
+    const log = createTraceEventLog()
+
+    await expect(log.append({ attributes: { callback }, name: "custom.event", type: "lifecycle" })).resolves.toMatchObject({
+      attributes: { callback },
+    })
+    expect(log.entries()[0]?.attributes?.callback).toBe(callback)
+  })
+
   it("falls back to private when a public payload contains shared memory", async () => {
     const log = createTraceEventLog()
     const buffer = new SharedArrayBuffer(1)

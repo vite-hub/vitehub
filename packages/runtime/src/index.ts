@@ -556,7 +556,11 @@ export async function emitTraceEvent<TContext extends RuntimeHostContext<any>>(
 export function createTraceEventLog(options: TraceEventLogOptions = {}): TraceEventLog {
   const content = options.content || "metadata"
   const entries: TraceEventLogEntry[] = []
-  const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => structuredClone(entry)
+  const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => ({
+    ...entry,
+    ...(entry.activity ? { activity: structuredClone(entry.activity) } : {}),
+    ...(entry.payload ? { payload: structuredClone(entry.payload) } : {}),
+  })
   return {
     async append(event) {
       const entry = normalizeTraceEvent(event, entries.length + 1, content)

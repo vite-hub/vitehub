@@ -419,6 +419,12 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
   if (payloadBudget.truncated) budget.truncated = true
   if (budget.truncated) {
     attributes ||= {}
+    if (Object.keys(attributes).length >= MAX_OBSERVATION_ATTRIBUTES) {
+      const lastOrdinaryAttribute = Object.keys(attributes)
+        .filter(key => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+        .at(-1)
+      if (lastOrdinaryAttribute) delete attributes[lastOrdinaryAttribute]
+    }
     if (observation.name === "vitehub.agent.configured") {
       attributes["vitehub.agent.configurationTruncated"] = true
     }
@@ -749,6 +755,7 @@ function journalTraceLog(
       }
       try {
         const safeEntry = await safeEntryPromise
+        safeEntry.timestamp = entry.timestamp
         if (content === "metadata" && safeEntry.attributes) {
           const omitted = Array.isArray(safeEntry.attributes["content.omitted"])
             ? safeEntry.attributes["content.omitted"].filter(key => !metadataContent.has(String(key)))

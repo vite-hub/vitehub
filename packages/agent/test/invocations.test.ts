@@ -229,6 +229,20 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
   })
 
+  it("reserves the observation attribute limit for the truncation marker", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-attribute-count"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const attributes = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`key-${index}`, index]))
+    await journal.context.traceLog?.append({ attributes, name: "tool.finish", type: "run" })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-attribute-count"))?.observations
+      .find(entry => entry.name === "tool.finish")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(Object.keys(observation?.attributes || {})).toHaveLength(32)
+  })
+
   it("bounds public trace payloads before persisting invocation observations", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-public-payload"))
@@ -408,6 +422,26 @@ describe("Agent Invocations", () => {
     const observation = (await invocations.getByRunId("payload-snapshot"))?.observations
       .find(entry => entry.name === "workspace.snapshot")
     expect(observation?.payload).toEqual({ value: { message: "original" }, visibility: "public" })
+  })
+
+  it("uses the wrapped trace log timestamp for the persisted observation", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const wrappedTimestamp = "2000-01-01T00:00:00.000Z"
+    const traceLog = {
+      append: vi.fn(async event => ({ ...event, sequence: 1, timestamp: wrappedTimestamp })),
+      entries: () => [],
+    }
+    const journal = await bindAgentInvocations(invocations, { ...runtime("wrapped-timestamp"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+
+    const entry = await journal.context.traceLog?.append({ name: "custom.event", type: "run" })
+
+    expect(entry?.timestamp).toBe(wrappedTimestamp)
+    await vi.waitFor(async () => {
+      const observation = (await invocations.getByRunId("wrapped-timestamp"))?.observations
+        .find(item => item.name === "custom.event")
+      expect(observation?.timestamp).toBe(wrappedTimestamp)
+    })
   })
 
   it("bounds large structured public payload values before persistence", async () => {
