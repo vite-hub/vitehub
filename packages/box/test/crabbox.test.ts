@@ -280,6 +280,7 @@ describe("createCrabboxRuntime", () => {
     }, {})).rejects.toThrow("Box requirements must be non-empty commands");
     await expect(resolveBox({
       runtime: createCrabboxRuntime(),
+      // SAFETY: this deliberately supplies an invalid runtime value to exercise validation.
       requires: [null as never],
       cwd: workspace,
     }, {})).rejects.toThrow("Box requirements must be commands or direct command checks");
@@ -523,6 +524,7 @@ describe("createCrabboxRuntime", () => {
           }
         }
         expect(failure).toBeInstanceOf(Error);
+        // SAFETY: the preceding assertion verifies the captured value is an Error.
         expect((failure as Error).message).toContain("Crabbox state lease was lost");
         await expect(session.destroy?.()).rejects.toThrow("Crabbox state lease was lost");
       },
@@ -932,6 +934,7 @@ describe("createCrabboxRuntime", () => {
             cwd: workspace,
       }, {})
       const sandbox = boxProvider(box)
+      // SAFETY: this test configures a failing requirement, so session creation rejects with Error.
       const failure = await sandbox.createSession().catch((error: unknown) => error as Error) as Error
       expect(failure.message).toContain('Box requirement "GitHub CLI" failed: exit code 1')
       expect(failure.message).toContain("token=[redacted] not logged in")
