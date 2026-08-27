@@ -64,7 +64,7 @@ const optionalAgentRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
+const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
 const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp"]
 const optionalNetlifyAgentBundleExternals = [
   "@t3tools/provider-runtime",
@@ -715,9 +715,11 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
     : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
   nitro.externals = externals
   nitro.rollupConfig ||= {}
+  // SAFETY: Nitro forwards this field to Rolldown, whose external option accepts the shared Rollup shape.
+  const existingExternal = nitro.rollupConfig.external as RollupExternalOption | undefined
   nitro.rollupConfig.external = mergeRollupExternals(
-    nitro.rollupConfig.external as RollupExternalOption | undefined,
-    nitroAgentRuntimeExternals,
+    existingExternal,
+    agentRuntimeExternals,
   )
   return nitro
 }
@@ -2881,7 +2883,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (agent !== undefined) result.agent = agent
       if (nitroHandlers.length) {
         // SAFETY: Vite's build options accept the Rolldown external field merged by this boundary.
-        result.build = mergeBuildExternal(config as BuildWithRolldownOptions, optionalAgentRuntimeExternals)
+        result.build = mergeBuildExternal(config as BuildWithRolldownOptions, agentRuntimeExternals)
       }
       if (nitroContext || nitroHandlers.length || installCloudflareState || installProcessDiscordGateway) {
         result.nitro = mergedNitro

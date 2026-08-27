@@ -42,7 +42,7 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     throw error
   }
 
-  const packages = typeof options.packages === "function" ? await options.packages() : options.packages
+  const packages = Array.isArray(options.packages) ? options.packages : await options.packages()
   if (!packages.length) return
 
   await copyNodeRuntimePackages({

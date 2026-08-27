@@ -53,7 +53,7 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
 }
 
 const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
-const nitroAgentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
+const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
@@ -996,8 +996,8 @@ describe("agent Vite plugin", () => {
       expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledOnce()
       const call = vi.mocked(copyVercelFunctionRuntimePackages).mock.calls[0]?.[0]
       expect(call?.rootDir).toBe(root)
-      expect(typeof call?.packages).toBe("function")
-      const packages = typeof call?.packages === "function" ? await call.packages() : call?.packages
+      if (!call || Array.isArray(call.packages)) throw new Error("Expected deferred Vercel runtime packages.")
+      const packages = await call.packages()
       expect(resolveProviderRuntimePackages).toHaveBeenCalledWith({ rootDir: root })
       expect(packages).toEqual([
         { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
@@ -1248,7 +1248,7 @@ describe("agent Vite plugin", () => {
           inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
         },
         rollupConfig: {
-          external: nitroAgentRuntimeExternals,
+          external: agentRuntimeExternals,
         },
         replace: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),
@@ -1303,6 +1303,7 @@ describe("agent Vite plugin", () => {
     if (!platformPackage) throw new Error(`Unsupported test platform ${process.platform}/${process.arch}.`)
     const nitroRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-nitro-"))
     const root = join(nitroRoot, "app")
+    // SAFETY: Node's process report exposes its runtime header, but its public return type is intentionally broad.
     const runtimeReport = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined
     const runtimeGlibc = runtimeReport?.header?.glibcVersionRuntime
     const claudePlatformPackage = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${process.platform === "linux" && !runtimeGlibc ? "-musl" : ""}`
@@ -1808,7 +1809,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig?.plugins?.some((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
       rolldownOptions: {
-        external: ["existing", ...optionalAgentRuntimeExternals],
+        external: ["existing", ...agentRuntimeExternals],
         input: "legacy-entry",
       },
     })
@@ -1991,7 +1992,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.cloudflare).toBeUndefined()
     expect(output.nitro?.rollupConfig).toBeUndefined()
     expect(output.build).toEqual({
-      rolldownOptions: { external: optionalAgentRuntimeExternals },
+      rolldownOptions: { external: agentRuntimeExternals },
     })
   })
 
