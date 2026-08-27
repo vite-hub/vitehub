@@ -49,7 +49,7 @@
     "./runtime/virtual-databases": "./dist/runtime/virtual-databases.js",
     "./runtime/virtual-schema": "./dist/runtime/virtual-schema.js",
     "./virtual": {
-      "types": "./dist/virtual-module.d.ts",
+      "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js"
     },
     "./vite": "./dist/vite.js",

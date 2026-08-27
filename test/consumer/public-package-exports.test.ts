@@ -266,21 +266,24 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
     && isJavaScriptModule(contract.target)
     && (includeOptionalPeers || contract.optionalPeers.length === 0),
   )
-  const cloudflareModules = modules.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
-  const ordinaryModules = modules.filter(contract => !cloudflareModules.includes(contract))
-
-  await typecheckPackageModuleGroup(packageName, packageRoot, runnerDir, ordinaryModules, "", false)
-  if (cloudflareModules.length) {
-    await typecheckPackageModuleGroup(packageName, packageRoot, runnerDir, cloudflareModules, "-cloudflare", true)
+  for (const [index, contract] of modules.entries()) {
+    await typecheckPackageModule(
+      packageName,
+      packageRoot,
+      runnerDir,
+      contract,
+      index,
+      contract.specifier.endsWith("/cloudflare/state"),
+    )
   }
 }
 
-async function typecheckPackageModuleGroup(
+async function typecheckPackageModule(
   packageName: string,
   packageRoot: string,
   runnerDir: string,
-  modules: readonly (typeof publicPackageExportContracts)[number][],
-  suffix: string,
+  contract: (typeof publicPackageExportContracts)[number],
+  index: number,
   withCloudflareHost: boolean,
 ) {
   const ambientModules: Record<string, readonly string[]> = {
@@ -289,20 +292,19 @@ async function typecheckPackageModuleGroup(
     "@vite-hub/env": ["#vitehub/env/public", "#vitehub/env/server"],
     "@vite-hub/kv": ["#vitehub/kv/config"],
   }
-  const ambientModuleSpecifiers = ambientModules[packageName] || []
+  const ambientModuleSpecifiers = contract.specifier === `${packageName}/virtual`
+    ? ambientModules[packageName] || []
+    : []
   const source = [
-    ...modules.map((contract, index) => [
-      `import type * as Export${index} from ${JSON.stringify(contract.specifier)}`,
-      `type Contract${index} = typeof Export${index}`,
-      `declare const contract${index}: Contract${index}`,
-      `void contract${index}`,
-    ].join("\n")),
-    ...ambientModuleSpecifiers.map((specifier, index) => [
-      `import type * as AmbientModule${index} from ${JSON.stringify(specifier)}`,
-      `void (undefined as unknown as typeof AmbientModule${index})`,
+    `import type * as PackageExport from ${JSON.stringify(contract.specifier)}`,
+    "declare const packageExport: typeof PackageExport",
+    "void packageExport",
+    ...ambientModuleSpecifiers.map((specifier, ambientIndex) => [
+      `import type * as AmbientModule${ambientIndex} from ${JSON.stringify(specifier)}`,
+      `void (undefined as unknown as typeof AmbientModule${ambientIndex})`,
     ].join("\n")),
   ].join("\n")
-  const sourcePath = join(runnerDir, `exports${suffix}.ts`)
+  const sourcePath = join(runnerDir, `export-${index}.ts`)
   await writeFile(sourcePath, `${source}\n`, "utf8")
   const rootNames = [sourcePath]
   let hostTypesPath: string | undefined
@@ -322,7 +324,12 @@ async function typecheckPackageModuleGroup(
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
-    paths: hostTypesPath ? { "cloudflare:workers": [hostTypesPath] } : undefined,
+    paths: {
+      ...(packageName === "@vite-hub/agent"
+        ? { "json-schema": [resolve(packageRoot, "node_modules/@types/json-schema/index.d.ts")] }
+        : {}),
+      ...(hostTypesPath ? { "cloudflare:workers": [hostTypesPath] } : {}),
+    },
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,

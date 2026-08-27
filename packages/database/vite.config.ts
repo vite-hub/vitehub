@@ -12,6 +12,15 @@ export default defineConfig({
       neverBundle: ["vite", "esbuild", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
       onlyBundle: false,
     },
+    plugins: [{
+      name: "database-virtual-declarations",
+      generateBundle(_options, bundle) {
+        const chunk = bundle["virtual.d.ts"]
+        if (chunk?.type === "chunk") {
+          chunk.code = `/// <reference path="./virtual-module.d.ts" />\n${chunk.code}`
+        }
+      },
+    }],
     entry: [
       "src/index.ts",
       "src/cli.ts",
