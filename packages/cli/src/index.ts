@@ -37,8 +37,12 @@ interface ViteHubCliStreams {
 
 interface ViteHubCliStream {
   flush?: () => unknown
-  write: (chunk: string | Uint8Array, callback?: () => void) => unknown
+  write: (chunk: string | Uint8Array) => unknown
 }
+
+type ViteHubCliEntrypointStream =
+  | { flush: () => unknown, write: (chunk: string | Uint8Array) => unknown }
+  | { flush?: never, write: (chunk: string | Uint8Array) => void | PromiseLike<unknown> }
 
 interface ViteHubCliLoadedConfig {
   plugins: readonly unknown[]
@@ -55,6 +59,11 @@ export interface RunViteHubCliOptions {
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
+}
+
+export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOptions, "stderr" | "stdout"> {
+  stderr?: ViteHubCliEntrypointStream
+  stdout?: ViteHubCliEntrypointStream
 }
 
 async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
@@ -237,16 +246,20 @@ function trackStream(stream: ViteHubCliStream) {
       if (stream.flush) {
         await stream.flush()
       }
-      else if (stream === process.stdout || stream === process.stderr) {
-        await new Promise<void>(resolveFlush => stream.write("", resolveFlush))
-      }
     },
   }
 }
 
-export function runViteHubCliEntrypoint(options: RunViteHubCliOptions = {}): void {
-  const stderr = trackStream(options.stderr || process.stderr)
-  const stdout = trackStream(options.stdout || process.stdout)
+function processEntrypointStream(stream: NodeJS.WriteStream): ViteHubCliEntrypointStream {
+  return {
+    flush: () => new Promise<void>(resolveFlush => stream.write("", () => resolveFlush())),
+    write: chunk => stream.write(chunk),
+  }
+}
+
+export function runViteHubCliEntrypoint(options: RunViteHubCliEntrypointOptions = {}): void {
+  const stderr = trackStream(options.stderr || processEntrypointStream(process.stderr))
+  const stdout = trackStream(options.stdout || processEntrypointStream(process.stdout))
   void (async () => {
     let exitCode: number
     try {

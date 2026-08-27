@@ -40,7 +40,6 @@ function stream() {
     output: () => value,
     write(chunk: string | Uint8Array) {
       value += String(chunk)
-      return true
     },
   }
 }
