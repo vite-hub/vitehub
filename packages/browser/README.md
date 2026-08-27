@@ -55,7 +55,7 @@ Calling `checkExampleDomain()` through a server route, Queue, or Workflow return
 { "found": true }
 ```
 
-This example uses a fixed public URL. If a request supplies the destination, validate the protocol and allow-list the hosts before starting browser work. A browser can send requests to every destination its provider can reach, and the returned page is untrusted input.
+This example uses a fixed public URL. If a request supplies the destination, validate the protocol and allow-list the hosts before starting browser work. Enforce the same policy after every redirect and for every resolved IP address, or restrict browser egress at the provider or network boundary. A browser can send requests to every destination its provider can reach, and the returned page is untrusted input.
 
 ViteHub writes the Cloudflare Browser binding and required compatibility fields to generated Provider Output. The action runs only where that binding is available. For local Wrangler development that must call the hosted Browser Run service, configure `browser: { remote: true }`. This uses a Cloudflare account and network access; it does not switch Browser Definitions to the local Chromium provider.
 
