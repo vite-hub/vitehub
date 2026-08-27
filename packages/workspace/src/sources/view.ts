@@ -57,10 +57,20 @@ interface PendingMaterialization {
 interface MaterializationState {
   completedSources: Set<string>
   generationBySource: Map<string, number>
+  materializedSources: Set<string>
   pendingBySource: Map<string, PendingMaterialization>
 }
 
 const materializationByStore = new WeakMap<WorkspaceStore, WeakMap<WorkspaceDefinition, MaterializationState>>()
+const invalidateMaterialization = Symbol.for("vitehub.workspace.invalidateSourceMaterialization")
+
+type InvalidatableWorkspaceStore = WorkspaceStore & {
+  [invalidateMaterialization]?: (definition: WorkspaceDefinition, sourceKeys: Iterable<string>) => void
+}
+
+export function invalidateWorkspaceSourceMaterialization(definition: WorkspaceDefinition, store: WorkspaceStore, sourceKeys: Iterable<string>): void {
+  ;(store as InvalidatableWorkspaceStore)[invalidateMaterialization]?.(definition, sourceKeys)
+}
 
 async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await pending
@@ -88,20 +98,28 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
-  const materializedSources = new Set<string>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   let materializationByDefinition = materializationByStore.get(store)
   if (!materializationByDefinition) {
     materializationByDefinition = new WeakMap()
     materializationByStore.set(store, materializationByDefinition)
+    ;(store as InvalidatableWorkspaceStore)[invalidateMaterialization] = (targetDefinition, sourceKeys) => {
+      const state = materializationByStore.get(store)?.get(targetDefinition)
+      if (!state) return
+      for (const sourceKey of sourceKeys) {
+        state.completedSources.delete(sourceKey)
+        state.materializedSources.delete(sourceKey)
+      }
+    }
   }
   const materializationState = materializationByDefinition.get(definition) ?? {
     completedSources: new Set<string>(),
     generationBySource: new Map<string, number>(),
+    materializedSources: new Set<string>(),
     pendingBySource: new Map<string, PendingMaterialization>(),
   }
   if (!materializationByDefinition.has(definition)) materializationByDefinition.set(definition, materializationState)
-  const { completedSources, generationBySource, pendingBySource } = materializationState
+  const { completedSources, generationBySource, materializedSources, pendingBySource } = materializationState
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)

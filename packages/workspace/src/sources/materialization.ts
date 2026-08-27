@@ -540,7 +540,12 @@ async function writeMaterializedFile(
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
-      return control ? await control.mutate(write) : await write()
+      // Native streaming writes may not cooperate with cancellation. Do not keep
+      // the Source coordinator blocked on an abandoned provider operation; the
+      // generation check below still prevents it from publishing readiness.
+      const result = await write()
+      if (control && !control.isCurrent()) throw workspaceError("[vitehub] Workspace source materialization was superseded.")
+      return result
     }
     const content = await contentStreamToBytes(file.contentStream)
     if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))

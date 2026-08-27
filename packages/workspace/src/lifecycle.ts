@@ -5,6 +5,7 @@ import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { sourceSnapshotMetaKey } from "./sources/materialization.ts"
+import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
@@ -110,7 +111,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const buildSources = sources
     .filter(source => source.materialize === "build")
   const startupSources = sources.filter(source => source.materialize === "startup")
-  const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources, startupSources, abortSignal)
+  const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
   const bundledBuildSources = !hasExplicitLoaders
     ? await syncRuntimeBuildAssets(definition, store, buildSources, abortSignal)
@@ -147,7 +148,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
 }
 
-async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
+async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
   abortSignal?.throwIfAborted()
   const previousSources = await readSyncedBuildSources(store)
   abortSignal?.throwIfAborted()
@@ -159,17 +160,21 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
 
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
+    const affected = startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))
+    invalidateWorkspaceSourceMaterialization(definition, store, affected.map(source => source.key))
+    for (const source of affected) await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
+    abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
-    abortSignal?.throwIfAborted()
-  }
-  for (const source of startupSources.filter(source => resetPaths.some(path => sourceMountIntersectsPath(source, path)))) {
-    abortSignal?.throwIfAborted()
-    await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
     abortSignal?.throwIfAborted()
   }
   for (const source of [...previousSources, ...currentSources].filter(source => !source.mountPath)) {
     abortSignal?.throwIfAborted()
-    await removeRootBuildSourceFiles(store, source)
+    const removedPaths = await rootBuildSourceFilePaths(store, source)
+    const affected = startupSources.filter(startup => removedPaths.some(path => sourceMountIntersectsPath(startup, path)))
+    invalidateWorkspaceSourceMaterialization(definition, store, affected.map(startup => startup.key))
+    for (const startup of affected) await store.setMeta?.(sourceSnapshotMetaKey(startup.key), {})
+    abortSignal?.throwIfAborted()
+    await removeRootBuildSourceFiles(store, removedPaths)
     abortSignal?.throwIfAborted()
   }
 
@@ -283,11 +288,15 @@ async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuil
   return value.filter(isSyncedBuildSource)
 }
 
-async function removeRootBuildSourceFiles(store: WorkspaceStore, source: SyncedBuildSource) {
+async function rootBuildSourceFilePaths(store: WorkspaceStore, source: SyncedBuildSource) {
   const entries = await store.list("", { recursive: true })
-  await Promise.all(entries
+  return entries
     .filter(entry => entry.type === "file" && entry.metadata?.source === source.key)
-    .map(entry => store.rm(entry.path, { force: true })))
+    .map(entry => entry.path)
+}
+
+async function removeRootBuildSourceFiles(store: WorkspaceStore, paths: string[]) {
+  await Promise.all(paths.map(path => store.rm(path, { force: true })))
 }
 
 function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
