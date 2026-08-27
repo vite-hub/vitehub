@@ -2,7 +2,7 @@ import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
 import { chatTriggerUserMeta, hasDerivedChatTriggerInvoker, markDerivedChatTriggerInvoker } from "../chat-message-input.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
-import { normalizeAgentInvoker } from "../invoker.ts"
+import { normalizeAgentInvoker, withoutResolvedAgentInvokerInput } from "../invoker.ts"
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
@@ -75,7 +75,9 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
   if (!state) return input
   if (state.derivedInvoker) markDerivedChatTriggerInvoker(input.context?.invoker)
   const receipt = parsedAgentMessageMetaReceipt(definition, createAgentInvocationContextStore(input.context), run)
-  if (!receipt || state.revision === undefined || receipt.revision !== state.revision) return input
+  if (!receipt || state.revision === undefined || receipt.revision !== state.revision) {
+    return state.derivedInvoker ? withoutResolvedAgentInvokerInput(input) : input
+  }
   return {
     ...input,
     context: { ...input.context, [parsedAgentMessageMetaContextKey]: receipt },

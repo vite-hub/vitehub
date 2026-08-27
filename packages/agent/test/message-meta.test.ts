@@ -265,9 +265,19 @@ describe("Agent message metadata", () => {
     }).input
     const prepared = await withParsedAgentMessageMeta(previousAgent, input)
     const state = parsedAgentMessageMetaState(previousAgent, prepared)
-    const portable = await portableAgentWorkflowInput(prepared)
+    const portable = await portableAgentWorkflowInput(withResolvedAgentInvokerInput(prepared, prepared.context!.invoker!))
+    let observed: unknown
     const currentAgent = defineAgent({
-      driver: { run: () => "ok" },
+      driver: { run: ({ context }) => {
+        observed = { channel: context.get("channel"), invoker: context.get("invoker") }
+        return "ok"
+      } },
+      invoker: {
+        resolve: ({ defaultInvoker }) => ({
+          ...defaultInvoker,
+          id: `audience:${defaultInvoker.meta?.audience}`,
+        }),
+      },
       messages: {
         meta: {
           "~standard": {
@@ -280,20 +290,20 @@ describe("Agent message metadata", () => {
       },
     })
     const restored = restoreParsedAgentMessageMeta(currentAgent, portable, undefined, state)
-    const context = createAgentInvocationContextStore(restored.context)
-
-    await parseAgentMessageMeta(currentAgent, context)
+    await runAgentInline(currentAgent, runtime(), restored)
 
     expect(state).toEqual({ derivedInvoker: true, revision: "test-v1" })
-    expect(context.get("channel")).toEqual({
-      message: { parts: [{ text: "hello", type: "text" }], role: "user" },
-      meta: { audience: "current" },
-      user: { id: "chat:user-1" },
-    })
-    expect(context.get("invoker")).toEqual({
-      id: "chat:user-1",
-      kind: "chat",
-      meta: { audience: "current", id: "chat:user-1" },
+    expect(observed).toEqual({
+      channel: {
+        message: { text: "hello" },
+        meta: { audience: "current" },
+        user: { id: "chat:user-1" },
+      },
+      invoker: {
+        id: "audience:current",
+        kind: "chat",
+        meta: { audience: "current", id: "chat:user-1" },
+      },
     })
   })
 
