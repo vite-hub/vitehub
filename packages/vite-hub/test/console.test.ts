@@ -44,6 +44,7 @@ import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandler from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
+import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
@@ -468,6 +469,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
         "/api/_vitehub/console/search",
+        "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
       ])
@@ -1915,6 +1917,86 @@ describe("Agent invocation console", () => {
     } while (cursor)
 
     expect([...new Set(ids)]).toEqual(["pending-3", "completed-1", "pending-2", "completed-0"])
+  })
+
+  it("summarizes recorded usage without requiring the Usage Capability", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName: "review",
+      completedAt: "2026-08-27T10:00:00.000Z",
+      createdAt: "2026-08-27T09:59:00.000Z",
+      id: "usage-invocation",
+      observations: [{
+        attributes: {
+          "usage.record": {
+            calls: [
+              {
+                cost: { display: "$0.01", estimated: false, source: "provider", usd: "0.01" },
+                model: "model-a",
+                usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+              },
+              {
+                cost: { display: "$0.02", estimated: true, source: "estimated", usd: "0.02" },
+                model: "model-b",
+                usage: { inputTokens: 8, outputTokens: 7, totalTokens: 15 },
+              },
+            ],
+          },
+        },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-27T10:00:00.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      traceId: "trace-usage",
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    })
+    store.create({
+      completedAt: "2026-08-28T10:00:00.000Z",
+      createdAt: "2026-08-28T10:00:00.000Z",
+      id: "future-usage",
+      observations: [{
+        attributes: { "usage.record": { usage: { totalTokens: 999 } } },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-28T10:00:00.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      traceId: "trace-future-usage",
+      updatedAt: "2026-08-28T10:00:00.000Z",
+    })
+    const invocations = defineAgentInvocations({ store })
+
+    await expect(createUsageSummary(invocations, {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      available: true,
+      buckets: expect.arrayContaining([
+        expect.objectContaining({
+          costUsd: "0.03",
+          invocations: 1,
+          start: "2026-08-27T10:00:00.000Z",
+          totalTokens: 30,
+        }),
+      ]),
+      costAvailable: true,
+      models: [
+        { costUsd: "0.01", invocations: 1, model: "model-a", totalTokens: 15 },
+        { costUsd: "0.02", invocations: 1, model: "model-b", totalTokens: 15 },
+      ],
+      partial: false,
+      resolution: "hour",
+      totals: { costUsd: "0.03", inputTokens: 18, invocations: 1, outputTokens: 12, totalTokens: 30 },
+    })
+    expect(invocationUsage((await invocations.get("usage-invocation"))!)).toMatchObject({
+      cost: { estimated: true, source: "mixed", usd: "0.03" },
+      inputTokens: 18,
+      outputTokens: 12,
+      totalTokens: 30,
+    })
   })
 
   it("searches session text through the console Collection", async () => {

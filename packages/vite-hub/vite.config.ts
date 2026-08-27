@@ -100,6 +100,7 @@ export default defineConfig({
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/search.get.ts",
       "src/console/runtime/server/sections.get.ts",
+      "src/console/runtime/server/usage.get.ts",
     ],
     exports: {
       exclude: ["bin"],
@@ -116,6 +117,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/search.get"]
         delete exports["./console/runtime/server/sections.get"]
         delete exports["./console/runtime/server/sections"]
+        delete exports["./console/runtime/server/usage.get"]
         return {
           ...exports,
           "./console/sections": "./dist/console/runtime/server/sections.js",

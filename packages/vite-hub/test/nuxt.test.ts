@@ -506,6 +506,7 @@ describe("ViteHub Nuxt integration", () => {
         name: "vitehub-console-invocation",
         path: "/_vitehub/agents/:agent/invocations/:invocation",
       }),
+      expect.objectContaining({ name: "vitehub-console-usage", path: "/_vitehub/usage" }),
       expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
@@ -515,6 +516,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
         { route: "/api/_vitehub/console/search" },
+        { route: "/api/_vitehub/console/usage" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
@@ -555,6 +557,7 @@ describe("ViteHub Nuxt integration", () => {
         name: "vitehub-console-invocation",
         path: "/_vitehub/agents/:agent/invocations/:invocation",
       }),
+      expect.objectContaining({ name: "vitehub-console-usage", path: "/_vitehub/usage" }),
       expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
     ])
     expect(production.nuxt.options.nitro).toMatchObject({
@@ -564,6 +567,7 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
         { route: "/api/_vitehub/console/search" },
+        { route: "/api/_vitehub/console/usage" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
