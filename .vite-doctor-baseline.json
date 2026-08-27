@@ -42,6 +42,51 @@
       "fingerprint": "d70667f0a8f363b88ef23fd6c7a4fff338e9db8df5756b2edd4adcebf3580df5"
     },
     {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "97c34456c6fb3fee4221f6a1a8ee38a169dc1bdc09f61ed3ff8a9efa2cf4cfe1"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ae9d2741ccce663eac0db242a0b8d4fdf63df9144eefd29816fcb73ad7f3aa9a"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "c1e3e48fb6c740662f4d4fa56259d72ee7e6839d0591aeea365e1e4c04c79e0f"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ceee1fcc46cac63b135dfa9aec47dbdb78f5c41aacaa01f70da2e3829d32a080"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "d21bf5d4914e7f50e8f2e183db791f60432ce04f9331697cdfe6919b5210226d"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "dff740293ff38ee26eef6c9b17c693e1f282c2fa8f6c50b8c55b4b0258d32c3f"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ee5a210a41ea2209edaae0a1dfda8db50d1350a4471d0acb49dae34540babd19"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "fa7ac3516d194a4106fffa0ffdd6b5def17e95e6df0d53a926cc1aee1b411419"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ffa0f00330309d8f7d4b0700787d1c2d17ad5b79e74e03329297ca49af7f6ef2"
+    },
+    {
       "ruleId": "typescript/evidence/no-caller-chosen-result-type",
       "file": "packages/agent/src/trigger-runtime.ts",
       "fingerprint": "62f516093fe5dcf0155d3aa3975653d6c2d76f0d203f84369700eeaf346c5bfc"
@@ -1920,6 +1965,16 @@
       "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/workspace/test/source-loader-publisher.test.ts",
       "fingerprint": "f8ae5a3b05bd123c7570559ab3ed00e9917574dd0262866b4d624bb0f3c2c4e4"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "69b1c2339453b6a09752ed8d87a733d2fa31e951b45b08d57de2b5b880b9c7f7"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ff81644ad2f02dfc260fa130b38370029c8c3a3316ddb8611fb3aeec0ffc528b"
     },
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
@@ -4448,6 +4503,56 @@
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "055c5285d881a455f668440e4f6ca5e73a2b8af941a559b1d02282e1a16337d3"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "24a820373139acc6283aff73885d5b2bbeadc2a00880dfce6f5c28667ba675f9"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "4b7103b6506b6e6d0a31772ec1782e5d26ef010b9227dfc8548574625baedce8"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "5b327ef18316324fd452857e314c376949558f2a8f3c056eea0b127a4ae6ff2d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "6410590caf3a7e4b53ab275565ce9cebf44ee3326141510b267dd297ef075e33"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "886536d2687037d96fcdd8cd7454c22053455a6e20d1be7c8cfaf2790eafd1ad"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "c9328d5ca3142a5bf379024b33346d86a99795920ce4096b2bbfe5f50990a580"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "d0a6fcd4edcc5236aaf114d306eedfb5ae47ef0dcd5b6ec2be12c65b2c5fbb07"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "f6282ea8e799b7d47c88d34668aa24779b91dc47ad0f2bbcad1bb96b26fdb649"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "f9804445b874c405196f1d60ac0fc8ee8e7bf01917aef7b5927ab6778c08f3e3"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "test/contracts.test.ts",
       "fingerprint": "091a99c0b95522ea86d3743711180af0855c1d5322f77aac41cb3491e186ee54"
     },
@@ -5450,6 +5555,201 @@
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
       "file": "packages/workspace/test/host-session.test.ts",
       "fingerprint": "bf8b9da65d3f66d4a302613b2a462c7a7211adebe35027d4e2f254d90da662fb"
+    },
+    {
+      "ruleId": "typescript/evidence/no-caller-chosen-result-type",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "1e660870d3c03a74e4571073aa2f9347db207f47bf8b595c89313d16ef50262a"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "packages/auth/test/published-types.test.ts",
+      "fingerprint": "86fe8e4febdbdf15917a6a92ccbc70cc598a4954a2f8710a5701944d21ec7f71"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "dff740293ff38ee26eef6c9b17c693e1f282c2fa8f6c50b8c55b4b0258d32c3f"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ffa0f00330309d8f7d4b0700787d1c2d17ad5b79e74e03329297ca49af7f6ef2"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ceee1fcc46cac63b135dfa9aec47dbdb78f5c41aacaa01f70da2e3829d32a080"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "fa7ac3516d194a4106fffa0ffdd6b5def17e95e6df0d53a926cc1aee1b411419"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "d21bf5d4914e7f50e8f2e183db791f60432ce04f9331697cdfe6919b5210226d"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "c1e3e48fb6c740662f4d4fa56259d72ee7e6839d0591aeea365e1e4c04c79e0f"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ee5a210a41ea2209edaae0a1dfda8db50d1350a4471d0acb49dae34540babd19"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "97c34456c6fb3fee4221f6a1a8ee38a169dc1bdc09f61ed3ff8a9efa2cf4cfe1"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ae9d2741ccce663eac0db242a0b8d4fdf63df9144eefd29816fcb73ad7f3aa9a"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/nitro-webhook-queue-shutdown.test.ts",
+      "fingerprint": "06d54e0272636bf9af6f68c6032cec2b4332e89f753abd5af21f2148fb446316"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "69b1c2339453b6a09752ed8d87a733d2fa31e951b45b08d57de2b5b880b9c7f7"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "ff81644ad2f02dfc260fa130b38370029c8c3a3316ddb8611fb3aeec0ffc528b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/nitro-webhook-queue-shutdown.test.ts",
+      "fingerprint": "7c59b0496d578e9050e6d5b87e2c784ba0c18eaf371f0931dd10673f310531ba"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/nitro-webhook-queue-shutdown.test.ts",
+      "fingerprint": "9530556e0a7860ee8833de85166c050b909c74d9dbf015c2547d1960dcee88c4"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/published-chat-adapter-types.test.ts",
+      "fingerprint": "59ea70f603b49a76c928427ddaa4605800a7cff48cedf12f38ebe8c1ddea0bca"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/auth/test/published-types.test.ts",
+      "fingerprint": "296aebdb1ac392cf1debc27c310e018312d88f3c90f3906cce664b7bc3fba01b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/auth/test/published-types.test.ts",
+      "fingerprint": "5cf0d726cb9f558cb1add8455eff0e45ba50a96c7da9700ee82c998b13456e96"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/auth/test/published-types.test.ts",
+      "fingerprint": "e8e301441d9e88f3c8cdac2712753dd54e5b36c5e8f901dbc6a66e126bcaabea"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "efc330abfe8badc51d4d5812ae944e721cd565009bf3a16895d059899a58f8eb"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "858f84ab7960ed995fffb5c102671a0538b4f42a97ac2ed4c903d47f5273a262"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "381b832a8e3a5ee09dcb949e50cef8703641b3cff705823cb3f2f81c2c77c548"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "afdb6945627bfde1f5109466d25394f66ac8b317cbd85b0e47140cf85fd74165"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "7d99aacc2e0a18a34e30d8ca900f01a5cabbbb1306007275da14834893b08ccf"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "b4db786fabb08375e4620b0732d8796b68e373be1ef707f4b6787661dbc7e7d7"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "3e3168e26e4dc474e4252fbcc510816b0cff67932e09bc4ab8c11b26013ba01a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "034fe457c8e191d984a8ab23699180b3a7b208df46b407ce13b852894935e583"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/core/use.ts",
+      "fingerprint": "bb767cbca450fae312ef666c4b1f9b59fa0d4db5ee2bd6c722801f86dd68779e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "886536d2687037d96fcdd8cd7454c22053455a6e20d1be7c8cfaf2790eafd1ad"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "c9328d5ca3142a5bf379024b33346d86a99795920ce4096b2bbfe5f50990a580"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "24a820373139acc6283aff73885d5b2bbeadc2a00880dfce6f5c28667ba675f9"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "055c5285d881a455f668440e4f6ca5e73a2b8af941a559b1d02282e1a16337d3"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "6410590caf3a7e4b53ab275565ce9cebf44ee3326141510b267dd297ef075e33"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "5b327ef18316324fd452857e314c376949558f2a8f3c056eea0b127a4ae6ff2d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "d0a6fcd4edcc5236aaf114d306eedfb5ae47ef0dcd5b6ec2be12c65b2c5fbb07"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "f6282ea8e799b7d47c88d34668aa24779b91dc47ad0f2bbcad1bb96b26fdb649"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "4b7103b6506b6e6d0a31772ec1782e5d26ef010b9227dfc8548574625baedce8"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/vite-hub.test.ts",
+      "fingerprint": "f9804445b874c405196f1d60ac0fc8ee8e7bf01917aef7b5927ab6778c08f3e3"
     }
   ]
 }

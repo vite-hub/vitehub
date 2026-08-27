@@ -729,6 +729,9 @@ describe("ViteHub Nuxt integration", () => {
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
       },
+      replace: {
+        __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt"),
+      },
       rollupConfig: {
         plugins: [expect.objectContaining({ name: "vite-hub/nuxt-markdown-templates" })],
       },

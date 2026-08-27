@@ -4,6 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   defineWorkspace,
+  sourceIgnores,
   useWorkspace,
 } from "../src/index.ts"
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
@@ -71,6 +72,7 @@ describe("workspace types", () => {
   })
 
   it("does not expose a placeholder mount contract", () => {
+    // SAFETY: This type-only fixture is never evaluated and exists to exercise the Workspace surface.
     const workspace = {} as Workspace
     // @ts-expect-error Workspace mounts require a real host projection contract.
     workspace.mount()
@@ -131,7 +133,13 @@ describe("workspace types", () => {
       repo: "acme/app",
       root: "docs",
       include: "**/*.md",
-      exclude: "docs/drafts/**",
+      ignore: "docs/drafts/**",
+    })
+    github({ ignore: sourceIgnores.defaults, repo: "acme/app" })
+    defineWorkspace({
+      sources: {
+        docs: { ignore: false, repo: "acme/docs" },
+      },
     })
     // @ts-expect-error Source Instructions no longer belong on Source config.
     github({ repo: "acme/app", instructions: "Use for hosted docs." })
@@ -169,6 +177,7 @@ describe("workspace types", () => {
           jsonSchema: {
             input: () => ({ type: "object" }),
           },
+          // SAFETY: The type-only schema fixture models a validator accepting this record contract.
           validate: (input: unknown) => ({ value: input as Record<string, unknown> }),
         },
       },
@@ -251,7 +260,8 @@ describe("workspace types", () => {
 
     const readonly = useWorkspace("typed")
     const writable = useWorkspace("typed", { mode: "write" })
-    const runtimeWorkspace = null as unknown as Workspace
+    // SAFETY: This type-only fixture is never evaluated and exists to exercise runtime-only methods.
+    const runtimeWorkspace: Workspace = undefined!
 
     expectTypeOf(definition).toMatchTypeOf<object>()
     expectTypeOf(createWorkspaceTools(createWorkspaceAssets({
@@ -290,7 +300,8 @@ describe("workspace types", () => {
     expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(lazyGithubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
-    const session = null as unknown as Awaited<ReturnType<typeof writable.startSession>>
+    // SAFETY: This type-only fixture is never evaluated and exists to exercise the session surface.
+    const session: Awaited<ReturnType<typeof writable.startSession>> = undefined!
     // @ts-expect-error runtime selection belongs to Box, not Workspace session options
     await writable.startSession({ runtime: "local" })
     expectTypeOf(session.exec).toBeFunction()
