@@ -332,6 +332,12 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.glob("x".repeat(2_049))).rejects.toThrow(
       "[vitehub] Workspace glob pattern input exceeds the model-facing limit of 2048 bytes.",
     )
+    await expect(resolved.workspace!.fs.search({
+      pattern: "orders",
+      paths: ["{a,b}".repeat(11)],
+    })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
     await expect(resolved.workspace!.fs.list("", {
       exclude: Array.from({ length: 17 }, (_, index) => `literal-{${index}}`),
       recursive: true,
@@ -473,6 +479,12 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.glob("reports/{1..100000}.json")).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.search({
+      cwd: "{a,b}".repeat(11),
+      pattern: "orders",
+    })).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
     await expect(resolved.workspace!.fs.list("", { exclude: ["reports/{1..100000}.json"], recursive: true })).resolves.toHaveLength(7)

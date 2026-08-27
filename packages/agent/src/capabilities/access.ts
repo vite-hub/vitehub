@@ -378,6 +378,10 @@ function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
       workspaceRuntime.assertModelWorkspaceGlobPattern(pattern as string | string[])
       return await workspace.fs.glob(pattern as never, options)
     },
+    async search(query: WorkspaceSearchQuery) {
+      assertModelWorkspaceSearchQuery(query, workspaceRuntime)
+      return await workspace.fs.search(query)
+    },
     ...(fsStarter
       ? {
           async startSession(options?: WorkspaceSessionOptions) {
@@ -397,6 +401,16 @@ function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
       : {}),
   }) as ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter>
   return facade
+}
+
+function assertModelWorkspaceSearchQuery(
+  query: WorkspaceSearchQuery,
+  workspaceRuntime: WorkspaceAccessRuntime,
+) {
+  const roots = query.paths?.length ? query.paths : [query.cwd || ""]
+  workspaceRuntime.assertModelWorkspaceGlobPattern(
+    roots.map(root => root ? `${root}/**/*` : "**/*"),
+  )
 }
 
 function createModelSafeWorkspaceSession(
