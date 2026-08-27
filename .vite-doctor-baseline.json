@@ -48,6 +48,16 @@
     },
     {
       "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/source-closures.test.ts",
+      "fingerprint": "8000127e08272883e5a1fa862de76df77dd788c7deeba857bcb93f9399e15ee9"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
+      "file": "test/consumer/source-closures.test.ts",
+      "fingerprint": "ac696214b370f6731ce3015d04d024a0dc55e641390143252aa8c88db7731920"
+    },
+    {
+      "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
       "file": "test/consumer/vite-hub.test.ts",
       "fingerprint": "97c34456c6fb3fee4221f6a1a8ee38a169dc1bdc09f61ed3ff8a9efa2cf4cfe1"
     },
@@ -4735,6 +4745,21 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/workspace/test/source-loader-publisher.test.ts",
       "fingerprint": "daa253557ba3a156675c3940a5cf762113ae9d7c8bb33b945125134d629e455a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/source-closures.test.ts",
+      "fingerprint": "0a7b0db3efafb004595b81f8c0288619789b7174ff88be0bc26c319248936a93"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/source-closures.test.ts",
+      "fingerprint": "86908c8284b9d92838bf7c9ba126d7f60a2357b541c770b8dc4710cd59b3acbd"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "test/consumer/source-closures.test.ts",
+      "fingerprint": "e442de56ac86800b5248b4d329248afdb08c54e0d5411861ddb69bdd07d85772"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
