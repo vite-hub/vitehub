@@ -58,6 +58,7 @@ type NuxtLike = {
     srcDir?: string
     vite?: UserConfig & { auth?: AuthModuleOptions }
     vitehub?: ViteHubNuxtOptions
+    vitehubCliDiscovery?: true
     typescript?: Record<string, unknown>
   }
 }
@@ -199,6 +200,7 @@ async function installConsole(
   discoveryRoot: string,
   fixture?: string,
   serverDirs?: string[],
+  installInvocations = true,
 ): Promise<void> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -208,8 +210,10 @@ async function installConsole(
   if (!uiConfigured) {
     await Reflect.apply(uiModule, undefined, [{}, nuxt])
   }
-  if (fixture) installConsoleFixtureInvocations(projectRoot, fixture)
-  else installConsoleInvocations(projectRoot)
+  if (installInvocations) {
+    if (fixture) installConsoleFixtureInvocations(projectRoot, fixture)
+    else installConsoleInvocations(projectRoot)
+  }
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
   hookPages?.("pages:extend", (pages) => {
@@ -498,6 +502,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       viteRoot,
       resolvedFixture,
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      !nuxt.options.vitehubCliDiscovery,
     )
   }
   nuxt.options.vite ??= {}

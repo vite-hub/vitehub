@@ -404,6 +404,27 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("does not open Console storage during CLI discovery", async () => {
+    const root = "/tmp/vitehub-nuxt-cli-discovery"
+    await rm(root, { force: true, recursive: true })
+    const development = createNuxt(true)
+    development.nuxt.options.rootDir = root
+    development.nuxt.options.buildDir = resolve(root, ".nuxt")
+    development.nuxt.options.vitehubCliDiscovery = true
+
+    try {
+      await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+      await expect(readFile(resolve(root, ".vitehub/data/console.sqlite")))
+        .rejects.toMatchObject({ code: "ENOENT" })
+      expect(development.nuxt.options.vite.plugins).toContainEqual(
+        expect.objectContaining({ name: "vite-hub/console-cli" }),
+      )
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects non-Node production console storage while preserving development", async () => {
     const development = createNuxt(true)
     await expect(viteHubNuxtModule({ console: true, preset: "cloudflare" }, development.nuxt))
