@@ -868,7 +868,9 @@ export const AgentInvocationInspector = defineComponent({
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
       messages: activities.value.filter((activity) => activity.kind === "message").length,
-      steps: activities.value.filter((activity) => activity.kind !== "message").length,
+      steps: activities.value.filter((activity) =>
+        activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
+      ).length,
       tokens: latestInvocationTokens(activities.value),
     }));
 

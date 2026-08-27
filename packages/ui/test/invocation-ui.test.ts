@@ -107,6 +107,9 @@ describe("Agent Invocation UI", () => {
     });
     const wrapper = mount(AgentInvocation, { props: { invocation } });
     expect(wrapper.text()).toContain("Trace content was truncated");
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    const metrics = inspector.findAll(".vh-invocation-inspector__metrics > div");
+    expect(metrics.find(metric => metric.get("dt").text() === "Steps")?.get("dd").text()).toBe("1");
   });
 
   it("renders only HTTP source URLs as links", () => {
