@@ -2,9 +2,13 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
+    alias: {
+      stream: new URL("./src/internal/vercel-stream.ts", import.meta.url).pathname,
+      undici: new URL("./src/internal/vercel-fetch.ts", import.meta.url).pathname,
+    },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vercel\/blob/],
       neverBundle: [
         "vite",
         "#vitehub-workspace-assets-registry",

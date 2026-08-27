@@ -1,12 +1,11 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  resolve: {
+  pack: {
     alias: {
+      stream: new URL("./src/internal/vercel-stream.ts", import.meta.url).pathname,
       undici: new URL("./src/internal/vercel-fetch.ts", import.meta.url).pathname,
     },
-  },
-  pack: {
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
     deps: {

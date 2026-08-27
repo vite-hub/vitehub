@@ -236,6 +236,7 @@ describe("package manifest contracts", () => {
     const manifest = readPackageManifest("blob")
     const frameworkManifest = readPackageManifest("vite-hub")
     const kvManifest = readPackageManifest("kv")
+    const workspaceManifest = readPackageManifest("workspace")
 
     expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
     expect(manifest.peerDependencies?.["files-sdk"]).toBeUndefined()
@@ -247,6 +248,9 @@ describe("package manifest contracts", () => {
     expect(frameworkManifest.dependencies?.["@vite-hub/netlify-blobs-runtime"]).toMatch(/^npm:@netlify\/blobs@/)
     expect(kvManifest.dependencies?.unstorage).toBeUndefined()
     expect(kvManifest.devDependencies?.unstorage).toEqual(expect.any(String))
+    expect(workspaceManifest.dependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(workspaceManifest.peerDependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(workspaceManifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))
   })
 })
 

@@ -249,6 +249,19 @@ describe("Vite provider outputs", () => {
     await expect(driver.head("missing.txt")).rejects.toBe(missingStore)
   })
 
+  it("rejects custom metadata that Vercel Blob cannot persist", async () => {
+    const driver = createBundledVercelBlobDriver({
+      access: "private",
+      driver: "vercel-blob",
+      token: "vercel_blob_rw_test",
+    })
+
+    await expect(driver.put("metadata.txt", "value", {
+      customMetadata: { owner: "vitehub" },
+    })).rejects.toThrow("does not support custom metadata")
+    expect(vercelBlobMock.put).not.toHaveBeenCalled()
+  })
+
   it("rejects malformed resolved Blob config before rendering provider entries", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-invalid-resolved-config-")
 

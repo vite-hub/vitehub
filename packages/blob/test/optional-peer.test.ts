@@ -19,11 +19,20 @@ describe("optional peer imports", () => {
 
   it("keeps the bundled Vercel Blob driver statically reachable for selected Vercel outputs", async () => {
     const built = await readFile(new URL("../dist/drivers/vercel-bundled.js", import.meta.url), "utf8")
+    const chunks = await Promise.all(
+      [...built.matchAll(/from\s+["'](\.\.\/chunk-[^"']+)["']/g)]
+        .map(match => readFile(new URL(match[1]!, new URL("../dist/drivers/vercel-bundled.js", import.meta.url)), "utf8")),
+    )
+    const closure = [built, ...chunks].join("\n")
 
-    expect(built).not.toContain('from "files-sdk"')
-    expect(built).not.toContain('from "files-sdk/vercel-blob"')
-    expect(built).not.toContain('from "@vercel/blob"')
-    expect(built).toContain("vercel-storage.com")
+    expect(closure).not.toContain('from "files-sdk"')
+    expect(closure).not.toContain('from "files-sdk/vercel-blob"')
+    expect(closure).not.toContain('from "@vercel/blob"')
+    expect(closure).not.toContain('from "undici"')
+    expect(closure).not.toContain('from "stream"')
+    expect(closure).not.toContain('from "node:module"')
+    expect(closure).toContain("globalThis.fetch")
+    expect(closure).toContain("vercel-storage.com")
   })
 
   it("ships the generic Files SDK runtime through the public driver", async () => {

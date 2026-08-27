@@ -161,16 +161,12 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "@vercel/blob": "catalog:storage",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
-    "@vercel/blob": {
-      "optional": true
-    },
     "@vite-hub/shell": {
       "optional": true
     },

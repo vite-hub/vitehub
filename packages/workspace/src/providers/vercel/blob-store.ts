@@ -2,6 +2,7 @@ import { workspaceError } from "../../core/errors.ts"
 import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
+import * as bundledVercelBlob from "@vercel/blob"
 
 import type {
   DiffOptions,
@@ -112,32 +113,9 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   }
 }
 
-const vercelBlobPeerSpecifier = "@vercel/blob"
-
 async function importVercelBlobPeer(): Promise<VercelBlobModule> {
-  try {
-    const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
-    if (testImport) return await testImport() as VercelBlobModule
-    return await import(vercelBlobPeerSpecifier) as VercelBlobModule
-  }
-  catch (error) {
-    handleVercelBlobImportError(error)
-  }
-}
-
-function handleVercelBlobImportError(error: unknown): never {
-  if (isMissingVercelBlobError(error)) {
-    throw workspaceError("[vitehub] @vercel/blob is required for the Vercel Blob Workspace Store. Package: @vercel/blob.", { cause: error })
-  }
-  throw error
-}
-
-function isMissingVercelBlobError(error: unknown) {
-  if (!(error instanceof Error)) return false
-  const code = (error as { code?: unknown }).code
-  if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") return false
-  return error.message.includes("Cannot find package '@vercel/blob'")
-    || error.message.includes("Cannot find module '@vercel/blob'")
+  const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
+  return testImport ? await testImport() as VercelBlobModule : bundledVercelBlob as VercelBlobModule
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {
