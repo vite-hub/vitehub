@@ -412,6 +412,36 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("keeps collected finish data local when a raw stream is reused", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let invocation = 0
+    const raw = {
+      async *[Symbol.asyncIterator]() {
+        invocation++
+        yield { text: `answer ${invocation}`, type: "text-delta" }
+        yield { type: "usage", usageRecord: { usage: { totalTokens: invocation } } }
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    for (let run = 0; run < 2; run++) {
+      const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+      for await (const _event of stream) {}
+    }
+
+    expect(finish.mock.calls.map(([event]) => event.result)).toMatchObject([
+      { raw, text: "answer 1", usage: { totalTokens: 1 } },
+      { raw, text: "answer 2", usage: { totalTokens: 2 } },
+    ])
+    expect(raw).not.toHaveProperty("text")
+    expect(raw).not.toHaveProperty("usage")
+    expect(raw).not.toHaveProperty("usageRecord")
+  })
+
   it("adds streamed usage to preserved plain stream results", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const result = {

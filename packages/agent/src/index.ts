@@ -3725,7 +3725,22 @@ function resultWithStreamedTextAndUsage(
   usageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
 ): unknown {
-  return resultWithUsageRecord(resultWithStreamedText(result, text), usageRecord ?? fallbackUsageRecord)
+  const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
+  if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
+    const normalized = toAgentRunResultWithInheritedProperties(result)
+    return {
+      ...normalized,
+      raw: result,
+      ...(text ? { text } : {}),
+      ...(normalized.usage !== undefined || streamedUsageRecord?.usage !== undefined
+        ? { usage: normalized.usage ?? streamedUsageRecord?.usage }
+        : {}),
+      ...(normalized.usageRecord !== undefined || streamedUsageRecord !== undefined
+        ? { usageRecord: normalized.usageRecord ?? streamedUsageRecord }
+        : {}),
+    }
+  }
+  return resultWithUsageRecord(resultWithStreamedText(result, text), streamedUsageRecord)
 }
 
 function withStreamedResult(
