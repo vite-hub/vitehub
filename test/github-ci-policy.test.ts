@@ -89,6 +89,8 @@ describe("GitHub CI input policy", () => {
         "      - run: command -V pnpm",
         "      - run: sudo -l npx unpinned",
         "      - run: sudo --list npx unpinned",
+        "      - run: sudo -ln npx unpinned",
+        "      - run: sudo -nl npx unpinned",
         "      - run: exec -a tool npx tool@1.2.3",
         "      - run: 2>/dev/null npx redirected@1.2.3",
         "      - run: *pinned-command",
@@ -435,6 +437,8 @@ jobs:
     "sudo -u root FOO=bar npx unpinned",
     "timeout 5m npx unpinned",
     "timeout --signal KILL 5m npx unpinned",
+    "timeout --sig KILL 5m npx unpinned",
+    "eval 'npx unpinned'",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -470,6 +474,27 @@ jobs:
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it("does not persist assignments from untaken conditional branches", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          if false; then",
+        "            VERSION=1.2.3",
+        "          fi",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
   })
 
   it("inspects workflows whose complete jobs map is aliased", async () => {

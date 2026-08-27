@@ -133,7 +133,7 @@ function commandIndexes(tokens) {
               executableIndex++
               break
             }
-            if (sudoQueryOptions.has(argument)) {
+            if (isSudoQueryOption(argument)) {
               queriesOnly = true
               executableIndex++
               continue
@@ -154,7 +154,7 @@ function commandIndexes(tokens) {
               executableIndex++
               break
             }
-            if (timeoutValueOptions.has(argument)) executableIndex += 2
+            if (isTimeoutValueOption(argument)) executableIndex += 2
             else if (argument.startsWith("-")) executableIndex++
             else break
           }
@@ -198,6 +198,16 @@ function executableName(token) {
   return token.slice(token.lastIndexOf("/") + 1)
 }
 
+function isSudoQueryOption(argument) {
+  return sudoQueryOptions.has(argument) || /^-[^-]*l/.test(argument)
+}
+
+function isTimeoutValueOption(argument) {
+  if (timeoutValueOptions.has(argument)) return true
+  if (!argument.startsWith("--") || argument.includes("=")) return false
+  return ["--kill-after", "--signal"].some(option => option.startsWith(argument))
+}
+
 function isShellCommand(token) {
   return shellCommands.has(executableName(token))
 }
@@ -212,6 +222,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   const specs = []
   const environment = new Map(inheritedEnvironment)
   let dataHereDocument
+  let conditionalDepth = 0
   for (const line of command.replaceAll(/\\\r?\n/g, "").split("\n")) {
     if (dataHereDocument) {
       if (line.trim() === dataHereDocument.delimiter) dataHereDocument = undefined
@@ -226,14 +237,18 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
 
     const tokens = shellTokens(line)
     const executableIndexes = commandIndexes(tokens)
-    if (executableIndexes.length === 0 && tokens.length > 0 && tokens.every(token => assignmentPattern.test(token))) {
+    const closesConditional = tokens.filter(token => token === "fi" || token === "done" || token === "esac" || token === ")").length
+    const opensConditional = tokens.filter(token => token === "if" || token === "while" || token === "until" || token === "case" || token === "(").length
+    const activeConditionalDepth = Math.max(0, conditionalDepth - closesConditional)
+    if (executableIndexes.length === 0 && activeConditionalDepth === 0 && opensConditional === 0
+      && tokens.length > 0 && tokens.every(token => assignmentPattern.test(token))) {
       for (const token of tokens) {
         const assignment = assignmentPattern.exec(token)
         environment.set(assignment[1], assignment[2])
       }
     }
     for (const index of executableIndexes) {
-      if (executableName(tokens[index]) !== "export") continue
+      if (activeConditionalDepth > 0 || opensConditional > 0 || executableName(tokens[index]) !== "export") continue
       for (const token of tokens.slice(index + 1)) {
         if (shellOperatorPattern.test(token)) break
         if (token === "--" || token.startsWith("-")) continue
@@ -250,6 +265,13 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       let acceptsPackageOptions = false
       const token = tokens[index]
       const executable = executableName(token)
+
+      if (executable === "eval") {
+        const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
+        const source = tokens.slice(index + 1, end === -1 ? tokens.length : end).join(" ")
+        if (source) specs.push(...findExecutablePackageSpecs(source, environment))
+        continue
+      }
 
       if (isShellCommand(token)) {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
@@ -323,6 +345,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         specs.push(...findExecutablePackageSpecs(callCommand, environment))
       }
     }
+    conditionalDepth = Math.max(0, conditionalDepth + opensConditional - closesConditional)
   }
   return specs
 }
