@@ -636,6 +636,7 @@ export async function generateProviderOutputs(
           packages: getVercelRuntimePackages(options.providerOutput, "blob"),
           rootDir: options.rootDir,
           serverFunctionName: vercelFunctionName,
+          signal: options.signal,
         })
         options.signal?.throwIfAborted()
         const contents = await readFile(resolve(functionRoot, "index.mjs"))

@@ -1237,6 +1237,33 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(serverDir, "node_modules", "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toHaveProperty("version", "2.0.0")
   })
 
+  it("rolls back copied Vercel runtime package directories when cancellation follows the live swap", async () => {
+    const rootDir = await createTempProject()
+    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackageDirectories } = await import("../src/build/vercel-runtime-package-copy.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const existingPackage = join(serverDir, "node_modules", "runtime-package")
+    await writePackage(rootDir, "runtime-package")
+    await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
+    await mkdir(existingPackage, { recursive: true })
+    await writeFile(join(existingPackage, "index.js"), "export const version = 'old'\n", "utf8")
+    let checks = 0
+    const signal = {
+      throwIfAborted() {
+        checks += 1
+        if (checks === 3) throw new DOMException("cancelled", "AbortError")
+      },
+    } as AbortSignal
+
+    await expect(copyVercelFunctionRuntimePackageDirectories({
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+      signal,
+    })).rejects.toHaveProperty("name", "AbortError")
+
+    await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
+  })
+
   it("resolves import-only Vercel runtime packages from an explicit package location", async () => {
     const rootDir = await createTempProject()
     const packageRoot = await createTempProject()
