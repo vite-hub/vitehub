@@ -170,7 +170,7 @@ Low-level Cloudflare sessions can also transfer an exact provider session throug
 
 ## Production checks
 
-- Keep Browser calls in trusted server code. Give an Agent the narrower `browser()` Capability instead of exposing raw provider or controller access.
+- Keep Browser calls in trusted server code. For Provider Agent browser work, add the `browser()` Capability and install its `agent-browser` CLI in the provider environment. The Capability supplies workspace instructions for using that CLI through the Agent's existing shell; it does not narrow shell authority or expose this Browser primitive.
 - Inspect the generated Cloudflare `wrangler.json` before deployment. It is Provider Output, not an application import or a file to edit by hand.
 - Test the deployed Worker when the result depends on Browser Run bindings. A successful package build proves imports and generated output, not provider availability.
 - Handle `BROWSER_*` failures at the route, Queue, or Workflow that can retry, reject input, or report the failure.
