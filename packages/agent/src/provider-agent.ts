@@ -1426,7 +1426,7 @@ async function* runProvider<
           new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
         ]).finally(async () => {
           if (timeout) clearTimeout(timeout)
-          await cleanupRoot()
+          await Promise.all([cleanupRoot(), cleanupCredentialHome()])
         })
         observeLateCleanup(invocationCleanupDeferred)
         void cleanupTask.catch(() => undefined)

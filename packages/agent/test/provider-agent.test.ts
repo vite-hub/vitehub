@@ -1819,6 +1819,34 @@ describe("Provider Agent Driver", () => {
     await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
   })
 
+  it("removes Codex credentials when aborted provider cleanup never settles", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-cancel-provider-cleanup"
+      const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const controller = new AbortController()
+      const result = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+      }).generate(context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      }) as never)
+
+      await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+      const shadowHome = createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath as string
+      await expect(access(shadowHome)).resolves.toBeUndefined()
+      controller.abort("cancelled")
+      await expect(result).rejects.toBe("cancelled")
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("removes Codex credentials when aborted provider startup never settles", async () => {
     vi.useFakeTimers()
     try {
