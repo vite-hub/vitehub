@@ -814,10 +814,17 @@ describe("provider deployment outputs", () => {
       writeProviderDeploymentOutputs,
     } = await import("../src/build/deployment-output.ts")
     const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const staticDir = join(outputRoot, "static")
     const serverEntry = join(serverDir, "index.mjs")
     await mkdir(serverDir, { recursive: true })
+    await mkdir(staticDir, { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
     await writeFile(serverEntry, "valid function")
     await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs22.x\"}\n")
+    await writeFile(join(outputRoot, "config.json"), "{\"version\":2}\n")
+    await writeFile(join(staticDir, "index.html"), "old static")
+    await writeFile(join(rootDir, "dist", "client", "index.html"), "new static")
 
     await expect(writeProviderDeploymentOutputs({
       clientOutDir: "dist/client",
@@ -831,8 +838,62 @@ describe("provider deployment outputs", () => {
 
     await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
     await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
-    expect(existsSync(`${serverDir}.pending`)).toBe(false)
-    expect(existsSync(`${serverDir}.previous`)).toBe(false)
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe("{\"version\":2}\n")
+    await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
+    expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it("restores all Vercel output when cancellation begins during companion writes", async () => {
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultVercelOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const serverDir = join(outputRoot, "functions", "__server.func")
+    const staticDir = join(outputRoot, "static")
+    await mkdir(serverDir, { recursive: true })
+    await mkdir(staticDir, { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(serverDir, "index.mjs"), "valid function")
+    await writeFile(join(outputRoot, "config.json"), "{\"version\":2}\n")
+    await writeFile(join(staticDir, "index.html"), "old static")
+    await writeFile(join(rootDir, "dist", "client", "index.html"), "new static")
+    const catalog = createProviderOutputCatalog()
+    let reset: Promise<void> | undefined
+    const config = new Proxy({ routes: [] }, {
+      get(target, property, receiver) {
+        if (property === "routes") reset = resetProviderDeploymentOutputs(catalog)
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+          config,
+        },
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await reset
+
+    await expect(readFile(join(serverDir, "index.mjs"), "utf8")).resolves.toBe("valid function")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe("{\"version\":2}\n")
+    await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
+    expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
   })
 
   it("settles every started provider write before rejecting", async () => {
@@ -1047,6 +1108,33 @@ describe("provider deployment outputs", () => {
       vi.doUnmock("@vercel/nft")
       vi.resetModules()
     }
+  })
+
+  it("rolls back Vercel runtime packages when cancellation follows the live swap", async () => {
+    const rootDir = await createTempProject()
+    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const existingPackage = join(serverDir, "node_modules", "runtime-package")
+    await writePackage(rootDir, "runtime-package")
+    await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
+    await mkdir(existingPackage, { recursive: true })
+    await writeFile(join(existingPackage, "index.js"), "export const version = 'old'\n", "utf8")
+    let checks = 0
+    const signal = {
+      throwIfAborted() {
+        checks += 1
+        if (checks === 3) throw new DOMException("cancelled", "AbortError")
+      },
+    } as AbortSignal
+
+    await expect(copyVercelFunctionRuntimePackages({
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+      signal,
+    })).rejects.toHaveProperty("name", "AbortError")
+
+    await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
   })
 
   it("copies runtime packages into an explicit Node output", async () => {

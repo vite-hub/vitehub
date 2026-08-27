@@ -50,6 +50,7 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
   const stagedNodeModules = resolve(stagingRoot, "node_modules")
   const previousNodeModules = resolve(stagingRoot, "previous-node_modules")
   let movedPreviousOutput = false
+  let installedReplacement = false
 
   try {
     try {
@@ -80,8 +81,11 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     try {
       options.signal?.throwIfAborted()
       await rename(stagedNodeModules, outputNodeModules)
+      installedReplacement = true
+      options.signal?.throwIfAborted()
     }
     catch (error) {
+      if (installedReplacement) await rm(outputNodeModules, { force: true, recursive: true })
       if (movedPreviousOutput) await rename(previousNodeModules, outputNodeModules)
       throw error
     }

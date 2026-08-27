@@ -281,59 +281,86 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   signal?.throwIfAborted()
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
+  const stagedOutputRoot = `${outputRoot}.pending`
+  const previousOutputRoot = `${outputRoot}.previous`
   const functionOutput = options.function ?? { kind: "root" }
   const serverFunctionName = functionOutput.kind === "root" ? "__server.func" : functionOutput.name
   const config = options.config ?? (functionOutput.kind === "root" ? createVercelConfigJson() : {})
-  const serverDir = resolve(outputRoot, "functions", serverFunctionName)
-  const stagedServerDir = `${serverDir}.pending`
-  const previousServerDir = `${serverDir}.previous`
-  const stagedServerEntry = resolve(stagedServerDir, "index.mjs")
-  let replacedServer = false
+  const serverDir = resolve(stagedOutputRoot, "functions", serverFunctionName)
+  const serverEntry = resolve(serverDir, "index.mjs")
+  const staticOutputDir = options.staticOutputDir ?? resolve(outputRoot, "static")
+  const staticRelativePath = relative(outputRoot, staticOutputDir)
+  const staticInsideOutputRoot = !staticRelativePath.startsWith(`..${sep}`) && !isAbsolute(staticRelativePath)
+  const externalStaticNeedsCommit = staticIndex
+    && !staticInsideOutputRoot
+    && resolve(clientDir) !== resolve(staticOutputDir)
+  const stagedStaticOutputDir = staticInsideOutputRoot
+    ? resolve(stagedOutputRoot, staticRelativePath)
+    : externalStaticNeedsCommit ? `${staticOutputDir}.pending` : staticOutputDir
+  const previousStaticOutputDir = `${staticOutputDir}.previous`
+  let replacedOutput = false
+  let replacedExternalStatic = false
 
   try {
-    await rm(stagedServerDir, { force: true, recursive: true })
-    await mkdir(stagedServerDir, { recursive: true })
+    await rm(stagedOutputRoot, { force: true, recursive: true })
     try {
-      await cp(resolve(serverDir, "node_modules"), resolve(stagedServerDir, "node_modules"), { recursive: true })
+      await cp(outputRoot, stagedOutputRoot, { recursive: true })
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
-    await bundleEsmEntry(options.bundleEntry, stagedServerEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+    await mkdir(serverDir, { recursive: true })
+    await rm(serverDir, { force: true, recursive: true })
+    await mkdir(serverDir, { recursive: true })
+    try {
+      await cp(resolve(outputRoot, "functions", serverFunctionName, "node_modules"), resolve(serverDir, "node_modules"), { recursive: true })
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
     await writeFile(
-      resolve(stagedServerDir, ".vc-config.json"),
+      resolve(serverDir, ".vc-config.json"),
       `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
       "utf8",
     )
-    signal?.throwIfAborted()
-
-    rmSync(previousServerDir, { force: true, recursive: true })
-    if (existsSync(serverDir)) renameSync(serverDir, previousServerDir)
-    try {
-      renameSync(stagedServerDir, serverDir)
-      replacedServer = true
-    }
-    catch (error) {
-      if (existsSync(previousServerDir)) renameSync(previousServerDir, serverDir)
-      throw error
-    }
-
     const writes = await Promise.allSettled([
-      writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
+      writeProviderOutputConfig(resolve(stagedOutputRoot, "config.json"), config, { keys: options.configKeys }),
       staticIndex
-        ? copyVercelClientOutput(options.rootDir, clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
+        ? copyVercelClientOutput(options.rootDir, clientDir, stagedStaticOutputDir)
         : Promise.resolve(),
     ])
     const failedWrite = writes.find(result => result.status === "rejected")
     if (failedWrite?.status === "rejected") throw failedWrite.reason
     signal?.throwIfAborted()
-    rmSync(previousServerDir, { force: true, recursive: true })
+
+    rmSync(previousOutputRoot, { force: true, recursive: true })
+    if (existsSync(outputRoot)) renameSync(outputRoot, previousOutputRoot)
+    renameSync(stagedOutputRoot, outputRoot)
+    replacedOutput = true
+    signal?.throwIfAborted()
+
+    if (externalStaticNeedsCommit) {
+      rmSync(previousStaticOutputDir, { force: true, recursive: true })
+      if (existsSync(staticOutputDir)) renameSync(staticOutputDir, previousStaticOutputDir)
+      renameSync(stagedStaticOutputDir, staticOutputDir)
+      replacedExternalStatic = true
+      signal?.throwIfAborted()
+    }
+
+    rmSync(previousOutputRoot, { force: true, recursive: true })
+    if (replacedExternalStatic) rmSync(previousStaticOutputDir, { force: true, recursive: true })
   }
   catch (error) {
-    await rm(stagedServerDir, { force: true, recursive: true })
-    if (replacedServer) {
-      rmSync(serverDir, { force: true, recursive: true })
-      if (existsSync(previousServerDir)) renameSync(previousServerDir, serverDir)
+    await rm(stagedOutputRoot, { force: true, recursive: true })
+    if (externalStaticNeedsCommit) await rm(stagedStaticOutputDir, { force: true, recursive: true })
+    if (replacedExternalStatic) {
+      rmSync(staticOutputDir, { force: true, recursive: true })
+      if (existsSync(previousStaticOutputDir)) renameSync(previousStaticOutputDir, staticOutputDir)
+    }
+    if (replacedOutput) {
+      rmSync(outputRoot, { force: true, recursive: true })
+      if (existsSync(previousOutputRoot)) renameSync(previousOutputRoot, outputRoot)
     }
     throw error
   }
