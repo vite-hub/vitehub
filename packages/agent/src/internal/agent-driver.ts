@@ -1,5 +1,5 @@
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
-import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
+import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -147,7 +147,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     throw new TypeError(`[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.`)
   }
   const credentials = value.credentials
-  const credentialObject = typeof credentials === "object" && credentials !== null
+  const credentialObject = isRuntimeObject(credentials)
+    // SAFETY: This narrows only the two callable credential members read below.
     ? credentials as { resolve?: unknown, unseal?: unknown }
     : undefined
   if (credentials !== undefined
@@ -160,7 +161,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.reasoningEffort !== undefined && (!isRuntimeString(value.reasoningEffort) || !value.reasoningEffort.trim())) {
     throw new TypeError("[vitehub] defineAgent({ driver.reasoningEffort }) must be a non-empty string.")
   }
-  if (value.reasoningSummary !== undefined && !["auto", "concise", "detailed", "none"].includes(value.reasoningSummary as string)) {
+  if (value.reasoningSummary !== undefined && !["auto", "concise", "detailed", "none"].includes(String(value.reasoningSummary))) {
     throw new TypeError('[vitehub] defineAgent({ driver.reasoningSummary }) must be "auto", "concise", "detailed", or "none".')
   }
   if ((value.reasoningEffort !== undefined || value.reasoningSummary !== undefined) && value.model === undefined) {
@@ -185,7 +186,9 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     permissions: normalizeProviderPermissions(value.permissions),
     provider,
     providerSettings: value.providerSettings ? Object.fromEntries(Object.entries(value.providerSettings)) : undefined,
+    // SAFETY: reasoningEffort is undefined or a non-empty string after validation above.
     reasoningEffort: value.reasoningEffort as string | undefined,
+    // SAFETY: reasoningSummary is undefined or one of the four accepted values after validation above.
     reasoningSummary: value.reasoningSummary as "auto" | "concise" | "detailed" | "none" | undefined,
   }
 }

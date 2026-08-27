@@ -1076,7 +1076,7 @@ async function* runProvider<
   }
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
-    observeLateCleanup(cleanup)
+    void cleanup.catch(() => undefined)
     let timeout: ReturnType<typeof setTimeout> | undefined
     deferredRuntimeCleanup = Promise.race([
       cleanup,

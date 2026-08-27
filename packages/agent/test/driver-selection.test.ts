@@ -175,6 +175,7 @@ describe("built-in Agent Driver selection", () => {
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: "verbose" }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
     [{ kind: "codex", providerSettings: [] }, "driver.providerSettings }) must be an object"],
   ])("rejects invalid provider options %#", (driver, message) => {
+    // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
     expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);
   });
 
