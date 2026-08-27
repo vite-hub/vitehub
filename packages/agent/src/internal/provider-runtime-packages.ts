@@ -71,6 +71,7 @@ function resolveClaudeTarget(platform: string, arch: string, libc?: RuntimeLibc)
 function resolveRuntimePackages(options: {
   allowMissingTarget?: boolean
   displayName: string
+  includePeerDependencies?: boolean
   packageName: string
   resolveFrom: string
   target?: RuntimeTarget
@@ -82,12 +83,12 @@ function resolveRuntimePackages(options: {
   }
   if (!resolvePackageJson(options.target.packageName, packageJsonPath)) {
     if (options.allowMissingTarget) {
-      return [{ name: options.packageName, resolveFrom: options.resolveFrom }]
+      return [{ ...(options.includePeerDependencies && { includePeerDependencies: true }), name: options.packageName, resolveFrom: options.resolveFrom }]
     }
     throw new Error(`[vitehub] ${options.packageName} is installed, but its ${options.target.packageName} optional dependency is missing. Reinstall dependencies on the deployment host before building.`)
   }
   return [
-    { name: options.packageName, resolveFrom: options.resolveFrom },
+    { ...(options.includePeerDependencies && { includePeerDependencies: true }), name: options.packageName, resolveFrom: options.resolveFrom },
     { name: options.target.packageName, resolveFrom: packageJsonPath },
   ]
 }
@@ -150,6 +151,7 @@ export function resolveProviderRuntimePackages(options: {
     ...resolveRuntimePackages({
       allowMissingTarget: true,
       displayName: "Claude",
+      includePeerDependencies: true,
       packageName: claudePackageName,
       resolveFrom,
       target: resolveClaudeTarget(platform, arch, options.libc),

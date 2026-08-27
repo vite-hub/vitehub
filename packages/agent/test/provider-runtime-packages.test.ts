@@ -83,7 +83,7 @@ describe("Provider runtime packages", () => {
     expect(resolveInstalledProviderExecutable("claude-code", { arch: "x64", libc: "musl", platform: "linux", resolveFrom }))
       .toBe(join(rootDir, "node_modules", ...target.split("/"), "claude"))
     expect(resolveProviderRuntimePackages({ arch: "x64", libc: "musl", platform: "linux", rootDir })).toEqual([
-      { name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(rootDir, "package.json") },
+      { includePeerDependencies: true, name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(rootDir, "package.json") },
       { name: target, resolveFrom: join(claudePackageDir, "package.json") },
     ])
   })
@@ -112,7 +112,7 @@ describe("Provider runtime packages", () => {
     expect(() => resolveProviderRuntimePackages({ arch: "x64", platform: "linux", rootDir: codex.rootDir }))
       .toThrow("@openai/codex-linux-x64 optional dependency is missing")
     expect(resolveProviderRuntimePackages({ arch: "arm64", libc: "glibc", platform: "linux", rootDir: claude.rootDir })).toEqual([
-      { name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(claude.rootDir, "package.json") },
+      { includePeerDependencies: true, name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(claude.rootDir, "package.json") },
     ])
   })
 
