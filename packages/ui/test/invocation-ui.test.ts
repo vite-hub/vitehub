@@ -110,6 +110,9 @@ describe("Agent Invocation UI", () => {
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     const metrics = inspector.findAll(".vh-invocation-inspector__metrics > div");
     expect(metrics.find(metric => metric.get("dt").text() === "Steps")?.get("dd").text()).toBe("1");
+    const timelineRows = inspector.findAll(".vh-invocation-timeline__row");
+    expect(timelineRows).toHaveLength(1);
+    expect(timelineRows[0]!.text()).not.toContain("Trace content was truncated");
   });
 
   it("renders only HTTP source URLs as links", () => {

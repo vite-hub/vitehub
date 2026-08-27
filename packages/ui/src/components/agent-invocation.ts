@@ -551,7 +551,7 @@ function timelineOwner(activity: InvocationActivity): "agent" | "vitehub" {
 }
 
 function traceTimeline(activities: readonly InvocationActivity[], invocation: AgentInvocationView) {
-  const items = activities.filter(activity => activity.kind !== "message");
+  const items = activities.filter(activity => activity.kind !== "message" && Number.isFinite(Date.parse(activity.startedAt ?? "")));
   if (!items.length) return null;
   const invocationStart = Date.parse(invocation.startedAt ?? invocation.createdAt ?? "");
   const observedStarts = items
