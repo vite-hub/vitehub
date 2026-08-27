@@ -102,23 +102,6 @@ function buildEnd(plugin: Plugin) {
   return plugin.buildEnd as () => Promise<void>
 }
 
-async function runParallelBuildEnd(plugins: Plugin[]): Promise<void> {
-  let parallel: Promise<void>[] = []
-  for (const plugin of plugins) {
-    if (!plugin.buildEnd) continue
-    const hook = buildEnd(plugin)
-    if (!(plugin.buildEnd instanceof Function) && plugin.buildEnd.sequential) {
-      await Promise.all(parallel)
-      parallel = []
-      await hook()
-    }
-    else {
-      parallel.push(hook())
-    }
-  }
-  await Promise.all(parallel)
-}
-
 function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
   const contributor = plugin.vitehub?.cli
   if (!contributor || contributor instanceof Function) throw new TypeError("Expected static CLI metadata.")
@@ -644,23 +627,21 @@ describe("framework generated types", () => {
     )
   })
 
-  it("aggregates declarations after earlier parallel lifecycle contributors", async () => {
+  it("prepares Source declarations before lifecycle aggregation without a global hook barrier", async () => {
     const { root, viteRoot } = await createNestedProject()
     const generatedDeclaration = join(root, ".vitehub/source/delayed.d.ts")
-    const typesPlugin = viteHubTypesPlugin()
+    const prepareSources = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      await mkdir(join(root, ".vitehub/source"), { recursive: true })
+      await writeFile(generatedDeclaration, "export {}\n")
+    })
+    const typesPlugin = viteHubTypesPlugin({ prepareSources })
     await configResolved(typesPlugin)({ root: viteRoot })
 
-    const delayedContributor: Plugin = {
-      name: "delayed-source-contributor",
-      async buildEnd() {
-        await new Promise(resolve => setTimeout(resolve, 10))
-        await mkdir(join(root, ".vitehub/source"), { recursive: true })
-        await writeFile(generatedDeclaration, "export {}\n")
-      },
-    }
+    expect(typesPlugin.buildEnd).toBeTypeOf("function")
+    await buildEnd(typesPlugin)()
 
-    await runParallelBuildEnd([delayedContributor, typesPlugin])
-
+    expect(prepareSources).toHaveBeenCalledWith({ projectRoot: root, serverDirs: undefined })
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
       "./source/delayed.d.ts",
     )

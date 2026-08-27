@@ -85,7 +85,9 @@ export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plu
   let prepareSources = options.prepareSources
   let serverDirs: string[] | undefined
   const refreshGeneratedTypes = async () => {
-    if (projectRoot) await writeViteHubTypes({ projectRoot })
+    if (!projectRoot) return
+    if (prepareSources) await prepareSources({ projectRoot, serverDirs })
+    await writeViteHubTypes({ projectRoot })
   }
 
   return {
@@ -111,14 +113,8 @@ export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plu
       serverDirs = (config as ViteHubPluginConfig)[VITEHUB_SERVER_DIRS]
       await writeViteHubTypes({ projectRoot })
     },
-    buildStart: {
-      sequential: true,
-      handler: refreshGeneratedTypes,
-    },
-    buildEnd: {
-      sequential: true,
-      handler: refreshGeneratedTypes,
-    },
+    buildStart: refreshGeneratedTypes,
+    buildEnd: refreshGeneratedTypes,
     vitehub: {
       cli: {
         namespaces: [{
