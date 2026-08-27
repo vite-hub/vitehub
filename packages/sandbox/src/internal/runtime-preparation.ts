@@ -1,4 +1,4 @@
-import { readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rename, rm } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
@@ -208,25 +208,55 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
   return aliases
 }
 
-async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan) {
+async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, facadeContents: string) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
+  const stagingDir = await mkdtemp(resolve(generatedDir, '.runtime-stage-'))
+  const stagedRuntimeDir = resolve(stagingDir, 'runtime')
+  const runtimeDir = resolve(generatedDir, 'runtime')
+  const previousRuntimeDir = resolve(stagingDir, 'previous-runtime')
   const emitted = new Map<string, EmittedArtifact>()
   const typeTemplate = plan.manifest.typeTemplate
 
-  for (const artifact of plan.artifacts || []) {
-    const dst = resolve(generatedDir, artifact.filename)
-    const contents = artifact.contents ?? await artifact.getContents?.(emitted)
-    if (typeof contents !== 'string')
-      throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
+  try {
+    for (const artifact of plan.artifacts || []) {
+      const dst = resolve(generatedDir, artifact.filename)
+      const contents = artifact.contents ?? await artifact.getContents?.(emitted)
+      if (typeof contents !== 'string')
+        throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
 
-    emitted.set(artifact.key, { ...artifact, contents, dst })
+      emitted.set(artifact.key, { ...artifact, contents, dst })
+    }
+
+    if (typeTemplate)
+      await writeFileIfChanged(resolve(stagingDir, typeTemplate.filename), typeTemplate.contents)
+    for (const artifact of emitted.values()) {
+      const relativePath = artifact.dst.slice(generatedDir.length + 1)
+      await writeFileIfChanged(resolve(stagingDir, relativePath), artifact.contents)
+    }
+    await writeFileIfChanged(resolve(stagedRuntimeDir, 'sandbox.mjs'), facadeContents)
+
+    let movedPreviousRuntime = false
+    try {
+      await rename(runtimeDir, previousRuntimeDir)
+      movedPreviousRuntime = true
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        throw error
+    }
+
+    try {
+      await rename(stagedRuntimeDir, runtimeDir)
+    }
+    catch (error) {
+      if (movedPreviousRuntime)
+        await rename(previousRuntimeDir, runtimeDir)
+      throw error
+    }
   }
-
-  await rm(resolve(generatedDir, 'runtime/sandbox-definitions'), { recursive: true, force: true })
-  if (typeTemplate)
-    await writeFileIfChanged(resolve(generatedDir, typeTemplate.filename), typeTemplate.contents)
-  for (const artifact of emitted.values())
-    await writeFileIfChanged(artifact.dst, artifact.contents)
+  finally {
+    await rm(stagingDir, { recursive: true, force: true })
+  }
 
   return emitted
 }
@@ -293,9 +323,9 @@ export async function prepareSandboxRuntime(options: {
     }
   }
 
-  const emitted = await writeSandboxArtifacts(rootDir, plan)
-  await writeFileIfChanged(
-    facadeFile,
+  const emitted = await writeSandboxArtifacts(
+    rootDir,
+    plan,
     createSandboxRuntimeFacadeContents(
       facadeFile,
       context.runtimeConfig.sandbox,
