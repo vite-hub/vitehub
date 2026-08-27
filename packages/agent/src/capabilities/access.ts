@@ -248,6 +248,14 @@ type AccessWorkspaceInputContext<TWorkspace> = TWorkspace extends { resolve?: in
     : Record<string, unknown>
   : Record<string, unknown>
 
+type AccessWorkspaceRuntimeConfig<TWorkspace> = TWorkspace extends { resolve?: infer TResolve }
+  ? Extract<TResolve, (...args: never[]) => unknown> extends (context: infer TContext) => unknown
+    ? TContext extends AccessWorkspaceResolverContext<infer TRuntimeConfig, infer _Name, infer _TInputContext>
+      ? TRuntimeConfig
+      : AgentRuntimeConfig
+    : AgentRuntimeConfig
+  : AgentRuntimeConfig
+
 type AccessWorkspaceName<TWorkspace> = TWorkspace extends { resolve?: infer TResolve }
   ? Extract<TResolve, (...args: never[]) => unknown> extends (context: infer TContext) => unknown
     ? TContext extends AccessWorkspaceResolverContext<infer _TRuntimeConfig, infer Name, infer _TInputContext>
@@ -296,9 +304,8 @@ async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
 }
 
 export function access<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, WorkspaceName, string, Record<string, unknown>> = AccessWorkspaceOptions<TRuntimeConfig, WorkspaceName, string, Record<string, unknown>>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+  const TWorkspace extends AccessWorkspaceOptions<any, any, any, any>,
+>(options: { chat?: AccessChatOptions<AccessWorkspaceRuntimeConfig<TWorkspace>>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<AccessWorkspaceRuntimeConfig<TWorkspace>, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>

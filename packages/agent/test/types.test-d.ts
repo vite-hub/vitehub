@@ -1032,6 +1032,7 @@ describe("agent public types", () => {
     }
     type SupportInvoker = AgentInvoker<{ audience?: "support" | "technical", customer?: "acme" }>
     type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser> & {
+      accountId: string
       invoker?: SupportInvoker
     }
     const supportProfiles: readonly AgentInvokerProfile<{ audience?: "technical", customer?: "acme" }>[] = [
@@ -1095,6 +1096,7 @@ describe("agent public types", () => {
     const supportAccessCapability = access({ workspace: supportAccess })
     type SupportAccessInputContext = NonNullable<typeof supportAccessCapability.__vitehubTypeContract>["inputContext"]
     expectTypeOf(supportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     expectTypeOf({} as SupportInputContext).toMatchTypeOf<SupportAccessInputContext>()
 
     interface SupportRuntimeConfig extends AgentRuntimeConfig {
@@ -1106,7 +1108,7 @@ describe("agent public types", () => {
         return "customer"
       },
     }
-    const customSupportAccessCapability = access<SupportRuntimeConfig>({ workspace: customSupportAccess })
+    const customSupportAccessCapability = access({ workspace: customSupportAccess })
     expectTypeOf(customSupportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
     expectTypeOf(customSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig, "support">>()
 
