@@ -407,13 +407,31 @@ function normalizedTraceActivity(activity: TraceActivityContext | undefined): Tr
 
 function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
   if (!payload || !hasRuntimeType(payload, "object") || Array.isArray(payload)) return payload === undefined ? undefined : { visibility: "private" }
-  if (payload.visibility === "public" && Object.hasOwn(payload, "value")) {
-    return { value: payload.value, visibility: "public" }
+  let visibility: PropertyDescriptor | undefined
+  try {
+    visibility = Object.getOwnPropertyDescriptor(payload, "visibility")
   }
-  if (payload.visibility === "summary" && hasRuntimeType(payload.summary, "string")) {
-    return { summary: payload.summary, visibility: "summary" }
+  catch {
+    return { visibility: "private" }
   }
-  if (payload.visibility === "redacted") return { visibility: "redacted" }
+  if (!visibility || !("value" in visibility)) return { visibility: "private" }
+  if (visibility.value === "public") {
+    try {
+      const value = Object.getOwnPropertyDescriptor(payload, "value")
+      if (value && "value" in value) return { value: value.value, visibility: "public" }
+    }
+    catch {}
+  }
+  if (visibility.value === "summary") {
+    try {
+      const summary = Object.getOwnPropertyDescriptor(payload, "summary")
+      if (summary && "value" in summary && hasRuntimeType(summary.value, "string")) {
+        return { summary: summary.value, visibility: "summary" }
+      }
+    }
+    catch {}
+  }
+  if (visibility.value === "redacted") return { visibility: "redacted" }
   return { visibility: "private" }
 }
 

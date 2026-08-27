@@ -407,6 +407,34 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(log.entries())).not.toContain("must not leak")
   })
 
+  it("falls back to private without invoking hostile payload descriptors", async () => {
+    const log = createTraceEventLog()
+    const accessorPayload = Object.defineProperty({}, "visibility", {
+      get() {
+        throw new Error("visibility must not be read")
+      },
+    })
+    const proxyPayload = new Proxy({}, {
+      getOwnPropertyDescriptor() {
+        throw new Error("descriptor must not be inspected")
+      },
+    })
+
+    await log.append({ name: "accessor", payload: accessorPayload as never, type: "lifecycle" })
+    await log.append({ name: "proxy", payload: proxyPayload as never, type: "lifecycle" })
+
+    expect(log.entries()).toEqual([
+      expect.objectContaining({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      }),
+      expect.objectContaining({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      }),
+    ])
+  })
+
   it("keeps run errors failed after a later finish", async () => {
     const events = [
       { name: "run.error", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "error" as const },
