@@ -49,25 +49,57 @@ ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server
 ## Configure the provider
 
 ```ts
-// vite.config.ts
-import { hubWorkflow } from "@vite-hub/workflow/vite";
-import { defineConfig } from "vite";
+// server/workflow-runtime.ts
+import type {
+  ResolvedWorkflowOptions,
+  WorkflowDefinition,
+  WorkflowDefinitionRegistry,
+} from "@vite-hub/workflow";
+import {
+  setWorkflowRuntimeConfig,
+  setWorkflowRuntimeRegistry,
+} from "@vite-hub/workflow/runtime/state";
+import onboardUser from "./workflows/onboard-user.ts";
 
 const postgresUrl = {
   kind: "env-variable",
   source: { kind: "env", name: "OPENWORKFLOW_POSTGRES_URL" },
 } as const;
 
+export const workflowConfig = {
+  provider: "openworkflow",
+  postgres: { url: postgresUrl },
+} satisfies ResolvedWorkflowOptions;
+
+const workflowRegistry = {
+  "onboard-user": async () => ({ default: onboardUser as WorkflowDefinition }),
+} satisfies WorkflowDefinitionRegistry;
+
+export function installWorkflowRuntime() {
+  const url = process.env.OPENWORKFLOW_POSTGRES_URL;
+  if (!url) throw new Error("OPENWORKFLOW_POSTGRES_URL is required");
+
+  setWorkflowRuntimeConfig({
+    ...workflowConfig,
+    postgres: { ...workflowConfig.postgres, url },
+  });
+  setWorkflowRuntimeRegistry(workflowRegistry);
+}
+```
+
+```ts
+// vite.config.ts
+import { hubWorkflow } from "@vite-hub/workflow/vite";
+import { defineConfig } from "vite";
+import { workflowConfig } from "./server/workflow-runtime.ts";
+
 export default defineConfig({
   plugins: [hubWorkflow()],
-  workflow: {
-    provider: "openworkflow",
-    postgres: { url: postgresUrl },
-  },
+  workflow: workflowConfig,
 });
 ```
 
-This config and the worker below read the same Postgres URL, so `runWorkflow()` enqueues work in the backend that the worker polls. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
+The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 
@@ -77,22 +109,11 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 ```ts
 // worker.ts
-import type { WorkflowDefinition } from "@vite-hub/workflow";
 import { startOpenWorkflowWorker } from "@vite-hub/workflow/runtime/openworkflow-worker";
-import onboardUser from "./server/workflows/onboard-user.ts";
+import { installWorkflowRuntime } from "./server/workflow-runtime.ts";
 
-const postgresUrl = process.env.OPENWORKFLOW_POSTGRES_URL;
-if (!postgresUrl) throw new Error("OPENWORKFLOW_POSTGRES_URL is required");
-
-const worker = await startOpenWorkflowWorker({
-  config: {
-    provider: "openworkflow",
-    postgres: { url: postgresUrl },
-  },
-  registry: {
-    "onboard-user": async () => ({ default: onboardUser as WorkflowDefinition }),
-  },
-});
+installWorkflowRuntime();
+const worker = await startOpenWorkflowWorker();
 ```
 
 Keep this process running while it should consume queued runs, and do not start a worker per request. `startOpenWorkflowWorker()` installs `SIGINT` and `SIGTERM` handlers. If the host owns shutdown, await `worker.stop()` from its shutdown hook.
@@ -103,6 +124,9 @@ Keep this process running while it should consume queued runs, and do not start 
 // server/api/onboard.post.ts
 import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow";
 import { defineEventHandler, readBody } from "h3";
+import { installWorkflowRuntime } from "../workflow-runtime.ts";
+
+installWorkflowRuntime();
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event);
