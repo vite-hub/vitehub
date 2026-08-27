@@ -59,6 +59,7 @@ describe("GitHub CI input policy", () => {
   it("allows pinned container images and transient package executors", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": [
+        `image: &pinned-image example/service@sha256:${"a".repeat(64)}`,
         "jobs:",
         "  test:",
         "    container:",
@@ -66,7 +67,11 @@ describe("GitHub CI input policy", () => {
         "    steps:",
         "      - run: npx first@1.2.3 && npx second@2.3.4",
         "      - run: pnpm --silent dlx tool@1.2.3 --help",
-        "      - run: npm exec --package=tool@1.2.3 -- tool",
+        "      - run: pnpm --dir . dlx tool@1.2.3 --help",
+        "      - run: npm exec --package=tool@1.2.3 --package helper@2.3.4 -- tool",
+        "  scalar:",
+        "    container: *pinned-image",
+        "    steps: []",
       ].join("\n"),
     })
 
@@ -347,6 +352,9 @@ jobs:
     "vp dlx tool@latest --help",
     "npx pinned@1.2.3 && npx unpinned",
     "pnpm --silent dlx unpinned",
+    "pnpm --dir . dlx unpinned",
+    "npm x unpinned",
+    "npm exec --package=safe@1.2.3 --package=unpinned -- cmd",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -369,6 +377,26 @@ jobs:
       ])
     },
   )
+
+  it("rejects mutable scalar job containers through direct values and aliases", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "image: &mutable-image node",
+        "jobs:",
+        "  direct:",
+        "    container: node",
+        "    steps: []",
+        "  alias:",
+        "    container: *mutable-image",
+        "    steps: []",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("must not use latest") }),
+      expect.objectContaining({ message: expect.stringContaining("must not use latest") }),
+    ])
+  })
 
   it("rejects malformed YAML and non-string uses values", async () => {
     const malformedRoot = await createFixture({

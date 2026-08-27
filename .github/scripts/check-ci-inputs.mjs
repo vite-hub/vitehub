@@ -9,6 +9,7 @@ const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
 const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|\$(?:\{[A-Z][A-Z0-9_]*\}|[A-Z][A-Z0-9_]*))$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const shellOperatorPattern = /^(?:&&|\|\||;|\|)$/
+const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
 
 function findExecutablePackageSpecs(command) {
   const specs = []
@@ -23,13 +24,16 @@ function findExecutablePackageSpecs(command) {
       const token = tokens[index]
 
       if (token === "npx" || token === "bunx") argumentsStart = index + 1
-      else if (token === "npm" && tokens[index + 1] === "exec") {
+      else if (token === "npm" && (tokens[index + 1] === "exec" || tokens[index + 1] === "x")) {
         argumentsStart = index + 2
         npmExec = true
       }
       else if (token === "vp" || token === "pnpm" || token === "yarn") {
         let subcommand = index + 1
-        while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) subcommand++
+        while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
+          const option = tokens[subcommand++]
+          if (packageExecutorValueOptions.has(option)) subcommand++
+        }
         if (tokens[subcommand] !== "dlx") continue
         argumentsStart = subcommand + 1
       }
@@ -37,17 +41,22 @@ function findExecutablePackageSpecs(command) {
 
       const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex >= argumentsStart && shellOperatorPattern.test(candidate))
       const invocation = tokens.slice(argumentsStart, end === -1 ? tokens.length : end)
-      let spec
+      const packageSpecs = []
       if (npmExec) {
-        const packageOption = invocation.find(candidate => candidate.startsWith("--package=") || candidate.startsWith("-p="))
-        spec = packageOption?.slice(packageOption.indexOf("=") + 1)
-        if (!spec) {
-          const packageOptionIndex = invocation.findIndex(candidate => candidate === "--package" || candidate === "-p")
-          if (packageOptionIndex !== -1) spec = invocation[packageOptionIndex + 1]
+        for (let argumentIndex = 0; argumentIndex < invocation.length; argumentIndex++) {
+          const argument = invocation[argumentIndex]
+          if (argument.startsWith("--package=") || argument.startsWith("-p=")) {
+            packageSpecs.push(argument.slice(argument.indexOf("=") + 1))
+          }
+          else if (argument === "--package" || argument === "-p") {
+            packageSpecs.push(invocation[++argumentIndex] ?? "(missing)")
+          }
         }
       }
-      spec ??= invocation.find(candidate => candidate !== "--" && !candidate.startsWith("-"))
-      specs.push(spec ?? "(missing)")
+      if (packageSpecs.length === 0) {
+        packageSpecs.push(invocation.find(candidate => candidate !== "--" && !candidate.startsWith("-")) ?? "(missing)")
+      }
+      specs.push(...packageSpecs)
     }
   }
   return specs
@@ -159,6 +168,7 @@ export function inspectGitHubCIInputs(path, source) {
       const runPair = findPair(step, "run")
       if (!runPair) continue
       const line = lineCounter.linePos(runPair.key.range?.[0] ?? 0).line
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
       if (!isScalar(runPair.value) || typeof runPair.value.value !== "string") {
         failures.push({ line, message: "run must be a string", path })
         continue
@@ -186,16 +196,30 @@ export function inspectGitHubCIInputs(path, source) {
       if (!isMap(job)) continue
       inspectUses(findPair(job, "uses"), aliasComment || job.comment || enclosingJobsComment)
       inspectSteps(findPair(job, "steps")?.value)
-      for (const container of [findPair(job, "container")?.value, ...((findPair(job, "services")?.value?.items ?? []).map(pair => pair.value))]) {
+      for (let container of [findPair(job, "container")?.value, ...((findPair(job, "services")?.value?.items ?? []).map(pair => pair.value))]) {
+        if (isAlias(container)) container = container.resolve(document)
+        if (isScalar(container)) {
+          const line = lineCounter.linePos(container.range?.[0] ?? 0).line
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
+          if (typeof container.value !== "string") {
+            failures.push({ line, message: "image must be a string", path })
+          }
+          else if (imageUsesLatest(container.value)) {
+            failures.push({ line, message: `container image must not use latest, explicitly or implicitly: ${container.value}`, path })
+          }
+          continue
+        }
         if (!isMap(container)) continue
         const imagePair = findPair(container, "image")
         if (!imagePair) continue
         const line = lineCounter.linePos(imagePair.key.range?.[0] ?? 0).line
-        if (!isScalar(imagePair.value) || typeof imagePair.value.value !== "string") {
+        const image = isAlias(imagePair.value) ? imagePair.value.resolve(document) : imagePair.value
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
+        if (!isScalar(image) || typeof image.value !== "string") {
           failures.push({ line, message: "image must be a string", path })
         }
-        else if (imageUsesLatest(imagePair.value.value)) {
-          failures.push({ line, message: `container image must not use latest, explicitly or implicitly: ${imagePair.value.value}`, path })
+        else if (imageUsesLatest(image.value)) {
+          failures.push({ line, message: `container image must not use latest, explicitly or implicitly: ${image.value}`, path })
         }
       }
     }
