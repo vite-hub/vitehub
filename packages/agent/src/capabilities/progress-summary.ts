@@ -95,6 +95,8 @@ const defaultProgressSummaryTemplate = [
   "Previous status: {{ previous }}",
 ].join("\n")
 
+const maxProgressSummaryUserTextLength = 2_000
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && hasRuntimeType(value, "object")
 }
@@ -124,9 +126,11 @@ function firstUserText(messages: Message[], input: AgentRunInput): string {
     : hasRuntimeType(input.prompt, "string")
       ? input.prompt
       : ""
-  return text
+  const sanitized = text
     .replace(/<context>[\s\S]*?<\/context>/gi, "")
     .trim()
+  if (sanitized.length <= maxProgressSummaryUserTextLength) return sanitized
+  return `${sanitized.slice(0, maxProgressSummaryUserTextLength - 1).trimEnd()}…`
 }
 
 function cleanSummary(value: unknown, maxLength: number): string | undefined {
@@ -136,7 +140,9 @@ function cleanSummary(value: unknown, maxLength: number): string | undefined {
     .replace(/\s+/g, " ")
     .trim()
   if (!summary) return
+  if (maxLength <= 0) return
   if (summary.length <= maxLength) return summary
+  if (maxLength === 1) return "…"
   const cut = summary.slice(0, maxLength + 1)
   const boundary = cut.lastIndexOf(" ")
   const truncated = (boundary > maxLength / 2 ? cut.slice(0, boundary) : summary.slice(0, maxLength - 1))
@@ -247,8 +253,15 @@ async function generateWithDriver(
   // SAFETY: The explicit driver option satisfies the normalized Agent driver input contract.
   const driver = normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
+    const runPrompt = [
+      "# Instructions",
+      progressSummaryInstructions(options),
+      "",
+      "# Evidence",
+      prompt,
+    ].join("\n")
     // SAFETY: The progress-summary runtime context supplies the normalized run context fields.
-    return await resultText(await driver.run(progressSummaryRunContext(context, input, prompt) as never))
+    return await resultText(await driver.run(progressSummaryRunContext(context, input, runPrompt) as never))
   }
   const instructions = progressSummaryInstructions(options)
   const runContext = progressSummaryAdapterRunContext(context, input, prompt)
