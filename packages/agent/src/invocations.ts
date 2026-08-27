@@ -730,21 +730,31 @@ function journalTraceLog(
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
+      const safeEntryPromise = createTraceEventLog({ content }).append(event)
+      const metadataContentValues = new Map<string, unknown>()
+      for (const key of metadataContent) {
+        if (key in (event.attributes || {})) {
+          try {
+            metadataContentValues.set(key, structuredClone(event.attributes?.[key]))
+          }
+          catch {}
+        }
+      }
       let entry: TraceEventLogEntry
       try {
         entry = await traceLog.append(event)
       }
       catch {
-        entry = await createTraceEventLog({ content }).append(event)
+        entry = await safeEntryPromise
       }
       try {
-        const safeEntry = await createTraceEventLog({ content }).append(entry)
-        if (content === "metadata" && safeEntry.attributes && entry.attributes) {
+        const safeEntry = await safeEntryPromise
+        if (content === "metadata" && safeEntry.attributes) {
           const omitted = Array.isArray(safeEntry.attributes["content.omitted"])
             ? safeEntry.attributes["content.omitted"].filter(key => !metadataContent.has(String(key)))
             : undefined
-          for (const key of metadataContent) {
-            if (key in entry.attributes) safeEntry.attributes[key] = entry.attributes[key]
+          for (const [key, value] of metadataContentValues) {
+            safeEntry.attributes[key] = value
           }
           if (omitted?.length) safeEntry.attributes["content.omitted"] = omitted
           else delete safeEntry.attributes["content.omitted"]

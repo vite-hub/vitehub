@@ -17,6 +17,7 @@ import {
   type ApprovalRequest,
   type LeaseStore,
   type RunLifecycleHooks,
+  type TraceEventLogEntry,
   ViteHubError,
 } from "../src/index.ts"
 
@@ -424,6 +425,28 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("isolates stored entries from returned and observed payloads", async () => {
+    let observed: TraceEventLogEntry | undefined
+    const log = createTraceEventLog({
+      content: "content",
+      onEntry(entry) {
+        observed = entry
+      },
+    })
+    const returned = await log.append({
+      name: "custom.event",
+      payload: { value: { files: ["before.txt"] }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    returned.payload = { value: { files: ["returned-secret.txt"] }, visibility: "public" }
+    observed!.payload = { value: { files: ["observed-secret.txt"] }, visibility: "public" }
+    const listed = log.entries()
+    listed[0]!.payload = { value: { files: ["listed-secret.txt"] }, visibility: "public" }
+
+    expect(log.entries()[0]?.payload).toEqual({ value: { files: ["before.txt"] }, visibility: "public" })
+  })
+
   it("falls back to private when a public payload value cannot be snapshotted", async () => {
     const log = createTraceEventLog()
     await log.append({
@@ -771,6 +794,29 @@ describe("@vite-hub/runtime", () => {
       "step.id": "step-1",
       "vitehub.payload.visibility": "private",
     })
+  })
+
+  it("keeps event activity metadata off derived step attributes", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      activity: { owner: "agent", phase: "execution" },
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.start",
+      type: "run",
+    })
+    await log.append({
+      activity: { owner: "vitehub", phase: "teardown" },
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.finish",
+      type: "run",
+    })
+
+    const step = deriveTraceRuns(log.entries())[0]?.steps[0]
+    expect(step?.attributes).toEqual({ "step.id": "step-1" })
+    expect(step?.events.map(event => event.activity)).toEqual([
+      { owner: "agent", phase: "execution" },
+      { owner: "vitehub", phase: "teardown" },
+    ])
   })
 
   it("derives yielded stream errors as failed runs even when finish follows", async () => {

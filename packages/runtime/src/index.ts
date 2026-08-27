@@ -520,6 +520,14 @@ function aggregateTraceAttributes(attributes: Record<string, unknown> | undefine
   return Object.keys(next).length ? next : undefined
 }
 
+function stepTraceAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!attributes) return undefined
+  const next = { ...attributes }
+  delete next["vitehub.activity.owner"]
+  delete next["vitehub.activity.phase"]
+  return Object.keys(next).length ? next : undefined
+}
+
 function normalizeTraceEvent(event: TraceEvent, sequence: number, content: TraceEventContentPolicy): TraceEventLogEntry {
   const { activity: rawActivity, attributes: _attributes, payload: rawPayload, ...rest } = event
   const activity = normalizedTraceActivity(rawActivity)
@@ -548,15 +556,16 @@ export async function emitTraceEvent<TContext extends RuntimeHostContext<any>>(
 export function createTraceEventLog(options: TraceEventLogOptions = {}): TraceEventLog {
   const content = options.content || "metadata"
   const entries: TraceEventLogEntry[] = []
+  const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => structuredClone(entry)
   return {
     async append(event) {
       const entry = normalizeTraceEvent(event, entries.length + 1, content)
       entries.push(entry)
-      await options.onEntry?.(entry)
-      return entry
+      await options.onEntry?.(cloneEntry(entry))
+      return cloneEntry(entry)
     },
     entries() {
-      return entries.slice()
+      return entries.map(cloneEntry)
     },
   }
 }
@@ -634,7 +643,7 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
       const status = stepStatus(event)
       if (!existing) {
         steps.set(id, {
-          attributes: event.attributes,
+          attributes: stepTraceAttributes(event.attributes),
           endTime: status === "running" ? undefined : event.timestamp,
           events: [event],
           id,
@@ -652,7 +661,7 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
         delete attributes["vitehub.payload.value"]
         delete attributes["vitehub.payload.visibility"]
       }
-      existing.attributes = { ...attributes, ...event.attributes }
+      existing.attributes = stepTraceAttributes({ ...attributes, ...event.attributes })
       if (status !== "running") {
         existing.endTime = event.timestamp
         existing.status = status
