@@ -216,6 +216,19 @@ describe("Workspace runtime preparation", () => {
     await preparation.stop()
   })
 
+  it("shares completed startup materialization with later Workspace views", async () => {
+    const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
+    const name = registerPreparationWorkspace(getItems)
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await expect(useWorkspace(name).fs.glob("docs/**/*.md")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/ready.md", type: "file" }),
+    ])
+    expect(getItems).toHaveBeenCalledOnce()
+    await preparation.stop()
+  })
+
   it("validates preparation options at creation", () => {
     expect(() => createWorkspacePreparation({ workspace: "" })).toThrow("requires a Workspace name")
     expect(() => createWorkspacePreparation({ retryDelayMs: -1, workspace: "docs" })).toThrow("retryDelayMs")
