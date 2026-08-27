@@ -414,15 +414,21 @@ function normalizedTraceActivity(activity: TraceActivityContext | undefined): Tr
   }
 }
 
+function isSharedArrayBuffer(value: object): boolean {
+  const constructor = (globalThis as typeof globalThis & { SharedArrayBuffer?: typeof SharedArrayBuffer }).SharedArrayBuffer
+  if (constructor && value instanceof constructor) return true
+  return Object.prototype.toString.call(value) === "[object SharedArrayBuffer]"
+}
+
 function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  if (value instanceof SharedArrayBuffer) return true
+  if (isSharedArrayBuffer(value)) return true
   // SAFETY: The runtime guard below verifies this optional host constructor before instantiation checks.
   const WebAssemblyMemory = (globalThis as typeof globalThis & {
     WebAssembly?: { Memory?: abstract new (...args: never[]) => { buffer: ArrayBufferLike } }
   }).WebAssembly?.Memory
   if (WebAssemblyMemory && value instanceof WebAssemblyMemory) {
-    return value.buffer instanceof SharedArrayBuffer
+    return isSharedArrayBuffer(value.buffer)
   }
   if (seen.has(value)) return false
   seen.add(value)
@@ -477,6 +483,17 @@ function traceEventAttributes(
   delete source["vitehub.payload.summary"]
   delete source["vitehub.payload.value"]
   delete source["vitehub.payload.visibility"]
+  if (Array.isArray(source["content.omitted"])) {
+    const omitted = source["content.omitted"].filter(key => hasRuntimeType(key, "string") && ![
+      "vitehub.activity.owner",
+      "vitehub.activity.phase",
+      "vitehub.payload.summary",
+      "vitehub.payload.value",
+      "vitehub.payload.visibility",
+    ].includes(key))
+    if (omitted.length) source["content.omitted"] = omitted
+    else delete source["content.omitted"]
+  }
   const attributes = content === "metadata" ? metadataAttributes(source) : source
   const next: Record<string, unknown> = { ...attributes }
   if (activity) {

@@ -501,6 +501,35 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(log.entries())).not.toContain("memory")
   })
 
+  it("preserves public payloads while rejecting shared memory when the constructor is hidden", async () => {
+    const WebAssemblyMemory = (globalThis as typeof globalThis & {
+      WebAssembly: {
+        Memory: new (descriptor: { initial: number, maximum: number, shared: boolean }) => { buffer: ArrayBufferLike }
+      }
+    }).WebAssembly.Memory
+    const memory = new WebAssemblyMemory({ initial: 1, maximum: 1, shared: true })
+    vi.stubGlobal("SharedArrayBuffer", undefined)
+    try {
+      const log = createTraceEventLog()
+      await log.append({
+        name: "custom.public",
+        payload: { value: { files: 1 }, visibility: "public" },
+        type: "lifecycle",
+      })
+      await log.append({
+        name: "custom.shared",
+        payload: { value: memory, visibility: "public" },
+        type: "lifecycle",
+      })
+
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("removes spoofed activity attributes from untyped producers", async () => {
     const log = createTraceEventLog()
     await log.append({
@@ -585,6 +614,25 @@ describe("@vite-hub/runtime", () => {
       "vitehub.payload.visibility": "public",
     })
     expect(spans[0]?.events?.[0]?.attributes?.["content.omitted"]).toBeUndefined()
+  })
+
+  it("removes regenerated canonical attributes from supplied omission markers", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      activity: { owner: "agent", phase: "execution" },
+      attributes: {
+        "content.omitted": ["vitehub.activity.owner", "vitehub.payload.value", "request"],
+      },
+      name: "custom.event",
+      payload: { value: "public value", visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]?.attributes).toMatchObject({
+      "content.omitted": ["request"],
+      "vitehub.activity.owner": "agent",
+      "vitehub.payload.value": "public value",
+    })
   })
 
   it("normalizes untyped payloads at the OpenTelemetry export boundary", () => {
