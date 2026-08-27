@@ -239,14 +239,17 @@ describe("Agent Invocation Interface lifecycle", () => {
     probe.expectFinished(["driver", "stream:return", "close", "finish"])
   })
 
-  it("finishes raw streams with their consumed text", async () => {
+  it("finishes immutable raw streams with their consumed text and usage", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
+    const raw = (async function* () {
+      yield { text: "Final ", type: "text-delta" }
+      yield { text: "answer.", type: "text-delta" }
+      yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
+    })()
+    Object.preventExtensions(raw)
     const agent = defineAgent({
-      driver: { run: () => (async function* () {
-        yield { text: "Final ", type: "text-delta" }
-        yield { text: "answer.", type: "text-delta" }
-      })() },
+      driver: { run: () => raw },
       hooks: { "agent:finish": finish },
     })
 
@@ -255,7 +258,12 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0]).toMatchObject({
-      result: { text: "Final answer." },
+      result: {
+        raw,
+        text: "Final answer.",
+        usage: { totalTokens: 3 },
+        usageRecord: { usage: { totalTokens: 3 } },
+      },
       text: "Final answer.",
     })
   })

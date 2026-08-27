@@ -3575,7 +3575,9 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
     if (hasRuntimeType(current, "string") && current) return result
     const prototype = Object.getPrototypeOf(result)
-    if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) return result
+    if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) {
+      return { raw: result, text }
+    }
     return resultWithPreservedProperties(result, {
       text: {
         configurable: true,
