@@ -22,7 +22,8 @@ export function validateAddresses(driver: string, message: EmailMessage): void {
   const fields = [message.from, message.to, message.cc, message.bcc, message.replyTo];
   if (
     fields.some(
-      (field) => field !== undefined && addresses(field).some((value) => !addressValue(value).email),
+      (field) =>
+        field !== undefined && addresses(field).some((value) => !addressValue(value).email),
     )
   ) {
     throw emailProviderError(driver, "INVALID_OPTIONS", "email addresses cannot be empty.");
@@ -67,10 +68,13 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
   return Object.keys(headers).some((header) => header.toLowerCase() === normalizedName);
 }
 
-export function applyUnsubscribe(message: EmailMessage): EmailMessage {
+export function applyUnsubscribe(message: EmailMessage, driver = "email"): EmailMessage {
   if (!message.unsubscribe) return message;
   const headers = { ...message.headers };
   const { mailto, oneClick, url } = message.unsubscribe;
+  if (oneClick && !url) {
+    throw emailProviderError(driver, "INVALID_OPTIONS", "one-click unsubscribe requires a URL.");
+  }
   const values = [url ? `<${url}>` : undefined, mailto ? `<mailto:${mailto}>` : undefined].filter(
     (value) => value !== undefined,
   );

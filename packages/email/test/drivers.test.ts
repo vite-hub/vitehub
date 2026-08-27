@@ -339,6 +339,19 @@ describe("Resend Email driver", () => {
     });
   });
 
+  it("rejects one-click unsubscribe without a URL before dispatch", async () => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(
+      driver.send(
+        { ...message, unsubscribe: { mailto: "leave@example.com", oneClick: true } },
+        context,
+      ),
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("cancels and rejects an oversized response body", async () => {
     const cancel = vi.fn();
     const response = new Response(
@@ -649,6 +662,21 @@ describe("Cloudflare Email driver", () => {
     expect(Constructor.mock.calls[0]?.[2]).toContain(
       "List-Unsubscribe-Post: List-Unsubscribe=One-Click",
     );
+  });
+
+  it("rejects one-click unsubscribe without a URL before delivery", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(
+      driver.send(
+        { ...message, unsubscribe: { mailto: "leave@example.com", oneClick: true } },
+        context,
+      ),
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("rejects stream selection before delivery", async () => {
@@ -991,6 +1019,21 @@ describe("Cloudflare Email driver", () => {
     });
     expect(send).not.toHaveBeenCalled();
   });
+
+  it.each(["not-a-msg-id", "<missing-domain@>", "<two@@example.com>"])(
+    "rejects malformed custom message ID %s before delivery",
+    async (id) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      await expect(
+        driver.send({ ...message, headers: { "message-id": id } }, context),
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
   it("folds attachment base64 and escapes quoted filenames", async () => {
     const Constructor = vi.fn();

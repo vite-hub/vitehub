@@ -296,7 +296,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       let body: string;
       let idempotencyKey: string | undefined;
       try {
-        message = applyUnsubscribe(message);
+        message = applyUnsubscribe(message, "resend");
         message = applyPersonalization("resend", message);
         validateAttachments("resend", message);
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey);

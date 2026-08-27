@@ -206,7 +206,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
     name: "cloudflare-email",
     async send(message, context) {
       try {
-        message = applyUnsubscribe(message);
+        message = applyUnsubscribe(message, "cloudflare-email");
         validateAttachments("cloudflare-email", message);
         if (message.stream !== undefined || context.stream !== undefined) {
           return {
@@ -339,13 +339,13 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
             ),
           };
         const customId = headerValue(message.headers, "message-id");
-        if (customId !== undefined && customId.trim() === "") {
+        if (customId !== undefined && !/^<[^<>\s@]+@[^<>\s@]+>$/.test(customId)) {
           return {
             data: null,
             error: emailProviderError(
               "cloudflare-email",
               "INVALID_OPTIONS",
-              "Message-ID cannot be empty.",
+              "Message-ID must use the <local@domain> form.",
             ),
           };
         }
