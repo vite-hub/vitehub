@@ -377,11 +377,21 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       };
     })
     .sort((left, right) => left.sequence - right.sequence);
-  if (traceTruncated && !activities.some(activity => activity.truncated)) {
-    if (activities.length > 0) activities[activities.length - 1] = { ...activities[activities.length - 1]!, truncated: true };
-    else activities.push({ attributes: {}, id: "trace-truncated", kind: "run", name: "vitehub.observation.truncated", patches: [], paths: [], sequence: 0, status: "completed", truncated: true });
+  const contentTruncated = traceTruncated || activities.some(activity => activity.truncated);
+  const compactActivities = activities.map(({ truncated: _truncated, ...activity }) => activity);
+  if (contentTruncated && !compactActivities.some(activity => activity.name === "vitehub.observation.truncated")) {
+    compactActivities.push({
+      attributes: {},
+      id: "trace-truncated",
+      kind: "system",
+      name: "vitehub.observation.truncated",
+      patches: [],
+      paths: [],
+      sequence: (compactActivities.at(-1)?.sequence ?? -1) + 1,
+      status: "completed",
+    });
   }
-  return activities;
+  return compactActivities;
 }
 
 export function latestInvocationTokens(activities: readonly InvocationActivity[]): number | undefined {

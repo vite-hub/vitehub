@@ -62,7 +62,22 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
 
-    expect(invocationActivities(invocation).every(activity => activity.truncated)).toBe(true);
+    const activities = invocationActivities(invocation);
+    expect(activities.slice(0, -1).every(activity => activity.truncated === undefined)).toBe(true);
+    expect(activities.at(-1)).toMatchObject({
+      id: "trace-truncated",
+      kind: "system",
+      name: "vitehub.observation.truncated",
+      sequence: 2,
+      status: "completed",
+    });
+    expect(invocationActivities({
+      ...invocation,
+      observations: [],
+      observationsTruncated: true,
+    })).toEqual([
+      expect.objectContaining({ id: "trace-truncated", kind: "system", sequence: 0 }),
+    ]);
   });
 
   it("discloses bounded ordinary observations", () => {
@@ -82,9 +97,19 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
 
-    expect(invocationActivities(invocation)).toEqual([
-      expect.objectContaining({ truncated: true }),
-    ]);
+    const activities = invocationActivities(invocation);
+    expect(activities).toHaveLength(2);
+    expect(activities[0]).not.toHaveProperty("truncated");
+    expect(activities[1]).toMatchObject({
+      id: "trace-truncated",
+      kind: "system",
+      name: "vitehub.observation.truncated",
+    });
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.text()).toContain("Trace content was truncated");
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    const metrics = inspector.findAll(".vh-invocation-inspector__metrics > div");
+    expect(metrics.find(metric => metric.get("dt").text() === "Steps")?.get("dd").text()).toBe("1");
   });
 
   it("renders only HTTP source URLs as links", () => {
@@ -278,11 +303,12 @@ describe("Agent Invocation UI", () => {
       traceId: "trace",
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
-    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const delivery = wrapper.get('[data-kind="delivery"]');
 
-    expect(delivery.get("summary").element.tagName).toBe("SUMMARY");
+    expect(delivery.find("summary").exists()).toBe(false);
     expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Bounded reply.");
-    expect(delivery.get(".vh-invocation-event__notice").text()).toContain("truncated");
+    expect(wrapper.get('[data-activity-id="trace-truncated"] .vh-invocation-event__title').text()).toBe("Trace content was truncated");
   });
 
   it("preserves Markdown-significant whitespace in captured delivery bodies", () => {
@@ -1418,7 +1444,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.find(".vh-invocation-preparation__context a").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-preparation__context").text()).toContain("PR #1040");
     expect(wrapper.get(".vh-invocation-preparation__body").text()).toBe("Workspace checkout failed");
-    expect(wrapper.get(".vh-invocation-preparation__steps .vh-invocation-event__notice").text()).toContain("truncated");
+    expect(wrapper.get('[data-activity-id="trace-truncated"] .vh-invocation-event__title').text()).toBe("Trace content was truncated");
   });
 
   it("preserves input transcript order when the latest user has no response", () => {
@@ -1449,6 +1475,36 @@ describe("Agent Invocation UI", () => {
     expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
       .toEqual(["First question", "First answer", "Unanswered question"]);
     expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(true);
+  });
+
+  it("renders truncation after work when the latest user has no response", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "truncated-unanswered-turn",
+      observations: [{
+        attributes: { "message.content": "Unanswered question", "message.id": "user", "message.role": "user" },
+        name: "agent.message",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }, {
+        attributes: { "error.message": "Model request failed", "tool.name": "generate" },
+        name: "agent.tool.error",
+        sequence: 2,
+        timestamp,
+        type: "error" as const,
+      }],
+      observationsTruncated: true,
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const rows = wrapper.findAll(".vh-invocation-activities > li");
+
+    expect(rows.at(-2)?.classes()).toContain("vh-invocation-work");
+    expect(rows.at(-1)?.attributes("data-activity-id")).toBe("trace-truncated");
   });
 
   it("renders grouped delivery outcomes, reaction intents, and truncation honestly", () => {
@@ -1486,7 +1542,7 @@ describe("Agent Invocation UI", () => {
       ["🎉", "hooray"],
       ["😕", "confused"],
     ]);
-    expect(wrapper.get(".vh-invocation-event__notice").text()).toContain("truncated");
+    expect(wrapper.get('[data-activity-id="trace-truncated"] .vh-invocation-event__title').text()).toBe("Trace content was truncated");
   });
 
   it("exposes grouped lifecycle failures", () => {
