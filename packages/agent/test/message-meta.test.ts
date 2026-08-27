@@ -122,4 +122,41 @@ describe("Agent message metadata", () => {
     expect(parses).toBe(1)
     expect(prepared.context?.channel).toEqual({ meta: { parse: 1 } })
   })
+
+  it("does not trust a caller-provided parsed marker", async () => {
+    let parses = 0
+    const schema = {
+      "~standard": {
+        validate: () => ({ value: { parse: ++parses } }),
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    } as const
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
+
+    await parseAgentMessageMeta(agent, createAgentInvocationContextStore({
+      channel: { meta: {} },
+      "vitehub.agent.messageMetaParsed": true,
+    }))
+
+    expect(parses).toBe(1)
+  })
+
+  it("rebuilds a chat invoker from parsed metadata", async () => {
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
+    const context = createAgentInvocationContextStore({
+      actor: { id: "chat:user-1", kind: "chat", meta: { audience: "technical", email: "user@example.com", ignored: true } },
+      channel: { meta: { audience: "technical", ignored: true } },
+      invoker: { id: "chat:user-1", kind: "chat", meta: { audience: "technical", email: "user@example.com", ignored: true } },
+    })
+
+    await parseAgentMessageMeta(agent, context)
+
+    expect(context.get("invoker")).toEqual({
+      id: "chat:user-1",
+      kind: "chat",
+      meta: { audience: "technical", email: "user@example.com" },
+    })
+    expect(context.get("actor")).toEqual(context.get("invoker"))
+  })
 })
