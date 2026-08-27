@@ -316,8 +316,8 @@ describe("Agent Invocation Interface lifecycle", () => {
         usage: { totalTokens: 3 },
         usageRecord: { usage: { totalTokens: 3 } },
       },
-      text: undefined,
     })
+    expect(finish.mock.calls[0]![0]).not.toHaveProperty("text")
     expect(Object.isExtensible(raw)).toBe(false)
     expect(raw).not.toHaveProperty("usage")
     expect(raw).not.toHaveProperty("usageRecord")
@@ -377,6 +377,41 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("preserves inherited metadata on immutable raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class RawStream {
+      get finishReason() {
+        return "stop"
+      }
+
+      get warnings() {
+        return [{ message: "provider warning" }]
+      }
+
+      async *[Symbol.asyncIterator]() {
+        yield { text: "answer", type: "text-delta" }
+      }
+    }
+    const raw = Object.preventExtensions(new RawStream())
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        finishReason: "stop",
+        raw,
+        text: "answer",
+        warnings: [{ message: "provider warning" }],
+      },
+    })
+  })
+
   it("adds streamed usage to preserved plain stream results", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const result = {
@@ -395,7 +430,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     }
     for await (const _event of preserved.fullStream) {}
 
-    expect(preserved).not.toBe(result)
+    expect(preserved).toBe(result)
     expect(preserved).toMatchObject({
       usage: { totalTokens: 2 },
       usageRecord: { usage: { totalTokens: 2 } },

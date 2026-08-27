@@ -3575,7 +3575,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
     if (hasRuntimeType(current, "string") && current) return result
     if (!Object.isExtensible(result)) {
-      return { ...toAgentRunResult(result), raw: result, text }
+      return { ...toAgentRunResultWithInheritedProperties(result), raw: result, text }
     }
     if (isAsyncIterable(result)) {
       try {
@@ -3587,7 +3587,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
         return result
       }
       catch {
-        return { ...toAgentRunResult(result), raw: result, text }
+        return { ...toAgentRunResultWithInheritedProperties(result), raw: result, text }
       }
     }
     return resultWithPreservedProperties(result, {
@@ -3599,6 +3599,20 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     })
   }
   return { raw: result, text }
+}
+
+function toAgentRunResultWithInheritedProperties(result: object): AgentRunResult {
+  const normalized = toAgentRunResult(result)
+  for (const key of ["artifacts", "finishReason", "usage", "usageRecord", "warnings"] as const) {
+    if (normalized[key] !== undefined || !Reflect.has(result, key)) continue
+    try {
+      normalized[key] = Reflect.get(result, key) as never
+    }
+    catch {
+      // Ignore provider getters that cannot be read during result normalization.
+    }
+  }
+  return normalized
 }
 
 function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined): unknown {
@@ -3623,7 +3637,7 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
       // Fall through to a wrapper when an existing property cannot be assigned.
     }
   }
-  const normalized = toAgentRunResult(result)
+  const normalized = toAgentRunResultWithInheritedProperties(result)
   return {
     ...normalized,
     raw: result,
