@@ -562,6 +562,12 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        if (plan.output.packaging === "deno-node-modules") {
+          const customAlias = config.resolve.alias.find(alias => alias.customResolver !== undefined)
+          if (customAlias) {
+            throw new Error("[vitehub] The Deno deployment preset cannot stage Vite aliases with customResolver. Use a string or RegExp alias with a string replacement.")
+          }
+        }
         resolvedBuildConfig = {
           alias: config.resolve.alias.flatMap(alias =>
             (typeof alias.find === "string" || alias.find instanceof RegExp) && typeof alias.replacement === "string"
