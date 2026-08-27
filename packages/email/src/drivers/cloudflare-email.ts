@@ -96,6 +96,7 @@ function rawMessage(message: EmailMessage, id: string): string {
     ...(message.cc ? [headerLine("Cc", addresses(message.cc).map(formatAddress).join(", "))] : []),
     ...(message.replyTo ? [headerLine("Reply-To", addresses(message.replyTo).map(formatAddress).join(", "))] : []),
     headerLine("Subject", message.subject),
+    headerLine("Date", new Date().toUTCString()),
     headerLine("Message-ID", id),
     "MIME-Version: 1.0",
     ...Object.entries(message.headers ?? {}).filter(([name]) => name.toLowerCase() !== "message-id").map(([name, value]) => headerLine(name, value)),
@@ -114,7 +115,7 @@ function rawMessage(message: EmailMessage, id: string): string {
   ].join("\r\n")
 }
 
-const transportOwnedHeaders = new Set(["from", "to", "cc", "bcc", "reply-to", "subject", "mime-version", "content-type", "content-transfer-encoding"])
+const transportOwnedHeaders = new Set(["from", "to", "cc", "bcc", "reply-to", "subject", "date", "mime-version", "content-type", "content-transfer-encoding"])
 
 function rejectTransportOwnedHeaders(headers: Record<string, string> | undefined): void {
   const header = Object.keys(headers ?? {}).find(name => transportOwnedHeaders.has(name.toLowerCase()))

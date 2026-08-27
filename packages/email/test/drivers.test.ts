@@ -387,6 +387,7 @@ describe("Cloudflare Email driver", () => {
     expect(Constructor.mock.calls[0]![2]).toContain("Content-Type: multipart/alternative")
     expect(Constructor.mock.calls[0]![2]).toContain("Content-Type: text/plain; charset=utf-8")
     expect(Constructor.mock.calls[0]![2]).toContain("Content-Type: text/html; charset=utf-8")
+    expect(Constructor.mock.calls[0]![2]).toMatch(/\r\nDate: [A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT\r\n/)
     expect(send).toHaveBeenCalledOnce()
   })
 
@@ -612,7 +613,7 @@ describe("Cloudflare Email driver", () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it.each(["Content-Type", "mime-version", "From", "Subject"])("rejects the transport-owned %s header", async (header) => {
+  it.each(["Content-Type", "mime-version", "From", "Subject", "Date"])("rejects the transport-owned %s header", async (header) => {
     const send = vi.fn()
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })
 
