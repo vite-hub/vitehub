@@ -30,7 +30,15 @@ import type {
 } from "../core/types.ts"
 
 const publicationQueues = new WeakMap<object, Promise<void>>()
-const hostInspectionConcurrency = 16
+const defaultHostInspectionConcurrency = 16
+
+function resolveHostInspectionConcurrency(host: WorkspaceSessionHost): number {
+  const concurrency = host.inspectionConcurrency ?? defaultHostInspectionConcurrency
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw workspaceError("[vitehub] Workspace host inspectionConcurrency must be a positive integer.")
+  }
+  return concurrency
+}
 
 async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, visit: (value: T) => Promise<U>) {
   const results = new Array<U>(values.length)
@@ -269,7 +277,7 @@ async function listHostEntries(
   const entries = listed
     .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))
     .filter(({ workspaceEntry }) => !isExcludedWorkspacePath(workspaceEntry.path, excluded) && (!include || include(workspaceEntry)))
-  const resolved = await mapWithConcurrency(entries, hostInspectionConcurrency, async ({ executable, workspaceEntry }) => {
+  const resolved = await mapWithConcurrency(entries, resolveHostInspectionConcurrency(host), async ({ executable, workspaceEntry }) => {
     abortSignal?.throwIfAborted()
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
     if (executable !== undefined) return workspaceEntry
@@ -306,7 +314,7 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
 
 async function captureHostEntriesState(host: WorkspaceSessionHost, root: string, entries: WorkspaceEntry[], name?: string, abortSignal?: AbortSignal) {
   const contents = new Map<string, Uint8Array | string>()
-  const files = await mapWithConcurrency(entries, hostInspectionConcurrency, async (entry) => {
+  const files = await mapWithConcurrency(entries, resolveHostInspectionConcurrency(host), async (entry) => {
     abortSignal?.throwIfAborted()
     if (entry.type !== "file") return entry
     const content = isGitSymlinkEntry(entry)
@@ -764,6 +772,7 @@ export async function createHostedWorkspaceSession(
   catch {
     throw new TypeError("[vitehub] Workspace session host must declare executionAuthority.")
   }
+  resolveHostInspectionConcurrency(host)
   const root = normalizeTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
   const excludedWriteBackPaths = [

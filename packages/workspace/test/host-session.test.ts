@@ -1509,6 +1509,48 @@ describe("workspace host sessions", () => {
     expect(maximum).toBeLessThanOrEqual(16)
   })
 
+  it("honors the host inspection concurrency across executable probes and file reads", async () => {
+    const docs = workspace()
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 1 })
+    const exec = host.exec.bind(host)
+    const read = host.files.read.bind(host.files)
+    let active = 0
+    let maximum = 0
+    const inspect = async <T>(operation: () => Promise<T>) => {
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      try {
+        return await operation()
+      }
+      finally {
+        active--
+      }
+    }
+    host.exec = async (command, args, options) => command === "test" && args?.[0] === "-x"
+      ? await inspect(async () => await exec(command, args, options))
+      : await exec(command, args, options)
+    host.files.read = async path => await inspect(async () => await read(path))
+    for (let index = 0; index < 8; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+
+    const session = await docs.startSession({ host })
+    await session.close()
+
+    expect(maximum).toBe(1)
+  })
+
+  it("rejects invalid host inspection concurrency", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "docs")
+    await docs.snapshot({ name: "baseline" })
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 0 })
+
+    await expect(docs.startSession({ host })).rejects.toThrow(
+      "Workspace host inspectionConcurrency must be a positive integer",
+    )
+  })
+
   it("uses host-reported executable modes without spawning probes", async () => {
     const docs = workspace()
     const host = memoryHost()
