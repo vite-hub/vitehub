@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises"
+import { readdir, readFile, stat } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -23,7 +23,9 @@ async function findYamlFiles(directory, filter, ignoredDirectories = new Set()) 
     if (entry.isDirectory() && !ignoredDirectories.has(entry.name)) {
       files.push(...await findYamlFiles(path, filter, ignoredDirectories))
     }
-    else if (entry.isFile() && filter(entry.name)) files.push(path)
+    else if (filter(entry.name) && (entry.isFile() || (entry.isSymbolicLink() && (await stat(path)).isFile()))) {
+      files.push(path)
+    }
   }
   return files
 }
@@ -49,7 +51,7 @@ export function inspectGitHubActionReferences(path, source) {
 
   if (failures.length > 0) return failures
 
-  const inspectUses = (pair) => {
+  const inspectUses = (pair, enclosingComment = "") => {
     if (!pair) return
 
     const line = lineCounter.linePos(pair.key.range?.[0] ?? 0).line
@@ -69,7 +71,7 @@ export function inspectGitHubActionReferences(path, source) {
       return
     }
 
-    const versionComment = pair.value.comment?.trim() ?? ""
+    const versionComment = pair.value.comment?.trim() ?? enclosingComment.trim()
     if (!versionCommentPattern.test(versionComment)) {
       failures.push({
         line,
@@ -83,7 +85,7 @@ export function inspectGitHubActionReferences(path, source) {
   const inspectSteps = (steps) => {
     if (!isSeq(steps)) return
     for (const step of steps.items) {
-      if (isMap(step)) inspectUses(findPair(step, "uses"))
+      if (isMap(step)) inspectUses(findPair(step, "uses"), step.comment ?? "")
     }
   }
 

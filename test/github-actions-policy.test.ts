@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -91,6 +91,29 @@ describe("GitHub Action pin policy", () => {
         path: "tools/setup/action.yml",
       }),
     ])
+  })
+
+  it("follows symlinked composite action manifests", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "steps:\n  - uses: ./tools/setup\n",
+      "tools/setup/composite.yml": "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v6\n",
+    })
+    await symlink("composite.yml", resolve(root, "tools/setup/action.yml"))
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("full 40-character commit SHA"),
+        path: "tools/setup/action.yml",
+      }),
+    ])
+  })
+
+  it("allows a pinned action with a flow-mapping version comment", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - { uses: "${pinnedCheckout.split(" #")[0]}" } # v6.1.0\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
   it.each([
