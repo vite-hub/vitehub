@@ -5,5 +5,5 @@ import type { BlobDriverAdapter, SupabaseBlobStoreConfig } from "../types.ts"
 
 export function createDriver(options: SupabaseBlobStoreConfig): BlobDriverAdapter<SupabaseBlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/supabase")>("files-sdk/supabase", options.driver, "files-sdk")).supabase(options))
+    (await importOptionalPeer(() => import("files-sdk/supabase"), "files-sdk/supabase", options.driver, "files-sdk")).supabase(options))
 }

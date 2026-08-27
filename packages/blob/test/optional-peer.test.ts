@@ -16,14 +16,15 @@ async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<s
 
 describe("optional peer imports", () => {
   it("explains how to install a missing adapter peer", async () => {
-    await expect(importOptionalPeer("__vitehub_missing_peer__", "s3", "files-sdk"))
+    const missingPeer = Object.assign(new Error("missing"), { code: "ERR_MODULE_NOT_FOUND" })
+    await expect(importOptionalPeer(() => Promise.reject(missingPeer), "__vitehub_missing_peer__", "s3", "files-sdk"))
       .rejects.toThrow("The \"s3\" blob driver requires files-sdk. Install it with: pnpm add files-sdk")
   })
 
-  it("keeps optional imports native so bundled closures stay provider-neutral", async () => {
+  it("uses caller-owned imports so package builds can bundle each selected peer", async () => {
     const source = await readFile(new URL("../src/internal/optional-peer.ts", import.meta.url), "utf8")
 
-    expect(source).toContain("import(/* @vite-ignore */ id)")
+    expect(source).toContain("return await load()")
     expect(source).not.toContain("node:module")
   })
 
@@ -80,7 +81,7 @@ describe("package exports", () => {
     expect(manifest.exports).not.toHaveProperty("./drivers/vercel-bundled")
   })
 
-  it("routes provider-specific Files SDK exports through the bundled runtime", async () => {
+  it("routes provider-specific Files SDK exports through their bundled runtimes", async () => {
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       exports: Record<string, string | { types: string, default: string }>
     }
@@ -105,7 +106,7 @@ describe("package exports", () => {
     for (const provider of providers) {
       expect(manifest.exports[`./drivers/${provider}`]).toEqual({
         types: `./dist/drivers/${provider}.d.ts`,
-        default: "./dist/drivers/files.js",
+        default: `./dist/drivers/${provider}.js`,
       })
     }
   })

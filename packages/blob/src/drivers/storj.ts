@@ -5,5 +5,5 @@ import type { BlobDriverAdapter, StorjBlobStoreConfig } from "../types.ts"
 
 export function createDriver(options: StorjBlobStoreConfig): BlobDriverAdapter<StorjBlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/storj")>("files-sdk/storj", options.driver, "files-sdk")).storj(options))
+    (await importOptionalPeer(() => import("files-sdk/storj"), "files-sdk/storj", options.driver, "files-sdk")).storj(options))
 }

@@ -5,5 +5,5 @@ import type { BlobDriverAdapter, DigitalOceanSpacesBlobStoreConfig } from "../ty
 
 export function createDriver(options: DigitalOceanSpacesBlobStoreConfig): BlobDriverAdapter<DigitalOceanSpacesBlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/digitalocean-spaces")>("files-sdk/digitalocean-spaces", options.driver, "files-sdk")).digitaloceanSpaces(options))
+    (await importOptionalPeer(() => import("files-sdk/digitalocean-spaces"), "files-sdk/digitalocean-spaces", options.driver, "files-sdk")).digitaloceanSpaces(options))
 }

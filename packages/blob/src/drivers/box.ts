@@ -5,5 +5,5 @@ import type { BlobDriverAdapter, BoxBlobStoreConfig } from "../types.ts"
 
 export function createDriver(options: BoxBlobStoreConfig): BlobDriverAdapter<BoxBlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/box")>("files-sdk/box", options.driver, "files-sdk")).box(options))
+    (await importOptionalPeer(() => import("files-sdk/box"), "files-sdk/box", options.driver, "files-sdk")).box(options))
 }

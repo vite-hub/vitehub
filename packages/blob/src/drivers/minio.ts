@@ -7,5 +7,5 @@ const s3PeerInstall = "files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @
 
 export function createDriver(options: ResolvedMinioBlobStoreConfig): BlobDriverAdapter<ResolvedMinioBlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/minio")>("files-sdk/minio", options.driver, s3PeerInstall)).minio(options))
+    (await importOptionalPeer(() => import("files-sdk/minio"), "files-sdk/minio", options.driver, s3PeerInstall)).minio(options))
 }

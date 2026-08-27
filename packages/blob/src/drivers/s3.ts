@@ -7,5 +7,5 @@ const s3PeerInstall = "files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @
 
 export function createDriver(options: S3BlobStoreConfig): BlobDriverAdapter<S3BlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/s3")>("files-sdk/s3", options.driver, s3PeerInstall)).s3(options))
+    (await importOptionalPeer(() => import("files-sdk/s3"), "files-sdk/s3", options.driver, s3PeerInstall)).s3(options))
 }

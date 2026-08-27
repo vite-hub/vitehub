@@ -18,7 +18,7 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
     accessKeyId: runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"),
     bucketName,
     secretAccessKey: runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
-  }, async resolved => (await importOptionalPeer<typeof import("files-sdk/r2")>("files-sdk/r2", resolved.driver, s3PeerInstall)).r2({
+  }, async resolved => (await importOptionalPeer(() => import("files-sdk/r2"), "files-sdk/r2", resolved.driver, s3PeerInstall)).r2({
     accountId: resolved.accountId,
     accessKeyId: resolved.accessKeyId,
     bucket: resolved.bucketName,
@@ -38,8 +38,8 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
 
   const [{ GetObjectCommand, PutObjectCommand, S3Client }, { getSignedUrl }] = await Promise.all([
-    importOptionalPeer<typeof import("@aws-sdk/client-s3")>("@aws-sdk/client-s3", options.driver, s3PeerInstall),
-    importOptionalPeer<typeof import("@aws-sdk/s3-request-presigner")>("@aws-sdk/s3-request-presigner", options.driver, s3PeerInstall),
+    importOptionalPeer(() => import("@aws-sdk/client-s3"), "@aws-sdk/client-s3", options.driver, s3PeerInstall),
+    importOptionalPeer(() => import("@aws-sdk/s3-request-presigner"), "@aws-sdk/s3-request-presigner", options.driver, s3PeerInstall),
   ])
   const client = new S3Client({
     credentials: { accessKeyId, secretAccessKey },

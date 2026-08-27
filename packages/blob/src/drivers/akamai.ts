@@ -5,5 +5,5 @@ import type { BlobDriverAdapter, AkamaiBlobStoreConfig } from "../types.ts"
 
 export function createDriver(options: AkamaiBlobStoreConfig): BlobDriverAdapter<AkamaiBlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/akamai")>("files-sdk/akamai", options.driver, "files-sdk")).akamai(options))
+    (await importOptionalPeer(() => import("files-sdk/akamai"), "files-sdk/akamai", options.driver, "files-sdk")).akamai(options))
 }
