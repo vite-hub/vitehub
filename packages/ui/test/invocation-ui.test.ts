@@ -446,7 +446,7 @@ describe("Agent Invocation UI", () => {
     });
   });
 
-  it("renders structured tool payloads and a timed Agent and ViteHub trace", () => {
+  it("explores structured tool payloads and selects a timed trace activity", async () => {
     const invocation = {
       completedAt: "2026-08-22T00:00:03.000Z",
       createdAt: "2026-08-22T00:00:00.000Z",
@@ -520,14 +520,30 @@ describe("Agent Invocation UI", () => {
     ]);
 
     const thread = mount(AgentInvocation, { props: { invocation } });
-    expect(thread.findAll(".vh-invocation-event__payload > strong").map(item => item.text())).toEqual([
+    expect(thread.findAll(".vh-invocation-event__payload > summary > strong").map(item => item.text())).toEqual([
       "Input",
       "Output",
       "Error",
     ]);
     expect(thread.text()).toContain("Private query omitted.");
-    expect(thread.findAll(".vh-invocation-event__payload pre").at(-2)!.element.textContent).toBe("  Returned 1 row.\n");
-    expect(thread.findAll(".vh-invocation-event__payload pre").at(-1)!.text()).toBe("Result was incomplete.");
+    expect(thread.text()).toContain("Returned 1 row.");
+    expect(thread.text()).toContain("Result was incomplete.");
+    const payloads = thread.findAll(".vh-invocation-event__payload");
+    expect(payloads[0]!.get("summary code").text()).toContain("Private query omitted.");
+    expect(payloads[0]!.find(".vh-invocation-payload__content").exists()).toBe(false);
+    (payloads[0]!.element as HTMLDetailsElement).open = true;
+    await payloads[0]!.trigger("toggle");
+    expect(payloads[0]!.findAll(".vh-invocation-payload__key").map(item => item.text())).toContain("summary");
+    await payloads[0]!.get('button[aria-pressed="false"]').trigger("click");
+    expect(payloads[0]!.get("pre").text()).toContain('"summary": "Private query omitted."');
+    await payloads[0]!.get('input[type="search"]').setValue("missing");
+    await payloads[0]!.get('button[aria-pressed="false"]').trigger("click");
+    expect(payloads[0]!.text()).toContain("No matching fields");
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    await payloads[0]!.get(".vh-invocation-payload__copy").trigger("click");
+    expect(writeText).toHaveBeenCalledWith('{\n  "summary": "Private query omitted."\n}');
+    expect(payloads[0]!.get(".vh-invocation-payload__copy").text()).toBe("Copied");
 
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     const rows = inspector.findAll(".vh-invocation-timeline__row");
@@ -539,6 +555,76 @@ describe("Agent Invocation UI", () => {
     expect(rows[0]!.text()).toContain("+250ms · 500ms");
     expect(rows[1]!.attributes("data-owner")).toBe("agent");
     expect(rows[1]!.text()).toContain("+1s · 1s");
+    await rows[1]!.trigger("click");
+    expect(inspector.emitted("selectActivity")).toEqual([[rows[1]!.attributes("data-activity-id")]]);
+
+    const selected = mount(AgentInvocation, {
+      props: { invocation, selectedActivityId: rows[0]!.attributes("data-activity-id") },
+    });
+    await nextTick();
+    const selectedEvent = selected.get(`[data-activity-id="${rows[0]!.attributes("data-activity-id")}"]`);
+    expect(selectedEvent.attributes("data-selected")).toBe("true");
+    expect((selectedEvent.element.closest("details") as HTMLDetailsElement).open).toBe(true);
+    await selected.setProps({ selectedActivityId: undefined });
+    await selected.setProps({ selectedActivityId: rows[0]!.attributes("data-activity-id") });
+    await nextTick();
+    expect(selected.get(`[data-activity-id="${rows[0]!.attributes("data-activity-id")}"]`).attributes("data-selected")).toBe("true");
+  });
+
+  it("bounds large payload trees and safely serializes repeated and circular values", async () => {
+    const shared = { value: "shared" };
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const input = {
+      big: 12n,
+      circular,
+      fields: Object.fromEntries(Array.from({ length: 800 }, (_, index) => [`field${index}`, index])),
+      first: shared,
+      second: shared,
+    };
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "large-payload",
+      observations: [
+        { attributes: { "tool.id": "inspect", "tool.input": input, "tool.name": "inspect" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "inspect", "tool.name": "inspect", "tool.output": { ok: true } }, name: "agent.tool.finish", sequence: 2, timestamp, type: "run" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const payload = wrapper.findAll(".vh-invocation-event__payload")[0]!;
+
+    expect(payload.find(".vh-invocation-payload__tree").exists()).toBe(false);
+    (payload.element as HTMLDetailsElement).open = true;
+    await payload.trigger("toggle");
+    expect(payload.findAll(".vh-invocation-payload__leaf").length).toBeLessThanOrEqual(500);
+
+    await payload.get('button[aria-pressed="false"]').trigger("click");
+    const raw = payload.get("pre").text();
+    expect(raw.match(/"value": "shared"/g)).toHaveLength(2);
+    expect(raw).toContain('"self": "[Circular]"');
+    expect(raw).toContain('"big": "12n"');
+  });
+
+  it("renders a safe fallback when reading a payload throws", () => {
+    const input = { toJSON() { throw new Error("serialization failed"); } };
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "throwing-payload",
+      observations: [
+        { attributes: { "tool.id": "inspect", "tool.input": input, "tool.name": "inspect" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "inspect", "tool.name": "inspect", "tool.output": { ok: true } }, name: "agent.tool.finish", sequence: 2, timestamp, type: "run" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(mount(AgentInvocation, { props: { invocation } }).text()).toContain("Unable to display payload: serialization failed");
   });
 
   it("keeps rounded and terminal trace timings inside their bounds", () => {
