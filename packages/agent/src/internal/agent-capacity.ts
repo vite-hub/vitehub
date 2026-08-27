@@ -172,10 +172,16 @@ class AgentCapacityScheduler {
     const sampleTimeoutMs = adaptive.sampleTimeoutMs ?? 1_000
     const sampleController = new AbortController()
     let sampleTimer: ReturnType<typeof setTimeout> | undefined
+    const active = () => this.active
+    const pending = () => this.pendingCount()
     const sample = Promise.resolve().then(() => adaptive.sample({
-      active: this.active,
+      get active() {
+        return active()
+      },
       concurrency: this.options.concurrency,
-      pending: this.queue.length,
+      get pending() {
+        return pending()
+      },
       signal: sampleController.signal,
     }))
     const timeout = new Promise<never>((_resolve, reject) => {
