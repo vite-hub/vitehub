@@ -600,6 +600,46 @@ describe("access capability", () => {
     )
   })
 
+  it("wraps frozen Workspace facades and sessions without violating proxy invariants", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    const session = Object.freeze({
+      async glob() {
+        return []
+      },
+    }) as unknown as WorkspaceSession
+    const fs = Object.freeze({
+      ...base.fs,
+      async startSession() {
+        return session
+      },
+    })
+    const workspace = Object.freeze({
+      fs,
+      tools: base.tools,
+      async startSession() {
+        return session
+      },
+    }) as unknown as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const wrapped = resolved.workspace as ReadonlyWorkspaceFacade & {
+      fs: ReadonlyWorkspaceFacade["fs"] & { startSession(): Promise<WorkspaceSession> }
+      startSession(): Promise<WorkspaceSession>
+    }
+
+    await expect(wrapped.fs.exists("public/readme.md")).resolves.toBe(true)
+    await expect(wrapped.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect((await wrapped.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
   it("falls back to default scope when an explicit resolver returns no scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")

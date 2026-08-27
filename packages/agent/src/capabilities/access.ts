@@ -426,13 +426,11 @@ function createModelSafeWorkspaceSession(
 }
 
 function overridePrototypeMethods<T extends object>(target: T, overrides: Partial<T>): T {
-  return new Proxy(target, {
-    get(target, property) {
+  return new Proxy(Object.create(Object.getPrototypeOf(target)) as T, {
+    get(_wrapper, property) {
       if (Object.hasOwn(overrides, property)) return Reflect.get(overrides, property, overrides)
       const value = Reflect.get(target, property, target)
-      return typeof value === "function" && !Object.hasOwn(target, property)
-        ? value.bind(target)
-        : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   })
 }
