@@ -86,6 +86,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
 vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 
+import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
@@ -418,6 +419,7 @@ describe("ViteHub Nuxt integration", () => {
     development.nuxt.options.rootDir = root
     development.nuxt.options.buildDir = resolve(root, ".nuxt")
     development.nuxt.options.vitehubCliDiscovery = true
+    vi.stubEnv(consoleFixtureEnvironmentVariable, resolve(root, "missing.fixture.json"))
 
     try {
       await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
@@ -428,6 +430,7 @@ describe("ViteHub Nuxt integration", () => {
       )
     }
     finally {
+      vi.unstubAllEnvs()
       await rm(root, { force: true, recursive: true })
     }
   })

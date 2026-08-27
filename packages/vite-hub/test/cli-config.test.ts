@@ -45,6 +45,7 @@ describe("ViteHub CLI config loading", () => {
     expect(resolveViteConfig).toHaveBeenCalledWith(expect.objectContaining({
       configFile: false,
       root,
+      vitehubCliDiscovery: true,
     }), "serve", "development")
     expect(loadNuxt).toHaveBeenCalledWith({
       cwd: root,
@@ -91,7 +92,7 @@ describe("ViteHub CLI config loading", () => {
     })
 
     expect(loadNuxt).not.toHaveBeenCalled()
-    expect(resolveViteConfig).toHaveBeenCalledWith({ root }, "serve", "development")
+    expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", "development")
   })
 
   it("preserves explicit Vite ownership across CLI discovery", async () => {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 
@@ -255,7 +256,7 @@ describe("ViteHub CLI", () => {
                 namespaces: [{
                   features: [{
                     name: "spawn",
-                    run: async (_args, context) => {
+                    run: async (_args: string[], context: ViteHubCliContext) => {
                       const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 20)"])
                       await vi.waitFor(() => expect(process.listenerCount("SIGQUIT")).toBeGreaterThan(0))
                       process.emit("SIGQUIT")

@@ -497,7 +497,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       development: Boolean(nuxt.options.dev),
       preset: plan.preset,
     })
-    const fixture = process.env[consoleFixtureEnvironmentVariable]
+    const fixture = nuxt.options.vitehubCliDiscovery
+      ? undefined
+      : process.env[consoleFixtureEnvironmentVariable]
     if (fixture && !nuxt.options.dev) throw new Error("[vitehub] Console fixture mode is development-only.")
     const resolvedFixture = fixture ? resolve(projectRoot, fixture) : undefined
     if (resolvedFixture) readConsoleFixture(resolvedFixture)

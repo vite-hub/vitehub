@@ -432,6 +432,27 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("ignores inherited fixtures during Vite CLI discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-cli-discovery-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      vi.stubEnv(consoleFixtureEnvironmentVariable, join(root, "missing.fixture.json"))
+      const plugin = consoleVitePlugin({ preset: "node" })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+
+      await expect(Reflect.apply(configHandler, {}, [
+        { root, vitehubCliDiscovery: true },
+        { command: "serve", mode: "development" },
+      ])).resolves.toBeUndefined()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("serves discovered Agent names in stable order for the active project", async () => {
     const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })

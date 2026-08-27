@@ -56,7 +56,7 @@ export async function loadViteHubCliConfig(
   const resolveViteConfig = dependencies.resolveViteConfig ?? defaultResolveViteConfig
   if (hasConfig(rootDir, "vite") || !hasConfig(rootDir, "nuxt")) {
     return {
-      ...await resolveViteConfig({ root: rootDir }, "serve", "development"),
+      ...await resolveViteConfig({ root: rootDir, vitehubCliDiscovery: true } as InlineConfig, "serve", "development"),
       vitehubConfigResolved: true,
     }
   }
@@ -76,7 +76,8 @@ export async function loadViteHubCliConfig(
         ...nuxt.options.vite,
         configFile: false,
         root: viteRoot,
-      }, "serve", "development"),
+        vitehubCliDiscovery: true,
+      } as InlineConfig, "serve", "development"),
       vitehubConfigResolved: true,
     }
   }

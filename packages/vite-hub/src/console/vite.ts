@@ -153,6 +153,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
+        vitehubCliDiscovery?: true
       }
       assertConsoleProductionAccess(configured, {
         auth: configured !== true && configured.access === "auth"
@@ -162,7 +163,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         preset: options.preset,
       })
       projectRoot = resolveViteHubProjectRoot(root)
-      const configuredFixture = process.env[consoleFixtureEnvironmentVariable]
+      const configuredFixture = viteConfig.vitehubCliDiscovery
+        ? undefined
+        : process.env[consoleFixtureEnvironmentVariable]
       fixture = undefined
       if (configuredFixture) {
         if (environment.command === "build") {
