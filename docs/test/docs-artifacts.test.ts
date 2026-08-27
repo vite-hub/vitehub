@@ -72,6 +72,17 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("keeps protected indented code separate from following references", () => {
+    expect(toRawMarkdown([
+      "    [literal]: /docs/literal",
+      "[rendered]: /docs/rendered",
+    ].join("\n"))).toBe([
+      "    [literal]: /docs/literal",
+      "[rendered]: https://vitehub.dev/docs/rendered",
+      "",
+    ].join("\n"));
+  });
+
   it("preserves raw HTML blocks inside blockquotes", () => {
     expect(toRawMarkdown([
       "> <pre>",

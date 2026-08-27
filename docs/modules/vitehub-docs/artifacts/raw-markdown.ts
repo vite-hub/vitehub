@@ -295,8 +295,8 @@ function rewriteLinks(source: string) {
 
     const codeIndent = listIndent !== null && quotePrefix === listQuotePrefix ? listIndent + 4 : 4;
     if (contentIndent >= codeIndent) {
-      const index = protectedLines.push(lineWithEnding) - 1;
-      outsideFence += `\0INDENT${index}\0`;
+      const index = protectedLines.push(line) - 1;
+      outsideFence += `\0INDENT${index}\0${lineWithEnding.endsWith("\n") ? "\n" : ""}`;
       continue;
     }
 

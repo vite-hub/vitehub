@@ -262,7 +262,7 @@ export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions)
       writeFileSync(temporaryPath, manifestSource);
       renameSync(temporaryPath, manifestPath);
     } finally {
-      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+      rmSync(temporaryPath, { force: true });
     }
   }
 

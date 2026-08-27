@@ -39,6 +39,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(module).toContain('baseURL: "/raw"');
     expect(module).toContain('dir: resolve(outputDir, "raw")');
     expect(module).toContain("config.plugins.push(llmsRawLinksPlugin)");
+    expect(module).toContain("const manifest = writeDocsArtifacts({ docsRoot, outputDir });");
   });
 
   it("keeps the compact index routed to raw Markdown", () => {

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { defineNuxtModule } from "nuxt/kit";
-import { readDocsArtifactsManifest, writeDocsArtifacts } from "./artifacts";
+import { writeDocsArtifacts } from "./artifacts";
 
 function collectPrerenderRoutes(manifest: { sections: Array<{ pages: Array<{ path: string }> }> }) {
   const routes: string[] = ["/docs", "/about", "/contact", "/privacy"];
@@ -32,7 +32,7 @@ export default defineNuxtModule({
     const agentErrorHandler = resolve(docsRoot, "server/error-handler.ts");
     const llmsRawLinksPlugin = resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-raw-links.ts");
 
-    const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, outputDir });
+    const manifest = writeDocsArtifacts({ docsRoot, outputDir });
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
     nuxt.hook("builder:watch", (_event, path) => {
       const normalizedPath = path.replace(/\\/g, "/");
