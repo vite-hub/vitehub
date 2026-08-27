@@ -3,7 +3,16 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
-    copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
+    copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
+    plugins: [{
+      name: "env-virtual-declarations",
+      generateBundle(_options, bundle) {
+        const chunk = bundle["virtual.d.ts"]
+        if (chunk?.type === "chunk") {
+          chunk.code = `/// <reference path="./virtual-module.d.ts" />\n${chunk.code}`
+        }
+      },
+    }],
     deps: {
       neverBundle: ["vite"],
       alwaysBundle: [/^@vite-hub\/internal/],

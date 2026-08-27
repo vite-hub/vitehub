@@ -347,6 +347,16 @@ async function typecheckPackageModule(
   const sourcePath = join(runnerDir, `export-${index}.ts`)
   await writeFile(sourcePath, `${source}\n`, "utf8")
   const rootNames = [sourcePath]
+  if (packageName === "@vite-hub/auth") {
+    const authHostTypesPath = join(runnerDir, "auth-host-types.d.ts")
+    await writeFile(authHostTypesPath, [
+      "type Timer = ReturnType<typeof setTimeout>",
+      "declare module \"bun:sqlite\" { export class Database {} }",
+      "declare module \"@cloudflare/workers-types\" { export interface D1Database {} }",
+      "",
+    ].join("\n"), "utf8")
+    rootNames.push(authHostTypesPath)
+  }
   let hostTypesPath: string | undefined
   if (withCloudflareHost) {
     hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
