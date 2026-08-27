@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
@@ -10,7 +10,7 @@ import { normalizeWorkflowOptions } from "./config.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
-import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -73,7 +73,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 }
 
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
-  let providerOutput: ComposedProviderOutput | undefined
+  let providerOutput: ProviderOutputCatalog | undefined
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
@@ -145,7 +145,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     configResolved(config) {
       resolved = config
-      providerOutput = useComposedProviderOutput(config)
+      providerOutput = useProviderOutputCatalog(config)
       workflow = config.workflow ?? workflow
     },
     configEnvironment(name, config) {

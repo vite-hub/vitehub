@@ -1,47 +1,14 @@
 import { isDeepStrictEqual } from "node:util"
 
 import { mergeProviderOutputConfig } from "./provider-output-config.ts"
+import type { CloudflareProviderOutputValue, ProviderOutputCatalog } from "./provider-output-catalog.ts"
 
-interface CloudflareQueueConsumer {
-  queue: string
-  [key: string]: unknown
+// SAFETY: ViteHub owns this namespaced global registry, and every bundled copy uses the same value type.
+const providerOutputCatalogRegistry = globalThis as typeof globalThis & {
+  __vitehubProviderOutputCatalogsByNitroValue?: WeakMap<object, ProviderOutputCatalog>
 }
-
-interface CloudflareQueueProducer {
-  binding: string
-  queue: string
-  [key: string]: unknown
-}
-
-interface CloudflareR2Bucket {
-  binding: string
-  bucket_name: string
-  [key: string]: unknown
-}
-
-interface CloudflareRateLimit {
-  name: string
-  [key: string]: unknown
-}
-
-interface CloudflareProviderOutputContribution {
-  queues?: {
-    consumers?: CloudflareQueueConsumer[]
-    producers?: CloudflareQueueProducer[]
-  }
-  r2Buckets?: CloudflareR2Bucket[]
-  rateLimits?: CloudflareRateLimit[]
-  requiredSecrets?: string[]
-  requiredSecretsByEnvironment?: Record<string, string[]>
-}
-
-interface CloudflareProviderOutputCatalog {
-  appliedByOwner: Map<string, CloudflareProviderOutputContribution>
-  contributionsByOwner: Map<string, CloudflareProviderOutputContribution>
-}
-
-const cloudflareProviderOutputKey = Symbol.for("vitehub.cloudflareProviderOutput")
-const cloudflareProviderOutputByNitro = new WeakMap<object, CloudflareProviderOutputCatalog>()
+const providerOutputCatalogByNitroValue = providerOutputCatalogRegistry.__vitehubProviderOutputCatalogsByNitroValue
+  ??= new WeakMap<object, ProviderOutputCatalog>()
 
 function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
@@ -56,15 +23,6 @@ function cloneProviderValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(entry => typeof entry === "undefined" ? null : cloneProviderValue(entry))
   if (value && typeof value === "object") return cloneProviderRecord(value)
   return value
-}
-
-function useCloudflareProviderOutput(config: object): CloudflareProviderOutputCatalog {
-  const owner = config as Record<symbol, CloudflareProviderOutputCatalog | undefined>
-  return (owner[cloudflareProviderOutputKey] ??= { appliedByOwner: new Map(), contributionsByOwner: new Map() })
-}
-
-export function registerCloudflareProviderOutput(config: object, owner: string, contribution: CloudflareProviderOutputContribution): void {
-  useCloudflareProviderOutput(config).contributionsByOwner.set(owner, contribution)
 }
 
 function compatibleEntries<T extends Record<string, unknown>>(existing: unknown, incoming: T[] | undefined, identityKey: keyof T & string, conflictKeys: Array<keyof T & string>, owner: string): T[] {
@@ -88,7 +46,7 @@ function removeEntries(existing: unknown, entries: unknown[] | undefined): unkno
   return existing.filter(entry => !entries.some(previous => isDeepStrictEqual(entry, previous)))
 }
 
-function removeContribution(wrangler: Record<string, unknown>, contribution: CloudflareProviderOutputContribution): Record<string, unknown> {
+function removeContribution(wrangler: Record<string, unknown>, contribution: CloudflareProviderOutputValue): Record<string, unknown> {
   const queues = cloneProviderRecord(wrangler.queues)
   const secrets = cloneProviderRecord(wrangler.secrets)
   const environments = cloneProviderRecord(wrangler.env)
@@ -134,7 +92,7 @@ function removeContribution(wrangler: Record<string, unknown>, contribution: Clo
   }
 }
 
-function mergeContribution(wrangler: Record<string, unknown>, owner: string, contribution: CloudflareProviderOutputContribution): [Record<string, unknown>, CloudflareProviderOutputContribution] {
+function mergeContribution(wrangler: Record<string, unknown>, owner: string, contribution: CloudflareProviderOutputValue): [Record<string, unknown>, CloudflareProviderOutputValue] {
   const queues = cloneProviderRecord(wrangler.queues)
   const secrets = cloneProviderRecord(wrangler.secrets)
   const environments = cloneProviderRecord(wrangler.env)
@@ -195,29 +153,41 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
   }]
 }
 
-export function composeNitroCloudflareProviderOutput(config: object, value: unknown): Record<string, unknown> {
+function inheritedProviderOutputCatalog(value: unknown): ProviderOutputCatalog | undefined {
+  if (!value || typeof value !== "object") return
+  const nitro = value as Record<string, unknown>
+  const cloudflare = nitro.cloudflare
+  const wrangler = cloudflare && typeof cloudflare === "object" ? (cloudflare as Record<string, unknown>).wrangler : undefined
+  return providerOutputCatalogByNitroValue.get(value)
+    ?? (cloudflare && typeof cloudflare === "object" ? providerOutputCatalogByNitroValue.get(cloudflare) : undefined)
+    ?? (wrangler && typeof wrangler === "object" ? providerOutputCatalogByNitroValue.get(wrangler) : undefined)
+}
+
+function associateProviderOutputCatalog(output: Record<string, unknown>, catalog: ProviderOutputCatalog): void {
+  providerOutputCatalogByNitroValue.set(output, catalog)
+  const cloudflare = output.cloudflare
+  if (!cloudflare || typeof cloudflare !== "object") return
+  providerOutputCatalogByNitroValue.set(cloudflare, catalog)
+  const wrangler = (cloudflare as Record<string, unknown>).wrangler
+  if (wrangler && typeof wrangler === "object") providerOutputCatalogByNitroValue.set(wrangler, catalog)
+}
+
+export function composeNitroCloudflareProviderOutput(catalog: ProviderOutputCatalog, value: unknown, inheritedValue: unknown = value): Record<string, unknown> {
   const nitro = cloneRecord(value)
   const cloudflare = cloneRecord(nitro.cloudflare)
-  const catalog = useCloudflareProviderOutput(config)
-  const inherited = value && typeof value === "object"
-    ? (value as Record<symbol, CloudflareProviderOutputCatalog | undefined>)[cloudflareProviderOutputKey] ?? cloudflareProviderOutputByNitro.get(value)
-    : undefined
-  if (inherited && inherited !== catalog) {
-    for (const [owner, contribution] of inherited.appliedByOwner) catalog.appliedByOwner.set(owner, contribution)
-    catalog.contributionsByOwner = new Map([...inherited.contributionsByOwner, ...catalog.contributionsByOwner])
-  }
+  const inherited = inheritedProviderOutputCatalog(inheritedValue) ?? inheritedProviderOutputCatalog(value)
+  if (inherited && inherited !== catalog) catalog.inheritCloudflareContributions(inherited)
   let wrangler = cloneProviderRecord(cloudflare.wrangler)
-  for (const contribution of catalog.appliedByOwner.values()) wrangler = removeContribution(wrangler, contribution)
-  catalog.appliedByOwner.clear()
-  for (const [owner, contribution] of catalog.contributionsByOwner) {
+  for (const contribution of catalog.appliedCloudflareContributions()) wrangler = removeContribution(wrangler, contribution)
+  catalog.clearAppliedCloudflareContributions()
+  for (const [owner, contribution] of catalog.cloudflareContributions()) {
     const [merged, applied] = mergeContribution(wrangler, owner, contribution)
     wrangler = merged
-    catalog.appliedByOwner.set(owner, applied)
+    catalog.replaceAppliedCloudflareContribution(owner, applied)
   }
   const output = !Object.keys(cloudflare).length && !Object.keys(wrangler).length
     ? nitro
     : { ...nitro, cloudflare: { ...cloudflare, wrangler } }
-  Object.defineProperty(output, cloudflareProviderOutputKey, { enumerable: true, value: catalog })
-  cloudflareProviderOutputByNitro.set(output, catalog)
+  associateProviderOutputCatalog(output, catalog)
   return output
 }

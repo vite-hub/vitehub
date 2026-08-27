@@ -200,8 +200,9 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `bodySchema` | Standard JSON Schema-compatible schema | none | Validates runtime body input and supplies schema defaults. Cannot be combined with `body`. |
 | `headers` | `Record<string, string>` | none | Static request headers. |
 | `cookies` | `Record<string, string>` | none | Static request cookies. |
-| `timeout` | `number` | package default | Request timeout in milliseconds. |
-| `request` | `FetchSourceRequestOptions \| callback` | none | Adds headers, cookies, or timeout at request time. The callback receives request metadata, the Selected Workspace Scope, Source key, and Workspace name. |
+| `timeout` | `number` | `30000` | Request and response-body timeout in milliseconds. |
+| `maxResponseBytes` | `number` | `5242880` | Maximum decoded response size. Explicit limits must not exceed 25 MiB. |
+| `request` | `FetchSourceRequestOptions \| callback` | none | Adds headers, cookies, timeout, or `maxResponseBytes` at request time. The callback receives request metadata, the Selected Workspace Scope, Source key, and Workspace name. |
 | `transform` | `(response) => output` | identity | Transforms parsed response data before ViteHub serializes it. |
 | `cache` | `false \| { maxAge?: number }` | `false` | Controls Source response caching. |
 | `materialize` | `build \| lazy \| none` | `lazy`, or `none` when sync is enabled | Controls when response content is written into the Workspace Store. |
