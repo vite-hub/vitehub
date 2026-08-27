@@ -232,20 +232,7 @@ function isStaticSiteDestination(destination) {
 export function vueLinks(source) {
   const links = [];
   for (const match of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
-    const file = ts.createSourceFile("component.ts", match[1], ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    function visitScript(node) {
-      if (ts.isPropertyAssignment(node)) {
-        const name = ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)
-          ? node.name.text
-          : undefined;
-        if (["to", "href", "src", "poster", "srcset"].includes(name)
-          && ts.isStringLiteralLike(node.initializer)) {
-          links.push(node.initializer.text);
-        }
-      }
-      ts.forEachChild(node, visitScript);
-    }
-    visitScript(file);
+    links.push(...typescriptLinks(match[1]));
   }
   const templateSource = withoutHtmlComments(source)
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
@@ -262,6 +249,41 @@ export function vueLinks(source) {
     }
   }
   return [...new Set(links.filter(isStaticSiteDestination))];
+}
+
+function typescriptLinks(source) {
+  const links = [];
+  const file = ts.createSourceFile("application.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  function visit(node) {
+    if (ts.isPropertyAssignment(node)) {
+      const name = ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)
+        ? node.name.text
+        : undefined;
+      if (["to", "href", "src", "poster", "srcset"].includes(name)
+        && ts.isStringLiteralLike(node.initializer)) {
+        links.push(node.initializer.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return [...new Set(links.filter(isStaticSiteDestination))];
+}
+
+function applicationImports(source, extension) {
+  const scripts = extension === ".vue"
+    ? [...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1])
+    : [source];
+  return scripts.flatMap((script) => {
+    const file = ts.createSourceFile("application.ts", script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    return file.statements.flatMap((statement) => {
+      if ((ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement))
+        && statement.moduleSpecifier && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+        return [statement.moduleSpecifier.text];
+      }
+      return [];
+    });
+  });
 }
 
 function routeFromContentPath(contentRoot, path) {
@@ -309,7 +331,8 @@ function isStaticApplicationRoute(route) {
   return !route.split("/").some((segment) => segment.includes("[") || segment.includes("]"));
 }
 
-function appRoutes(docsRoot) {
+function applicationInventory(docsRoot) {
+  const appRoot = join(docsRoot, "app");
   const pagesRoot = join(docsRoot, "app/pages");
   const componentsRoot = join(docsRoot, "app/components");
   const componentFiles = walk(componentsRoot, (path) => path.endsWith(".vue"));
@@ -318,6 +341,23 @@ function appRoutes(docsRoot) {
       .map((part) => part.replace(/(^|-)(\w)/g, (_, _separator, letter) => letter.toUpperCase())).join("");
     return [name, path];
   }));
+  const sourceRoutes = new Map();
+  const importedFiles = new Set();
+  function resolveImport(sourcePath, specifier) {
+    if (!specifier.startsWith(".") && !specifier.startsWith("~/")) return undefined;
+    const unresolved = specifier.startsWith("~/")
+      ? resolve(appRoot, specifier.slice(2))
+      : resolve(dirname(sourcePath), specifier);
+    const candidates = [
+      unresolved,
+      `${unresolved}.ts`,
+      `${unresolved}.vue`,
+      join(unresolved, "index.ts"),
+      join(unresolved, "index.vue"),
+    ];
+    return candidates.find((candidate) => candidate.startsWith(`${appRoot}${sep}`)
+      && existsSync(candidate) && statSync(candidate).isFile());
+  }
   const routeAnchors = new Map(walk(pagesRoot, (path) => path.endsWith(".vue")).flatMap((path) => {
     const route = relative(join(docsRoot, "app/pages"), path)
       .split(sep).join("/").replace(/\.vue$/, "").replace(/\/index$/, "").replace(/^index$/, "");
@@ -329,11 +369,22 @@ function appRoutes(docsRoot) {
       const file = pending.pop();
       if (visited.has(file)) continue;
       visited.add(file);
+      if (!sourceRoutes.has(file)) sourceRoutes.set(file, new Set());
+      sourceRoutes.get(file).add(normalizeRoute(`/${route}`));
       const source = readFileSync(file, "utf8");
-      for (const anchor of staticHtmlAnchors(source)) anchors.add(anchor);
-      const renderedSource = withoutHtmlComments(source);
-      for (const [name, componentPath] of components) {
-        if (new RegExp(`<${name}(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
+      if (extname(file) === ".vue") {
+        for (const anchor of staticHtmlAnchors(source)) anchors.add(anchor);
+        const renderedSource = withoutHtmlComments(source);
+        for (const [name, componentPath] of components) {
+          if (new RegExp(`<${name}(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
+        }
+      }
+      for (const specifier of applicationImports(source, extname(file))) {
+        const importedPath = resolveImport(file, specifier);
+        if (importedPath) {
+          importedFiles.add(importedPath);
+          pending.push(importedPath);
+        }
       }
     }
     return [[normalizeRoute(`/${route}`), anchors]];
@@ -345,7 +396,7 @@ function appRoutes(docsRoot) {
   for (const route of ["/llms.txt", "/llms-full.txt", "/mcp"]) routeAnchors.set(route, new Set());
   const matrixAnchors = supportMatrixAnchors(docsRoot);
   if (matrixAnchors) routeAnchors.set("/docs/frameworks-hosts/support-matrix", matrixAnchors);
-  return routeAnchors;
+  return { importedFiles, routeAnchors, sourceRoutes };
 }
 
 function decodeFragment(fragment) {
@@ -378,7 +429,11 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
     .filter((path) => routeFromContentPath(contentRoot, path) !== undefined);
   const readmes = publicReadmes(repoRoot);
   const markdownFiles = [...contentFiles, ...readmes];
-  const applicationFiles = walk(join(docsRoot, "app"), (path) => path.endsWith(".vue"));
+  const application = applicationInventory(docsRoot);
+  const applicationFiles = [...new Set([
+    ...walk(join(docsRoot, "app"), (path) => path.endsWith(".vue")),
+    ...application.importedFiles,
+  ])];
   const sourceEntries = [
     ...markdownFiles.map((sourcePath) => {
       const sourceRoute = sourcePath.startsWith(`${contentRoot}${sep}`)
@@ -393,14 +448,17 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       };
     }),
     ...applicationFiles.map((sourcePath) => ({
-      destinations: vueLinks(readFileSync(sourcePath, "utf8")),
+      destinations: extname(sourcePath) === ".vue"
+        ? vueLinks(readFileSync(sourcePath, "utf8"))
+        : typescriptLinks(readFileSync(sourcePath, "utf8")),
       renderer: "vue",
+      renderedRoutes: [...(application.sourceRoutes.get(sourcePath) ?? [])],
       sourcePath,
-      sourceRoute: "/",
+      sourceRoute: [...(application.sourceRoutes.get(sourcePath) ?? [])][0] ?? "/",
     })),
   ];
   const routeFiles = new Map(contentFiles.map((path) => [routeFromContentPath(contentRoot, path), path]));
-  const applicationRoutes = appRoutes(docsRoot);
+  const applicationRoutes = application.routeAnchors;
   const knownRoutes = new Set([...routeFiles.keys(), ...applicationRoutes.keys(), ...docsRoutes.map(normalizeRoute)]);
   for (const route of routeFiles.keys()) {
     if (route !== "/") knownRoutes.add(`/raw${route}.md`);
@@ -414,7 +472,7 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   const errors = [];
   let checked = 0;
 
-  for (const { destinations, renderer, sourcePath, sourceRoute } of sourceEntries) {
+  for (const { destinations, renderedRoutes = [], renderer, sourcePath, sourceRoute } of sourceEntries) {
     for (const destination of destinations) {
       if (/^(?:mailto:|tel:|data:|javascript:)/i.test(destination)) continue;
       if (sourceRoute === undefined && /^\/(?!\/)/.test(destination)) continue;
@@ -430,6 +488,15 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
 
       checked += 1;
       const { fragment, path } = splitDestination(local);
+      if (!path && fragment && renderer === "vue") {
+        for (const route of renderedRoutes) {
+          const routeAnchors = applicationRoutes.get(route);
+          if (!routeAnchors?.has(fragment)) {
+            errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist for route ${JSON.stringify(route)}`);
+          }
+        }
+        continue;
+      }
       let targetFile;
       let targetRoute;
 

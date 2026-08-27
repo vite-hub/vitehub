@@ -204,6 +204,39 @@ const links = [{ to: "/docs/missing-script" }]
     ]);
   });
 
+  it("validates links stored in application data imported by a rendered component", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
+      "docs/app/components/landing/Paths.vue": '<script setup lang="ts">import { links } from "./content"</script><template><NuxtLink v-for="link in links" :to="link.to" /></template>',
+      "docs/app/components/landing/content.ts": 'export const links = [{ to: "/docs/missing-imported" }]',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing-imported" does not exist'),
+    ]);
+  });
+
+  it("resolves fragment-only component links against the route that renders them", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<template><section id="home" /></template>',
+      "docs/app/pages/examples.vue": '<template><ExamplesNavigation /><section id="catalog" /></template>',
+      "docs/app/components/ExamplesNavigation.vue": '<template><NuxtLink to="#catalog" /><NuxtLink to="#missing" /></template>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('anchor #missing does not exist for route "/examples"'),
+    ]);
+  });
+
+  it("does not invent a route for fragment-only links in unassociated components", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<template><section id="home" /></template>',
+      "docs/app/components/SharedNavigation.vue": '<template><NuxtLink to="#missing" /></template>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
   it("uses GitHub parsing for public package README destinations", () => {
     expect(markdownLinks(':u-button[Example]{to="/docs/missing"}', { renderer: "github" })).toEqual([]);
 
