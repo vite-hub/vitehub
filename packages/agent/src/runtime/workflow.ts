@@ -10,7 +10,7 @@ import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
-import { restoreParsedAgentMessageMeta } from "../internal/message-meta.ts"
+import { hasParsedAgentMessageMeta, restoreParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "../agent-error.ts"
@@ -377,7 +377,11 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     if (payload.parsedMessageMeta !== undefined) {
       restoredWorkflowInput = restoreParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run, payload.parsedMessageMeta)
     }
-    if (payload.resolvedInvoker) restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput)
+    const derivedInvokerNeedsResolution = payload.parsedMessageMeta?.derivedInvoker
+      && !hasParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run)
+    if (payload.resolvedInvoker && !derivedInvokerNeedsResolution) {
+      restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput)
+    }
     const inlineResult = await runAgentInline(
       agent,
       runtimeContext,

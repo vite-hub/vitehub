@@ -6,6 +6,7 @@ import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { hasResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
+import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
 import {
   hasParsedAgentMessageMeta,
   parsedAgentMessageMetaState,
@@ -289,8 +290,16 @@ describe("Agent message metadata", () => {
         metaRevision: "current-v2",
       },
     })
-    const restored = restoreParsedAgentMessageMeta(currentAgent, portable, undefined, state)
-    await runAgentInline(currentAgent, runtime(), restored)
+    await runAgentWorkflowDefinition(currentAgent, {
+      id: "message-meta-revalidation",
+      name: "message-meta-revalidation",
+      payload: {
+        input: portable,
+        parsedMessageMeta: state,
+        resolvedInvoker: true,
+      },
+      provider: "cloudflare",
+    }, runAgentInline)
 
     expect(state).toEqual({ derivedInvoker: true, revision: "test-v1" })
     expect(observed).toEqual({
