@@ -272,6 +272,35 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("refreshes duplicate summaries while replaying pagination", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await settle();
+
+    const replay = resource.loadMore();
+    calls[1]!.resolve({
+      cursor: "page-3",
+      invocations: [{
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      }],
+    });
+    await settle();
+    calls[2]!.resolve({ invocations: [record("inv-0")] });
+    await replay;
+
+    expect(resource.invocations.value).toEqual([
+      expect.objectContaining({ id: "inv-1", status: "completed" }),
+      record("inv-0"),
+    ]);
+    scope.stop();
+  });
+
   it("keeps pagination failures separate from first-page refreshes", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

@@ -454,9 +454,15 @@ export function useAgentInvocations(
           ),
         );
         if (loadMoreController !== controller || revision !== currentRevision) return;
-        const ids = new Set(invocations.value.map(invocation => invocation.id));
-        const additions = result.invocations.filter(invocation => !ids.has(invocation.id));
-        if (additions.length > 0) invocations.value = [...invocations.value, ...additions];
+        const updates = new Map(result.invocations.map(invocation => [invocation.id, invocation]));
+        const retainedIds = new Set(invocations.value.map(invocation => invocation.id));
+        const additions = [...updates.values()].filter(invocation => !retainedIds.has(invocation.id));
+        if (updates.size > 0) {
+          invocations.value = [
+            ...invocations.value.map(invocation => updates.get(invocation.id) ?? invocation),
+            ...additions,
+          ];
+        }
         cursor.value = result.cursor;
         remainingStatuses.value = result.remainingStatuses ?? [];
         loadMoreError.value = null;
