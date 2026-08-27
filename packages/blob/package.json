@@ -111,7 +111,7 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@^11.0.1",
+    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.0.1",
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
     "defu": "catalog:unjs",

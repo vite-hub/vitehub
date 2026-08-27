@@ -91,7 +91,6 @@ catalogs:
     "@google-cloud/storage": ^7.19.0
     "@googleapis/drive": ^20.0.0
     "@microsoft/microsoft-graph-client": ^3.0.7
-    "@netlify/blobs": ^11.0.1
     "@supabase/storage-js": ^2.105.4
     "@upstash/redis": ^1.38.0
     "@vercel/blob": ^2.8.0
@@ -116,6 +115,7 @@ catalogs:
     vite-plus: ^0.1.24
     vitest: ^4.1.4
     vue-tsc: ^3.3.7
+    yaml: ^2.9.0
   ui:
     "@iconify-json/lucide": ^1.2.117
     "@iconify-json/ph": ^1.2.2
