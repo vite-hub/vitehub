@@ -15500,7 +15500,7 @@ describe("server helpers", () => {
       expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
       expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
       progressEdit.resolve(undefined)
-      await progressEditSettled.promise
+      await withDeadline(progressEditSettled.promise, 3_000, "Progress edit did not settle.")
       stalledStream.resolve(undefined)
       await vi.advanceTimersByTimeAsync(0)
       expect(adapter.editMessage).toHaveBeenCalledOnce()
