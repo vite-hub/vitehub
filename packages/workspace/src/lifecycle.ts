@@ -2,8 +2,9 @@ import { useWorkspaceAssets } from "./asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
-import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./sources/config.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
+import { sourceSyncMetaKey } from "./sources/sync-state.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
@@ -105,9 +106,11 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
   const hasExplicitLoaders = !!definition.loaders?.length
   const ctxSource = createSourceContext(definition, undefined, store)
-  const buildSources = normalizeWorkspaceSources(definition.sources)
+  const sources = normalizeWorkspaceSources(definition.sources)
+  const buildSources = sources
     .filter(source => source.materialize === "build")
-  const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources, abortSignal)
+  const startupSources = sources.filter(source => source.materialize === "startup")
+  const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
   const bundledBuildSources = !hasExplicitLoaders
     ? await syncRuntimeBuildAssets(definition, store, buildSources, abortSignal)
@@ -144,7 +147,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
 }
 
-async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
+async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
   abortSignal?.throwIfAborted()
   const previousSources = await readSyncedBuildSources(store)
   abortSignal?.throwIfAborted()
@@ -157,6 +160,11 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
+    abortSignal?.throwIfAborted()
+  }
+  for (const source of startupSources.filter(source => resetPaths.some(path => sourceMountIntersectsPath(source, path)))) {
+    abortSignal?.throwIfAborted()
+    await store.setMeta?.(sourceSyncMetaKey(source.key), {})
     abortSignal?.throwIfAborted()
   }
   for (const source of [...previousSources, ...currentSources].filter(source => !source.mountPath)) {

@@ -184,7 +184,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensurePrepared(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
-    if (source.materialize === "startup" && completedSources.has(sourceKey)) return
+    if (source.materialize === "startup" && completedSources.has(sourceKey)) {
+      if (await hasCurrentSourceSnapshot(store, source)) return
+      completedSources.delete(sourceKey)
+    }
     if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source)) {
       completedSources.add(sourceKey)
       return
@@ -286,7 +289,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function ensureMaterialized(sourceKey: string) {
-    if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) return
+    if (materializedSources.has(sourceKey)) return
+    if (completedSources.has(sourceKey)) {
+      const source = sources.find(item => item.key === sourceKey)
+      if (source && await hasCurrentSourceSnapshot(store, source)) return
+      completedSources.delete(sourceKey)
+    }
     const pending = pendingBySource.get(sourceKey)
     if (pending?.fullSource) {
       try {

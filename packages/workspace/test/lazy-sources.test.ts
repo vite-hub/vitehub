@@ -15,6 +15,7 @@ const globSource = glob
 const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 
 const tempDirs: string[] = []
 
@@ -1526,6 +1527,36 @@ describe("lazy sources", () => {
 
     await expect(createWorkspaceSourceView(definition, store).readFile("docs/ready.md")).resolves.toBe("# Ready\n")
     expect(prepare).toHaveBeenCalledOnce()
+  })
+
+  it("rematerializes a nested startup Source after build synchronization resets its mount", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
+    const definition = {
+      name: "startup-nested-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "docs/generated",
+          async getKeys() {
+            return ["result.md"]
+          },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["generated"] })
+    await syncWorkspaceDefinition(definition, store)
+
+    await expect(view.readFile("docs/generated/result.md")).resolves.toBe("version 2\n")
+    expect(getItem).toHaveBeenCalledTimes(2)
   })
 
   it("retries a startup Source after a failed full refresh", async () => {
