@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -35,7 +35,7 @@ describe("GitHub Action pin policy", () => {
   it("parses every repository workflow and composite action", async () => {
     const files = await findGitHubActionPolicyFiles(repoRoot)
 
-    expect(files.map(path => path.replace(`${repoRoot}/`, ""))).toEqual([
+    expect(files.map(path => relative(repoRoot, path).replaceAll("\\", "/"))).toEqual([
       ".github/actions/setup-deno/action.yml",
       ".github/actions/setup/action.yml",
       ".github/workflows/ci.yml",
