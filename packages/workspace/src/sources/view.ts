@@ -49,7 +49,7 @@ export interface WorkspaceSourceView {
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
-  const sources = allSources.filter(source => !source.requestOnly && source.materialize === "lazy")
+  const sources = allSources.filter(source => !source.requestOnly && (source.materialize === "lazy" || source.materialize === "startup"))
   const syncSources = allSources.filter(source => source.sync)
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)

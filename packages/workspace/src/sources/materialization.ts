@@ -125,7 +125,7 @@ function materializesCompleteSource(source: ResolvedWorkspaceSource, options: Wo
 
 function shouldMaterializeSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
   if (source.requestOnly || !sourcePathMatches("", source, options)) return false
-  if (source.materialize === "lazy") return true
+  if (source.materialize === "lazy" || source.materialize === "startup") return true
   return source.materialize === "build" && Boolean(options?.path)
 }
 
@@ -264,7 +264,7 @@ async function* iterateMaterializationEntries(
 
   if (source.source.getItems) {
     for await (const item of iterateSourceItems(source, ctx)) {
-      const entry = createMaterializationEntry(source, item, await source.source.getMeta?.(item.key, ctx))
+      const entry = createMaterializationEntry(source, item, item.metadata)
       if (materializationPathMatches(entry.path, options)) yield entry
     }
     return

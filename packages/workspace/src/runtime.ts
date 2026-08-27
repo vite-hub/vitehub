@@ -52,3 +52,9 @@ export type {
   HostedWorkspaceStoreOptions,
   WorkspaceHostedStoreLoader,
 } from "./runtime/hosted-store-loader.ts"
+export { createWorkspacePreparation } from "./runtime/preparation.ts"
+export type {
+  WorkspacePreparation,
+  WorkspacePreparationOptions,
+  WorkspacePreparationState,
+} from "./runtime/preparation.ts"

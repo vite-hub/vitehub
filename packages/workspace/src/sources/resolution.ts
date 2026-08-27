@@ -670,7 +670,7 @@ function sourceDescriptorPathIntersects(definition: WorkspaceDefinition, path: s
 function isLazySourcePath(definition: WorkspaceDefinition, path: string): boolean {
   const normalized = normalizeWorkspacePath(path)
   return normalizeWorkspaceSources(definition.sources)
-    .filter(source => source.materialize === "lazy")
+    .filter(source => source.materialize === "lazy" || source.materialize === "startup")
     .some(source => pathIntersects(source.mountPath, normalized))
 }
 

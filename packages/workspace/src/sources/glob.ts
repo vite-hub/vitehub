@@ -16,6 +16,6 @@ export function glob<const TOptions extends GlobSourceOptions>(options: ExactOpt
 }
 
 function isLazySource(options: GlobSourceOptions) {
-  if (options.materialize === "lazy") return true
-  return typeof options.mount === "object" && options.mount?.materialize === "lazy"
+  if (options.materialize === "lazy" || options.materialize === "startup") return true
+  return typeof options.mount === "object" && (options.mount?.materialize === "lazy" || options.mount?.materialize === "startup")
 }

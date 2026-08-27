@@ -499,6 +499,30 @@ describe("lazy sources", () => {
     expect(getItems).not.toHaveBeenCalled()
   })
 
+  it("uses bulk item metadata without a second metadata request", async () => {
+    const getMeta = vi.fn(async () => {
+      throw new Error("bulk items already own their metadata")
+    })
+    const view = createWorkspaceSourceView({
+      name: "bulk-item-metadata",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          getItem: async key => ({ content: "# Ready\n", key }),
+          getItems: async () => [{ content: "# Ready\n", key: "ready.md", metadata: { revision: "bulk" } }],
+          getKeys: async () => ["ready.md"],
+          getMeta,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    await expect(view.stat("docs/ready.md")).resolves.toMatchObject({ metadata: { revision: "bulk" } })
+    expect(getMeta).not.toHaveBeenCalled()
+  })
+
   it("lets sources read existing workspace files while materializing", async () => {
     let previousReport = ""
     const store = createMemoryWorkspaceStore()
