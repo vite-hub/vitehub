@@ -165,7 +165,7 @@ Set `executablePath` to an installed Chromium-compatible browser. The path above
 
 Use this adapter only when the process is allowed to start Chromium and isolate it according to the host's threat model. It uses a temporary browser profile and removes that profile when the session closes. ViteHub does not provide an untrusted-code sandbox around the browser process.
 
-Low-level Cloudflare sessions can also transfer an exact provider session through an audience-bound live handoff reference. Handoff requires the persistent Chromium engine. The receiving caller must claim the reference, and a handed-off session is not closed for the original caller. Treat the reference as a short-lived credential and close the claimed session when its work finishes.
+Low-level Cloudflare sessions can also transfer an exact provider session through an audience-bound live handoff reference. Handoff requires the persistent Chromium engine. The receiver must claim the reference through the same `createBrowser()` client that created the session; references do not cross clients or processes. A handed-off session is not closed for the original caller. Treat the reference as a short-lived credential and close the claimed session when its work finishes.
 
 ## Production checks
 
