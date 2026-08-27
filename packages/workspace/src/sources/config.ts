@@ -326,7 +326,7 @@ function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: 
   if (family !== "github" || !isPlainRecord(input)) return input
   return {
     ...input,
-    ignore: resolveGitHubIgnore(input.ignore as false | string | readonly string[] | undefined),
+    ignore: resolveGitHubIgnore(input.ignore),
   }
 }
 

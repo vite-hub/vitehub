@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises"
-
 import { describe, expect, it, vi } from "vitest"
 
 import { mcpResources } from "../../src/mcp.ts"
@@ -43,17 +41,12 @@ function createClient(): McpResourcesClient {
 
 describe("mcpResources", () => {
   it("owns the MCP SDK as a private build dependency", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
-      dependencies?: Record<string, string>
-      devDependencies?: Record<string, string>
-      peerDependencies?: Record<string, string>
-      peerDependenciesMeta?: Record<string, unknown>
-    }
+    const { default: pkg } = await import("../../package.json", { with: { type: "json" } })
 
-    expect(pkg.dependencies?.["@modelcontextprotocol/sdk"]).toBeUndefined()
+    expect(Object.hasOwn(pkg.dependencies, "@modelcontextprotocol/sdk")).toBe(false)
     expect(pkg.devDependencies?.["@modelcontextprotocol/sdk"]).toBe("catalog:ai")
-    expect(pkg.peerDependencies?.["@modelcontextprotocol/sdk"]).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.["@modelcontextprotocol/sdk"]).toBeUndefined()
+    expect(Object.hasOwn(pkg.peerDependencies, "@modelcontextprotocol/sdk")).toBe(false)
+    expect(Object.hasOwn(pkg.peerDependenciesMeta, "@modelcontextprotocol/sdk")).toBe(false)
   })
 
   it("lists paginated MCP resources as source paths", async () => {

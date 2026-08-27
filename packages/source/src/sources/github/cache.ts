@@ -38,5 +38,5 @@ export function githubAuthenticationScope(token: string | undefined) {
 
 function normalizePatternCacheKey(value: string | readonly string[] | undefined) {
   if (!value) return ""
-  return typeof value === "string" ? value : value.join(",")
+  return Array.isArray(value) ? value.join(",") : String(value)
 }
