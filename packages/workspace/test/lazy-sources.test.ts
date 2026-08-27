@@ -698,16 +698,16 @@ describe("lazy sources", () => {
           cache: false,
           materialize: "lazy",
           async getKeys() {
-            return ["a.md"]
+            return ["guides/a.md"]
           },
           getItem,
         }),
       },
     }, createMemoryWorkspaceStore())
 
-    await view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
-    await expect(view.list("docs/a.md", { recursive: true })).resolves.toEqual([
-      expect.objectContaining({ path: "docs/a.md", type: "file" }),
+    await view.materializeSources({ path: "docs", sources: ["docs"] })
+    await expect(view.list("docs/guides", { recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guides/a.md", type: "file" }),
     ])
     expect(getItem).toHaveBeenCalledOnce()
   })
@@ -715,6 +715,7 @@ describe("lazy sources", () => {
   it("serializes implicit lazy access with explicit materialization", async () => {
     let releaseFirst!: () => void
     let calls = 0
+    const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({
       name: "implicit-explicit-materialization",
       sources: {
@@ -731,7 +732,7 @@ describe("lazy sources", () => {
           },
         }),
       },
-    }, createMemoryWorkspaceStore())
+    }, store)
 
     const explicit = view.materializeSources({ sources: ["docs"] })
     await vi.waitFor(() => expect(calls).toBe(1))
@@ -739,11 +740,12 @@ describe("lazy sources", () => {
     releaseFirst()
     await Promise.all([explicit, implicit])
 
-    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
-      sources: [{
-        files: 1,
-        paths: [{ path: "docs/b.md", status: "unchanged" }],
-      }],
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      bytes: 7,
+      files: 1,
+      items: {
+        "docs/b.md": expect.objectContaining({ sourcePath: "b.md" }),
+      },
     })
   })
 

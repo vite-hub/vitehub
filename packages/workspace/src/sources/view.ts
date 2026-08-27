@@ -167,7 +167,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensureMaterialized(sourceKey: string, path?: string) {
     const normalized = path === undefined ? undefined : normalizeWorkspacePath(path)
     const materializedPaths = materializedPathsBySource.get(sourceKey)
-    if (normalized !== undefined && (materializedPaths?.has("") || materializedPaths?.has(normalized))) return
+    if (normalized !== undefined && [...materializedPaths || []].some(materializedPath =>
+      !materializedPath || normalized === materializedPath || normalized.startsWith(`${materializedPath}/`)
+    )) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
       pending = materializeSources({ sources: [sourceKey] }).then(() => undefined)
