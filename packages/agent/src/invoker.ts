@@ -84,6 +84,10 @@ export function normalizeAgentInvoker(value: unknown, label = "Agent Invoker"): 
   }
 }
 
+export function agentInvokerLabel(invoker: AgentInvoker): string | undefined {
+  return stringValue(invoker.label) || stringValue(invoker.meta?.name)
+}
+
 export function normalizeAgentInvokerProfiles<
   TProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(

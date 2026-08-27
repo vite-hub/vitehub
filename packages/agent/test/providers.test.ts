@@ -2831,6 +2831,7 @@ describe("server helpers", () => {
     const resolveInvoker = vi.fn(({ defaultInvoker, request }) => ({
       id: `customer:${request.headers.get("x-customer")}`,
       kind: "customer",
+      label: "Acme Customer",
       meta: {
         fallback: defaultInvoker.id,
         user: request.headers.get("x-user"),
@@ -2901,6 +2902,11 @@ describe("server helpers", () => {
         }),
       }),
     )
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        annotations: { triggeredBy: "Acme Customer" },
+      }),
+    }))
   })
 
   it("consumes only approval responses issued by the server session", async () => {
@@ -5095,13 +5101,20 @@ describe("server helpers", () => {
     const { telegram, webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler, createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const run = vi.fn(() => ({ text: "final answer" }))
     const agent = defineAgent({
       channels: {
         web: webChat,
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
-      driver: { run: () => ({ text: "final answer" }) },
+      driver: { run },
+      invoker: {
+        resolve: ({ defaultInvoker }) => ({
+          ...defaultInvoker,
+          meta: { name: "Maxi" },
+        }),
+      },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -5128,6 +5141,11 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     await Promise.all(waitUntilTasks)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        annotations: { triggeredBy: "Maxi" },
+      }),
+    }))
     expect(agent.chat).toMatchObject({ stream: false })
     expect(adapter.startTyping).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenCalledOnce()

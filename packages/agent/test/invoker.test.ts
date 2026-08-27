@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest"
 
-import { normalizeAgentInvoker, portableResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
+import { agentInvokerLabel, normalizeAgentInvoker, portableResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 
 describe("Agent Invoker", () => {
+  it("resolves a human-readable label from the explicit label or metadata name", () => {
+    expect(agentInvokerLabel({ id: "user-1", label: "  Maxi  ", meta: { name: "Ignored" } })).toBe("Maxi")
+    expect(agentInvokerLabel({ id: "user-1", meta: { name: "  Metadata Maxi  " } })).toBe("Metadata Maxi")
+    expect(agentInvokerLabel({ id: "user-1", meta: { name: 123 } })).toBeUndefined()
+  })
+
   it("normalizes Agent Actor email without changing invoker metadata", () => {
     const meta = {
       email: "metadata@example.net",
