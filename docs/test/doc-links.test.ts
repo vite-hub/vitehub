@@ -36,6 +36,7 @@ describe("documentation link validation", () => {
 [Nested](./api_(stable).md)
 [Reference][guide]
 [Shortcut]
+[Duplicate][]
 ![Image](/images/diagram.png)
 <img data-src="/images/metadata.png" src="/images/html-diagram.png" alt="HTML diagram">
 <img data-note=" src=&quot;/images/decoy.png&quot;" src="/images/actual.png">
@@ -68,6 +69,8 @@ https://vitehub.dev/docs/bare-autolink
 
 [guide]: /docs/guide
 [shortcut]: /docs/shortcut
+[duplicate]: /docs/first
+[duplicate]: /docs/second
 
 \`[ignored](./missing.md)\`
 \`\`[also ignored](./missing.md)\`\`
@@ -81,6 +84,7 @@ https://vitehub.dev/docs/bare-autolink
       "./guide.md#install",
       "./api_(stable).md",
       "/docs/guide",
+      "/docs/first",
       "/images/diagram.png",
       "/images/html-diagram.png",
       "/images/actual.png",
@@ -114,7 +118,12 @@ https://vitehub.dev/docs/bare-autolink
   });
 
   it("ignores links in HTML comments", () => {
-    expect(markdownLinks("<!-- [Draft](/docs/missing) -->")).toEqual([]);
+    expect(markdownLinks(`<!-- [Draft](/docs/missing) -->
+<!-- <a href="/docs/commented">Commented</a> --><a href="/docs/rendered">Rendered</a>
+<!-- <img src="/images/commented.png"> --><img src="/images/rendered.png">`)).toEqual([
+      "/docs/rendered",
+      "/images/rendered.png",
+    ]);
   });
 
   it("matches generated anchors for repeated headings", () => {

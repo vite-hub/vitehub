@@ -67,6 +67,10 @@ function htmlAttribute(tag, attributeName) {
   return undefined;
 }
 
+function withoutHtmlComments(value) {
+  return value.replace(/<!--[\s\S]*?-->/g, "");
+}
+
 function frontmatterLinks(frontmatter) {
   const value = parseYaml(frontmatter);
   if (value?.constructor !== Object) return [];
@@ -95,8 +99,8 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const githubSlugger = new GithubSlugger();
   const { body } = splitFrontmatter(markdown);
   visit(parseMarkdown(body, { renderer }), (node) => {
-    if (renderer === "mdc" && node.type === "html" && !node.value.startsWith("<!--")) {
-      for (const match of node.value.matchAll(/<[^>]+>/g)) {
+    if (renderer === "mdc" && node.type === "html") {
+      for (const match of withoutHtmlComments(node.value).matchAll(/<[^>]+>/g)) {
         const id = htmlAttribute(match[0], "id");
         if (id) anchors.add(id);
       }
@@ -129,7 +133,7 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
   const definitions = new Map();
   const links = [];
   visit(tree, (node) => {
-    if (node.type === "definition") definitions.set(node.identifier, node.url);
+    if (node.type === "definition" && !definitions.has(node.identifier)) definitions.set(node.identifier, node.url);
   });
   visit(tree, (node) => {
     if (node.type === "link" || node.type === "image") links.push(node.url);
@@ -143,8 +147,8 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
         if (destination?.constructor === String) links.push(destination);
       }
     }
-    if (node.type === "html" && !node.value.startsWith("<!--")) {
-      for (const match of node.value.matchAll(/<(a|img)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
+    if (node.type === "html") {
+      for (const match of withoutHtmlComments(node.value).matchAll(/<(a|img)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
         const destination = htmlAttribute(match[0], match[1].toLowerCase() === "a" ? "href" : "src");
         if (destination) links.push(destination);
       }
