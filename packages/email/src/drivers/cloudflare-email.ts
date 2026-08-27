@@ -15,7 +15,9 @@ export interface CloudflareEmailDriverOptions {
 }
 
 function safeHeader(value: string): string {
-  if (/\r|\n/.test(value)) throw emailProviderError("cloudflare-email", "INVALID_OPTIONS", "Email headers cannot contain line breaks.")
+  if (/[\u0000-\u0008\u000A-\u001F\u007F]/.test(value)) {
+    throw emailProviderError("cloudflare-email", "INVALID_OPTIONS", "Email headers cannot contain control characters.")
+  }
   return value
 }
 

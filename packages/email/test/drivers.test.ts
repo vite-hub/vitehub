@@ -598,6 +598,20 @@ describe("Cloudflare Email driver", () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { subject: "Hello\0world" },
+    { headers: { "X-Trace-Id": "trace\u0001id" } },
+    { from: { email: "hello@example.com", name: "Vite\u0007Hub" } },
+    { attachments: [{ content: "report", filename: "report\u007F.txt" }] },
+  ])("rejects control characters in raw MIME headers before sending", async (invalid) => {
+    const send = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: class {} as never })
+
+    await expect(driver.send({ ...message, ...invalid }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it.each(["Content-Type", "mime-version", "From", "Subject"])("rejects the transport-owned %s header", async (header) => {
     const send = vi.fn()
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never })
