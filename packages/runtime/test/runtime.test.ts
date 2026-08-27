@@ -616,9 +616,10 @@ describe("@vite-hub/runtime", () => {
     expect(spans[0]?.events?.[0]?.attributes?.["content.omitted"]).toBeUndefined()
   })
 
-  it("keeps payload metadata on span events instead of aggregate spans", () => {
+  it("keeps activity and payload metadata on span events instead of aggregate spans", () => {
     const events = [
       {
+        activity: { owner: "vitehub", phase: "setup" } as const,
         name: "run.start",
         payload: { value: "public value", visibility: "public" } as const,
         sequence: 1,
@@ -627,6 +628,7 @@ describe("@vite-hub/runtime", () => {
         type: "run" as const,
       },
       {
+        activity: { owner: "agent", phase: "delivery" } as const,
         name: "run.finish",
         payload: { visibility: "private" } as const,
         sequence: 2,
@@ -637,8 +639,12 @@ describe("@vite-hub/runtime", () => {
     ]
 
     const spans = traceEventsToOpenTelemetrySpans(events)
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.activity.owner")
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.activity.phase")
     expect(spans[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
     expect(spans[0]?.attributes).not.toHaveProperty("vitehub.payload.visibility")
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.activity.owner"])).toEqual(["vitehub", "agent"])
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.activity.phase"])).toEqual(["setup", "delivery"])
     expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.payload.visibility"])).toEqual(["public", "private"])
     expect(spans[0]?.events?.[0]?.attributes?.["vitehub.payload.value"]).toBe("public value")
   })

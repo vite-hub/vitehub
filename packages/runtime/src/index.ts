@@ -511,6 +511,8 @@ function traceEventAttributes(
 function aggregateTraceAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!attributes) return undefined
   const next = { ...attributes }
+  delete next["vitehub.activity.owner"]
+  delete next["vitehub.activity.phase"]
   delete next["vitehub.payload.summary"]
   delete next["vitehub.payload.value"]
   delete next["vitehub.payload.visibility"]
