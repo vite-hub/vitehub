@@ -28,6 +28,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 import { github as githubPublisher } from "../src/publish.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { workspaceStoreTarget } from "../src/storage/target.ts"
+import { resolveWorkspaceMetadataTarget } from "../src/storage/metadata-target.ts"
 
 const invocation = {
   context: {
@@ -1228,6 +1229,7 @@ describe("Workspace Source Resolution", () => {
     await expect(context.store.readFile("docs/README.md")).resolves.toMatchObject({
       content: "# Resolved docs\n",
     })
+    await expect(resolveWorkspaceMetadataTarget(writable)).resolves.toBeDefined()
   })
 
   it("preserves the active GitHub Store target in resolved publication", async () => {

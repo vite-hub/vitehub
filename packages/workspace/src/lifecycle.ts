@@ -138,7 +138,7 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
   const bundledBuildSources = new Set<string>()
   for (const source of currentSources) {
     abortSignal?.throwIfAborted()
-    if (await hasCompleteBundledBuildSource(definition, store, source, bundledPaths, files, bundledSourceByPath)) {
+    if (await hasCompleteBundledBuildSource(definition, store, source, bundledPaths, files, bundledSourceByPath, abortSignal)) {
       abortSignal?.throwIfAborted()
       bundledBuildSources.add(source.key)
     }
@@ -167,13 +167,14 @@ async function hasCompleteBundledBuildSource(
   bundledPaths: Set<string>,
   bundledFiles?: Array<{ path: string, metadata?: Record<string, unknown> }>,
   bundledSourceByPath?: Map<string, string>,
+  abortSignal?: AbortSignal,
 ): Promise<boolean> {
   const probeKeys = source.source.probeKeys
   if (!probeKeys?.length) {
     const paths = bundledFiles
       ?.filter(file => file.metadata?.source === source.key)
       .map(file => file.path) ?? []
-    const sourcePaths = await tryListBuildSourcePaths(definition, store, source)
+    const sourcePaths = await tryListBuildSourcePaths(definition, store, source, abortSignal)
     if (sourcePaths && !sourcePaths.every(path => paths.includes(path))) return false
     for (const path of paths) bundledSourceByPath?.set(path, source.key)
     return paths.length > 0
@@ -188,8 +189,9 @@ async function tryListBuildSourcePaths(
   definition: WorkspaceDefinition,
   store: WorkspaceStore,
   source: ResolvedWorkspaceSource,
+  abortSignal?: AbortSignal,
 ): Promise<string[] | undefined> {
-  const ctx = createSourceContext(definition, { key: source.key, mountPath: source.mountPath }, store)
+  const ctx = createSourceContext(definition, { key: source.key, mountPath: source.mountPath }, store, { abortSignal })
   try {
     await prepareWorkspaceSource(source.source, ctx)
     return (await source.source.getKeys(ctx))

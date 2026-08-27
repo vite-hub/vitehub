@@ -992,6 +992,42 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
+  it("cancels bundled build source probes", async () => {
+    let probing!: () => void
+    const probeStarted = new Promise<void>((resolve) => { probing = resolve })
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          metadata: { source: "docs" },
+        },
+      }),
+    })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys(ctx) {
+            probing()
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
+            return []
+          },
+          async getItem() { throw new Error("unexpected item read") },
+        }),
+      },
+    }, createMemoryWorkspaceStore(), controller.signal)
+
+    await probeStarted
+    controller.abort(new Error("preparation stopped"))
+    await expect(syncing).rejects.toThrow("preparation stopped")
+  })
+
   it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
     const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({

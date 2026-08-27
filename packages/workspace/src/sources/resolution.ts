@@ -548,6 +548,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       sync: writeWorkspace.sync,
       tools: writeTools,
     }
+    forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, writableWorkspace)
 
     return {
       definition: resolvedDefinition,
