@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
-import { custom, defineWorkspace, github, glob } from "../src/index.ts"
+import { custom, defineWorkspace, github, glob, mcpResources } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
@@ -588,6 +588,33 @@ describe("lazy sources", () => {
     })
     expect(cached.sources[0]).not.toHaveProperty("paths")
     expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("prepares a live Source after a cache hit in a fresh view", async () => {
+    const store = createMemoryWorkspaceStore()
+    const client = {
+      async listResources() {
+        return { resources: [{ name: "Guide", uri: "resource://docs/guide" }] }
+      },
+      async readResource() {
+        return { contents: [{ text: "# Guide\n", uri: "resource://docs/guide" }] }
+      },
+    }
+    const definition = () => ({
+      name: "materialization-live-cache",
+      sources: {
+        docs: mcpResources({ cache: { maxAge: 3600 }, materialize: "lazy", mount: "docs", server: client }),
+      },
+    })
+
+    await createWorkspaceSourceView(definition(), store).materializeSources({ sources: ["docs"] })
+    const freshView = createWorkspaceSourceView(definition(), store)
+    await expect(freshView.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ cacheStatus: "hit", status: "ready" }],
+    })
+    await expect(freshView.list("docs", { recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "docs/docs/guide", type: "file" }),
+    ])
   })
 
   it("keeps full cache-hit aggregates after scoped materialization", async () => {
@@ -1188,6 +1215,45 @@ describe("lazy sources", () => {
     expect(writeFile).not.toHaveBeenCalled()
     expect(writeFileStream).toHaveBeenCalledTimes(1)
     await expect(view.readFile("docs/asset.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+  })
+
+  it("counts streamed bytes when the Store omits stat size", async () => {
+    const store = createMemoryWorkspaceStore()
+    const writeFileStream = store.writeFileStream!
+    store.writeFileStream = async (path, file) => {
+      const stat = await writeFileStream(path, file)
+      return { ...stat, size: undefined }
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-size",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return ["asset.bin"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new Uint8Array([0, 1, 2]))
+                  controller.enqueue(new Uint8Array([3, 4]))
+                  controller.close()
+                },
+              }),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({ bytes: 5 })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 5,
+      sources: [{ bytes: 5, cacheStatus: "hit" }],
+    })
   })
 
   it("reuses keyed source items with unchanged upstream metadata", async () => {

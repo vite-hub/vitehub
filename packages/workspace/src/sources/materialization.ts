@@ -674,12 +674,20 @@ async function writeMaterializedFile(
 ): Promise<{ size?: number }> {
   if (file.contentStream) {
     if (store.writeFileStream) {
-      return await store.writeFileStream(path, {
+      let size = 0
+      const content = (async function* () {
+        for await (const chunk of contentStreamChunks(file.contentStream!)) {
+          size += chunk.byteLength
+          yield chunk
+        }
+      })()
+      await store.writeFileStream(path, {
         path: file.path,
-        content: file.contentStream,
+        content,
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
+      return { size }
     }
     const content = await contentStreamToBytes(file.contentStream)
     await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })

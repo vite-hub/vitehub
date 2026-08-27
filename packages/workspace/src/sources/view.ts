@@ -89,7 +89,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const path = normalizeWorkspacePath(options?.path || "")
     for (const source of result.sources) {
       if (source.status !== "ready") continue
-      prepareBySource.set(source.source, Promise.resolve())
+      if (source.cacheStatus !== "hit") prepareBySource.set(source.source, Promise.resolve())
       let paths = materializedPathsBySource.get(source.source)
       if (!paths) {
         paths = new Set()
