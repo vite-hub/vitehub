@@ -31,12 +31,16 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
   const url = configuredUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
   const authToken = process.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
   if (!url.startsWith("file:")) return { ...(authToken ? { authToken } : {}), url }
+  if (url.startsWith("file::memory:")) return { url }
 
-  const filePath = url.startsWith("file://")
-    ? fileURLToPath(url)
-    : resolve(projectRoot, decodeURIComponent(url.slice("file:".length)))
+  const queryIndex = url.indexOf("?")
+  const fileUrl = queryIndex === -1 ? url : url.slice(0, queryIndex)
+  const query = queryIndex === -1 ? "" : url.slice(queryIndex)
+  const filePath = fileUrl.startsWith("file://")
+    ? fileURLToPath(fileUrl)
+    : resolve(projectRoot, decodeURIComponent(fileUrl.slice("file:".length)))
   mkdirSync(dirname(filePath), { recursive: true })
-  return { url: pathToFileURL(filePath).href }
+  return { url: `${pathToFileURL(filePath).href}${query}` }
 }
 
 export function createConsoleInvocations(projectRoot: string): AgentInvocations {
