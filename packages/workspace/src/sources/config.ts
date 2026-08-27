@@ -4,6 +4,7 @@ import { workspaceError } from "../core/errors.ts"
 import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
+import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { loadMcpResourcesSource } from "./mcp-resources-loader.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import {
@@ -293,7 +294,7 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     ...inferredSourceDefaults(family, input),
     fingerprint: {
       inferredSource: family,
-      options: input,
+      options: inferredSourceFingerprintOptions(family, input),
     },
     async prepare(ctx) {
       const loaded = await loadSource()
@@ -319,6 +320,14 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
   }
 
   return livePaths ? markLiveWorkspaceSource(source, livePaths) : source
+}
+
+function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: WorkspaceSourceInput) {
+  if (family !== "github" || !isPlainRecord(input)) return input
+  return {
+    ...input,
+    ignore: resolveGitHubIgnore(input.ignore as false | string | readonly string[] | undefined),
+  }
 }
 
 async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Promise<WorkspaceSource> {

@@ -271,6 +271,46 @@ describe("sources, loaders, and publishers", () => {
     ])
   })
 
+  it("invalidates cached inferred GitHub snapshots when the effective ignore policy changes", async () => {
+    const store = createMemoryWorkspaceStore()
+    const options = {
+      cache: { maxAge: 3600 },
+      repo: "acme/app",
+    } as const
+
+    await syncWorkspaceDefinition({
+      name: "github-ignore-policy-cache",
+      sources: {
+        docs: {
+          cache: options.cache,
+          fingerprint: {
+            inferredSource: "github",
+            options,
+          },
+          async getKeys() {
+            return [".env", "README.md"]
+          },
+          async getItem(key: string) {
+            return { key, content: key === ".env" ? "SECRET=value\n" : "# Docs\n" }
+          },
+        },
+      },
+    }, store)
+    await expect(store.readFile("docs/.env")).resolves.toMatchObject({ content: "SECRET=value\n" })
+
+    stubGitHubSource({
+      ".env": "SECRET=updated\n",
+      "README.md": "# Updated docs\n",
+    })
+    await syncWorkspaceDefinition({
+      name: "github-ignore-policy-cache",
+      sources: { docs: options },
+    }, store)
+
+    await expect(store.readFile("docs/.env")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({ content: "# Updated docs\n" })
+  })
+
   it("resolves GitHub auth lazily from runtime env", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",

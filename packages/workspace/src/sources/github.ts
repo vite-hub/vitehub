@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
-import { sourceIgnores } from "@vite-hub/source"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 
+import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { resolveWorkspaceEnv } from "../env.ts"
@@ -88,14 +88,6 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       return await source.getMeta?.(key, ctx)
     },
   }, resolvedOptions)
-}
-
-function resolveGitHubIgnore(ignore: GitHubSourceOptions["ignore"]): string[] | undefined {
-  if (ignore === false) return
-  return [
-    ...sourceIgnores.defaults,
-    ...(typeof ignore === "string" ? [ignore] : ignore || []),
-  ]
 }
 
 function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource {
