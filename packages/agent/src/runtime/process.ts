@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises"
 import { availableParallelism, freemem } from "node:os"
 
+import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/node"
+
 import { shareAgentCapacityOptions } from "../internal/agent-capacity.ts"
 
 import type { AgentDriverCapacityOptions, AgentDriverCapacityQueueOptions, AgentDriverCapacitySample, AgentDriverCapacitySampleContext } from "../types.ts"
@@ -162,7 +164,9 @@ async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessRes
     .map((line) => line.split(":"))
     .find((parts) => parts[0] === "0")?.[2]
   if (relative === undefined) throw new Error("cgroup v2 membership is unavailable")
-  const root = `/sys/fs/cgroup${relative === "/" ? "" : relative}`
+  const mountinfo = await readFile("/proc/self/mountinfo", { encoding: "utf8", signal })
+  const root = resolveLinuxCgroupV2Path(mountinfo, relative)
+  if (root === undefined) throw new Error("cgroup v2 mount is unavailable")
   const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
     readFile(`${root}/memory.current`, { encoding: "utf8", signal }),
     readFile(`${root}/memory.high`, { encoding: "utf8", signal }),

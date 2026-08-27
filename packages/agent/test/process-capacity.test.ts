@@ -25,6 +25,9 @@ vi.mock("node:fs/promises", () => ({
       if (!resources.cgroupAvailable) throw new Error("cgroup v2 unavailable")
       return "0::/vitehub-test\n"
     }
+    if (value === "/proc/self/mountinfo") {
+      return "29 23 0:26 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw\n"
+    }
     if (value.endsWith("/memory.current")) return String(resources.memoryCurrent)
     if (value.endsWith("/memory.high")) return String(resources.memoryHigh)
     if (value.endsWith("/memory.max")) return String(resources.memoryMax)
@@ -85,7 +88,7 @@ describe("process Agent capacity", () => {
       signal: controller.signal,
     })
     expect(vi.mocked(readFile).mock.calls.map(([, readOptions]) => readOptions)).toEqual(
-      Array.from({ length: 7 }, () => ({ encoding: "utf8", signal: controller.signal })),
+      Array.from({ length: 8 }, () => ({ encoding: "utf8", signal: controller.signal })),
     )
 
     resources.memoryHighEvents = 1
@@ -95,6 +98,28 @@ describe("process Agent capacity", () => {
     await expect(sample(context)).resolves.toEqual({ concurrency: 0, reason: "memory.high event" })
 
     await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+  })
+
+  it("resolves cgroup files through a namespaced cgroup v2 mount", async () => {
+    vi.mocked(readFile).mockImplementation(async (path) => {
+      const value = String(path)
+      if (value === "/proc/self/cgroup") return "0::/tenant.slice/service\n"
+      if (value === "/proc/self/mountinfo") {
+        return "29 23 0:26 /tenant.slice/service /run/cgroup\\040view rw - cgroup2 cgroup rw\n"
+      }
+      if (value.endsWith("/memory.current")) return String(resources.memoryCurrent)
+      if (value.endsWith("/memory.high")) return String(resources.memoryHigh)
+      if (value.endsWith("/memory.max")) return String(resources.memoryMax)
+      if (value.endsWith("/memory.events")) return `low 0\nhigh ${resources.memoryHighEvents}\nmax 0\n`
+      if (value.endsWith("/cpu.pressure")) return pressure(resources.cpuPressure)
+      if (value.endsWith("/memory.pressure")) return pressure(resources.memoryPressure)
+      throw new Error(`Unexpected resource path: ${value}`)
+    })
+
+    const sample = createBuiltInSample()
+    await sample({ active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal })
+
+    expect(vi.mocked(readFile)).toHaveBeenCalledWith("/run/cgroup view/memory.current", expect.any(Object))
   })
 
   it("uses Node memory when cgroup v2 data is unavailable", async () => {
