@@ -713,6 +713,11 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
     ? true
     : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
   nitro.externals = externals
+  nitro.rollupConfig ||= {}
+  nitro.rollupConfig.external = mergeRollupExternals(
+    nitro.rollupConfig.external as RollupExternalOption | undefined,
+    optionalAgentRuntimeExternals,
+  )
   return nitro
 }
 

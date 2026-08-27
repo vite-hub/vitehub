@@ -1235,6 +1235,9 @@ describe("agent Vite plugin", () => {
         externals: {
           inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
+        rollupConfig: {
+          external: optionalAgentRuntimeExternals,
+        },
         replace: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),
         },
