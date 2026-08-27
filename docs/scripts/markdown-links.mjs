@@ -177,6 +177,10 @@ function staticHtmlAnchors(source) {
   return new Set([...source.matchAll(/\sid\s*=\s*["']([^"']+)["']/g)].map((match) => match[1]));
 }
 
+function isStaticApplicationRoute(route) {
+  return !route.split("/").some((segment) => segment.includes("[") || segment.includes("]"));
+}
+
 function appRoutes(docsRoot) {
   const pagesRoot = join(docsRoot, "app/pages");
   const componentsRoot = join(docsRoot, "app/components");
@@ -186,9 +190,10 @@ function appRoutes(docsRoot) {
       .map((part) => part.replace(/(^|-)(\w)/g, (_, _separator, letter) => letter.toUpperCase())).join("");
     return [name, path];
   }));
-  const routeAnchors = new Map(walk(pagesRoot, (path) => path.endsWith(".vue")).map((path) => {
+  const routeAnchors = new Map(walk(pagesRoot, (path) => path.endsWith(".vue")).flatMap((path) => {
     const route = relative(join(docsRoot, "app/pages"), path)
       .split(sep).join("/").replace(/\.vue$/, "").replace(/\/index$/, "").replace(/^index$/, "");
+    if (!isStaticApplicationRoute(route)) return [];
     const anchors = new Set();
     const pending = [path];
     const visited = new Set();
@@ -202,10 +207,11 @@ function appRoutes(docsRoot) {
         if (new RegExp(`<${name}(?:\\s|/|>)`).test(source)) pending.push(componentPath);
       }
     }
-    return [normalizeRoute(`/${route}`), anchors];
+    return [[normalizeRoute(`/${route}`), anchors]];
   }));
   for (const path of walk(join(docsRoot, "server/routes"), (path) => path.endsWith(".ts"))) {
-    routeAnchors.set(normalizeRoute(`/${relative(join(docsRoot, "server/routes"), path).split(sep).join("/").replace(/\.ts$/, "")}`), new Set());
+    const route = relative(join(docsRoot, "server/routes"), path).split(sep).join("/").replace(/\.ts$/, "");
+    if (isStaticApplicationRoute(route)) routeAnchors.set(normalizeRoute(`/${route}`), new Set());
   }
   for (const route of ["/llms.txt", "/llms-full.txt", "/mcp"]) routeAnchors.set(route, new Set());
   return routeAnchors;
@@ -224,6 +230,13 @@ function splitDestination(destination) {
   const fragment = hash === -1 ? "" : decodeFragment(destination.slice(hash + 1));
   const path = (hash === -1 ? destination : destination.slice(0, hash)).split("?")[0];
   return { fragment, path };
+}
+
+export function docsManifestRoutes(manifest) {
+  return [
+    manifest.rootPage?.path,
+    ...manifest.sections.flatMap((section) => section.pages.map((page) => page.path)),
+  ].filter(Boolean);
 }
 
 export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {

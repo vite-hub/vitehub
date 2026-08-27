@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
 import { docsManifest } from "../.generated/docs-manifest.mjs";
-import { validateDocumentationLinks } from "./markdown-links.mjs";
+import { docsManifestRoutes, validateDocumentationLinks } from "./markdown-links.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "../..");
-const docsRoutes = [
-  docsManifest.rootPage?.path,
-  ...docsManifest.sections.flatMap((section) => [section.path, ...section.pages.map((page) => page.path)]),
-].filter(Boolean);
+const docsRoutes = docsManifestRoutes(docsManifest);
 const result = validateDocumentationLinks({ docsRoutes, repoRoot });
 
 if (result.errors.length > 0) {

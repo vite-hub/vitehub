@@ -2,7 +2,12 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { markdownAnchors, markdownLinks, validateDocumentationLinks } from "../scripts/markdown-links.mjs";
+import {
+  docsManifestRoutes,
+  markdownAnchors,
+  markdownLinks,
+  validateDocumentationLinks,
+} from "../scripts/markdown-links.mjs";
 
 function fixture(files: Record<string, string>) {
   const root = mkdtempSync(join(tmpdir(), "vitehub-doc-links-"));
@@ -15,6 +20,16 @@ function fixture(files: Record<string, string>) {
 }
 
 describe("documentation link validation", () => {
+  it("includes only pages represented by the docs manifest", () => {
+    expect(docsManifestRoutes({
+      rootPage: { path: "/docs" },
+      sections: [
+        { path: "/docs/guide", pages: [{ path: "/docs/guide/start" }] },
+        { path: "/docs/reference", pages: [{ path: "/docs/reference" }, { path: "/docs/reference/api" }] },
+      ],
+    })).toEqual(["/docs", "/docs/guide/start", "/docs/reference", "/docs/reference/api"]);
+  });
+
   it("parses rendered link forms outside code", () => {
     expect(markdownLinks(`
 [Inline](./guide.md#install)
@@ -280,6 +295,18 @@ description: |
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
+  it("does not treat dynamic application page patterns as concrete routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/app/pages/docs/[...slug].vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Pattern](/docs/[...slug])",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/[...slug]" does not exist'),
+    ]);
   });
 
   it("reports missing routes, files, and anchors", () => {
