@@ -3724,7 +3724,25 @@ function resultWithPreservedProperties(result: unknown, descriptors: PropertyDes
 
 function definedObjectProperties(value: unknown): Record<string, unknown> {
   if (!value || !hasRuntimeType(value, "object")) return {}
-  return Object.fromEntries(Object.entries(value).filter(([, property]) => property !== undefined))
+  return Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(value))
+    .filter(([, descriptor]) => descriptor.enumerable && "value" in descriptor && descriptor.value !== undefined)
+    .map(([key, descriptor]) => [key, descriptor.value]))
+}
+
+function definedObjectPropertiesWithInherited(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  const properties = definedObjectProperties(value)
+  if (!value || !hasRuntimeType(value, "object")) return properties
+  for (const key of keys) {
+    if (properties[key] !== undefined || !Reflect.has(value, key)) continue
+    try {
+      const property = Reflect.get(value, key)
+      if (property !== undefined) properties[key] = property
+    }
+    catch {
+      // Ignore provider getters that cannot be read during metadata normalization.
+    }
+  }
+  return properties
 }
 
 function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
@@ -3745,6 +3763,17 @@ function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
 
 function mergedDefinedObjects(...values: unknown[]): Record<string, unknown> {
   return Object.assign({}, ...values.map(definedObjectProperties))
+}
+
+function mergedUsageRecordMetadata(key: "credentialSource" | "latency" | "response" | "run", ...values: unknown[]): Record<string, unknown> {
+  const keys = key === "credentialSource"
+    ? ["label", "source"]
+    : key === "latency"
+      ? ["durationMs", "timeToFirstTokenMs", "tokensPerSecond"]
+      : key === "response"
+        ? ["finishReason", "id", "timestamp"]
+        : ["annotations", "channelId", "messageId", "origin", "runId", "threadId"]
+  return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
 }
 
 function resultWithStreamedTextAndUsage(
@@ -3788,7 +3817,7 @@ function resultWithStreamedTextAndUsage(
           ...mergedDefinedObjects(streamedUsageRecord, normalized.usageRecord),
           ...(["credentialSource", "latency", "response", "run"] as const).reduce<Record<string, unknown>>((properties, key) => {
             if (streamedUsageRecord?.[key] || normalized.usageRecord?.[key]) {
-              properties[key] = mergedDefinedObjects(streamedUsageRecord?.[key], normalized.usageRecord?.[key])
+              properties[key] = mergedUsageRecordMetadata(key, streamedUsageRecord?.[key], normalized.usageRecord?.[key])
             }
             return properties
           }, {}),

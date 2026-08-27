@@ -472,6 +472,45 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("skips throwing usage getters while finalizing raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = Object.defineProperty({ totalTokens: 2 }, "unreadable", {
+      enumerable: true,
+      get() {
+        throw new Error("unreadable usage metadata")
+      },
+    })
+    const raw = Object.assign((async function* () {})(), { usage })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, usage: { totalTokens: 2 } } })
+  })
+
+  it("preserves inherited usage-record metadata on raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class ResponseMetadata {
+      get id() {
+        return "response-1"
+      }
+    }
+    const raw = Object.assign((async function* () {
+      yield { type: "usage", usageRecord: { response: { finishReason: "stop" } } }
+    })(), { usageRecord: { response: new ResponseMetadata() } })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, usageRecord: { response: { finishReason: "stop", id: "response-1" } } },
+    })
+  })
+
   it("preserves immutable plain raw streams in the finish result", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
