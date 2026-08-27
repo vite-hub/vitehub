@@ -29,6 +29,8 @@ describe("release workflow authority", () => {
     expect(publishNpm).toContain("Configure required reviewers and release-tag protection")
     expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
     expect(publishNpm).not.toContain("contents: write")
+    expect(publishNpm).toContain("voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0")
+    expect(publishNpm).not.toContain("voidzero-dev/setup-vp@v1")
 
     expect(githubRelease).toMatch(/permissions:\n      contents: write\n/)
     expect(githubRelease).not.toContain("id-token:")

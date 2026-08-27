@@ -205,7 +205,7 @@ jobs:
           name: ${{ needs.verify.outputs.artifact_name }}
           path: release-workspace
 
-      - uses: voidzero-dev/setup-vp@v1
+      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version: "24"
           cache: false
