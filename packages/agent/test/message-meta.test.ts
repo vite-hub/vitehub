@@ -209,6 +209,27 @@ describe("Agent message metadata", () => {
     expect(restored.context?.channel).toEqual({ meta: { parse: 1 } })
   })
 
+  it("restores trusted parsed metadata with an empty revision", async () => {
+    let parses = 0
+    const schema = {
+      "~standard": {
+        validate: () => ({ value: { parse: ++parses } }),
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    } as const
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema, metaRevision: "" } })
+    const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
+    const receiptId = parsedAgentMessageMetaReceiptId(agent, prepared)
+    const portable = await portableAgentWorkflowInput(prepared)
+    const restored = restoreParsedAgentMessageMeta(agent, portable, undefined, receiptId)
+
+    await parseAgentMessageMeta(agent, createAgentInvocationContextStore(restored.context))
+
+    expect(receiptId).toBe("")
+    expect(parses).toBe(1)
+  })
+
   it("revalidates durable metadata when the schema receipt is no longer current", async () => {
     const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
     const prepared = await withParsedAgentMessageMeta(previousAgent, { context: { channel: { meta: { audience: "technical" } } } })
@@ -377,28 +398,20 @@ describe("Agent message metadata", () => {
     expect(context.get("actor")).toEqual(context.get("invoker"))
   })
 
-  it("resolves programmatic Invokers from parsed metadata", async () => {
+  it("preserves explicit programmatic Invokers while parsing Channel metadata", async () => {
     const resolve = vi.fn(({ defaultInvoker, input }) => {
       expect(input.context?.invoker).toEqual({
-        email: {
-          address: "user@example.com",
-          domain: "example.com",
-        },
         id: "chat:user-1",
         kind: "chat",
-        meta: { audience: "technical", email: "user@example.com" },
+        meta: { audience: "technical", email: "user@example.com", ignored: true },
       })
       return defaultInvoker
     })
     const run = vi.fn(({ invoker }) => {
       expect(invoker).toEqual({
-        email: {
-          address: "user@example.com",
-          domain: "example.com",
-        },
         id: "chat:user-1",
         kind: "chat",
-        meta: { audience: "technical", email: "user@example.com" },
+        meta: { audience: "technical", email: "user@example.com", ignored: true },
       })
       return "ok"
     })
@@ -406,13 +419,9 @@ describe("Agent message metadata", () => {
       capabilities: ({ input }) => {
         expect(input.context?.channel).toEqual({ meta: { audience: "technical" } })
         expect(input.context?.invoker).toEqual({
-          email: {
-            address: "user@example.com",
-            domain: "example.com",
-          },
           id: "chat:user-1",
           kind: "chat",
-          meta: { audience: "technical", email: "user@example.com" },
+          meta: { audience: "technical", email: "user@example.com", ignored: true },
         })
         return []
       },

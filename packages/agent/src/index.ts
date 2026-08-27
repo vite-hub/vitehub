@@ -939,7 +939,7 @@ async function runAgentAsWorkflow<
     input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
-    ...(parsedMessageMeta ? { parsedMessageMeta } : {}),
+    ...(parsedMessageMeta !== undefined ? { parsedMessageMeta } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,

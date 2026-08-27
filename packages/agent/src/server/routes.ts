@@ -2713,7 +2713,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 throw new Error("[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed.")
               }
               let recoveredWorkflowInput = recoveredInput
-              if (restored.message.parsedMessageMeta) {
+              if (restored.message.parsedMessageMeta !== undefined) {
                 recoveredWorkflowInput = restoreParsedAgentMessageMeta(
                   // SAFETY: route discovery narrows this runtime value to an Agent Definition before recovery starts.
                   agent as AgentDefinition | undefined,
@@ -2960,7 +2960,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         successorClaimId = crypto.randomUUID()
         let queuedInput = queued.message.input
         // SAFETY: queued durable messages retain the Agent Definition selected by this route.
-        if (queued.message.parsedMessageMeta) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
+        if (queued.message.parsedMessageMeta !== undefined) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
         if (queued.message.resolvedInvoker) {
           const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
           if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
@@ -3016,7 +3016,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error) && successorInput && queued?.message) {
           let retryInput = successorInput
           // SAFETY: settlement retries reuse the Agent Definition selected for the queued message.
-          if (queued.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
+          if (queued.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
           if (queued.message.resolvedInvoker) {
             const retryInvoker = resolveInputAgentInvoker(retryInput.context)
             if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
@@ -3083,7 +3083,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           } catch (settlementError) {
             let retryInput = successorPending.message.input
             // SAFETY: successor settlement retries retain the Agent Definition selected by this route.
-            if (successorPending.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
+            if (successorPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
             if (successorPending.message.resolvedInvoker) {
               const retryInvoker = resolveInputAgentInvoker(retryInput.context)
               if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
@@ -3125,7 +3125,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         }
         let retryInput = claimedPending.message.input
         // SAFETY: claimed pending messages retain the Agent Definition selected by this route.
-        if (claimedPending.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
+        if (claimedPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
         if (claimedPending.message.resolvedInvoker) {
           const retryInvoker = resolveInputAgentInvoker(retryInput.context)
           if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
@@ -4586,26 +4586,6 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
-    const authorizationInput = await withParsedAgentMessageMeta(
-      // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
-      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
-      createChatMessageTriggerInput(options || {}, input).input,
-      input.run,
-    )
-    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
-    if (!invoker) {
-      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
-      return
-    }
-    const parsedChannelContext = authorizationInput.context?.channel
-    input = withAgentInvokerRunAnnotation({
-      ...input,
-      context: authorizationInput.context,
-      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
-    }, invoker)
-
-    const manualDelivery = options?.delivery === "manual"
-    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const messages = scopeCurrentChatUiMessage(
       await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
       message.id,
@@ -4635,6 +4615,26 @@ async function handleChatSdkMessage(
         return
       }
     }
+    const authorizationInput = await withParsedAgentMessageMeta(
+      // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
+      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+      createChatMessageTriggerInput(options || {}, input).input,
+      input.run,
+    )
+    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
+    if (!invoker) {
+      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+      return
+    }
+    const parsedChannelContext = authorizationInput.context?.channel
+    input = withAgentInvokerRunAnnotation({
+      ...input,
+      context: authorizationInput.context,
+      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
+    }, invoker)
+
+    const manualDelivery = options?.delivery === "manual"
+    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     input = { ...input, messages }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)

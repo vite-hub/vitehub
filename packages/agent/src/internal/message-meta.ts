@@ -65,7 +65,7 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
   revision?: string,
 ): AgentRunInput<CALL_OPTIONS> {
   const receipt = parsedAgentMessageMetaReceipt(definition, createAgentInvocationContextStore(input.context), run)
-  if (!receipt || !revision || receipt.revision !== revision) return input
+  if (!receipt || revision === undefined || receipt.revision !== revision) return input
   return {
     ...input,
     context: { ...input.context, [parsedAgentMessageMetaContextKey]: receipt },
