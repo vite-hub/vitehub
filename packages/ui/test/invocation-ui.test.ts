@@ -1460,6 +1460,46 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toBeUndefined();
   });
 
+  it("keeps filling visible lifecycle groups without draining collapsed terminal pages", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+      ],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "queued", status: "pending", title: "Queued" },
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+      ],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
   it("checks pagination when a collapsed group is expanded", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

@@ -145,6 +145,7 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
+    const automaticallyRequestedVisibleLength = ref<number>();
     const queuedOpen = ref(true);
     const doneOpen = ref(props.items.some(item => item.id === props.selectedId
       && item.status !== "running"
@@ -161,15 +162,23 @@ export const AgentInvocationList = defineComponent({
     const requestMoreIfNeeded = () => {
       const element = viewport.value;
       const length = props.items.length;
-      if (!element || element.clientHeight <= 0 || !props.hasMore || props.loading || !length || requestedLength.value === length) return;
+      if (!element || element.clientHeight <= 0 || !props.hasMore || props.loading || !length || requestedLength.value === length) return false;
       if (element.scrollTop + element.clientHeight >= element.scrollHeight - invocationListPaginationThreshold) {
         requestedLength.value = length;
         emit("endReached");
+        return true;
       }
+      return false;
     };
     const requestMoreAutomatically = () => {
-      if (viewport.value?.querySelector("details:not([open])")) return;
-      requestMoreIfNeeded();
+      const hasCollapsedGroup = Boolean(viewport.value?.querySelector("details:not([open])"));
+      const visibleLength = props.items.filter((item) => {
+        if (item.status === "running") return true;
+        if (item.status === "pending") return queuedOpen.value;
+        return doneOpen.value;
+      }).length;
+      if (hasCollapsedGroup && (!visibleLength || automaticallyRequestedVisibleLength.value === visibleLength)) return;
+      if (requestMoreIfNeeded()) automaticallyRequestedVisibleLength.value = visibleLength;
     };
     watch([() => props.items.length, () => props.hasMore, () => props.loading], ([length], [previous]) => {
       if (length < previous) requestedLength.value = undefined;
