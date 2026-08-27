@@ -268,6 +268,35 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("finishes usage-only immutable raw streams without mutating them", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = (async function* () {
+      yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
+    })()
+    Object.preventExtensions(raw)
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        raw,
+        usage: { totalTokens: 3 },
+        usageRecord: { usage: { totalTokens: 3 } },
+      },
+      text: undefined,
+    })
+    expect(Object.isExtensible(raw)).toBe(false)
+    expect(raw).not.toHaveProperty("usage")
+    expect(raw).not.toHaveProperty("usageRecord")
+  })
+
   it.each([
     { form: "stream", kind: "run" },
     { form: "run", kind: "model" },

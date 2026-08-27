@@ -3599,11 +3599,51 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
       usageRecord,
     }
   }
+  const prototype = Object.getPrototypeOf(result)
+  if (prototype !== Object.prototype && prototype !== null) {
+    if (Object.isExtensible(result)) {
+      try {
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        const record = result as { usage?: unknown, usageRecord?: unknown }
+        record.usageRecord ??= usageRecord
+        record.usage ??= usageRecord.usage
+        return result
+      }
+      catch {
+        // Fall through to a wrapper when an existing property cannot be assigned.
+      }
+    }
+    return {
+      ...toAgentRunResult(result),
+      raw: result,
+      usage: usageRecord.usage,
+      usageRecord,
+    }
+  }
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const record = result as { usage?: unknown, usageRecord?: unknown }
-  record.usageRecord ??= usageRecord
-  record.usage ??= usageRecord.usage
-  return result
+  return cloneWithPropertyDescriptors(result, {
+    ...(record.usage == null
+      ? {
+          usage: {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord.usage,
+            writable: true,
+          },
+        }
+      : {}),
+    ...(record.usageRecord == null
+      ? {
+          usageRecord: {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord,
+            writable: true,
+          },
+        }
+      : {}),
+  })
 }
 
 function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
