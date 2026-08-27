@@ -47,7 +47,30 @@ export interface WorkspaceSourceView {
   rm(path: string, options?: RmOptions): Promise<void>
 }
 
-const materializationByStore = new WeakMap<WorkspaceStore, Map<string, Promise<WorkspaceMaterializeSourcesResult>>>()
+interface PendingMaterialization {
+  fullSource: boolean
+  promise: Promise<WorkspaceMaterializeSourcesResult>
+}
+
+const materializationByStore = new WeakMap<WorkspaceStore, Map<string, PendingMaterialization>>()
+
+async function waitForMaterialization(pending: Promise<WorkspaceMaterializeSourcesResult>, signal?: AbortSignal) {
+  if (!signal) return await pending
+  signal.throwIfAborted()
+  let removeAbortListener = () => {}
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort)
+    if (signal.aborted) onAbort()
+  })
+  try {
+    return await Promise.race([pending, aborted])
+  }
+  finally {
+    removeAbortListener()
+  }
+}
 
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
@@ -58,7 +81,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
-  const materializeBySource = materializationByStore.get(store) ?? new Map<string, Promise<WorkspaceMaterializeSourcesResult>>()
+  const materializeBySource = materializationByStore.get(store) ?? new Map<string, PendingMaterialization>()
   if (!materializationByStore.has(store)) materializationByStore.set(store, materializeBySource)
 
   function getSourceContext(source: { key: string, mountPath: string }) {
@@ -155,19 +178,20 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const sourceKeys = options.sources?.length ? options.sources : sources.map(source => source.key)
     const previous = Promise.all(sourceKeys.flatMap((sourceKey) => {
       const pending = materializeBySource.get(sourceKey)
-      return pending ? [pending] : []
+      return pending ? [waitForMaterialization(pending.promise, options.abortSignal)] : []
     }))
     const current = (async () => {
       await previous
       return await materializeWorkspaceSources(definition, store, options)
     })()
-    for (const sourceKey of sourceKeys) materializeBySource.set(sourceKey, current)
+    const entry = { fullSource: !options.path, promise: current }
+    for (const sourceKey of sourceKeys) materializeBySource.set(sourceKey, entry)
     try {
       return await current
     }
     finally {
       for (const sourceKey of sourceKeys) {
-        if (materializeBySource.get(sourceKey) === current) materializeBySource.delete(sourceKey)
+        if (materializeBySource.get(sourceKey) === entry) materializeBySource.delete(sourceKey)
       }
     }
   }
@@ -175,7 +199,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensureMaterialized(sourceKey: string) {
     if (materializedSources.has(sourceKey)) return
     const pending = materializeBySource.get(sourceKey)
-    if (pending) await pending
+    if (pending?.fullSource) await pending.promise
     else await materializeSerialized({ sources: [sourceKey] })
     materializedSources.add(sourceKey)
   }

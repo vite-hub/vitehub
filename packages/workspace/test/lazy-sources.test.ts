@@ -872,6 +872,88 @@ describe("lazy sources", () => {
     })
   })
 
+  it("cancels materialization queued behind another view", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const definition = {
+      name: "lazy-queued-cancel",
+      sources: {
+        docs: custom({
+          materialize: "lazy" as const,
+          async getItems() {
+            started()
+            await blocked
+            return [{ key: "a.md", content: "# A\n" }]
+          },
+          async getItem(key) {
+            return { key, content: "# A\n" }
+          },
+          async getKeys() {
+            return ["a.md"]
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store)
+    const second = createWorkspaceSourceView(definition, store)
+    const active = first.materializeSources({ sources: ["docs"] })
+    await materializing
+
+    const abort = new AbortController()
+    const queued = second.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })
+    abort.abort(new DOMException("Canceled", "AbortError"))
+    await expect(queued).rejects.toThrow("Canceled")
+
+    release()
+    await active
+  })
+
+  it("fully materializes a lazy Source after joining a scoped request", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "a.md") {
+        started()
+        await blocked
+      }
+      return { key, content: `# ${key}\n` }
+    })
+    const view = createWorkspaceSourceView({
+      name: "lazy-scoped-join",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          getItem,
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const scoped = view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
+    await materializing
+    const reading = view.readFile("docs/b.md", { encoding: "utf8" })
+    release()
+
+    await scoped
+    await expect(reading).resolves.toBe("# b.md\n")
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "a.md", "b.md"])
+  })
+
   it("persists complete source metadata at lifecycle boundaries", async () => {
     const store = createMemoryWorkspaceStore()
     const statuses: string[] = []
