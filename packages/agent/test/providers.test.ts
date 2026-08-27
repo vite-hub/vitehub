@@ -11851,7 +11851,7 @@ describe("server helpers", () => {
     })
   })
 
-  it("traces queued finish reply content when streaming delivery fails", async () => {
+  it("traces failed and skipped queued finish replies", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -11868,9 +11868,14 @@ describe("server helpers", () => {
       },
       driver: { run: () => "Agent output" },
       hooks: {
-        "agent:finish": event => event.reply((async function* () {
-          yield "Partial reply"
-        })()),
+        "agent:finish": (event) => [
+          event.reply((async function* () {
+            yield "Partial reply"
+          })()),
+          event.reply((async function* () {
+            yield "Skipped reply"
+          })()),
+        ],
         "hook:observe": observe,
       },
     })
@@ -11883,6 +11888,48 @@ describe("server helpers", () => {
       attributes: expect.objectContaining({
         "channel.effect.content": "Partial reply",
         "error.message": "stream edit failed",
+      }),
+      name: "channel:delivery-effect",
+    }))
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "error.message": "Skipped after an earlier queued reply failed: stream edit failed",
+      }),
+      name: "channel:delivery-effect",
+    }))
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it("defers static queued finish reply traces until delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("static post failed"))
+    const observe = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "manual" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      hooks: {
+        "agent:finish": event => event.reply("Static reply"),
+        "hook:observe": observe,
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await handler(chatWebhookRequest(91_036), "telegram")
+
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "channel.effect.content": "Static reply",
+        "error.message": "static post failed",
       }),
       name: "channel:delivery-effect",
     }))

@@ -1260,6 +1260,11 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     : undefined
   if (chat) {
     await chat.sendMessage(message)
+    // SAFETY: Chat finish extensions are created by the route boundary, which also owns the optional delivery registrar.
+    const registrar = chat as AgentChatFinishExtension & ChatFinishDeliveryRegistrar
+    if (registrar[chatFinishDeliveryRegistrarKey]) {
+      setMessageChannelDeferredReplyTrace(context, callback => registrar[chatFinishDeliveryRegistrarKey]?.(message, callback) ?? false)
+    }
     return
   }
   const adapter = context.channel.adapter

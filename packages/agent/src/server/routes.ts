@@ -4408,7 +4408,7 @@ async function flushChatFinishExtensionMessages(
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
-  for (const queued of messages) {
+  for (const [index, queued] of messages.entries()) {
     let { message } = queued
     const capture: ChatFinishDeliveryCapture = { content: "", truncated: false }
     if (isAsyncIterable(message) && queued.callbacks.length) {
@@ -4468,6 +4468,14 @@ async function flushChatFinishExtensionMessages(
     catch (error) {
       capture.error = error instanceof Error ? error.message : String(error)
       for (const callback of queued.callbacks) await callback(capture)
+      const skippedCapture: ChatFinishDeliveryCapture = {
+        content: "",
+        error: `Skipped after an earlier queued reply failed: ${capture.error}`,
+        truncated: false,
+      }
+      for (const skipped of messages.slice(index + 1)) {
+        for (const callback of skipped.callbacks) await callback(skippedCapture)
+      }
       throw error
     }
     for (const callback of queued.callbacks) await callback(capture)
