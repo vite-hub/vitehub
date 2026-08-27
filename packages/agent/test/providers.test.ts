@@ -8289,10 +8289,13 @@ describe("server helpers", () => {
       expect(steeredInputs).toEqual(["same-backend-steer"])
     } finally {
       releases.splice(0).forEach((release) => release())
-      await Promise.all(runCompleted.slice(0, startedRuns).map(({ promise }) => promise))
-      await withDeadline(Promise.all(waitUntilTasks), 3_000, "State-scoped webhook queue executions did not settle.")
-      await Promise.all(states.map((state) => state.disconnect().catch(() => undefined)))
-      await rm(stateDir, { force: true, recursive: true })
+      try {
+        await Promise.all(runCompleted.slice(0, startedRuns).map(({ promise }) => promise))
+        await withDeadline(Promise.all(waitUntilTasks), 3_000, "State-scoped webhook queue executions did not settle.")
+      } finally {
+        await Promise.all(states.map((state) => state.disconnect().catch(() => undefined)))
+        await rm(stateDir, { force: true, recursive: true })
+      }
     }
   })
 
