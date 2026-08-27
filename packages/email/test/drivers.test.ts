@@ -144,17 +144,20 @@ describe("Resend Email driver", () => {
     vi.useRealTimers()
   })
 
-  it("aborts and times out a stalled request", async () => {
+  it.each([
+    [undefined, false],
+    ["send-1", true],
+  ])("aborts a stalled request and reports idempotency-safe retryability", async (idempotencyKey, retryable) => {
     vi.useFakeTimers()
     const request = vi.fn((_input: Parameters<typeof fetch>[0], init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
     }))
     const driver = resend({ apiKey: "re_secret", fetch: request })
 
-    const delivery = driver.send(message, context)
+    const delivery = driver.send({ ...message, idempotencyKey }, context)
     await vi.advanceTimersByTimeAsync(30_000)
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable } })
     expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
     vi.useRealTimers()
   })
@@ -404,6 +407,17 @@ describe("Cloudflare Email driver", () => {
 
     await expect(driver.send({ ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] }, context))
       .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
+    expect(Constructor).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it("rejects an empty primary recipient list before delivery", async () => {
+    const send = vi.fn()
+    const Constructor = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
+
+    await expect(driver.send({ ...message, to: [], cc: ["copy@example.com"] }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
     expect(Constructor).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
   })

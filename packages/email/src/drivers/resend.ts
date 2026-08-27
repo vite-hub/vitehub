@@ -199,7 +199,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         clearTimeout(requestTimeout)
         context.signal?.removeEventListener("abort", abortRequest)
         if (isEmailProviderError(cause)) return { data: null, error: cause }
-        if (requestTimedOut) return { data: null, error: emailProviderError("resend", "TIMEOUT", "Resend request timed out.", { cause, retryable: true }) }
+        if (requestTimedOut) return { data: null, error: emailProviderError("resend", "TIMEOUT", "Resend request timed out.", { cause, retryable: idempotencyKey !== undefined }) }
         if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", { cause, retryable: false }) }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend request failed.", { cause, retryable: true }) }
       }

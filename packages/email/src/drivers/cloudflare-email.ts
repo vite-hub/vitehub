@@ -163,12 +163,13 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         }
         message = applyPersonalization("cloudflare-email", message)
         const from = addresses(message.from)[0]
+        const to = addresses(message.to)
         const recipients = [
-          ...addresses(message.to),
+          ...to,
           ...(message.cc ? addresses(message.cc) : []),
           ...(message.bcc ? addresses(message.bcc) : []),
         ]
-        if (!from || recipients.length === 0) return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "from and to are required.") }
+        if (!from || to.length === 0) return { data: null, error: emailProviderError("cloudflare-email", "INVALID_OPTIONS", "from and to are required.") }
         if (recipients.length > 1) return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email supports exactly one envelope recipient per message.") }
         const customId = headerValue(message.headers, "message-id")
         if (customId !== undefined && customId.trim() === "") {
