@@ -87,15 +87,12 @@ async function packPublicPackages(packDir: string) {
 }
 
 async function writeConsumer(appDir: string, specs: Record<string, string>) {
-  const fixture = await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json"))
   const requiredPeers = {
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
     typescript: await installedVersion(join(repoRoot, "node_modules/typescript/package.json")),
-    vite: requiredDependency(fixture, "vite"),
-    vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
   }
 
   await Promise.all([
@@ -220,8 +217,11 @@ async function addOptionalPeers(appDir: string) {
     "comark-content": await installedVersion(join(repoRoot, "packages/source/node_modules/comark-content/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     "files-sdk": await installedVersion(join(repoRoot, "packages/blob/node_modules/files-sdk/package.json")),
+    openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
+    vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vitest: agentManifest.peerDependencies!.vitest!,
+    vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
   }
   const args = Object.entries(peers).map(([name, version]) => `${name}@${version}`)
   await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", ...args], appDir)
@@ -325,7 +325,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         }
       }
 
-      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "playwright-core", "vitest"]
+      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
       await assertResolution(appDir, optionalPeers, false)
       await importSpecifiers(appDir, publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)

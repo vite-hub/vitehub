@@ -1,5 +1,3 @@
-import type { SecretEnv } from "./secret"
-
 declare module "#vitehub/env/public" {
   export interface PublicEnv extends Record<string, unknown> {}
   export const publicEnv: PublicEnv

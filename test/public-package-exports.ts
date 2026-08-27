@@ -35,11 +35,22 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/source/content", ["comark-content"]],
   ["@vite-hub/source/content/client", ["comark-content"]],
   ["@vite-hub/ui/vite", ["@nuxt/ui"]],
+  ["@vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
+  ["@vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
   ["vite-hub/agent/eval", ["evalite", "vitest"]],
   ["vite-hub/source/content", ["comark-content"]],
   ["vite-hub/source/content/client", ["comark-content"]],
   ["vite-hub/ui/vite", ["@nuxt/ui"]],
+  ["vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
+  ["vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
 ])
+
+function optionalPeersForExport(specifier: string, subpath: string) {
+  const peers = [...(optionalPeerExports.get(specifier) || [])]
+  if (/(?:^|\/)vite$/.test(subpath)) peers.push("vite")
+  if (/(?:^|\/)vue$/.test(subpath)) peers.push("vue")
+  return peers
+}
 
 function exportTarget(rawTarget: string | Record<string, string>) {
   if (rawTarget instanceof Object) return rawTarget.import || rawTarget.default || rawTarget.types
@@ -71,7 +82,7 @@ export const publicPackageExportContracts: readonly PublicPackageExportContract[
     const specifier = exportSpecifier(info.packageName, subpath)
     return {
       kind: exportKind(info.packageName, subpath, specifier, target),
-      optionalPeers: optionalPeerExports.get(specifier) || [],
+      optionalPeers: optionalPeersForExport(specifier, subpath),
       packageName: info.packageName,
       specifier,
       subpath,
