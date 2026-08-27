@@ -110,7 +110,6 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.0.1",
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
     "defu": "catalog:unjs",
@@ -122,6 +121,7 @@
     "@azure/identity": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.0.1",
     "@vercel/blob": "catalog:storage",
     "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",

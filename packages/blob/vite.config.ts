@@ -44,7 +44,12 @@ export default defineConfig({
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
     deps: {
       neverBundle: ["vite", "esbuild", ...filesSdkProviderPeers],
-      alwaysBundle: [/^@vite-hub\/internal/, /^@vercel\/blob/, /^files-sdk(?:\/|$)/],
+      alwaysBundle: [
+        /^@vite-hub\/internal/,
+        /^@vite-hub\/netlify-blobs-runtime$/,
+        /^@vercel\/blob/,
+        /^files-sdk(?:\/|$)/,
+      ],
       onlyBundle: false,
     },
     entry: [

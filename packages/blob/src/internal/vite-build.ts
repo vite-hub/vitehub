@@ -559,7 +559,6 @@ function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModu
   const filesSdkPeers = new Set<string>()
   const resolved = resolveBlobConfig(blob, "vercel")
   const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
-  if (stores.some(store => store.driver === "netlify-blobs")) packages.add("@vite-hub/netlify-blobs-runtime")
   for (const store of stores) {
     for (const name of filesSdkDriverPeers[store.driver] ?? []) {
       packages.add(name)

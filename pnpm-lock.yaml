@@ -823,9 +823,6 @@ importers:
       '@supabase/storage-js':
         specifier: catalog:storage
         version: 2.105.4
-      '@vite-hub/netlify-blobs-runtime':
-        specifier: npm:@netlify/blobs@11.0.1
-        version: '@netlify/blobs@11.0.1(patch_hash=da03bf48ad8460933f87866828347b13d92dff4b6d10a58fd4dd40addfdf9ca7)'
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -872,6 +869,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/netlify-blobs-runtime':
+        specifier: npm:@netlify/blobs@11.0.1
+        version: '@netlify/blobs@11.0.1(patch_hash=da03bf48ad8460933f87866828347b13d92dff4b6d10a58fd4dd40addfdf9ca7)'
       files-sdk:
         specifier: catalog:storage
         version: 2.1.0(f594734a0825688c490543dcdbd6db14)

@@ -85,9 +85,11 @@ describe("optional peer imports", () => {
   })
 
   it("keeps the Netlify driver closure free of Node module loading", async () => {
-    const closure = (await readLocalClosure(new URL("../dist/drivers/netlify-blobs.js", import.meta.url))).join("\n")
+    const closure = (await readLocalClosure(new URL(import.meta.resolve("@vite-hub/blob/drivers/netlify-blobs")))).join("\n")
 
     expect(closure).not.toContain('from "node:module"')
+    expect(closure).not.toContain('from "@vite-hub/netlify-blobs-runtime"')
+    expect(closure).not.toContain("getEnvironment2().get")
   })
 
   it("keeps the Cloudflare-native R2 driver free of HTTP fallback peers", async () => {
