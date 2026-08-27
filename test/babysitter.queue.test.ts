@@ -76,13 +76,13 @@ test('enumerates repositories into one queue', async () => {
 
   assert.deepEqual(listed.sort(), ['vite-hub/brief', 'vite-hub/vitehub'])
   assert.deepEqual(jobs.map(job => [job.repository, job.pullRequest.number]), [
-    ['vite-hub/vitehub', 1],
     ['vite-hub/brief', 2],
     ['vite-hub/brief', 3],
+    ['vite-hub/vitehub', 1],
   ])
 })
 
-test('interleaves repositories before their deeper backlog', async () => {
+test('uses repository and pull request tie-breaks after interleaved discovery', async () => {
   const jobs = await selectPullRequestJobs(
     ['vite-hub/vitehub', 'vite-hub/brief'],
     async repository => repository === 'vite-hub/vitehub'
@@ -92,10 +92,66 @@ test('interleaves repositories before their deeper backlog', async () => {
     policyFingerprint,
   )
   assert.deepEqual(jobs.map(job => [job.repository, job.pullRequest.number]), [
-    ['vite-hub/vitehub', 1],
     ['vite-hub/brief', 4],
+    ['vite-hub/vitehub', 1],
     ['vite-hub/vitehub', 2],
     ['vite-hub/vitehub', 3],
+  ])
+})
+
+test('keeps the oldest eligible pull request ahead of repeated newer arrivals', async () => {
+  const oldest = { ...pullRequest(1), updatedAt: '2026-01-01T00:00:00Z' }
+
+  for (let number = 2; number <= 6; number++) {
+    const newer = { ...pullRequest(number), updatedAt: `2026-02-0${number}T00:00:00Z` }
+    const jobs = await selectPullRequestJobs(
+      ['vite-hub/vitehub'],
+      async () => [newer, oldest],
+      async () => null,
+      policyFingerprint,
+    )
+
+    assert.equal(jobs[0]?.pullRequest.number, oldest.number)
+  }
+})
+
+test('orders eligible work globally after filtering completed pull requests', async () => {
+  const vitehub = 'vite-hub/vitehub'
+  const brief = 'vite-hub/brief'
+  const completed = { ...pullRequest(1), updatedAt: '2026-01-01T00:00:00Z' }
+  const newer = { ...pullRequest(2), updatedAt: '2026-01-03T00:00:00Z' }
+  const olderAcrossRepositories = { ...pullRequest(3), updatedAt: '2026-01-02T00:00:00Z' }
+  const jobs = await selectPullRequestJobs(
+    [vitehub, brief],
+    async repository => repository === vitehub ? [newer, completed] : [olderAcrossRepositories],
+    async key => key === `babysitter/${vitehub}/pull-requests/${completed.number}`
+      ? pullRequestFingerprint(vitehub, completed, policyFingerprint)
+      : null,
+    policyFingerprint,
+  )
+
+  assert.deepEqual(jobs.map(job => [job.repository, job.pullRequest.number]), [
+    [brief, olderAcrossRepositories.number],
+    [vitehub, newer.number],
+  ])
+})
+
+test('orders equal and invalid timestamps deterministically', async () => {
+  const equal = '2026-01-01T00:00:00Z'
+  const jobs = await selectPullRequestJobs(
+    ['vite-hub/zeta', 'vite-hub/alpha'],
+    async repository => repository === 'vite-hub/zeta'
+      ? [{ ...pullRequest(4), updatedAt: 'invalid' }, { ...pullRequest(2), updatedAt: equal }]
+      : [{ ...pullRequest(3), updatedAt: equal }, { ...pullRequest(1), updatedAt: equal }],
+    async () => null,
+    policyFingerprint,
+  )
+
+  assert.deepEqual(jobs.map(job => [job.repository, job.pullRequest.number]), [
+    ['vite-hub/alpha', 1],
+    ['vite-hub/alpha', 3],
+    ['vite-hub/zeta', 2],
+    ['vite-hub/zeta', 4],
   ])
 })
 

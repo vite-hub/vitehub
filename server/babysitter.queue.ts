@@ -90,7 +90,19 @@ export async function selectPullRequestJobs(
       : { completionKey: key, fingerprint, pullRequest, repository }
   }))
 
-  return jobs.filter((job): job is PullRequestJob => job !== undefined)
+  return jobs
+    .filter((job): job is PullRequestJob => job !== undefined)
+    .sort(comparePullRequestJobs)
+}
+
+function comparePullRequestJobs(left: PullRequestJob, right: PullRequestJob) {
+  const leftUpdatedAt = Date.parse(left.pullRequest.updatedAt)
+  const rightUpdatedAt = Date.parse(right.pullRequest.updatedAt)
+  const leftTime = Number.isNaN(leftUpdatedAt) ? Number.POSITIVE_INFINITY : leftUpdatedAt
+  const rightTime = Number.isNaN(rightUpdatedAt) ? Number.POSITIVE_INFINITY : rightUpdatedAt
+  if (leftTime !== rightTime) return leftTime - rightTime
+  if (left.repository !== right.repository) return left.repository < right.repository ? -1 : 1
+  return left.pullRequest.number - right.pullRequest.number
 }
 
 function hasOpenStackParent(pullRequest: PullRequest, pullRequests: PullRequest[]) {
