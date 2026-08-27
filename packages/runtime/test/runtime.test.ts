@@ -88,6 +88,21 @@ describe("@vite-hub/runtime", () => {
     expect(context.runtimeConfig).toEqual({})
   })
 
+  it("preserves defined non-record runtime configuration union members", () => {
+    const createContext = (runtimeConfig: string | undefined) => createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const configuredContext = createContext("local")
+    const omittedContext = createContext(undefined)
+
+    expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
+    expect(configuredContext.runtimeConfig).toBe("local")
+    expect(omittedContext.runtimeConfig).toEqual({})
+  })
+
   it("registers, finds, and resolves capability handles", () => {
     const db = defineCapability("db", { query: vi.fn() }, { name: "primary" })
     const context = createExecutionContext({

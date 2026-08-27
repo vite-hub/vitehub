@@ -64,6 +64,16 @@ const maybeConfiguredContext = createMaybeConfiguredContext(undefined, undefined
 maybeConfiguredContext.capabilities satisfies RuntimeCapabilities
 maybeConfiguredContext.runtimeConfig satisfies Record<string, unknown>
 
+const createPrimitiveConfiguredContext = (runtimeConfig: string | undefined) => createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig,
+  waitUntil: () => {},
+})
+const primitiveConfiguredContext = createPrimitiveConfiguredContext("local")
+
+primitiveConfiguredContext.runtimeConfig satisfies string | Record<string, unknown>
+
 const error = new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
   details: { provider: "fixture" },
 })
