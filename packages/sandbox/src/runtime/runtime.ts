@@ -58,6 +58,8 @@ function isRetriableCloudflareSandboxError(error: unknown) {
   const provider = metadata?.provider
   if (provider && provider !== 'cloudflare')
     return false
+  if (metadata?.code === 'SANDBOX_TIMEOUT')
+    return false
 
   const extraMessage = metadata?.cause instanceof Error ? metadata.cause.message : ''
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error, extraMessage))

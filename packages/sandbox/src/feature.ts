@@ -106,9 +106,9 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
 
 async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefinition[], rootDir: string) {
   return await Promise.all(definitions.map(async (definition) => {
-    const project = definition.kind === 'package-entry'
-      ? await resolveSandboxProject(definition.handler, rootDir, { readSandboxOptions: true })
-      : undefined
+    const project = await resolveSandboxProject(definition.handler, rootDir, {
+      readSandboxOptions: definition.kind === 'package-entry',
+    })
     return {
       kind: definition.kind,
       name: definition.name,

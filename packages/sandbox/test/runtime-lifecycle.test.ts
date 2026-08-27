@@ -21,6 +21,7 @@ vi.mock("vitehub-sandbox-provider-loader", () => ({
 
 import { resolveSandboxRunner, runSandboxRuntime } from "../src/runtime/runtime.ts"
 import { createCloudflareExecutionSandboxId } from "../src/runtime/provider-resolution.ts"
+import { sandboxError } from "../src/sandbox/errors.ts"
 import { resetSandboxRuntimeState, setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from "../src/runtime/state.ts"
 
 const definition = {
@@ -150,6 +151,21 @@ describe("Sandbox runtime lifecycle", () => {
     const result = await runSandboxRuntime("example")
 
     expect(result[0]).toBeInstanceOf(Error)
+    expect(runtimeMocks.close).toHaveBeenCalledOnce()
+  })
+
+  it("does not replay timed out Cloudflare definitions", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxDefinition.mockRejectedValue(sandboxError("definition timed out", {
+      code: "SANDBOX_TIMEOUT",
+      provider: "cloudflare",
+    }))
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result[0]).toMatchObject({ code: "SANDBOX_TIMEOUT" })
+    expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 

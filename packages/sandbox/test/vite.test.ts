@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -270,7 +270,7 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
   })
 
-  it("bundles package dependencies for a Definition without a preparation plan", async () => {
+  it("preserves the nearest package project for a Definition", async () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "node_modules/kleur"), { recursive: true })
     await writeFile(join(rootDir, "node_modules/kleur/package.json"), JSON.stringify({
@@ -303,8 +303,9 @@ describe("hubSandbox", () => {
     )
     const artifact = JSON.parse(generated.slice("export default ".length))
     expect(artifact.bundle.modules[artifact.bundle.entry]).toContain("ready")
-    expect(artifact.bundle.modules[artifact.bundle.entry]).not.toContain('from "kleur"')
-    expect(artifact.bundle.project).toBeUndefined()
+    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain('from "kleur"')
+    expect(artifact.bundle.project.packagePath).toBe(".")
+    expect(artifact.bundle.project.install.command).toBe("pnpm")
   })
 
   it("keeps Node built-ins out of definition bundle aliases", async () => {
@@ -1177,6 +1178,7 @@ describe("hubSandbox", () => {
     const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
     const generated = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
     const previous = await readFile(generated, "utf8")
+    expect((await lstat(join(rootDir, ".vitehub/sandbox/runtime"))).isSymbolicLink()).toBe(true)
     await writeFile(definition, "export default { run: async () => {\n")
 
     await expect(configResolved({ root: rootDir, resolve: { alias: [] } })).rejects.toThrow()

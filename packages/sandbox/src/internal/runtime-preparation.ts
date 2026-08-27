@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rename, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, symlink } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
@@ -37,6 +37,10 @@ type SandboxViteContext = {
   hosting?: string
   command: ConfigEnv['command']
   mode: string
+}
+
+function readNodeErrorCode(error: unknown) {
+  return error instanceof Error && 'code' in error ? error.code : undefined
 }
 
 function normalizeSandboxOptions(options: SandboxPublicOptions): AgentSandboxConfig | false {
@@ -210,12 +214,15 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
 
 async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, facadeContents: string) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
-  const stagingDir = await mkdtemp(resolve(generatedDir, '.runtime-stage-'))
-  const stagedRuntimeDir = resolve(stagingDir, 'runtime')
+  const generationsDir = resolve(generatedDir, '.runtime-generations')
+  await mkdir(generationsDir, { recursive: true })
+  const generationDir = await mkdtemp(resolve(generationsDir, 'runtime-'))
   const runtimeDir = resolve(generatedDir, 'runtime')
-  const previousRuntimeDir = resolve(stagingDir, 'previous-runtime')
+  const stagedLink = resolve(generatedDir, `.runtime-link-${generationDir.slice(generationsDir.length + 1)}`)
+  const legacyRuntimeDir = resolve(generationsDir, `.legacy-${generationDir.slice(generationsDir.length + 1)}`)
   const emitted = new Map<string, EmittedArtifact>()
   const typeTemplate = plan.manifest.typeTemplate
+  let activated = false
 
   try {
     for (const artifact of plan.artifacts || []) {
@@ -228,34 +235,47 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
     }
 
     if (typeTemplate)
-      await writeFileIfChanged(resolve(stagingDir, typeTemplate.filename), typeTemplate.contents)
+      await writeFileIfChanged(resolve(generationDir, typeTemplate.filename.replace(/^runtime\//, '')), typeTemplate.contents)
     for (const artifact of emitted.values()) {
-      const relativePath = artifact.dst.slice(generatedDir.length + 1)
-      await writeFileIfChanged(resolve(stagingDir, relativePath), artifact.contents)
+      const relativePath = artifact.dst.slice(runtimeDir.length + 1)
+      await writeFileIfChanged(resolve(generationDir, relativePath), artifact.contents)
     }
-    await writeFileIfChanged(resolve(stagedRuntimeDir, 'sandbox.mjs'), facadeContents)
+    await writeFileIfChanged(resolve(generationDir, 'sandbox.mjs'), facadeContents)
+    await symlink(generationDir, stagedLink, 'dir')
 
-    let movedPreviousRuntime = false
     try {
-      await rename(runtimeDir, previousRuntimeDir)
-      movedPreviousRuntime = true
+      await rename(stagedLink, runtimeDir)
+      activated = true
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      const code = readNodeErrorCode(error)
+      if (code !== 'EEXIST' && code !== 'EISDIR' && code !== 'ENOTEMPTY')
         throw error
-    }
 
-    try {
-      await rename(stagedRuntimeDir, runtimeDir)
-    }
-    catch (error) {
-      if (movedPreviousRuntime)
-        await rename(previousRuntimeDir, runtimeDir)
-      throw error
+      await rename(runtimeDir, legacyRuntimeDir)
+      try {
+        await rename(stagedLink, runtimeDir)
+        activated = true
+      }
+      catch (activationError) {
+        try {
+          await rename(legacyRuntimeDir, runtimeDir)
+        }
+        catch (rollbackError) {
+          throw new AggregateError(
+            [activationError, rollbackError],
+            `[vitehub] Sandbox runtime activation failed; the previous runtime is retained at ${legacyRuntimeDir}.`,
+          )
+        }
+        throw activationError
+      }
+      await rm(legacyRuntimeDir, { recursive: true, force: true })
     }
   }
   finally {
-    await rm(stagingDir, { recursive: true, force: true })
+    await rm(stagedLink, { force: true })
+    if (!activated)
+      await rm(generationDir, { recursive: true, force: true })
   }
 
   return emitted

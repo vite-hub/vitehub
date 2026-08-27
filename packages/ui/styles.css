@@ -959,6 +959,14 @@ button.vh-invocation-lifecycle__row:focus-visible {
   white-space: nowrap;
 }
 
+[data-slot="invocation"] [data-activity-id][data-selected="true"] {
+  background: color-mix(in oklab, var(--vh-ui-info) 9%, transparent);
+  border-radius: calc(var(--vh-ui-radius) * 0.85);
+  outline: 2px solid color-mix(in oklab, var(--vh-ui-info) 42%, transparent);
+  outline-offset: 2px;
+  scroll-margin-block: 5rem;
+}
+
 .vh-invocation-event__summary {
   align-items: center;
   border-radius: inherit;
@@ -1132,23 +1140,119 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event__payload {
+  border: 1px solid color-mix(in oklab, var(--vh-ui-border) 78%, transparent);
+  border-radius: calc(var(--vh-ui-radius) * 0.9);
   min-width: 0;
+  overflow: hidden;
 }
 
-.vh-invocation-event__payload > strong {
+.vh-invocation-event__payload > summary {
+  align-items: center;
+  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 65%, transparent);
+  cursor: pointer;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  list-style: none;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.65rem;
+}
+
+.vh-invocation-event__payload > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vh-invocation-event__payload > summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--vh-ui-info) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.vh-invocation-event__payload > summary strong {
   color: var(--vh-ui-dimmed);
-  display: block;
   font-size: 0.6875rem;
   font-weight: 650;
   letter-spacing: 0.08em;
-  margin-block-end: 0.3rem;
   text-transform: uppercase;
 }
 
-.vh-invocation-event__payload > pre {
+.vh-invocation-event__payload > summary code {
+  color: var(--vh-ui-muted);
+  font: 0.75rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-invocation-event__payload[open] > summary .vh-invocation-event__disclosure {
+  transform: rotate(180deg);
+}
+
+.vh-invocation-payload__content {
+  border-block-start: 1px solid color-mix(in oklab, var(--vh-ui-border) 72%, transparent);
+  padding: 0.6rem;
+}
+
+.vh-invocation-payload__toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-block-end: 0.55rem;
+}
+
+.vh-invocation-payload__modes {
+  background: color-mix(in oklab, var(--vh-ui-bg-muted) 76%, transparent);
+  border-radius: calc(var(--vh-ui-radius) * 0.72);
+  display: inline-flex;
+  padding: 0.125rem;
+}
+
+.vh-invocation-payload__toolbar button {
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--vh-ui-radius) * 0.6);
+  color: var(--vh-ui-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.6875rem;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.vh-invocation-payload__toolbar button:is(:hover, [aria-pressed="true"]) {
+  background: var(--vh-ui-bg-elevated);
+  color: var(--vh-ui-text);
+}
+
+.vh-invocation-payload__toolbar button:focus-visible,
+.vh-invocation-payload__search input:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--vh-ui-info) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.vh-invocation-payload__search {
+  flex: 1 1 8rem;
+}
+
+.vh-invocation-payload__search input {
+  background: var(--vh-ui-bg);
+  border: 1px solid var(--vh-ui-border);
+  border-radius: calc(var(--vh-ui-radius) * 0.72);
+  color: var(--vh-ui-text);
+  font: inherit;
+  font-size: 0.6875rem;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
+  width: 100%;
+}
+
+.vh-invocation-payload__copy {
+  margin-inline-start: auto;
+}
+
+.vh-invocation-payload__content > pre {
   background: color-mix(in oklab, var(--vh-ui-bg-elevated) 65%, transparent);
-  border: 1px solid color-mix(in oklab, var(--vh-ui-border) 78%, transparent);
-  border-radius: calc(var(--vh-ui-radius) * 0.9);
+  border-radius: calc(var(--vh-ui-radius) * 0.72);
   color: var(--vh-ui-text);
   font: 0.75rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   margin: 0;
@@ -1157,6 +1261,79 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   padding: 0.625rem 0.75rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.vh-invocation-payload__tree,
+.vh-invocation-payload__tree ul,
+.vh-invocation-payload__matches {
+  display: grid;
+  gap: 0.2rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vh-invocation-payload__tree ul {
+  border-inline-start: 1px solid var(--vh-ui-border);
+  margin: 0.2rem 0 0 0.45rem;
+  padding-inline-start: 0.75rem;
+}
+
+.vh-invocation-payload__branch summary,
+.vh-invocation-payload__leaf {
+  align-items: baseline;
+  display: flex;
+  gap: 0.45rem;
+  min-height: 1.4rem;
+}
+
+.vh-invocation-payload__branch summary {
+  color: var(--vh-ui-dimmed);
+  cursor: pointer;
+  font-size: 0.6875rem;
+}
+
+.vh-invocation-payload__key,
+.vh-invocation-payload__value,
+.vh-invocation-payload__matches code {
+  font: 0.71875rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.vh-invocation-payload__key {
+  color: var(--vh-ui-info);
+}
+
+.vh-invocation-payload__value {
+  color: var(--vh-ui-text);
+  overflow-wrap: anywhere;
+}
+
+.vh-invocation-payload__value[data-type="string"] {
+  color: var(--vh-ui-success);
+}
+
+.vh-invocation-payload__matches li {
+  display: grid;
+  gap: 0.15rem;
+  grid-template-columns: minmax(7rem, 0.45fr) minmax(0, 1fr);
+}
+
+.vh-invocation-payload__matches code:first-child {
+  color: var(--vh-ui-info);
+  overflow-wrap: anywhere;
+}
+
+.vh-invocation-payload__matches code:last-child {
+  color: var(--vh-ui-text);
+  overflow-wrap: anywhere;
+}
+
+.vh-invocation-payload__empty {
+  color: var(--vh-ui-dimmed);
+  font-size: 0.75rem;
+  margin: 0;
+  padding: 0.5rem;
+  text-align: center;
 }
 
 .vh-invocation-event__body,
@@ -1474,12 +1651,20 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-timeline__row {
+  background: transparent;
+  border: 0;
   border-radius: calc(var(--vh-ui-radius) * 0.9);
+  color: inherit;
+  cursor: pointer;
+  display: block;
+  font: inherit;
   min-width: 0;
   outline: 2px solid transparent;
   outline-offset: -2px;
   padding: 0.45rem 0.5rem;
+  text-align: start;
   transition: background-color 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  width: 100%;
 }
 
 .vh-invocation-timeline__row:focus-visible {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AgentInvocation, AgentInvocationInspector, AgentInvocationList } from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
@@ -30,6 +30,7 @@ const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
+const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
 const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
 let clock: ReturnType<typeof setInterval> | undefined;
@@ -152,6 +153,12 @@ const syncLabel = computed(() => {
   if (!syncStale.value) return "Updated now";
   return `Stale · ${relativeDuration(syncAgeMs.value)}`;
 });
+
+function selectActivity(id: string) {
+  selectedActivityId.value = undefined;
+  if (!isDesktop.value) detailsOpen.value = false;
+  void nextTick(() => { selectedActivityId.value = id; });
+}
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
@@ -316,6 +323,10 @@ watch(
     });
   },
 );
+
+watch(selectedInvocationId, () => {
+  selectedActivityId.value = undefined;
+});
 
 onMounted(() => {
   media = window.matchMedia("(min-width: 1024px)");
@@ -558,7 +569,7 @@ onBeforeUnmount(() => {
             class="min-h-0 flex-1"
           >
             <template #thread
-              ><AgentInvocation :invocation="invocationView" class="h-full"
+              ><AgentInvocation :invocation="invocationView" :selected-activity-id="selectedActivityId" class="h-full"
                 ><template #title>{{ selectedTitle }}</template
                 ><template #actions
                   ><UTooltip text="Session details"
@@ -572,7 +583,7 @@ onBeforeUnmount(() => {
                       @click="detailsOpen = !detailsOpen" /></UTooltip></template></AgentInvocation
             ></template>
             <template #details
-              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
+              ><AgentInvocationInspector :invocation="invocationView" class="h-full" @select-activity="selectActivity"
                 ><template #actions
                   ><UButton
                     icon="i-lucide-panel-right-close"
@@ -583,7 +594,7 @@ onBeforeUnmount(() => {
                     @click="detailsOpen = false" /></template></AgentInvocationInspector
             ></template>
           </USplitter>
-          <AgentInvocation v-else :invocation="invocationView" class="min-h-0 flex-1"
+          <AgentInvocation v-else :invocation="invocationView" :selected-activity-id="selectedActivityId" class="min-h-0 flex-1"
             ><template #title>{{ selectedTitle }}</template
             ><template #actions
               ><div class="flex items-center gap-1">
@@ -610,7 +621,7 @@ onBeforeUnmount(() => {
             title="Session details"
             :ui="{ content: 'w-full max-w-sm p-0' }"
             ><template #content
-              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
+              ><AgentInvocationInspector :invocation="invocationView" class="h-full" @select-activity="selectActivity"
                 ><template #actions
                   ><UButton
                     icon="i-lucide-x"

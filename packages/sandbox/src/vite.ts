@@ -176,6 +176,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
+  let sandboxRuntimeRefresh = Promise.resolve()
   const sandboxNitroModule = (nitro: {
     hooks: { hook: (name: 'build:before', callback: () => void) => void }
     options: Record<string, unknown>
@@ -214,29 +215,33 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   }
 
   async function refreshSandboxRuntime() {
-    const prepared = await prepareCurrentSandboxRuntime()
-    generatedAliases = prepared.aliases
-    generatedFiles = prepared.files
-    definitions = prepared.definitions
-    if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
-      const facade = generatedAliases[SANDBOX_PACKAGE_ID]
-      if (facade) {
-        internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
-        internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = sandboxPackageRuntime()
+    const refresh = sandboxRuntimeRefresh.then(async () => {
+      const prepared = await prepareCurrentSandboxRuntime()
+      generatedAliases = prepared.aliases
+      generatedFiles = prepared.files
+      definitions = prepared.definitions
+      if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
+        const facade = generatedAliases[SANDBOX_PACKAGE_ID]
+        if (facade) {
+          internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
+          internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = sandboxPackageRuntime()
+        }
+        else {
+          delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
+          delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
+        }
+        for (const specifier of sandboxProviderLoaderSpecifiers) {
+          const providerLoader = generatedAliases[specifier]
+          if (providerLoader)
+            internalOptions.providerImportAliases[specifier] = providerLoader
+          else
+            delete internalOptions.providerImportAliases[specifier]
+        }
       }
-      else {
-        delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
-        delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
-      }
-      for (const specifier of sandboxProviderLoaderSpecifiers) {
-        const providerLoader = generatedAliases[specifier]
-        if (providerLoader)
-          internalOptions.providerImportAliases[specifier] = providerLoader
-        else
-          delete internalOptions.providerImportAliases[specifier]
-      }
-    }
-    return prepared
+      return prepared
+    })
+    sandboxRuntimeRefresh = refresh.then(() => undefined, () => undefined)
+    return await refresh
   }
 
   async function composeCloudflareSandbox(

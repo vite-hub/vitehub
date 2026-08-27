@@ -107,7 +107,11 @@ describe("remote Box providers", () => {
 
   it("bounds Cloudflare operations with a deadline", async () => {
     vi.useFakeTimers();
-    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    let calls = 0;
+    const stub = cloudflareStub(async () => {
+      calls++;
+      return await new Promise<never>(() => {});
+    });
     const box = await resolveBox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await box.open();
 
@@ -115,6 +119,7 @@ describe("remote Box providers", () => {
     const rejection = expect(result).rejects.toThrow("exec timed out after 180000ms");
     await vi.runAllTimersAsync();
     await rejection;
+    expect(calls).toBe(1);
     await session.close();
   });
 
