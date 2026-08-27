@@ -15,7 +15,7 @@ const globSource = glob
 const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
-import type { WorkspaceMaterializeSourcesProgressEvent } from "../src/core/types.ts"
+import type { SourceContext, WorkspaceMaterializeSourcesProgressEvent } from "../src/core/types.ts"
 
 const tempDirs: string[] = []
 
@@ -664,6 +664,31 @@ describe("lazy sources", () => {
     await expect(view.exists("docs/stale.md")).resolves.toBe(false)
     await expect(view.stat("docs/stale.md")).rejects.toThrow("Workspace path does not exist")
     expect(resolveRevision).toHaveBeenCalledOnce()
+  })
+
+  it("prepares the persistent non-live Source context after explicit materialization", async () => {
+    const clients = new WeakMap<object, { keys: string[] }>()
+    const prepare = vi.fn(async (context: SourceContext) => {
+      clients.set(context, { keys: ["current.md"] })
+    })
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      prepare,
+      async getKeys(context: SourceContext) {
+        return clients.get(context)?.keys || []
+      },
+      async getItem(key: string) {
+        return { key, path: key, content: "# Current\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({ name: "materialization-persistent-preparation", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ status: "ready" }],
+    })
+    await expect(view.exists("docs/missing.md")).resolves.toBe(false)
+    expect(prepare).toHaveBeenCalledTimes(2)
   })
 
   it("keeps full cache-hit aggregates after scoped materialization", async () => {
