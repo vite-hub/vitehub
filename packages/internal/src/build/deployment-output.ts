@@ -136,7 +136,7 @@ interface FinalizeProviderDeploymentOutputOptions {
 const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
 interface ProviderDeploymentOutputFinalization {
   controller: AbortController
-  preservePendingOnAbort: boolean
+  handoff?: Promise<void>
   promise: Promise<void>
 }
 
@@ -445,7 +445,6 @@ export function contributeProviderDeploymentOutput(
 export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): Promise<void> {
   if (!catalog) return
   const active = providerDeploymentOutputFinalizations.get(catalog)
-  if (active) active.preservePendingOnAbort = true
   active?.controller.abort(new Error("Provider Output finalization reset"))
   catalog?.resetDeploymentContributions()
   if (active) await active.promise.catch(() => undefined)
@@ -463,6 +462,15 @@ export async function finalizeProviderDeploymentOutputs(
     }
     catch (error) {
       if (!catalog.hasDeploymentContributions()) throw error
+      existing.handoff ??= (async () => {
+        await existing.promise.catch(() => undefined)
+        if (providerDeploymentOutputFinalizations.get(catalog) === existing) {
+          providerDeploymentOutputFinalizations.delete(catalog)
+        }
+        await finalizeProviderDeploymentOutputs(catalog, options)
+      })()
+      await existing.handoff
+      return
     }
     if (providerDeploymentOutputFinalizations.get(catalog) === existing) {
       providerDeploymentOutputFinalizations.delete(catalog)
@@ -513,15 +521,15 @@ export async function finalizeProviderDeploymentOutputs(
       }
     }
     catch (error) {
-      const active = providerDeploymentOutputFinalizations.get(catalog)
-      if (!active?.preservePendingOnAbort) catalog.resetDeploymentContributions()
+      // Contributions in this finalization were detached by takeDeploymentContributions().
+      // Anything still pending belongs to a newer build and must survive this failure.
       throw error
     }
     finally {
       options.signal?.removeEventListener("abort", abort)
     }
   })()
-  const active = { controller, preservePendingOnAbort: false, promise: finalization }
+  const active = { controller, promise: finalization }
   providerDeploymentOutputFinalizations.set(catalog, active)
   try {
     await finalization

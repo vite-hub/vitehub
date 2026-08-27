@@ -547,7 +547,9 @@ async function writeVercelQueueFunctions(
       rootDir,
       serverFunctionName: functionPath,
     })
+    signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
+    signal?.throwIfAborted()
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({
       experimentalTriggers: [{
         consumer,
@@ -606,10 +608,14 @@ export async function generateProviderOutputs(
           rootDir: options.rootDir,
           serverFunctionName: vercelFunctionName,
         })
+        options.signal?.throwIfAborted()
         const contents = await readFile(resolve(functionRoot, "index.mjs"))
+        options.signal?.throwIfAborted()
         const digest = hash("sha256", contents, "hex")
         await writeFile(resolve(functionRoot, vercelQueueFunctionMarker), `${JSON.stringify({ digest }, null, 2)}\n`, "utf8")
+        options.signal?.throwIfAborted()
         await mkdir(dirname(resolve(options.rootDir, vercelQueueOutputState)), { recursive: true })
+        options.signal?.throwIfAborted()
         await writeFile(resolve(options.rootDir, vercelQueueOutputState), `${JSON.stringify({
           digest,
           serverFunctionName: vercelFunctionName,

@@ -269,6 +269,64 @@ describe("Provider Output finalizer", () => {
     expect(newerWrite).toHaveBeenCalledOnce()
   })
 
+  it("joins every reset waiter to the same replacement finalization", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let releaseWrite!: () => void
+    let writeStarted!: () => void
+    const started = new Promise<void>(resolve => writeStarted = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => {
+        writeStarted()
+        await new Promise<void>(resolve => releaseWrite = resolve)
+      },
+    })
+
+    const failedFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog)
+    const newerWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: newerWrite })
+    const firstWaiter = finalizeProviderDeploymentOutputs(catalog)
+    const secondWaiter = finalizeProviderDeploymentOutputs(catalog)
+    releaseWrite()
+
+    await reset
+    await expect(failedFinalization).rejects.toThrow("Provider Output finalization reset")
+    await Promise.all([firstWaiter, secondWaiter])
+    expect(newerWrite).toHaveBeenCalledOnce()
+  })
+
+  it("preserves newer contributions after a writer failure", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let releaseWrite!: () => void
+    let writeStarted!: () => void
+    const started = new Promise<void>(resolve => writeStarted = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => {
+        writeStarted()
+        await new Promise<void>(resolve => releaseWrite = resolve)
+        throw new Error("writer failed")
+      },
+    })
+
+    const failedFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const newerWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: newerWrite })
+    const newerFinalization = finalizeProviderDeploymentOutputs(catalog)
+    releaseWrite()
+
+    await expect(failedFinalization).rejects.toThrow("writer failed")
+    await newerFinalization
+    expect(newerWrite).toHaveBeenCalledOnce()
+  })
+
   it("prevents publication resumed after active finalization is reset", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

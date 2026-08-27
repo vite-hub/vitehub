@@ -368,6 +368,7 @@ export async function writeVercelScheduleFunctions(options: {
     })
     options.signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
+    options.signal?.throwIfAborted()
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
   }
 
@@ -375,11 +376,13 @@ export async function writeVercelScheduleFunctions(options: {
   let vercelConfig: ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
   try {
     vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
+    options.signal?.throwIfAborted()
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     if (!definitions.length) {
       await removeEmptyDirectories(functionRoot, options.rootDir)
+      options.signal?.throwIfAborted()
       return
     }
     vercelConfig = createVercelConfigJson()
@@ -389,12 +392,15 @@ export async function writeVercelScheduleFunctions(options: {
   const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
   if (!definitions.length && existingCrons.length === previousCrons.length) {
     await removeEmptyDirectories(functionRoot, options.rootDir)
+    options.signal?.throwIfAborted()
     if (previousCrons.length === 0) {
       delete vercelConfig.crons
       if (isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
         const outputFiles = await readdir(outputRoot)
+        options.signal?.throwIfAborted()
         if (outputFiles.length === 1 && outputFiles[0] === "config.json") {
           await rm(configFile, { force: true })
+          options.signal?.throwIfAborted()
           await removeEmptyDirectories(outputRoot, options.rootDir)
         }
       }
@@ -413,13 +419,17 @@ export async function writeVercelScheduleFunctions(options: {
   }
   if (!definitions.length) {
     await removeEmptyDirectories(functionRoot, options.rootDir)
+    options.signal?.throwIfAborted()
     const outputFiles = await readdir(outputRoot)
+    options.signal?.throwIfAborted()
     if (outputFiles.length === 1 && outputFiles[0] === "config.json" && isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
       await rm(configFile, { force: true })
+      options.signal?.throwIfAborted()
       await removeEmptyDirectories(outputRoot, options.rootDir)
       return
     }
   }
+  options.signal?.throwIfAborted()
   await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
 }
 
