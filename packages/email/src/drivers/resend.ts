@@ -7,6 +7,7 @@ import {
   formatAddress,
   requiredOption,
   stringToBase64,
+  validateAddresses,
   validateAttachments,
 } from "./shared.ts";
 
@@ -130,6 +131,7 @@ function attachment(value: EmailAttachment): Record<string, unknown> {
 }
 
 function payload(message: EmailMessage): Record<string, unknown> {
+  validateAddresses("resend", message);
   const from = addresses(message.from)[0];
   if (!from) throw emailProviderError("resend", "INVALID_OPTIONS", "from is required.");
   const to = addresses(message.to);

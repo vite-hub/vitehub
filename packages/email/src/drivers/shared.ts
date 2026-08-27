@@ -7,7 +7,7 @@ export function addresses(input: EmailAddressList): EmailAddress[] {
 }
 
 export function addressValue(input: EmailAddress): { email: string; name?: string } {
-  if (typeof input !== "string") return input;
+  if (typeof input !== "string") return { ...input, email: input.email.trim() };
   const match = /^\s*(.*?)\s*<([^<>]+)>\s*$/.exec(input);
   if (!match) return { email: input.trim() };
   const phrase = match[1]!;
@@ -15,7 +15,18 @@ export function addressValue(input: EmailAddress): { email: string; name?: strin
     phrase.startsWith('"') && phrase.endsWith('"')
       ? phrase.slice(1, -1).replace(/\\(.)/g, "$1")
       : phrase;
-  return { email: match[2]!, ...(name ? { name } : {}) };
+  return { email: match[2]!.trim(), ...(name ? { name } : {}) };
+}
+
+export function validateAddresses(driver: string, message: EmailMessage): void {
+  const fields = [message.from, message.to, message.cc, message.bcc, message.replyTo];
+  if (
+    fields.some(
+      (field) => field !== undefined && addresses(field).some((value) => !addressValue(value).email),
+    )
+  ) {
+    throw emailProviderError(driver, "INVALID_OPTIONS", "email addresses cannot be empty.");
+  }
 }
 
 export function formatAddress(input: EmailAddress): string {

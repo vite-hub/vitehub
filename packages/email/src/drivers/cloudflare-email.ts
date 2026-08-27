@@ -8,6 +8,7 @@ import {
   formatAddress,
   requiredOption,
   stringToBase64,
+  validateAddresses,
   validateAttachments,
 } from "./shared.ts";
 
@@ -311,6 +312,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           };
         }
         message = applyPersonalization("cloudflare-email", message);
+        validateAddresses("cloudflare-email", message);
         const from = addresses(message.from)[0];
         const to = addresses(message.to);
         const recipients = [

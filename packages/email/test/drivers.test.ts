@@ -407,6 +407,24 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { from: "" },
+    { from: { email: "   " } },
+    { to: "   " },
+    { to: [{ email: "" }] },
+    { cc: ["   "] },
+    { bcc: [{ email: " " }] },
+    { replyTo: "" },
+  ])("rejects blank mailbox values before fetch", async (override) => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "resend" },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it.each(["", "   ", "x".repeat(257)])(
     "rejects an out-of-range idempotency key before fetch",
     async (idempotencyKey) => {
@@ -690,6 +708,26 @@ describe("Cloudflare Email driver", () => {
     await expect(
       driver.send({ ...message, to: [], cc: ["copy@example.com"] }, context),
     ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { from: "" },
+    { from: { email: "   " } },
+    { to: "   " },
+    { to: [{ email: "" }] },
+    { cc: ["   "] },
+    { bcc: [{ email: " " }] },
+    { replyTo: "" },
+  ])("rejects blank mailbox values before delivery", async (override) => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
