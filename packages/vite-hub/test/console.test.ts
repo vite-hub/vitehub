@@ -519,7 +519,11 @@ describe("Agent invocation console", () => {
 
     const result = await invocationsHandler(requestEvent)
 
-    expect(result.invocations.map(invocation => invocation.id)).toEqual(["transitioning"])
+    expect(result.invocations).toMatchObject([{
+      id: "transitioning",
+      status: "completed",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    }])
   })
 
   it("continues active pagination after terminal sessions are exhausted", async () => {

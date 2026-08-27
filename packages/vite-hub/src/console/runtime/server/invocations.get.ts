@@ -16,7 +16,7 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   if (!value) return {}
   try {
     const parsed: unknown = JSON.parse(value)
-    if (Object(parsed) !== parsed || Array.isArray(parsed)) throw new TypeError()
+    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw new TypeError()
     const hasActive = Reflect.has(parsed, "active")
     const hasTerminal = Reflect.has(parsed, "terminal")
     if (!hasActive && !hasTerminal) throw new TypeError()
@@ -112,9 +112,9 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   if (terminal.cursor) next.terminal = terminal.cursor
   else if (terminalLimit === 0 && hasTerminalPage) next.terminal = cursor.terminal ?? null
   const nextCursor = encodeCursor(next)
-  const activeIds = new Set(active.invocations.map(invocation => invocation.id))
+  const terminalIds = new Set(terminal.invocations.map(invocation => invocation.id))
   const result: AgentInvocationListResult = {
-    invocations: [...active.invocations, ...terminal.invocations.filter(invocation => !activeIds.has(invocation.id))],
+    invocations: [...active.invocations.filter(invocation => !terminalIds.has(invocation.id)), ...terminal.invocations],
   }
   if (nextCursor) result.cursor = nextCursor
   return result
