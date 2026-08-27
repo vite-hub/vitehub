@@ -218,17 +218,35 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         generationBySource.set(source.key, generation)
         return [source.key, generation] as const
       }))
+      const mutations = new Set<Promise<unknown>>()
+      const isCurrent = () => selectedSources.every(source => generationBySource.get(source.key) === generations.get(source.key))
       for (const source of selectedSources) {
         if (!materializesCompleteSource(source, options)) continue
         materializedSources.delete(source.key)
         if (source.materialize === "startup") completedSources.delete(source.key)
       }
-      const result = await waitForMaterialization(
-        materializeWorkspaceSources(definition, store, options, {
-          isCurrent: () => selectedSources.every(source => generationBySource.get(source.key) === generations.get(source.key)),
-        }),
-        options.abortSignal,
-      )
+      let result: WorkspaceMaterializeSourcesResult
+      try {
+        result = await waitForMaterialization(materializeWorkspaceSources(definition, store, options, {
+          isCurrent,
+          async mutate(operation) {
+            options.abortSignal?.throwIfAborted()
+            if (!isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
+            const mutation = operation()
+            mutations.add(mutation)
+            try {
+              return await mutation
+            }
+            finally {
+              mutations.delete(mutation)
+            }
+          },
+        }), options.abortSignal)
+      }
+      catch (error) {
+        if (options.abortSignal?.aborted && mutations.size) await Promise.allSettled(mutations)
+        throw error
+      }
       for (const sourceResult of result.sources) {
         const source = sources.find(item => item.key === sourceResult.source)
         if (sourceResult.status === "ready" && source && materializesCompleteSource(source, options)) {

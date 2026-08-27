@@ -7,10 +7,11 @@ import {
   useWorkspace,
 } from "../src/runtime.ts"
 import { resetWorkspaceRegistry, resolveRegisteredWorkspaceDefinition, setWorkspaceRegistry } from "../src/core/registry.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
-import type { SourceContext, WorkspaceSourceItem } from "../src/index.ts"
+import type { SourceContext, WorkspaceSourceItem, WorkspaceStore } from "../src/index.ts"
 
-function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<WorkspaceSourceItem[]>) {
+function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<WorkspaceSourceItem[]>, store?: WorkspaceStore) {
   const name = `workspace-preparation-${crypto.randomUUID()}`
   registerWorkspace(name, {
     sources: {
@@ -22,7 +23,7 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
         materialize: "startup",
       }),
     },
-    store: { provider: "memory" },
+    store: store ?? { provider: "memory" },
   })
   return name
 }
@@ -351,6 +352,44 @@ describe("Workspace runtime preparation", () => {
 
     await expect(useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Fresh")
     expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
+  it("waits for an accepted Store write before restarting preparation", async () => {
+    const base = createMemoryWorkspaceStore()
+    let releaseWrite!: () => void
+    const writeBlocked = new Promise<void>((resolve) => { releaseWrite = resolve })
+    let writeStarted!: () => void
+    const writing = new Promise<void>((resolve) => { writeStarted = resolve })
+    let writes = 0
+    const store: WorkspaceStore = {
+      ...base,
+      async writeFile(path, file) {
+        writes++
+        if (writes === 1) {
+          writeStarted()
+          await writeBlocked
+        }
+        await base.writeFile(path, file)
+      },
+    }
+    let attempts = 0
+    const name = registerPreparationWorkspace(async () => [{
+      content: attempts++ === 0 ? "# Stale" : "# Fresh",
+      key: "ready.md",
+    }], store)
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await writing
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseWrite()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    await expect(useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Fresh")
     await preparation.stop()
   })
 

@@ -1055,6 +1055,31 @@ describe("sources, loaders, and publishers", () => {
     await expect(syncing).rejects.toThrow("preparation stopped")
   })
 
+  it("waits for an accepted Store removal before cancellation settles", async () => {
+    const base = createMemoryWorkspaceStore()
+    await base.setMeta?.("workspace:build-sources", [{ key: "docs", mountPath: "docs" }])
+    let releaseRemoval!: () => void
+    const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
+    let removalStarted!: () => void
+    const removing = new Promise<void>((resolve) => { removalStarted = resolve })
+    const store: WorkspaceStore = {
+      ...base,
+      async rm(path, options) {
+        removalStarted()
+        await removalBlocked
+        await base.rm(path, options)
+      },
+    }
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({ name: "support" }, store, controller.signal)
+
+    await removing
+    controller.abort(new Error("preparation stopped"))
+    await expect(Promise.race([syncing.then(() => "settled", () => "settled"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseRemoval()
+    await expect(syncing).rejects.toThrow("preparation stopped")
+  })
+
   it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
     const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({

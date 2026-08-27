@@ -41,7 +41,66 @@ export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, 
   }
 }
 
+const STORE_MUTATIONS = new Set(["mkdir", "rebase", "rm", "setMeta", "writeFile", "writeFileConditional", "writeFileStream"])
+
+function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal) {
+  const active = new Set<Promise<unknown>>()
+  let settleIdle: (() => void) | undefined
+  const idle = () => active.size
+    ? new Promise<void>((resolve) => { settleIdle = resolve })
+    : Promise.resolve()
+  const fenced = new Proxy(store, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (!STORE_MUTATIONS.has(String(property))) return value.bind(target)
+      return (...args: unknown[]) => {
+        abortSignal.throwIfAborted()
+        const operation = Promise.resolve(Reflect.apply(value, target, args))
+        active.add(operation)
+        void operation.then(() => {
+          active.delete(operation)
+          if (!active.size) {
+            settleIdle?.()
+            settleIdle = undefined
+          }
+        }, () => {
+          active.delete(operation)
+          if (!active.size) {
+            settleIdle?.()
+            settleIdle = undefined
+          }
+        })
+        return operation
+      }
+    },
+  }) as WorkspaceStore
+  return { fenced, idle }
+}
+
+async function waitForFencedSync(operation: Promise<void>, signal: AbortSignal, idle: () => Promise<void>) {
+  let removeAbortListener = () => {}
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const onAbort = () => { void idle().then(() => reject(signal.reason)) }
+    signal.addEventListener("abort", onAbort, { once: true })
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort)
+    if (signal.aborted) onAbort()
+  })
+  try {
+    await Promise.race([operation, aborted])
+  }
+  finally {
+    removeAbortListener()
+  }
+}
+
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal): Promise<void> {
+  if (!abortSignal) return await syncWorkspaceDefinitionInternal(definition, store)
+  const { fenced, idle } = createAbortFencedStore(store, abortSignal)
+  await waitForFencedSync(syncWorkspaceDefinitionInternal(definition, fenced, abortSignal), abortSignal, idle)
+}
+
+async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal): Promise<void> {
   abortSignal?.throwIfAborted()
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
   const hasExplicitLoaders = !!definition.loaders?.length
