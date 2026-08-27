@@ -303,6 +303,16 @@ describe("Agent Invocations", () => {
       payload: { value: undefined, visibility: "public" },
       type: "lifecycle",
     })
+    await journal.context.traceLog?.append({
+      name: "workspace.undefined-array",
+      payload: { value: [undefined], visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.sparse-array",
+      payload: { value: Array(1), visibility: "public" },
+      type: "lifecycle",
+    })
     await journal.finish("completed")
 
     const observations = (await invocations.getByRunId("undefined-public-payload"))?.observations
@@ -321,6 +331,11 @@ describe("Agent Invocations", () => {
       value: null,
       visibility: "public",
     })
+    for (const name of ["workspace.undefined-array", "workspace.sparse-array"]) {
+      const arrayObservation = observations?.find(entry => entry.name === name)
+      expect(arrayObservation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+      expect(arrayObservation?.payload).toEqual({ value: [null], visibility: "public" })
+    }
   })
 
   it("marks each lossy public payload scalar as truncated", async () => {

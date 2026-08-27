@@ -274,7 +274,10 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   if (Array.isArray(value)) {
     const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
     if (length < value.length) budget.truncated = true
-    return value.slice(0, length).map(item => boundedObservationValue(item, budget, depth + 1, maxStringLength))
+    return Array.from({ length }, (_, index) => {
+      if (!(index in value)) budget.truncated = true
+      return boundedObservationValue(value[index], budget, depth + 1, maxStringLength)
+    })
   }
   if (value instanceof Date) {
     budget.truncated = true
