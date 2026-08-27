@@ -164,7 +164,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   function isLiveSource(sourceKey: string) {
-    return Boolean(sources.find(item => item.key === sourceKey)?.livePaths)
+    const source = sources.find(item => item.key === sourceKey)
+    return Boolean(source?.livePaths && source.materialize !== "startup")
+  }
+
+  function usesLiveProvider(source: (typeof sources)[number]) {
+    return Boolean(source.livePaths && source.materialize !== "startup")
   }
 
   function getLazySourcesForPath(path: string) {
@@ -197,7 +202,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const result = await materializeWorkspaceSources(definition, store, options)
       if (!options.path) {
         for (const source of result.sources) {
-          if (source.status === "ready") completedSources.add(source.source)
+          if (source.status === "ready" && sources.find(item => item.key === source.source)?.materialize === "startup") {
+            completedSources.add(source.source)
+          }
         }
       }
       return result
@@ -217,8 +224,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensureMaterialized(sourceKey: string) {
     if (completedSources.has(sourceKey)) return
     const pending = pendingBySource.get(sourceKey)
-    if (pending?.fullSource) await pending.promise
-    else await materializeSerialized({ sources: [sourceKey] })
+    if (pending?.fullSource) {
+      try {
+        await pending.promise
+      }
+      catch {
+        // A lazy consumer owns its fallback independently from a preparation
+        // lifecycle that it happened to join.
+      }
+      if (completedSources.has(sourceKey)) return
+    }
+    await materializeSerialized({ sources: [sourceKey] })
   }
 
   async function ensureMaterializedSources(items = sources) {
@@ -239,7 +255,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of getLazySourcesForPath(path)) {
       if (isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
       await ensurePrepared(source.key)
-      if (source.livePaths) {
+      if (usesLiveProvider(source)) {
         await pruneLiveSourceStoreEntries(result, source)
         continue
       }
@@ -312,13 +328,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of sources) {
       const paths = sourcePaths.get(source.key)
       if (query.paths?.length && !paths?.length && !query.paths.some(path => !normalizeWorkspacePath(path))) continue
-      if (source.livePaths) {
+      if (usesLiveProvider(source)) {
         await ensurePrepared(source.key)
         const liveEntries = liveSourceEntries(source)
           .filter(entry => entry.type === "file")
           .filter(entry => !paths?.length || paths.some(path => !path || entry.path === path || entry.path.startsWith(`${path}/`)))
         for (const entry of liveEntries) {
-          const sourcePath = source.livePaths[entry.path]
+          const sourcePath = source.livePaths![entry.path]
           if (typeof sourcePath !== "string") continue
           const item = await source.source.getItem(sourcePath, getSourceContext(source))
           const content = await sourceItemContent(item)
@@ -464,7 +480,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     async glob(pattern, options) {
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       await ensurePreparedSources()
-      await ensureMaterializedSources(sources.filter(source => !source.livePaths))
+      await ensureMaterializedSources(sources.filter(source => !usesLiveProvider(source)))
 
       const result = new Map<string, WorkspaceEntry>()
       for (const entry of await store.glob(patterns, options)) {
@@ -473,7 +489,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const entry of descriptorPathEntries("", { recursive: true })) {
         if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
       }
-      for (const source of sources.filter(source => source.livePaths)) {
+      for (const source of sources.filter(usesLiveProvider)) {
         await pruneLiveSourceStoreEntries(result, source)
         for (const entry of liveSourceEntries(source)) {
           if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
@@ -506,7 +522,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       let result = await store.stat(resolution.workspacePath)
       if (!result) {
-        if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) {
+        if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) {
           return { path: "", type: "directory" }
         }
         await materializeRootSourceForPath(resolution.workspacePath)
@@ -532,7 +548,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
       }
       if (await store.stat(resolution.workspacePath)) return true
-      if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) return true
+      if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) return true
       await materializeRootSourceForPath(resolution.workspacePath)
       return Boolean(await store.stat(resolution.workspacePath))
     },

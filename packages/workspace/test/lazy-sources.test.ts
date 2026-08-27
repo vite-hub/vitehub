@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -1353,5 +1354,82 @@ describe("lazy sources", () => {
     vi.setSystemTime(new Date("2026-05-05T12:30:00Z"))
     await expect(workspace.readFile("docs/foo.md")).resolves.toBe("version 1\n")
     expect(getItem).toHaveBeenCalledTimes(1)
+  })
+
+  it("serves prepared startup live Sources from their snapshot", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
+    const source = markLiveWorkspaceSource(custom({
+      materialize: "startup",
+      async getKeys() {
+        return ["status.txt"]
+      },
+      getItem,
+    }), { "status.txt": "status.txt" })
+    const definition = { name: "startup-live-snapshot", sources: { status: source } }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["status"] })
+    await expect(createWorkspaceSourceView(definition, store).readFile("status/status.txt")).resolves.toBe("version 1\n")
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("refreshes uncached lazy Sources across Workspace views", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
+    const definition = {
+      name: "lazy-uncached-refresh",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy" as const,
+          async getKeys() {
+            return ["status.txt"]
+          },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).glob("docs/*.txt")
+    await createWorkspaceSourceView(definition, store).glob("docs/*.txt")
+    expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries a lazy fallback after joined preparation is cancelled", async () => {
+    let releaseStarted!: () => void
+    const started = new Promise<void>((resolve) => { releaseStarted = resolve })
+    const getKeys = vi.fn(async (context) => {
+      if (getKeys.mock.calls.length === 1) {
+        releaseStarted()
+        await new Promise<never>((_resolve, reject) => {
+          context.abortSignal?.addEventListener("abort", () => reject(context.abortSignal?.reason), { once: true })
+        })
+      }
+      return ["ready.txt"]
+    })
+    const definition = {
+      name: "lazy-cancelled-join",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          getKeys,
+          async getItem(key) {
+            return { key, content: "ready\n" }
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const preparing = createWorkspaceSourceView(definition, store)
+    const controller = new AbortController()
+    const preparation = preparing.materializeSources({ abortSignal: controller.signal, sources: ["docs"] })
+    await started
+
+    const read = createWorkspaceSourceView(definition, store).readFile("docs/ready.txt")
+    controller.abort(new Error("preparation stopped"))
+
+    await expect(preparation).rejects.toThrow("preparation stopped")
+    await expect(read).resolves.toBe("ready\n")
+    expect(getKeys).toHaveBeenCalledTimes(2)
   })
 })
