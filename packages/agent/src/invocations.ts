@@ -275,7 +275,10 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
     if (length < value.length) budget.truncated = true
     return Array.from({ length }, (_, index) => {
-      if (!(index in value)) budget.truncated = true
+      if (!Object.hasOwn(value, index)) {
+        budget.truncated = true
+        return boundedObservationValue(undefined, budget, depth + 1, maxStringLength)
+      }
       return boundedObservationValue(value[index], budget, depth + 1, maxStringLength)
     })
   }

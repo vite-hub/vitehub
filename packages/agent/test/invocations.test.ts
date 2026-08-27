@@ -308,11 +308,17 @@ describe("Agent Invocations", () => {
       payload: { value: [undefined], visibility: "public" },
       type: "lifecycle",
     })
-    await journal.context.traceLog?.append({
-      name: "workspace.sparse-array",
-      payload: { value: Array(1), visibility: "public" },
-      type: "lifecycle",
-    })
+    Object.defineProperty(Array.prototype, "0", { configurable: true, value: "inherited-secret" })
+    try {
+      await journal.context.traceLog?.append({
+        name: "workspace.sparse-array",
+        payload: { value: Array(1), visibility: "public" },
+        type: "lifecycle",
+      })
+    }
+    finally {
+      delete Array.prototype[0]
+    }
     await journal.finish("completed")
 
     const observations = (await invocations.getByRunId("undefined-public-payload"))?.observations

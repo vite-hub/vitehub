@@ -646,7 +646,13 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
         continue
       }
       existing.events.push(event)
-      existing.attributes = { ...existing.attributes, ...event.attributes }
+      const attributes = { ...existing.attributes }
+      if (event.attributes?.["vitehub.payload.visibility"] !== undefined) {
+        delete attributes["vitehub.payload.summary"]
+        delete attributes["vitehub.payload.value"]
+        delete attributes["vitehub.payload.visibility"]
+      }
+      existing.attributes = { ...attributes, ...event.attributes }
       if (status !== "running") {
         existing.endTime = event.timestamp
         existing.status = status

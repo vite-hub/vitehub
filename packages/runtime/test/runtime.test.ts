@@ -752,6 +752,27 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("replaces canonical step payload attributes when visibility changes", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.start",
+      payload: { value: "public value", visibility: "public" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.finish",
+      payload: { visibility: "private" },
+      type: "run",
+    })
+
+    expect(deriveTraceRuns(log.entries())[0]?.steps[0]?.attributes).toEqual({
+      "step.id": "step-1",
+      "vitehub.payload.visibility": "private",
+    })
+  })
+
   it("derives yielded stream errors as failed runs even when finish follows", async () => {
     const log = createTraceEventLog()
     await log.append({
