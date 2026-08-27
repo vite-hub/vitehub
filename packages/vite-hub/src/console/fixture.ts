@@ -31,6 +31,12 @@ const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 const booleanSchema = v.boolean()
 const diagnosticScalarSchema = v.union([v.string(), v.pipe(v.number(), v.finite())])
+const annotationValueSchema = v.union([
+  v.boolean(),
+  v.pipe(v.number(), v.finite()),
+  v.string(),
+  v.null(),
+])
 
 function record(value: unknown): Record<string, unknown> | undefined {
   if (Array.isArray(value)) return
@@ -168,8 +174,18 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   if (!Array.isArray(input.observations)) {
     throw new TypeError(`[vitehub] Console fixture ${path}.observations must be an array.`)
   }
-  if (input.annotations !== undefined && !record(input.annotations)) {
-    throw new TypeError(`[vitehub] Console fixture ${path}.annotations must be an object.`)
+  if (input.annotations !== undefined) {
+    const annotations = record(input.annotations)
+    if (!annotations) {
+      throw new TypeError(`[vitehub] Console fixture ${path}.annotations must be an object.`)
+    }
+    for (const [key, value] of Object.entries(annotations)) {
+      if (!v.safeParse(annotationValueSchema, value).success) {
+        throw new TypeError(
+          `[vitehub] Console fixture ${path}.annotations[${JSON.stringify(key)}] must be a boolean, finite number, string, or null.`,
+        )
+      }
+    }
   }
   const error =
     input.error === undefined ? undefined : diagnosticError(input.error, `${path}.error`)

@@ -209,6 +209,27 @@ describe("Console fixture CLI", () => {
     ).toThrow("invocations[0].observations[0].trace must be an object")
   })
 
+  it.each([{}, [], Number.POSITIVE_INFINITY])(
+    "rejects malformed fixture annotation value %#",
+    (annotation) => {
+      expect(() => parseConsoleFixture({
+        invocations: [{
+          agentName: "support",
+          annotations: { "github.title": annotation },
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id: "fixture-invocation",
+          observations: [],
+          status: "completed",
+          traceId: "fixture-trace",
+          updatedAt: "2026-08-27T10:01:00.000Z",
+        }],
+        version: 1,
+      })).toThrow(
+        'invocations[0].annotations["github.title"] must be a boolean, finite number, string, or null',
+      )
+    },
+  )
+
   it("rejects duplicate observation sequence numbers within an invocation", () => {
     const observation = {
       name: "agent.start",
