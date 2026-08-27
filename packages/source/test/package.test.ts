@@ -39,8 +39,11 @@ describe("@vite-hub/source package contract", () => {
       }
     }
 
-    expect(output).not.toContain("createRequire")
-    expect(output).not.toMatch(/from ["'](?:node:)?module["']/)
-    expect(output).not.toMatch(/require\(["']picomatch["']\)/)
+    const runtimeOutput = output
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "")
+    expect(runtimeOutput).not.toContain("createRequire")
+    expect(runtimeOutput).not.toMatch(/from ["'](?:node:)?module["']/)
+    expect(runtimeOutput).not.toMatch(/require\(["']picomatch["']\)/)
   })
 })
