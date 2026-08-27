@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { dirname, join, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
@@ -21,13 +20,14 @@ describe("@vite-hub/source package contract", () => {
   })
 
   it("keeps CommonJS dependency discovery out of the glob bundle", async () => {
-    const entry = fileURLToPath(new URL("../dist/glob.js", import.meta.url))
+    const entry = join(import.meta.dirname, "..", "dist", "glob.js")
     const pending = [entry]
     const visited = new Set<string>()
     let output = ""
 
     while (pending.length > 0) {
-      const file = pending.pop()!
+      const file = pending.pop()
+      if (!file) continue
       if (visited.has(file)) continue
 
       visited.add(file)
