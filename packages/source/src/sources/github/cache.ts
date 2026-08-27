@@ -12,7 +12,7 @@ export function normalizeGitHubCache(options: Pick<GitHubSourceOptions, "cache">
 
 export function createGitHubCacheKey(input: {
   authScope: string
-  exclude?: string | string[]
+  ignore?: string | string[]
   include?: string | string[]
   key?: string
   kind: string
@@ -26,7 +26,7 @@ export function createGitHubCacheKey(input: {
     input.ref,
     input.root,
     normalizePatternCacheKey(input.include),
-    normalizePatternCacheKey(input.exclude),
+    normalizePatternCacheKey(input.ignore),
     input.authScope,
     input.key || "",
   ].join(":")

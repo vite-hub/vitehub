@@ -6,7 +6,7 @@ export interface GitHubSourceOptions {
   root?: string
   auth?: false | string | (() => string | undefined)
   include?: string | string[]
-  exclude?: string | string[]
+  ignore?: string | string[]
   cache?: false | SourceCacheOptions
 }
 

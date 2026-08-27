@@ -1,4 +1,5 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { sourceIgnores } from "@vite-hub/source"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 
 import { prepareWorkspaceSource } from "./preparation.ts"
@@ -12,8 +13,10 @@ type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
 const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
 
-export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, WorkspaceSourceRuntimeOptions {
+export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth" | "ignore">, WorkspaceSourceRuntimeOptions {
   auth?: GitHubAuth
+  /** Adds to the default Source ignores. Set to false to include every matched path. */
+  ignore?: false | string | string[]
 }
 
 export type GitHubSourceResolver = (
@@ -28,7 +31,10 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   if (typeof input === "function") return resolvableGitHubSource(input)
 
   const options = input
-  const resolvedOptions = { ...options }
+  const resolvedOptions = {
+    ...options,
+    ignore: resolveGitHubIgnore(options.ignore),
+  }
   const baseSource = createGitHubSource({
     ...resolvedOptions,
     auth: createGitHubAuthResolver(resolvedOptions.auth),
@@ -51,7 +57,7 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   return withWorkspaceRuntimeOptions({
     ...baseSource,
     fingerprint: {
-      exclude: resolvedOptions.exclude,
+      ignore: resolvedOptions.ignore,
       include: resolvedOptions.include,
       ref: resolvedOptions.ref,
       repo: resolvedOptions.repo,
@@ -82,6 +88,14 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       return await source.getMeta?.(key, ctx)
     },
   }, resolvedOptions)
+}
+
+function resolveGitHubIgnore(ignore: GitHubSourceOptions["ignore"]): string[] | undefined {
+  if (ignore === false) return
+  return [
+    ...sourceIgnores.defaults,
+    ...(typeof ignore === "string" ? [ignore] : ignore || []),
+  ]
 }
 
 function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource {

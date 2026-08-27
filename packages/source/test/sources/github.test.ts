@@ -220,7 +220,7 @@ describe("@vite-hub/source GitHub source", () => {
     ])
   })
 
-  it("applies GitHub include and exclude filters to root-relative keys", async () => {
+  it("applies GitHub include and ignore filters to root-relative keys", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
       "dbt/models/private/secret.sql": "select secret\n",
@@ -230,7 +230,7 @@ describe("@vite-hub/source GitHub source", () => {
 
     registerSources({
       dbt: github({
-        exclude: "models/private/**",
+        ignore: "models/private/**",
         include: ["models/**/*.sql", "macros/**/*.sql"],
         repo: "acme/app",
         root: "dbt",

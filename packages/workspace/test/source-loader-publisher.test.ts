@@ -228,7 +228,7 @@ describe("sources, loaders, and publishers", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/tar.gz/latest-commit-sha"))).toBe(true)
   })
 
-  it("applies GitHub include and exclude filters to root-relative keys", async () => {
+  it("applies GitHub include and ignore filters to root-relative keys", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
       "dbt/models/private/secret.sql": "select secret\n",
@@ -240,12 +240,34 @@ describe("sources, loaders, and publishers", () => {
       repo: "acme/app",
       root: "dbt",
       include: ["models/**/*.sql", "macros/**/*.sql"],
-      exclude: "models/private/**",
+      ignore: "models/private/**",
     })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-filters" })).resolves.toEqual([
       "models/marts/orders.sql",
       "macros/date_spine.sql",
+    ])
+  })
+
+  it("applies safe GitHub ignores by default and supports opting out", async () => {
+    stubGitHubSource({
+      ".env": "SECRET=value\n",
+      "README.md": "# Docs\n",
+      "coverage/report.json": "{}\n",
+      "node_modules/example/index.js": "export default true\n",
+      "public/logo.png": "image\n",
+    })
+
+    const filtered = github({ repo: "acme/app" })
+    await expect(filtered.getKeys({ rootDir: "", workspace: "github-default-ignores" })).resolves.toEqual(["README.md"])
+
+    const unfiltered = github({ ignore: false, repo: "acme/app" })
+    await expect(unfiltered.getKeys({ rootDir: "", workspace: "github-ignore-opt-out" })).resolves.toEqual([
+      ".env",
+      "README.md",
+      "coverage/report.json",
+      "node_modules/example/index.js",
+      "public/logo.png",
     ])
   })
 

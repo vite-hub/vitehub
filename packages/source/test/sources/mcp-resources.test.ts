@@ -85,7 +85,7 @@ describe("mcpResources", () => {
 
   it("filters resources and supports custom paths", async () => {
     const source = mcpResources({
-      exclude: "**/blog-posts.json",
+      ignore: "**/blog-posts.json",
       path: resource => `mcp/${resource.name}.json`,
       server: createClient(),
     })

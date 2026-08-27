@@ -131,7 +131,7 @@ describe("workspace types", () => {
       repo: "acme/app",
       root: "docs",
       include: "**/*.md",
-      exclude: "docs/drafts/**",
+      ignore: "docs/drafts/**",
     })
     // @ts-expect-error Source Instructions no longer belong on Source config.
     github({ repo: "acme/app", instructions: "Use for hosted docs." })
