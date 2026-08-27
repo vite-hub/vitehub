@@ -16,11 +16,12 @@ type MockMcpClient = MCPClient & {
 }
 
 function createClient(tools: Record<string, unknown>): MockMcpClient {
+  // SAFETY: This deliberately partial external SDK fixture implements every member exercised by the MCP Capability.
   return {
     close: vi.fn(async () => undefined),
     serverInfo: { name: "test", version: "1.0.0" },
     tools: vi.fn(async () => tools),
-  } as unknown as MockMcpClient
+  } as MockMcpClient
 }
 
 async function createTools(descriptions: Record<string, string>) {
