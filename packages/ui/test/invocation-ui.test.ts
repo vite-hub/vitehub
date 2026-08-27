@@ -587,7 +587,9 @@ describe("Agent Invocation UI", () => {
     "preserves streamed Provider command output through %s",
     (terminalName) => {
       const timestamp = "2026-08-22T00:00:00.000Z";
+      const terminalTimestamp = "2026-08-22T00:00:01.000Z";
       const invocation = {
+        completedAt: "2026-08-22T00:00:03.000Z",
         createdAt: timestamp,
         id: "provider-command",
         observations: [
@@ -595,14 +597,18 @@ describe("Agent Invocation UI", () => {
           { attributes: { "tool.id": "command", "tool.output": "first\n", "tool.name": "shell" }, name: "agent.tool.output", sequence: 2, timestamp, type: "run" as const },
           { attributes: { "tool.id": "command", "tool.output": "second\n", "tool.name": "shell" }, name: "agent.tool.output", sequence: 3, timestamp, type: "run" as const },
           { attributes: { "tool.id": "command", "tool.output": { summary: "Still running" }, "tool.name": "shell" }, name: "agent.tool.progress", sequence: 4, timestamp, type: "run" as const },
-          { attributes: { "tool.id": "command", "tool.output": { detail: "terminal state" }, "tool.name": "shell" }, name: terminalName, sequence: 5, timestamp, type: terminalName.endsWith(".error") ? "error" as const : "run" as const },
+          { attributes: { "tool.id": "command", "tool.output": { detail: "terminal state" }, "tool.name": "shell" }, name: terminalName, sequence: 5, timestamp: terminalTimestamp, type: terminalName.endsWith(".error") ? "error" as const : "run" as const },
         ],
         status: "completed" as const,
         traceId: "trace",
         updatedAt: timestamp,
       } satisfies AgentInvocationView;
 
-      expect(invocationActivities(invocation)[0]?.command?.output).toBe("first\nsecond\n");
+      expect(invocationActivities(invocation)[0]).toMatchObject({
+        command: { output: "first\nsecond\n" },
+        durationMs: 1_000,
+        endedAt: terminalTimestamp,
+      });
     },
   );
 
