@@ -53,13 +53,21 @@ ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server
 import { hubWorkflow } from "@vite-hub/workflow/vite";
 import { defineConfig } from "vite";
 
+const postgresUrl = {
+  kind: "env-variable",
+  source: { kind: "env", name: "OPENWORKFLOW_POSTGRES_URL" },
+} as const;
+
 export default defineConfig({
   plugins: [hubWorkflow()],
-  workflow: { provider: "cloudflare" },
+  workflow: {
+    provider: "openworkflow",
+    postgres: { url: postgresUrl },
+  },
 });
 ```
 
-Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
+This config and the worker below read the same Postgres URL, so `runWorkflow()` enqueues work in the backend that the worker polls. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 
