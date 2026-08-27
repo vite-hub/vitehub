@@ -218,7 +218,7 @@ https://vitehub.dev/docs/bare-autolink
   it("accepts explicit HTML anchors in docs content", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": '# Docs\n\n[Install](#install)\n[Legacy](#legacy)\n\n<h2 data-note=">" id="install">Install</h2>\n<a id=legacy></a>\n\n[Decoy](#decoy)',
+      "docs/content/docs/index.md": '# Docs\n\n[Install](#install)\n[Legacy](#legacy)\n[Named](#named)\n\n<h2 data-note=">" id="install">Install</h2>\n<a id=legacy></a>\n<a name="named"></a>\n\n[Decoy](#decoy)',
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([

@@ -134,6 +134,10 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
       for (const tag of htmlTags(node.value)) {
         const id = htmlAttribute(tag, "id");
         if (id) anchors.add(id);
+        if (/^<a(?:\s|>)/i.test(tag)) {
+          const name = htmlAttribute(tag, "name");
+          if (name) anchors.add(name);
+        }
       }
     }
     if (node.type !== "heading") return;

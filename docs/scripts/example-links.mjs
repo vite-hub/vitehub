@@ -64,9 +64,9 @@ export async function checkExampleLinks(examples, options = {}) {
   for (const example of examples) {
     if (example.status !== "published") continue;
     const category = example.kind === "template" ? "template-action" : "catalog-url";
-    await check(category, example.name, example.action.to);
+    const actionResponse = await check(category, example.name, example.action.to);
 
-    const repository = githubRepository(example.action.to);
+    const repository = githubRepository(actionResponse?.url || example.action.to);
     if (!repository) continue;
     const apiRoot = `https://api.github.com/repos/${repository.owner}/${repository.repository}`;
     const metadata = await check("default-branch", example.name, apiRoot);
