@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import {
   array,
@@ -250,7 +250,13 @@ export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions)
   const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;
   const manifestPath = resolve(outputDir, "docs-manifest.mjs");
   if (!existsSync(manifestPath) || readFileSync(manifestPath, "utf8") !== manifestSource) {
-    writeFileSync(manifestPath, manifestSource);
+    const temporaryPath = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      writeFileSync(temporaryPath, manifestSource);
+      renameSync(temporaryPath, manifestPath);
+    } finally {
+      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+    }
   }
 
   return manifest;

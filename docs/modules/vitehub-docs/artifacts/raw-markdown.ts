@@ -84,14 +84,25 @@ function absoluteUrl(value: string) {
 function rewriteMarkdownLinks(line: string) {
   return line.replace(/(!?\[[^\]]*\]\()([^\s)]+)([^)]*\))/g, (_match, opening: string, target: string, closing: string, offset: number) => {
     const bracketOffset = offset + (opening.startsWith("!") ? 1 : 0);
-    if (isEscaped(line, bracketOffset) || (opening.startsWith("!") && isEscaped(line, offset))) return _match;
+    if (isEscaped(line, bracketOffset)) return _match;
     return `${opening}${absoluteUrl(target)}${closing}`;
   });
 }
 
 function rawHtmlBlockEnd(line: string) {
-  const match = line.match(/^[ \t]{0,3}<(pre|script|style|textarea)(?:[ \t>]|$)/i);
-  return match ? new RegExp(`</${match[1]}>`, "i") : null;
+  const start = line.match(/^[ \t]{0,3}<(script|pre|style|textarea)(?:[ \t>]|$)/i);
+  if (start) return new RegExp(`</${start[1]}>`, "i");
+  if (/^[ \t]{0,3}<!--/.test(line)) return /-->/;
+  if (/^[ \t]{0,3}<\?/.test(line)) return /\?>/;
+  if (/^[ \t]{0,3}<![A-Z]/.test(line)) return />/;
+  if (/^[ \t]{0,3}<!\[CDATA\[/.test(line)) return /\]\]>/;
+  if (/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(line)) return /^\s*$/;
+  if (/^[ \t]{0,3}(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>)[ \t]*$/.test(line)) return /^\s*$/;
+  return null;
+}
+
+function htmlBlockContinues(end: RegExp, openingLine: string) {
+  return end.source === "^\\s*$" || !end.test(openingLine.slice(openingLine.indexOf(">") + 1));
 }
 
 function isEscaped(source: string, index: number) {
@@ -151,7 +162,7 @@ function rewriteLinks(source: string) {
     if (!fence && nextHtmlEnd) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
-      if (!nextHtmlEnd.test(line.slice(line.indexOf(">") + 1))) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, line)) htmlEnd = nextHtmlEnd;
       continue;
     }
 
@@ -241,7 +252,7 @@ function removeIndentation(line: string, columns: number) {
 }
 
 function cardList(source: string) {
-  return source.replace(/^::u-page-grid[^\n]*\n([\s\S]*?)^::\s*$/gm, (_grid, cards: string) => {
+  return source.replace(/^([ \t]*)::u-page-grid[^\n]*\n([\s\S]*?)^\1::\s*$/gm, (_grid, indent: string, cards: string) => {
     const items: string[] = [];
     const cardPattern = /^\s*:::u-page-card[^\n]*\n\s*---\n([\s\S]*?)\n\s*---\n\s*:::\s*$/gm;
     for (const match of cards.matchAll(cardPattern)) {
@@ -253,7 +264,7 @@ function cardList(source: string) {
       }
       if (!fields.title) continue;
       const label = fields.to ? `[${fields.title}](${absoluteUrl(fields.to)})` : fields.title;
-      items.push(`- ${label}${fields.description ? ` — ${fields.description}` : ""}`);
+      items.push(`${indent}- ${label}${fields.description ? ` — ${fields.description}` : ""}`);
     }
     return items.length > 0 ? `${items.join("\n")}\n` : "";
   });
@@ -280,7 +291,7 @@ function cardListsOutsideFences(source: string) {
     if (!fence && nextHtmlEnd) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
-      if (!nextHtmlEnd.test(line.slice(line.indexOf(">") + 1))) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, line)) htmlEnd = nextHtmlEnd;
       continue;
     }
 
@@ -400,7 +411,7 @@ function stripPresentationDirectives(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(deindented);
     if (nextHtmlEnd) {
       output.push(deindented);
-      if (!nextHtmlEnd.test(deindented.slice(deindented.indexOf(">") + 1))) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, deindented)) htmlEnd = nextHtmlEnd;
       continue;
     }
 

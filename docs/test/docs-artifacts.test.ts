@@ -153,7 +153,7 @@ describe("writeDocsArtifacts", () => {
         "::",
         "",
         "[Rendered link](/docs/rendered) and `[literal link](/docs/literal)`.",
-        "\\[escaped link](/docs/escaped-link) and \\![escaped image](/docs/escaped-image).",
+        "\\[escaped link](/docs/escaped-link) and \\![rendered link](/docs/escaped-image).",
         "Escaped \\` delimiter and [rendered link](/docs/escaped) \\` stay outside code.",
         "`multiline literal",
         "[link](/docs/multiline)` and [rendered link](/docs/after-code).",
@@ -245,6 +245,18 @@ describe("writeDocsArtifacts", () => {
         "</pre>",
         "[rendered after raw HTML](https://vitehub.dev/docs/already-absolute)",
         "",
+        "<div>",
+        "::warning",
+        "Raw block tag directive remains literal.",
+        "::",
+        "[raw block tag link](/docs/raw-block-tag)",
+        "</div>",
+        "",
+        "<!--",
+        "::warning",
+        "[raw comment link](/docs/raw-comment)",
+        "-->",
+        "",
         "> ~~~md",
         "> [blockquote literal](/docs/blockquote-literal)",
         "> ~~~",
@@ -274,6 +286,17 @@ describe("writeDocsArtifacts", () => {
         "    :::",
         "  ::",
         "::",
+        "",
+        "::tabs",
+        "  ::u-page-grid",
+        "    :::u-page-card",
+        "    ---",
+        "    title: Nested card",
+        "    to: /docs/nested-card",
+        "    ---",
+        "    :::",
+        "  ::",
+        "::",
       ].join("\n"));
 
       writeDocsArtifacts({ docsRoot, outputDir });
@@ -288,7 +311,7 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("    ::warning\n    This nested indented code block remains literal.\n    ::");
       expect(raw).toContain("\t  ::important\n\t  This mixed-indentation code block remains literal.\n\t  ::");
       expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
-      expect(raw).toContain("\\[escaped link](/docs/escaped-link) and \\![escaped image](/docs/escaped-image).");
+      expect(raw).toContain("\\[escaped link](/docs/escaped-link) and \\![rendered link](https://vitehub.dev/docs/escaped-image).");
       expect(raw).toContain("Escaped \\` delimiter and [rendered link](https://vitehub.dev/docs/escaped) \\` stay outside code.");
       expect(raw).toContain("`multiline literal\n[link](/docs/multiline)` and [rendered link](https://vitehub.dev/docs/after-code).");
       expect(raw).toContain("Unmatched ````` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](https://vitehub.dev/docs/outside-span).");
@@ -355,6 +378,8 @@ describe("writeDocsArtifacts", () => {
         "::",
         "</pre>",
       ].join("\n"));
+      expect(raw).toContain("<div>\n::warning\nRaw block tag directive remains literal.\n::\n[raw block tag link](/docs/raw-block-tag)\n</div>");
+      expect(raw).toContain("<!--\n::warning\n[raw comment link](/docs/raw-comment)\n-->");
       expect(raw).toContain("> ~~~md\n> [blockquote literal](/docs/blockquote-literal)\n> ~~~");
       expect(raw).toContain("- > ```md\n  > [list blockquote literal](/docs/list-blockquote-literal)\n  > ```");
       expect(raw).toContain("> ```md\n> [unclosed blockquote literal](/docs/unclosed-blockquote-literal)");
@@ -373,6 +398,7 @@ describe("writeDocsArtifacts", () => {
         "  nested: value",
         "```",
       ].join("\n"));
+      expect(raw).toContain("- [Nested card](https://vitehub.dev/docs/nested-card)");
       expect(raw).not.toMatch(/<u-|<table/);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
