@@ -53,6 +53,7 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
 }
 
 const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
+const nitroAgentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
@@ -1247,7 +1248,7 @@ describe("agent Vite plugin", () => {
           inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
         },
         rollupConfig: {
-          external: optionalAgentRuntimeExternals,
+          external: nitroAgentRuntimeExternals,
         },
         replace: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),
