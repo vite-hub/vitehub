@@ -18,6 +18,23 @@ const bundledFilesSdkDrivers = new Set([
   "uploadthing",
 ]);
 
+const filesSdkProviderPeers = [
+  "@aws-sdk/client-s3",
+  "@aws-sdk/lib-storage",
+  "@aws-sdk/s3-presigned-post",
+  "@aws-sdk/s3-request-presigner",
+  "@azure/identity",
+  "@azure/storage-blob",
+  "@google-cloud/storage",
+  "@googleapis/drive",
+  "@microsoft/microsoft-graph-client",
+  "@supabase/storage-js",
+  "box-typescript-sdk-gen",
+  "dropbox",
+  "google-auth-library",
+  "uploadthing",
+];
+
 export default defineConfig({
   pack: {
     alias: {
@@ -26,7 +43,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
     deps: {
-      neverBundle: ["vite", "esbuild"],
+      neverBundle: ["vite", "esbuild", ...filesSdkProviderPeers],
       alwaysBundle: [/^@vite-hub\/internal/, /^@vercel\/blob/, /^files-sdk(?:\/|$)/],
       onlyBundle: false,
     },
