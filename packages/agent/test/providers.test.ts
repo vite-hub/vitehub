@@ -14496,6 +14496,7 @@ describe("server helpers", () => {
       if (stalledFallback === "resolution") return await new Promise<string>(() => undefined)
       return "Queued delivery failed."
     })
+    let metadataParses = 0
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -14511,6 +14512,18 @@ describe("server helpers", () => {
       },
       driver: { run: () => "internal output" },
       hooks: { "agent:finish": (event) => event.reply("Durable reply") },
+      messages: {
+        meta: {
+          "~standard": {
+            validate: (value) => {
+              metadataParses++
+              return { value: value as Record<string, unknown> }
+            },
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -14596,6 +14609,7 @@ describe("server helpers", () => {
       } else expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Queued delivery failed.")
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
+      expect(metadataParses).toBe(2)
     } finally {
       queueReplaceHead.mockRestore()
       setActiveCloudflareEnv(undefined)

@@ -5125,7 +5125,10 @@ async function handleChatSdkMessage(
                 durableHandoff = true
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                  const settlementRetryInput = workflowInputHasParsedMessageMeta
+                    ? restoreParsedAgentMessageMeta(workflowInput)
+                    : workflowInput
+                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
@@ -5151,7 +5154,10 @@ async function handleChatSdkMessage(
                 steerPending = failedPending
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                  const settlementRetryInput = workflowInputHasParsedMessageMeta
+                    ? restoreParsedAgentMessageMeta(workflowInput)
+                    : workflowInput
+                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
