@@ -28,6 +28,20 @@ describe("public package export contracts", () => {
     ]))
   })
 
+  it("marks eager Vue client exports as optional-peer consumers", () => {
+    const vueClientSpecifiers = [
+      "@vite-hub/source/client",
+      "@vite-hub/workspace/collections/client",
+      "vite-hub/source/client",
+      "vite-hub/workspace/collections/client",
+    ]
+
+    for (const specifier of vueClientSpecifiers) {
+      expect(publicPackageExportContracts.find(contract => contract.specifier === specifier)?.optionalPeers)
+        .toContain("vue")
+    }
+  })
+
   it("points every contract at a built artifact and declared optional peers", () => {
     for (const contract of publicPackageExportContracts) {
       const info = packageInfos.find(info => info.packageName === contract.packageName)!
