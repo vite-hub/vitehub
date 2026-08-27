@@ -31,6 +31,7 @@ import type {
   ProviderApprovalDecision,
   ProviderRuntime,
   ProviderRuntimeEvent,
+  ProviderRuntimeStartInput,
   ProviderUserInputAnswers,
   RuntimeMode,
   ThreadId,
@@ -1204,11 +1205,10 @@ async function* runProvider<
       environment: providerEnvironment(providerEnvironmentOverrides),
       provider: options.provider,
     }
-    const providerSettings = {
-      ...(codexExecutable ? { binaryPath: codexExecutable } : {}),
-      ...options.providerSettings,
-      ...(credentialHome ? { shadowHomePath: credentialHome } : {}),
-    }
+    const providerSettings: Record<string, unknown> = {}
+    if (codexExecutable) providerSettings.binaryPath = codexExecutable
+    Object.assign(providerSettings, options.providerSettings)
+    if (credentialHome) providerSettings.shadowHomePath = credentialHome
     const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = Object.keys(providerSettings).length
       ? { ...runtimeOptions, settings: providerSettings }
       : runtimeOptions
@@ -1238,15 +1238,16 @@ async function* runProvider<
       reasoningEffort: options.reasoningEffort,
       reasoningSummary: options.reasoningSummary,
     }).filter((entry): entry is [string, string] => entry[1] !== undefined))
-    const session = await waitForProviderOperation(runtime.startSession({
+    let sessionOptions: ProviderRuntimeStartInput = {
       cwd: root,
       mcp: toolServer?.mcp,
       model: options.model,
-      ...(Object.keys(modelOptions).length ? { modelOptions } : {}),
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
       threadId,
-    }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
+    }
+    if (Object.keys(modelOptions).length) sessionOptions = { ...sessionOptions, modelOptions }
+    const session = await waitForProviderOperation(runtime.startSession(sessionOptions), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     const attachments = await waitForProviderOperation(
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),

@@ -143,8 +143,8 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     let shadowHome: string | undefined
     createProviderRuntime.mockImplementationOnce(async (options) => {
-      // SAFETY: The provider-runtime settings contract defines shadowHomePath as a string.
-      shadowHome = options.settings?.shadowHomePath as string
+      expect(options.settings?.shadowHomePath).toEqual(expect.any(String))
+      shadowHome = String(options.settings?.shadowHomePath)
       expect(options.settings).toMatchObject({
         binaryPath: "/custom/codex",
         launchArgs: "--enable responses_websockets_v2",
@@ -160,37 +160,37 @@ describe("Provider Agent Driver", () => {
       return { unseal: () => '{ "tokens": { "access_token": "secret" } }' }
     })
 
-    await createProviderAgentAdapter({
+    const adapter = createProviderAgentAdapter({
       credentials,
       provider: "codex",
       providerSettings: {
         binaryPath: "/custom/codex",
         launchArgs: "--enable responses_websockets_v2",
       },
-    }).generate(
-      // SAFETY: This test fixture supplies the complete Provider generation context.
-      context(threadId) as never,
-    )
+    })
+    const runContext = context(threadId)
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await adapter.generate(runContext as never)
 
     expect(credentials).toHaveBeenCalledOnce()
     expect(shadowHome).toBeDefined()
-    // SAFETY: The runtime callback above assigns shadowHome before the invocation completes.
-    await expect(access(shadowHome as string)).rejects.toMatchObject({ code: "ENOENT" })
+    if (!shadowHome) throw new Error("Expected a Codex shadow home")
+    await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("passes Codex reasoning selections to provider session startup", async () => {
     const threadId = "thread-reasoning-options"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
 
-    await createProviderAgentAdapter({
+    const adapter = createProviderAgentAdapter({
       model: "gpt-5.6-sol",
       provider: "codex",
       reasoningEffort: "high",
       reasoningSummary: "detailed",
-    }).generate(
-      // SAFETY: This test fixture supplies the complete Provider generation context.
-      context(threadId) as never,
-    )
+    })
+    const runContext = context(threadId)
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await adapter.generate(runContext as never)
 
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({
       model: "gpt-5.6-sol",
@@ -201,13 +201,13 @@ describe("Provider Agent Driver", () => {
   it("rejects malformed Codex credentials before starting a provider runtime", async () => {
     const runtimeCalls = createProviderRuntime.mock.calls.length
 
-    await expect(createProviderAgentAdapter({
+    const adapter = createProviderAgentAdapter({
       credentials: "not-json",
       provider: "codex",
-    }).generate(
-      // SAFETY: This test fixture supplies the complete Provider generation context.
-      context("thread-invalid-credentials") as never,
-    )).rejects.toThrow("must be valid JSON")
+    })
+    const runContext = context("thread-invalid-credentials")
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await expect(adapter.generate(runContext as never)).rejects.toThrow("must be valid JSON")
 
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
   })
@@ -1837,19 +1837,19 @@ describe("Provider Agent Driver", () => {
       const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
       provider.close.mockImplementationOnce(() => new Promise(() => {}))
       const controller = new AbortController()
-      const result = createProviderAgentAdapter({
+      const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
-      }).generate(
-        // SAFETY: This test fixture supplies the complete Provider generation context.
-        context(threadId, {
-          input: { abortSignal: controller.signal, prompt: "hello" },
-        }) as never,
-      )
+      })
+      const runContext = context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const result = adapter.generate(runContext as never)
 
       await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
-      // SAFETY: The credentials-backed Codex adapter always supplies a shadow home.
-      const shadowHome = createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath as string
+      expect(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath).toEqual(expect.any(String))
+      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath)
       await expect(access(shadowHome)).resolves.toBeUndefined()
       controller.abort("cancelled")
       await expect(result).rejects.toBe("cancelled")
@@ -1869,19 +1869,19 @@ describe("Provider Agent Driver", () => {
       const runtimeCalls = createProviderRuntime.mock.calls.length
       createProviderRuntime.mockImplementationOnce(() => new Promise(() => {}))
       const controller = new AbortController()
-      const result = createProviderAgentAdapter({
+      const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
-      }).generate(
-        // SAFETY: This test fixture supplies the complete Provider generation context.
-        context(threadId, {
-          input: { abortSignal: controller.signal, prompt: "hello" },
-        }) as never,
-      )
+      })
+      const runContext = context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const result = adapter.generate(runContext as never)
 
       await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
-      // SAFETY: The credentials-backed Codex adapter always supplies a shadow home.
-      const shadowHome = createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath as string
+      expect(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath).toEqual(expect.any(String))
+      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath)
       await expect(access(shadowHome)).resolves.toBeUndefined()
       controller.abort("cancelled")
       await expect(result).rejects.toBe("cancelled")
@@ -1926,8 +1926,8 @@ describe("Provider Agent Driver", () => {
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
-      // SAFETY: The credentials-backed Codex adapter always supplies a shadow home.
-      const shadowHome = runtimeCall?.[0].settings?.shadowHomePath as string
+      expect(runtimeCall?.[0].settings?.shadowHomePath).toEqual(expect.any(String))
+      const shadowHome = String(runtimeCall?.[0].settings?.shadowHomePath)
       await expect(access(shadowHome)).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10_000)
 
