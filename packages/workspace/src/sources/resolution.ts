@@ -313,8 +313,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     },
     async search(query) {
       const scopedToSource = searchQueryTargetsSource(resolvedDefinition, query)
-      const queriedBaseHits = await workspace.fs.search(query)
-      const baseHits = scopedToSource ? [] : queriedBaseHits
+      const baseHits = scopedToSource ? [] : await workspace.fs.search(query)
       const sourceHits = await sourceView.search(query)
       return mergeHits(filterBaseHits(resolvedDefinition, baseHits), filterScopedHits(selectedWorkspaceScope, sourceHits)).slice(0, query.limit ?? 100)
     },

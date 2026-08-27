@@ -852,6 +852,8 @@ describe("agent capability runtime", () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
     let sourceQueries = 0
+    const baseWorkspace = emptyWorkspace()
+    baseWorkspace.fs.search.mockRejectedValue(new Error("base search unavailable"))
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
@@ -874,7 +876,7 @@ describe("agent capability runtime", () => {
           },
         }),
       ],
-    }, runtime(), {}, emptyWorkspace() as never, "read", {
+    }, runtime(), {}, baseWorkspace as never, "read", {
       workspaceDefinition: { name: "review", sources: {} },
     })
 
@@ -886,6 +888,12 @@ describe("agent capability runtime", () => {
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
     expect(sourceQueries).toBe(0)
+
+    await expect(resolved.workspace?.fs.search({ paths: ["pull-request"], pattern: "review" })).resolves.toEqual([
+      expect.objectContaining({ path: "pull-request/summary.md" }),
+    ])
+    expect(baseWorkspace.fs.search).not.toHaveBeenCalled()
+    expect(sourceQueries).toBe(1)
   })
 
   it("rejects authorized capability workspace sources that shadow base paths", async () => {
