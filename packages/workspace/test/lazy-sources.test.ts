@@ -462,6 +462,49 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })).rejects.toThrow("Canceled")
   })
 
+  it("rejects canceled materializations while they wait in the queue", async () => {
+    let releaseActive!: () => void
+    let markActiveStarted!: () => void
+    const activeStarted = new Promise<void>((resolve) => {
+      markActiveStarted = resolve
+    })
+    const activeGate = new Promise<void>((resolve) => {
+      releaseActive = resolve
+    })
+    const getKeys = vi.fn(async () => {
+      if (getKeys.mock.calls.length === 1) {
+        markActiveStarted()
+        await activeGate
+      }
+      return []
+    })
+    const view = createWorkspaceSourceView({
+      name: "queued-materialization-cancellation",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          getKeys,
+          async getItem(key) {
+            return { content: "", key }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const active = view.materializeSources({ sources: ["docs"] })
+    await activeStarted
+    const abort = new AbortController()
+    const queued = view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })
+    abort.abort(new DOMException("Canceled while queued", "AbortError"))
+
+    await expect(queued).rejects.toThrow("Canceled while queued")
+    expect(getKeys).toHaveBeenCalledOnce()
+    releaseActive()
+    await expect(active).resolves.toMatchObject({ sources: [expect.objectContaining({ status: "ready" })] })
+    expect(getKeys).toHaveBeenCalledOnce()
+  })
+
   it("reports cache disposition and opt-in file deltas", async () => {
     let files = new Map([
       ["a.md", { content: "# A\n", digest: "a-1" }],

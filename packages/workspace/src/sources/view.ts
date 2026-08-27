@@ -60,9 +60,32 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   let materializationQueue = Promise.resolve()
 
   async function materializeSources(options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions) {
-    const pending = materializationQueue.then(async () => await materializeWorkspaceSources(definition, store, options))
+    const pending = materializationQueue.then(async () => {
+      options?.abortSignal?.throwIfAborted()
+      return await materializeWorkspaceSources(definition, store, options)
+    })
     materializationQueue = pending.then(() => undefined, () => undefined)
-    const result = await pending
+    const result = options?.abortSignal
+      ? await new Promise<Awaited<typeof pending>>((resolve, reject) => {
+          const signal = options.abortSignal!
+          const aborted = () => reject(signal.reason)
+          if (signal.aborted) {
+            aborted()
+            return
+          }
+          signal.addEventListener("abort", aborted, { once: true })
+          pending.then(
+            (value) => {
+              signal.removeEventListener("abort", aborted)
+              resolve(value)
+            },
+            (error) => {
+              signal.removeEventListener("abort", aborted)
+              reject(error)
+            },
+          )
+        })
+      : await pending
     const path = normalizeWorkspacePath(options?.path || "")
     for (const source of result.sources) {
       if (source.status !== "ready") continue
