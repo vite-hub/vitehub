@@ -2849,8 +2849,8 @@ describe("server helpers", () => {
         run,
       },
     })
-    // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
     const callerAnnotations = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`caller.${index}`, index]))
+    // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
     const handler = createChannelChatRouteHandler(agent as never, {
       mapInput: () => ({ run: { annotations: callerAnnotations } }),
     })
