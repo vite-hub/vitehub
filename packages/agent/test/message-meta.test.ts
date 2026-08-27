@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, runAgentInline } from "../src/index.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
+import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
+import { parseAgentMessageMeta, withParsedAgentMessageMeta } from "../src/internal/message-meta.ts"
 
 const metaSchema = {
   "~standard": {
@@ -101,5 +103,23 @@ describe("Agent message metadata", () => {
     await expect(runAgentInline(agent, runtime(), {
       context: { channel: { meta: {} } },
     })).rejects.toThrow("metadata schema must return an object")
+  })
+
+  it("reuses metadata parsed before authorization during invocation", async () => {
+    let parses = 0
+    const schema = {
+      "~standard": {
+        validate: () => ({ value: { parse: ++parses } }),
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    } as const
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
+    const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
+
+    await parseAgentMessageMeta(agent, createAgentInvocationContextStore(prepared.context))
+
+    expect(parses).toBe(1)
+    expect(prepared.context?.channel).toEqual({ meta: { parse: 1 } })
   })
 })

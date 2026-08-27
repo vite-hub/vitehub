@@ -5,6 +5,8 @@ import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
 
 import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
 
+const parsedAgentMessageMetaContextKey = "vitehub.agent.messageMetaParsed"
+
 function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   invocationContext: AgentInvocationContextStore,
@@ -24,6 +26,7 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   const channelMessages = activeMessageSettings(definition, invocationContext, run)
   const schema = channelMessages ? channelMessages.meta ?? definition?.messages?.meta : definition?.messages?.meta
   if (!schema) return
+  if (invocationContext.get(parsedAgentMessageMetaContextKey) === true) return
   if (!schema["~standard"] || !hasRuntimeType(schema["~standard"].validate, "function")) {
     throw new TypeError("[vitehub] defineAgent({ messages: { meta } }) requires a Standard Schema.")
   }
@@ -36,6 +39,7 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   }
   if (isRuntimeObject(channel)) invocationContext.set("channel", { ...channel, meta }, { overwrite: true })
   if (isRuntimeObject(chat)) invocationContext.set("chat", { ...chat, meta }, { overwrite: true })
+  invocationContext.set(parsedAgentMessageMetaContextKey, true, { overwrite: true })
 }
 
 export async function withParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(

@@ -857,6 +857,9 @@ describe("agent public types", () => {
     type _PublicTelegram = ChannelExports["telegram"]
     type _PublicTeams = ChannelExports["teams"]
 
+    // @ts-expect-error Message metadata schemas belong to Agent or Channel definitions, not the legacy chat() Capability.
+    chat({ meta: {} as StandardSchemaV1<unknown, Record<string, unknown>> })
+
     type ServerExports = typeof import("../src/server.ts")
     type _PublicDiscordGatewayRouteHandler = ServerExports["createDiscordGatewayRouteHandler"]
     type _PublicResumableChatRouteContext = import("../src/server.ts").AgentChannelChatRouteResumableContext

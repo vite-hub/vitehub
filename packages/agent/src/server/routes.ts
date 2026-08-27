@@ -4556,6 +4556,12 @@ async function handleChatSdkMessage(
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
+    const parsedChannelContext = authorizationInput.context?.channel
+    input = {
+      ...input,
+      context: authorizationInput.context,
+      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
+    }
 
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
@@ -6494,8 +6500,12 @@ export function createChannelChatRouteHandler(
       triggerInput = {
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         ...(withResolvedAgentInvokerInput(triggerInput as never, invoker) as AgentChatMessageTriggerInput),
+        context: invokerInput.context,
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         invoker,
+        ...(isRuntimeObject(invokerInput.context?.channel) && isRuntimeObject(invokerInput.context.channel.meta)
+          ? { meta: invokerInput.context.channel.meta }
+          : {}),
       }
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
       let selectedSessionId = resolveChatSessionId(triggerInput.messages, chatOptions.sessions, triggerInput.session)

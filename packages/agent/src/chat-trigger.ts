@@ -384,7 +384,7 @@ export function chat<
   const TOptions extends AgentChatCapabilityOptions<any> = AgentChatCapabilityOptions,
 >(
   // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
-  options: TOptions = {} as TOptions,
+  options: TOptions & { meta?: never } = {} as TOptions,
 ): AgentCapabilityDefinition<ChatRuntimeConfigOf<TOptions>, WorkspaceName, ChatCapabilityTypeContract<string>> {
   // SAFETY: AgentChatCapabilityOptions is the public subset of the same Chat Capability option contract.
   return defineChatCapability(options as AgentChatOptions<ChatRuntimeConfigOf<TOptions>>) as AgentCapabilityDefinition<ChatRuntimeConfigOf<TOptions>, WorkspaceName, ChatCapabilityTypeContract<string>>
