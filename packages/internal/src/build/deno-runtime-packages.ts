@@ -88,7 +88,7 @@ interface LiteralDynamicImport {
 
 function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
   const imports: LiteralDynamicImport[] = []
-  for (const match of source.matchAll(/(?:^|[^\w$.])import\s*\(\s*(["'])/g)) {
+  for (const match of source.matchAll(/(?:^|[^\w$.#])import\s*\(\s*(["'])/g)) {
     const start = match.index! + match[0].indexOf("import")
     const quote = match[1]!
     const literalStart = match.index! + match[0].length - 1
@@ -538,7 +538,7 @@ function assertSupportedRelocatedImports(source: string, outputName: string, all
   for (const literalImport of findLiteralDynamicImports(remaining).reverse()) {
     remaining = remaining.slice(0, literalImport.start) + " ".repeat(literalImport.end - literalImport.start) + remaining.slice(literalImport.end)
   }
-  if (/(?:^|[^\w$.])import\s*\(/.test(remaining)) {
+  if (/(?:^|[^\w$.#])import\s*\(/.test(remaining)) {
     throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
   }
 }

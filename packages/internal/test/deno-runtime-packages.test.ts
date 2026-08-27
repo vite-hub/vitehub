@@ -70,7 +70,7 @@ await import("function-options", createImportOptions())
   })
 
   it("ignores import-shaped member calls", () => {
-    expect(collectDenoRuntimePackageNames('loader.import("member-data", { with: { type: "json" } })'))
+    expect(collectDenoRuntimePackageNames('loader.import("member-data", { with: { type: "json" } }); this.#import("private-member-data")'))
       .toEqual([])
   })
 
@@ -84,6 +84,7 @@ await import("function-options", createImportOptions())
 const importOptions = { with: { type: "json" } }
 const loader = { import: () => {} }
 loader.import("member-data", importOptions)
+class Loader { #import = () => {}; load() { this.#import("private-member-data", importOptions) } }
 await import("data-package", importOptions)
 `, "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
@@ -92,6 +93,7 @@ await import("data-package", importOptions)
 
     await expect(readFile(join(root, ".output/node_modules/data-package/marker"), "utf8")).resolves.toBe("data-package")
     expect(existsSync(join(root, ".output/node_modules/member-data"))).toBe(false)
+    expect(existsSync(join(root, ".output/node_modules/private-member-data"))).toBe(false)
   })
 
   it("ignores import comments", () => {

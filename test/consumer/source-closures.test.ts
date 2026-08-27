@@ -5,26 +5,39 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
+import { array, boolean, instance, object, optional, parse, record, safeParse, string, union, unknown } from "valibot"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
+const packageManifestSchema = object({ name: string(), version: string() })
+const workerMetadataSchema = object({
+  inputs: record(string(), unknown()),
+  outputs: record(string(), object({
+    imports: optional(array(object({ external: optional(boolean()), path: string() }))),
+  })),
+})
+const commandErrorSchema = object({
+  stderr: optional(union([string(), instance(Buffer)])),
+  stdout: optional(union([string(), instance(Buffer)])),
+})
 
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
-    const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
-    throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
+    const failed = safeParse(commandErrorSchema, error)
+    const output = failed.success ? `${failed.output.stdout || ""}${failed.output.stderr || ""}` : ""
+    throw new Error(`${command} ${args.join(" ")} failed\n${output}`, { cause: error })
   }
 }
 
 async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
   for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
-    const manifest = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as { name: string, version: string }
+    const manifest = parse(packageManifestSchema, JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")))
     await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
     const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
     overrides[manifest.name] = `file:${join(packDir, tarball)}`
@@ -69,10 +82,7 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  return JSON.parse(await readFile(meta, "utf8")) as {
-    inputs: Record<string, unknown>
-    outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>
-  }
+  return parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
 }
 
 describe("packed Source capability closures", () => {
