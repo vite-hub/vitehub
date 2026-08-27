@@ -1353,7 +1353,7 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
         hasMore: false,
-        items: [{ id: "one", status: "completed", title: "One" }],
+        items: [{ id: "one", status: "running", title: "One" }],
       },
     });
     const viewport = wrapper.get("nav").element;
@@ -1364,6 +1364,52 @@ describe("Agent Invocation UI", () => {
     });
 
     await wrapper.setProps({ hasMore: true });
+
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+  });
+
+  it("does not drain more pages while terminal sessions are collapsed", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [{ id: "done", status: "completed", title: "Done" }],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 80 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    await wrapper.setProps({
+      items: [
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+      ],
+    });
+
+    expect(wrapper.emitted("endReached")).toBeUndefined();
+  });
+
+  it("checks pagination when a collapsed group is expanded", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [{ id: "done", status: "completed", title: "Done" }],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+    const done = wrapper.get('details[data-group="done"]');
+
+    (done.element as HTMLDetailsElement).open = true;
+    await done.trigger("toggle");
 
     expect(wrapper.emitted("endReached")).toHaveLength(1);
   });

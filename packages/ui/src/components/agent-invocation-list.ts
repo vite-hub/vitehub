@@ -163,18 +163,22 @@ export const AgentInvocationList = defineComponent({
         emit("endReached");
       }
     };
+    const requestMoreAutomatically = () => {
+      if (viewport.value?.querySelector("details:not([open])")) return;
+      requestMoreIfNeeded();
+    };
     watch([() => props.items.length, () => props.hasMore, () => props.loading], ([length], [previous]) => {
       if (length < previous) requestedLength.value = undefined;
-      requestMoreIfNeeded();
+      requestMoreAutomatically();
     }, { flush: "post" });
     watch(() => props.retryKey, () => {
       requestedLength.value = undefined;
       requestMoreIfNeeded();
     });
     onMounted(() => {
-      requestMoreIfNeeded();
+      requestMoreAutomatically();
       if ("ResizeObserver" in globalThis && viewport.value) {
-        resizeObserver = new ResizeObserver(requestMoreIfNeeded);
+        resizeObserver = new ResizeObserver(requestMoreAutomatically);
         resizeObserver.observe(viewport.value);
       }
     });
@@ -195,6 +199,9 @@ export const AgentInvocationList = defineComponent({
       ? h("details", {
           class: "vh-invocation-list__group vh-invocation-list__group--collapsible",
           "data-group": group.key,
+          onToggle: (event: Event) => {
+            if ((event.currentTarget as HTMLDetailsElement).open) requestMoreIfNeeded();
+          },
           open: group.defaultOpen || group.items.some(item => item.id === props.selectedId),
         }, [h("summary", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)])
       : h("section", {
