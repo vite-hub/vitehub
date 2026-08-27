@@ -40,7 +40,13 @@ describe("support proof ledger", () => {
   it("only presents a fresh, completed success with a checkmark", () => {
     const current = supportProofFor("contract", "cloudflare");
     expect(resolveSupportProof(current, referenceNow)).toBe("current");
-    expect(supportProofPresentation(current, referenceNow).mark).toBe("✓");
+    expect(supportProofPresentation(current, referenceNow)).toMatchObject({
+      evidence: {
+        observedAt: "2026-08-26",
+        url: "https://github.com/vite-hub/vitehub/actions/runs/32939970902",
+      },
+      mark: "✓",
+    });
 
     expect(resolveSupportProof(current, new Date("2026-10-01T00:00:00Z"))).toBe("stale");
     expect(supportProofPresentation(current, new Date("2026-10-01T00:00:00Z"))).toMatchObject({
@@ -102,6 +108,8 @@ describe("support proof ledger", () => {
     expect(component).toContain('useState("support-proof-observed-at"');
     expect(component).toContain("const sections = reactive<");
     expect(component).toContain("scheduleProofRefresh");
+    expect(component).toContain('class="support-matrix-evidence-link"');
+    expect(component).toContain(':href="row.values[column.id]!.evidence.url"');
     for (const tier of supportProofTiers) {
       expect(component).toContain(`proofValues("${tier}")`);
     }

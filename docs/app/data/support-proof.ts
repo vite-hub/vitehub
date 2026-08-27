@@ -53,6 +53,10 @@ export type SupportProofClaim = {
 export type SupportProofPresentation = {
   detail: string;
   display?: string;
+  evidence?: {
+    observedAt: string;
+    url: string;
+  };
   label: string;
   mark: "✓" | "◷" | "!" | "—";
   state: SupportProofState;
@@ -267,7 +271,7 @@ export function supportProofPresentation(
   const stage = claim.lastLiveSmokeStage;
   const observed = claim.evidence.observedAt?.slice(0, 10);
   const evidence =
-    observed && claim.evidence.url ? ` Evidence: ${observed}, ${claim.evidence.url}.` : "";
+    observed && claim.evidence.url ? { observedAt: observed, url: claim.evidence.url } : undefined;
   const metadata: Record<SupportProofState, Omit<SupportProofPresentation, "detail" | "state">> = {
     current: { display: "Current", label: "Current proof", mark: "✓" },
     stale: { display: "Stale", label: "Stale proof", mark: "◷" },
@@ -281,7 +285,7 @@ export function supportProofPresentation(
     "not-applicable": { label: "Not applicable", mark: "—" },
   };
 
-  return { ...metadata[state], detail: `${claim.claim}${evidence}`, state };
+  return { ...metadata[state], detail: claim.claim, evidence, state };
 }
 
 const markdownTiers: readonly [string, SupportProofTier][] = [

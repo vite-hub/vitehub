@@ -13,6 +13,10 @@ type MatrixStatus = "available" | "package" | "local" | "none" | SupportProofSta
 type MatrixCell = {
   detail: string;
   display?: string;
+  evidence?: {
+    observedAt: string;
+    url: string;
+  };
   status: MatrixStatus;
 };
 
@@ -111,7 +115,13 @@ const proofValues = (tier: SupportProofTier): Record<string, MatrixCell> =>
         supportProofFor(tier, host),
         new Date(proofObservedAt.value),
       );
-      return [host, cell(presentation.state, presentation.detail, presentation.display)];
+      return [
+        host,
+        {
+          ...cell(presentation.state, presentation.detail, presentation.display),
+          evidence: presentation.evidence,
+        },
+      ];
     }),
   );
 
@@ -808,6 +818,19 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
                   :content="{ side: 'top', sideOffset: 8, collisionPadding: 12 }"
                   :ui="{ content: 'support-matrix-tooltip' }"
                 >
+                  <template #content>
+                    <p>{{ row.values[column.id]!.detail }}</p>
+                    <a
+                      v-if="row.values[column.id]!.evidence"
+                      :href="row.values[column.id]!.evidence.url"
+                      target="_blank"
+                      rel="noreferrer"
+                      class="support-matrix-evidence-link"
+                    >
+                      Evidence from {{ row.values[column.id]!.evidence.observedAt }}
+                      <UIcon name="i-ph-arrow-square-out" aria-hidden="true" />
+                    </a>
+                  </template>
                   <button
                     type="button"
                     class="support-matrix-status"
@@ -1253,6 +1276,20 @@ a.support-matrix-host-link:hover {
   line-height: 1.45;
   text-align: left;
   box-shadow: 0 12px 32px color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
+}
+
+.support-matrix-tooltip p {
+  margin: 0;
+}
+
+.support-matrix-evidence-link {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  margin-top: 0.4rem;
+  color: var(--ui-primary);
+  text-decoration: underline;
+  text-underline-offset: 0.15rem;
 }
 
 .support-matrix-qualifications {
