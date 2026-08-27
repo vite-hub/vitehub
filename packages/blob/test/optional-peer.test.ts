@@ -4,6 +4,16 @@ import { describe, expect, it } from "vitest"
 
 import { importOptionalPeer } from "../src/internal/optional-peer.ts"
 
+async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<string[]> {
+  if (seen.has(entry.href)) return []
+  seen.add(entry.href)
+
+  const source = await readFile(entry, "utf8")
+  const imports = [...source.matchAll(/(?:from\s+|import\s*\()["'](\.\.?\/[^"']+)["']/g)]
+  const children = await Promise.all(imports.map(match => readLocalClosure(new URL(match[1]!, entry), seen)))
+  return [source, ...children.flat()]
+}
+
 describe("optional peer imports", () => {
   it("explains how to install a missing adapter peer", async () => {
     await expect(importOptionalPeer("__vitehub_missing_peer__", "s3", "files-sdk"))
@@ -18,12 +28,7 @@ describe("optional peer imports", () => {
   })
 
   it("keeps the bundled Vercel Blob driver statically reachable for selected Vercel outputs", async () => {
-    const built = await readFile(new URL("../dist/drivers/vercel-bundled.js", import.meta.url), "utf8")
-    const chunks = await Promise.all(
-      [...built.matchAll(/from\s+["'](\.\.\/chunk-[^"']+)["']/g)]
-        .map(match => readFile(new URL(match[1]!, new URL("../dist/drivers/vercel-bundled.js", import.meta.url)), "utf8")),
-    )
-    const closure = [built, ...chunks].join("\n")
+    const closure = (await readLocalClosure(new URL("../dist/drivers/vercel-bundled.js", import.meta.url))).join("\n")
 
     expect(closure).not.toContain('from "files-sdk"')
     expect(closure).not.toContain('from "files-sdk/vercel-blob"')
