@@ -51,20 +51,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   })
   if (cursor) return terminal
 
-  const activeInvocations: AgentInvocationListResult["invocations"][number][] = []
-  let activeCursor: string | undefined
-  do {
-    const active = await getConsoleInvocations().list({
-      ...(activeCursor ? { cursor: activeCursor } : {}),
-      ...(agentName ? { agentName } : {}),
-      status: ["pending", "running"],
-    })
-    activeInvocations.push(...active.invocations)
-    activeCursor = active.cursor
-  } while (activeCursor)
+  const active = await getConsoleInvocations().list({
+    ...(agentName ? { agentName } : {}),
+    ...(limit === undefined ? {} : { limit }),
+    status: ["pending", "running"],
+  })
   return {
     ...terminal,
-    invocations: [...activeInvocations, ...terminal.invocations],
+    invocations: [...active.invocations, ...terminal.invocations],
   }
 }
 

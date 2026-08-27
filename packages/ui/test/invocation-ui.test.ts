@@ -215,6 +215,33 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
   });
 
+  it("opens Done when the selected terminal session arrives", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: { items: [], selectedId: "done" },
+    });
+
+    await wrapper.setProps({
+      items: [{ id: "done", status: "completed", title: "Done" }],
+    });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
+  it("opens Done when the selected session becomes terminal", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "selected", status: "running", title: "Selected" }],
+        selectedId: "selected",
+      },
+    });
+
+    await wrapper.setProps({
+      items: [{ id: "selected", status: "completed", title: "Selected" }],
+    });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
   it("keeps every session in the accessible navigation list", () => {
     const items = Array.from({ length: 100 }, (_, index) => ({
       description: index === 0 ? "The host stopped before this invocation finished." : undefined,

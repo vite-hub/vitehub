@@ -179,10 +179,9 @@ export const AgentInvocationList = defineComponent({
       requestedLength.value = undefined;
       requestMoreIfNeeded();
     });
-    watch(() => props.selectedId, (selectedId, previousSelectedId) => {
-      if (selectedId === previousSelectedId) return;
-      const selected = props.items.find(item => item.id === selectedId);
-      if (selected && selected.status !== "running" && selected.status !== "pending") doneOpen.value = true;
+    watch(() => props.items.find(item => item.id === props.selectedId)?.status, (status, previousStatus) => {
+      if (status === previousStatus || status === undefined || status === "running" || status === "pending") return;
+      doneOpen.value = true;
     });
     onMounted(() => {
       requestMoreAutomatically();

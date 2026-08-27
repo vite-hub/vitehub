@@ -427,6 +427,30 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("bounds active and terminal console sessions to the requested page size", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["pending", "pending", "pending", "completed", "completed", "completed"] as const).entries()) {
+      store.create({
+        createdAt: `2026-08-23T12:00:00.000Z`,
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations.filter(invocation => invocation.status === "pending")).toHaveLength(2)
+    expect(result.invocations.filter(invocation => invocation.status === "completed")).toHaveLength(2)
+  })
+
   it("searches session text through the console Collection", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
