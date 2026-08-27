@@ -4,11 +4,12 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { runViteHubCli } from "../src/index.ts"
+import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 
 const directories: string[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(directories.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -45,6 +46,39 @@ function stream() {
 }
 
 describe("ViteHub CLI", () => {
+  it("flushes configured entrypoint streams before exiting", async () => {
+    const callbacks: Array<() => void> = []
+    const createStream = () => ({
+      output: "",
+      write(chunk: string | Uint8Array, callback?: () => void) {
+        this.output += String(chunk)
+        if (callback) callbacks.push(callback)
+        return true
+      },
+    })
+    const stdout = createStream()
+    const stderr = createStream()
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+    await vi.waitFor(() => expect(callbacks).toHaveLength(2))
+
+    expect(stdout.output).toContain("Usage: vitehub")
+    expect(exit).not.toHaveBeenCalled()
+    callbacks.shift()!()
+    expect(exit).not.toHaveBeenCalled()
+    callbacks.shift()!()
+    expect(exit).toHaveBeenCalledWith(0)
+  })
+
   it("routes package-contributed CLI features", async () => {
     const stdout = stream()
     const stderr = stream()

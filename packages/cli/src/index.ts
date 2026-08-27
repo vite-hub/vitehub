@@ -31,8 +31,8 @@ type ViteHubCliSpawn = (
 ) => Promise<ViteHubCliSpawnResult>
 
 interface ViteHubCliStreams {
-  stderr: { write: (chunk: string | Uint8Array) => unknown }
-  stdout: { write: (chunk: string | Uint8Array) => unknown }
+  stderr: { write: (chunk: string | Uint8Array, callback?: () => void) => unknown }
+  stdout: { write: (chunk: string | Uint8Array, callback?: () => void) => unknown }
 }
 
 interface ViteHubCliLoadedConfig {
@@ -214,22 +214,26 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   return result ?? 0
 }
 
-function exitAfterStandardStreamsFlush(exitCode: number): void {
+function exitAfterStreamsFlush(exitCode: number, streams: ViteHubCliStreams): void {
   let pending = 2
   const flushed = () => {
     pending--
     if (pending === 0) process.exit(exitCode)
   }
-  process.stdout.write("", flushed)
-  process.stderr.write("", flushed)
+  streams.stdout.write("", flushed)
+  streams.stderr.write("", flushed)
 }
 
 export function runViteHubCliEntrypoint(options: RunViteHubCliOptions = {}): void {
+  const streams = {
+    stderr: options.stderr || process.stderr,
+    stdout: options.stdout || process.stdout,
+  }
   runViteHubCli(options).then((exitCode) => {
-    exitAfterStandardStreamsFlush(exitCode)
+    exitAfterStreamsFlush(exitCode, streams)
   }).catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error)
-    exitAfterStandardStreamsFlush(1)
+    streams.stderr.write(`${error instanceof Error ? error.message : error}\n`)
+    exitAfterStreamsFlush(1, streams)
   })
 }
 
