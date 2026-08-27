@@ -434,11 +434,14 @@ jobs:
     "exec -a tool npx unpinned",
     "echo ${FOO:-$(npx unpinned)}",
     "sudo npx unpinned",
+    "sudo -pl npx unpinned",
     "sudo -u root FOO=bar npx unpinned",
     "timeout 5m npx unpinned",
     "timeout --signal KILL 5m npx unpinned",
     "timeout --sig KILL 5m npx unpinned",
     "eval 'npx unpinned'",
+    "eval -- 'npx unpinned'",
+    "bash <<< 'npx unpinned'",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -476,7 +479,10 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
-  it("does not persist assignments from untaken conditional branches", async () => {
+  it.each([
+    ["an untaken conditional containing a substitution", ["if false; then", "echo $(true)", "VERSION=1.2.3", "fi"]],
+    ["a zero-iteration for loop", ["for item in", "do", "VERSION=1.2.3", "done"]],
+  ])("does not persist assignments from %s", async (_name, conditional) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": [
         "env:",
@@ -485,9 +491,7 @@ jobs:
         "  test:",
         "    steps:",
         "      - run: |",
-        "          if false; then",
-        "            VERSION=1.2.3",
-        "          fi",
+        ...conditional.map(line => `          ${line}`),
         "          npx tool@$VERSION",
       ].join("\n"),
     })

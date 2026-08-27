@@ -22,6 +22,9 @@ const sudoValueOptions = new Set([
   "--chdir", "--chroot", "--close-from", "--command-timeout", "--group", "--host", "--prompt", "--role", "--type", "--user",
   "-C", "-D", "-g", "-h", "-p", "-R", "-r", "-T", "-t", "-u",
 ])
+const sudoShortValueOptions = new Set([...sudoValueOptions]
+  .filter(option => /^-[^-]$/.test(option))
+  .map(option => option.slice(1)))
 const timeoutValueOptions = new Set(["--kill-after", "--signal", "-k", "-s"])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
@@ -199,7 +202,13 @@ function executableName(token) {
 }
 
 function isSudoQueryOption(argument) {
-  return sudoQueryOptions.has(argument) || /^-[^-]*l/.test(argument)
+  if (sudoQueryOptions.has(argument)) return true
+  if (!/^-[^-]+$/.test(argument)) return false
+  for (const option of argument.slice(1)) {
+    if (option === "l") return true
+    if (sudoShortValueOptions.has(option)) return false
+  }
+  return false
 }
 
 function isTimeoutValueOption(argument) {
@@ -216,6 +225,32 @@ function resolvePackageSpec(spec, environment) {
   const variable = variablePackagePattern.exec(spec)
   if (!variable) return spec
   return `${variable[1]}@${environment.get(variable[2] ?? variable[3]) ?? "(unresolved)"}`
+}
+
+function conditionalCounts(tokens) {
+  const groups = []
+  let closes = 0
+  let opens = 0
+  for (const token of tokens) {
+    if (token === "$(") {
+      groups.push("substitution")
+      continue
+    }
+    if (token === "(") {
+      if (!groups.includes("substitution")) opens++
+      groups.push("group")
+      continue
+    }
+    if (token === ")") {
+      const group = groups.pop()
+      if (group !== "substitution" && !groups.includes("substitution")) closes++
+      continue
+    }
+    if (groups.includes("substitution")) continue
+    if (token === "fi" || token === "done" || token === "esac") closes++
+    else if (token === "if" || token === "while" || token === "until" || token === "for" || token === "select" || token === "case") opens++
+  }
+  return { closes, opens }
 }
 
 function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
@@ -237,8 +272,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
 
     const tokens = shellTokens(line)
     const executableIndexes = commandIndexes(tokens)
-    const closesConditional = tokens.filter(token => token === "fi" || token === "done" || token === "esac" || token === ")").length
-    const opensConditional = tokens.filter(token => token === "if" || token === "while" || token === "until" || token === "case" || token === "(").length
+    const { closes: closesConditional, opens: opensConditional } = conditionalCounts(tokens)
     const activeConditionalDepth = Math.max(0, conditionalDepth - closesConditional)
     if (executableIndexes.length === 0 && activeConditionalDepth === 0 && opensConditional === 0
       && tokens.length > 0 && tokens.every(token => assignmentPattern.test(token))) {
@@ -268,7 +302,8 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
 
       if (executable === "eval") {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
-        const source = tokens.slice(index + 1, end === -1 ? tokens.length : end).join(" ")
+        const sourceStart = tokens[index + 1] === "--" ? index + 2 : index + 1
+        const source = tokens.slice(sourceStart, end === -1 ? tokens.length : end).join(" ")
         if (source) specs.push(...findExecutablePackageSpecs(source, environment))
         continue
       }
@@ -280,6 +315,11 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         const commandIndex = callIndex + (invocation[callIndex + 1] === "--" ? 2 : 1)
         if (callIndex !== -1 && invocation[commandIndex]) {
           specs.push(...findExecutablePackageSpecs(invocation[commandIndex], environment))
+        }
+        for (let argumentIndex = 0; argumentIndex < invocation.length; argumentIndex++) {
+          const argument = invocation[argumentIndex]
+          const source = argument === "<<<" ? invocation[++argumentIndex] : argument.startsWith("<<<") ? argument.slice(3) : undefined
+          if (source) specs.push(...findExecutablePackageSpecs(source, environment))
         }
         continue
       }
