@@ -6512,11 +6512,19 @@ export function createChannelChatRouteHandler(
         resumableClaim = claim
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
-      const invokerInput = await withParsedAgentMessageMeta(
-        agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
-        createChatMessageTriggerInput(chatOptions, triggerInput).input,
-        triggerInput.run,
-      )
+      let invokerInput: AgentRunInput
+      try {
+        invokerInput = await withParsedAgentMessageMeta(
+          agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+          createChatMessageTriggerInput(chatOptions, triggerInput).input,
+          triggerInput.run,
+        )
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("[vitehub] Invalid agent channel metadata:")) {
+          throw createRouteBodyError(error.message)
+        }
+        throw error
+      }
       const invoker = await resolveAgentInvoker(
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,

@@ -1,6 +1,7 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
+import { normalizeAgentInvoker } from "../invoker.ts"
 import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
 
 import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
@@ -25,7 +26,11 @@ function withParsedMeta(invoker: unknown, rawMeta: Record<string, unknown>, meta
   if (record.kind !== "chat" || !isRuntimeObject(record.meta)) return invoker
   const invokerMeta: Record<string, unknown> = { ...record.meta }
   for (const key of Object.keys(rawMeta)) delete invokerMeta[key]
-  return { ...record, meta: { ...invokerMeta, ...meta } }
+  return normalizeAgentInvoker({
+    ...record,
+    ...(Object.hasOwn(rawMeta, "email") ? { email: undefined } : {}),
+    meta: { ...invokerMeta, ...meta },
+  })
 }
 
 function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(

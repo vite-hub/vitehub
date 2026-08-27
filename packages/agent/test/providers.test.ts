@@ -3592,6 +3592,50 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalled()
   })
 
+  it("returns a client error for invalid webChat Channel metadata", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unreachable")
+    const handler = createChannelChatRouteHandler(
+      defineAgent({
+        channels: { portal: webChat() },
+        driver: { run },
+        messages: {
+          meta: {
+            "~standard": {
+              validate: (value: unknown) => {
+                const meta = value as Record<string, unknown>
+                return meta.audience === "technical"
+                  ? { value: meta }
+                  : { issues: [{ message: "audience must be technical" }] }
+              },
+              vendor: "vitehub-test",
+              version: 1,
+            },
+          },
+        },
+      }) as never,
+      { channelId: "portal" },
+    )
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+          meta: { audience: "customer" },
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentName: "support" },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("Invalid agent channel metadata") })
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("uses route Channel chat state for webChat approvals", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-chat-state-"))
     const { defineAgent } = await import("../src/index.ts")

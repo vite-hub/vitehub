@@ -190,6 +190,34 @@ describe("Agent message metadata", () => {
     expect(context.get("actor")).toEqual(context.get("invoker"))
   })
 
+  it("removes derived Invoker identity stripped by the metadata schema", async () => {
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
+    const context = createAgentInvocationContextStore({
+      actor: {
+        email: { address: "raw@example.com", domain: "example.com" },
+        id: "chat:user-1",
+        kind: "chat",
+        meta: { audience: "technical", email: "raw@example.com" },
+      },
+      channel: { meta: { audience: "technical", email: "raw@example.com" } },
+      invoker: {
+        email: { address: "raw@example.com", domain: "example.com" },
+        id: "chat:user-1",
+        kind: "chat",
+        meta: { audience: "technical", email: "raw@example.com" },
+      },
+    })
+
+    await parseAgentMessageMeta(agent, context)
+
+    expect(context.get("invoker")).toEqual({
+      id: "chat:user-1",
+      kind: "chat",
+      meta: { audience: "technical" },
+    })
+    expect(context.get("actor")).toEqual(context.get("invoker"))
+  })
+
   it("resolves programmatic Invokers from parsed metadata", async () => {
     const resolve = vi.fn(({ defaultInvoker, input }) => {
       expect(input.context?.invoker).toEqual({
