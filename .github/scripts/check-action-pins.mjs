@@ -99,9 +99,10 @@ export function inspectGitHubActionReferences(path, source) {
     const jobs = findPair(root, "jobs")?.value
     if (!isMap(jobs)) return failures
     for (const jobPair of jobs.items) {
-      if (!isMap(jobPair.value)) continue
-      inspectUses(findPair(jobPair.value, "uses"))
-      inspectSteps(findPair(jobPair.value, "steps")?.value)
+      const job = isAlias(jobPair.value) ? jobPair.value.resolve(document) : jobPair.value
+      if (!isMap(job)) continue
+      inspectUses(findPair(job, "uses"))
+      inspectSteps(findPair(job, "steps")?.value)
     }
   }
   else {

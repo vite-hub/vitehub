@@ -161,6 +161,21 @@ jobs:
     ])
   })
 
+  it("inspects action references through aliased workflow jobs", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `job: &unpinned-job
+  steps:
+    - uses: actions/checkout@v6
+jobs:
+  test: *unpinned-job
+`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
+    ])
+  })
+
   it.each([
     ["movable tag", "actions/checkout@v6 # v6.1.0", "full 40-character commit SHA"],
     ["missing version comment", pinnedCheckout.split(" #")[0], "exact version comment"],
