@@ -651,11 +651,18 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
   const build = (config.build ?? {}) as NonNullable<BuildWithRolldownOptions["build"]> & { rollupOptions?: unknown }
   const rollupOptions = isRecord(build.rollupOptions) ? build.rollupOptions : {}
+  const configuredExternal = build.rolldownOptions?.external ?? rollupOptions.external as RollupExternalOption | undefined
+  const rolldownExternal = Array.isArray(configuredExternal)
+    ? configuredExternal.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
+    : configuredExternal
   delete build.rollupOptions
   build.rolldownOptions = {
     ...rollupOptions,
     ...build.rolldownOptions,
-    external: mergeRollupExternals(build.rolldownOptions?.external ?? rollupOptions.external as RollupExternalOption | undefined, additions),
+    external: mergeRollupExternals(
+      rolldownExternal,
+      additions,
+    ),
   }
   return {
     ...build,

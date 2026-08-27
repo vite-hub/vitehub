@@ -1723,7 +1723,7 @@ describe("agent Vite plugin", () => {
     const config = {
       build: {
         rolldownOptions: {
-          external: ["existing"],
+          external: ["existing", () => true],
         },
         rollupOptions: {
           external: ["legacy"],

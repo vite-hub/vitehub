@@ -29,6 +29,8 @@
   "unused_server_actions": [],
   "unused_load_data_keys": [],
   "unresolved_imports": [
+    "fixtures/docs-hosts/deno/main.ts:./schedule/deno-cron.mjs",
+    "fixtures/docs-hosts/deno/main.ts:./server/index.mjs",
     "fixtures/consumer/vite-hub/runtime-smoke.mjs:./dist/server/server-entry.js",
     "packages/agent/src/vite/invocation-stream-endpoint.ts:@vite-hub/workspace/internal/stores/github",
     "packages/agent/src/vite/invocation-stream-endpoint.ts:@vite-hub/workspace/internal/runtime/hosted",

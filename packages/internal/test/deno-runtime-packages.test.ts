@@ -86,6 +86,36 @@ import "real"
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
   })
 
+  it("rejects computed local application imports that cannot survive relocation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-entry-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'await import(new URL("./helper.ts", import.meta.url).href)\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+      'unsupported computed local import "./helper.ts"',
+    )
+  })
+
+  it("stages external Schedule packages and their native optional dependencies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-package-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeRuntimePackage(root, "image-package", { optionalDependencies: { "image-package-linux-x64": "9.9.9" } })
+    await writeRuntimePackage(root, "image-package-linux-x64", { cpu: ["x64"], os: ["linux"] })
+    await writeFile(join(root, "node_modules/image-package/index.js"), 'import "image-package-linux-x64"\nexport default true\n', "utf8")
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import image from "image-package"\nglobalThis.image = image\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    expect(existsSync(join(root, ".output/node_modules/image-package/package.json"))).toBe(true)
+    expect(existsSync(join(root, ".output/node_modules/image-package/node_modules/image-package-linux-x64/package.json"))).toBe(true)
+  })
+
   it("filters optional packages for Deno runtimes and hoists the selected closure once", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-platforms-"))
     const outputNodeModules = join(root, ".output/node_modules")

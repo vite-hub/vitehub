@@ -275,9 +275,9 @@ async function runtimeSourceFiles(serverDir: string): Promise<string[]> {
     .map((entry) => resolve(entry.parentPath, entry.name))
 }
 
-async function readRuntimePackages(serverDir: string, rootDir: string): Promise<RuntimePackage[]> {
+async function readRuntimePackages(runtimeDirs: string[], rootDir: string): Promise<RuntimePackage[]> {
   const packages = new Map<string, RuntimePackage>()
-  for (const file of await runtimeSourceFiles(serverDir)) {
+  for (const file of (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()) {
     const source = await readFile(file, "utf8")
     for (const [name, packagePath] of collectBundledPackages(source)) {
       const existing = packages.get(name)
@@ -304,6 +304,14 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
     }
   }
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function assertSupportedApplicationEntryImports(source: string): void {
+  for (const match of source.matchAll(/new URL\(\s*["'](\.[^"']*)["']\s*,\s*import\.meta\.url\s*\)/g)) {
+    const specifier = match[1]!
+    if (specifier === "./schedule/deno-cron.mjs" || specifier === "./server/index.mjs") continue
+    throw new Error(`Deno application entrypoint contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
+  }
 }
 
 function denoDeployRunnerSource(deploymentName: string | undefined, entrypoint: string): string {
@@ -405,10 +413,12 @@ export async function finalizeDenoDeploymentOutput(
     await bundleEsmEntry(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"), {
       external: [...builtinModuleNames],
       format: "esm",
+      packages: "external",
       platform: "neutral",
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
+    assertSupportedApplicationEntryImports(await readFile(applicationEntrySource, "utf8"))
     await bundleEsmEntry(applicationEntrySource, join(outputDir, "main.ts"), {
       external: [...builtinModuleNames, "./schedule/*", "./server/*"],
       format: "esm",
@@ -424,7 +434,10 @@ export async function finalizeDenoDeploymentOutput(
       throw new Error('Deno Schedule output requires a project-root "main.ts" application entrypoint.', { cause: error })
     }
   }
-  const packages = await readRuntimePackages(serverDir, options.rootDir)
+  const packages = await readRuntimePackages([
+    serverDir,
+    ...(hasSchedule ? [join(outputDir, "schedule")] : []),
+  ], options.rootDir)
 
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
