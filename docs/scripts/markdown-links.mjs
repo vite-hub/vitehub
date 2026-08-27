@@ -24,8 +24,9 @@ function walk(directory, predicate) {
     });
 }
 
-function parseMarkdown(markdown) {
-  const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMdc);
+function parseMarkdown(markdown, { renderer = "mdc" } = {}) {
+  const parser = unified().use(remarkParse).use(remarkGfm);
+  if (renderer === "mdc") parser.use(remarkMdc);
   return parser.runSync(parser.parse(markdown));
 }
 
@@ -93,7 +94,10 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const occurrences = new Map();
   const githubSlugger = new GithubSlugger();
   const { body } = splitFrontmatter(markdown);
-  visit(parseMarkdown(body), (node) => {
+  visit(parseMarkdown(body, { renderer }), (node) => {
+    if (renderer === "mdc" && node.type === "html" && !node.value.startsWith("<!--")) {
+      for (const match of node.value.matchAll(/\sid\s*=\s*["']([^"']+)["']/gi)) anchors.add(match[1]);
+    }
     if (node.type !== "heading") return;
     if (renderer === "github") {
       const anchor = githubSlugger.slug(nodeText(node));
@@ -116,9 +120,9 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   return anchors;
 }
 
-export function markdownLinks(markdown) {
+export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
   const { body, frontmatter } = splitFrontmatter(markdown);
-  const tree = parseMarkdown(body);
+  const tree = parseMarkdown(body, { renderer });
   const definitions = new Map();
   const links = [];
   visit(tree, (node) => {
@@ -250,7 +254,9 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
     const sourceRoute = sourcePath.startsWith(`${contentRoot}${sep}`)
       ? routeFromContentPath(contentRoot, sourcePath)
       : undefined;
-    for (const destination of markdownLinks(source)) {
+    for (const destination of markdownLinks(source, {
+      renderer: sourceRoute === undefined ? "github" : "mdc",
+    })) {
       if (/^(?:mailto:|tel:|data:|javascript:)/i.test(destination)) continue;
       let local = destination;
       let isSiteLink = false;

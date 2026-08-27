@@ -136,6 +136,27 @@ https://vitehub.dev/docs/bare-autolink
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
   });
 
+  it("uses GitHub parsing for public package README destinations", () => {
+    expect(markdownLinks(':u-button[Example]{to="/docs/missing"}', { renderer: "github" })).toEqual([]);
+
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "packages/example/package.json": JSON.stringify({ name: "example" }),
+      "packages/example/README.md": ':u-button[Example]{to="/docs/missing"}',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
+  it("accepts explicit HTML anchors in docs content", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": '# Docs\n\n[Install](#install)\n[Legacy](#legacy)\n\n<h2 id="install">Install</h2>\n<a id="legacy"></a>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
+  });
+
   it("accepts relative routes and anchors across docs and public package READMEs", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
