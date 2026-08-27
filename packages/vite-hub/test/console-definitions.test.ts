@@ -27,6 +27,12 @@ function event(query = "", method = "GET"): ConsoleRequestEvent {
 
 function catalog(name: string): ConsoleDefinitionCatalog {
   return {
+    queues: [{
+      fields: [],
+      file: `server/queues/${name}.ts`,
+      name,
+      source: "server-queues",
+    }],
     workflows: [{
       fields: [{ label: "Steps", value: "prepare, publish" }],
       file: `server/workflows/${name}.workflow.ts`,
@@ -57,6 +63,15 @@ describe("Console definition inspection", () => {
       }],
       section: "workflows",
     })
+    expect(definitionsHandler(event("?section=queues"))).toEqual({
+      definitions: [{
+        fields: [],
+        file: "server/queues/release.ts",
+        name: "release",
+        source: "server-queues",
+      }],
+      section: "queues",
+    })
   })
 
   it("validates methods and definition sections", () => {
@@ -64,7 +79,7 @@ describe("Console definition inspection", () => {
 
     expect(() => definitionsHandler(event("", "POST"))).toThrow(expect.objectContaining({ statusCode: 405 }))
     expect(() => definitionsHandler(event())).toThrow(expect.objectContaining({ statusCode: 400 }))
-    expect(() => definitionsHandler(event("?section=queues"))).toThrow(expect.objectContaining({ statusCode: 400 }))
+    expect(() => definitionsHandler(event("?section=schedules"))).toThrow(expect.objectContaining({ statusCode: 400 }))
   })
 
   it("isolates concurrent project catalogs across runtime realms", () => {

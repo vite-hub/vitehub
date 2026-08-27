@@ -19,20 +19,22 @@ function memoryStorage(initial?: string) {
 
 describe("Console section preferences", () => {
   it("derives only explicitly configured primitive sections", () => {
-    expect(resolveConsoleSectionIds({ agent: true, kv: true, workflow: true })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true, kv: true, queue: true, workflow: true })).toEqual([
       "agents",
       "kv",
       "workflows",
+      "queues",
     ])
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents"])
+    expect(resolveConsoleSectionIds({ agent: true, queue: false, workflow: false })).toEqual(["agents"])
     expect(resolveConsoleSectionIds({})).toEqual([])
   })
 
   it("prioritizes the last active section without losing configured sections", () => {
-    expect(prioritizeConsoleSectionIds(["agents", "kv", "workflows"], "workflows")).toEqual([
-      "workflows",
+    expect(prioritizeConsoleSectionIds(["agents", "kv", "workflows", "queues"], "queues")).toEqual([
+      "queues",
       "agents",
       "kv",
+      "workflows",
     ])
     expect(prioritizeConsoleSectionIds(["agents"], "kv")).toEqual(["agents"])
     expect(prioritizeConsoleSectionIds(["agents", "kv"], undefined)).toEqual(["agents", "kv"])
@@ -42,8 +44,8 @@ describe("Console section preferences", () => {
     const storage = memoryStorage()
 
     expect(readLastConsoleSection(storage)).toBeUndefined()
-    rememberConsoleSection("workflows", storage)
-    expect(readLastConsoleSection(storage)).toBe("workflows")
+    rememberConsoleSection("queues", storage)
+    expect(readLastConsoleSection(storage)).toBe("queues")
     expect(readLastConsoleSection(memoryStorage("future-primitive"))).toBeUndefined()
   })
 

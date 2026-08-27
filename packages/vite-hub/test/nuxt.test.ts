@@ -467,6 +467,42 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("installs only discovered Queue metadata for a Queue-only Console", async () => {
+    const definition = "/tmp/vitehub-nuxt/custom-server/queues/email.ts"
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    await writeFile(
+      definition,
+      `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
+    )
+    try {
+      const development = createNuxt(true)
+
+      await viteHubNuxtModule({ console: true, preset: "node", queue: true }, development.nuxt)
+      const pages: Array<{ file: string; name: string; path: string }> = []
+      development.runPagesHook(pages)
+
+      expect(pages).toEqual([
+        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-queues", path: "/_vitehub/queues" }),
+      ])
+      expect(development.nuxt.options.nitro).toMatchObject({
+        handlers: [
+          { route: "/api/_vitehub/console/sections" },
+          { route: "/api/_vitehub/console/definitions" },
+        ],
+      })
+      expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["queues"])`)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"queues":[{"fields":[],"file":"custom-server/queues/email.ts","name":"email","source":"server-queues"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(definition, { force: true })
+    }
+  })
+
   it("rejects non-Node production console storage while preserving development", async () => {
     const development = createNuxt(true)
     await expect(viteHubNuxtModule({ agent: true, console: true, preset: "cloudflare" }, development.nuxt)).resolves.toBeUndefined()

@@ -226,6 +226,13 @@ async function installConsole(
             path: "/_vitehub/workflows",
           }]
         : []),
+      ...(sections.includes("queues")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/queues.vue"),
+            name: "vitehub-console-queues",
+            path: "/_vitehub/queues",
+          }]
+        : []),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)

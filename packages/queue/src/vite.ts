@@ -14,6 +14,8 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
+export { discoverQueueDefinitions } from "./discovery.ts"
+
 interface QueueProvisionContributingPlugin {
   vitehub?: {
     cli?: () => Promise<ViteHubCliContributor>

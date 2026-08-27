@@ -27,6 +27,10 @@ const error = ref<unknown>();
 let request: AbortController | undefined;
 
 const sectionDetails = computed(() => consoleSectionDetails[props.section]);
+const definitionNotice = computed(() => ({
+  queues: "Queue backlog, message, and delivery history are not exposed by ViteHub's provider-independent Queue contract yet.",
+  workflows: "Workflow run history is not exposed by ViteHub's provider-independent Workflow contract yet.",
+})[props.section]);
 const filteredDefinitions = computed(() => {
   const query = filter.value.trim().toLocaleLowerCase();
   if (!query) return definitions.value;
@@ -350,7 +354,7 @@ onBeforeUnmount(() => request?.abort());
               color="neutral"
               icon="i-lucide-info"
               title="Definition metadata only"
-              description="Workflow run history is not exposed by ViteHub's provider-independent Workflow contract yet."
+              :description="definitionNotice"
               variant="subtle"
             />
           </div>

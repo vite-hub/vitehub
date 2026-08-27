@@ -3,8 +3,10 @@ import { relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
+import { discoverQueueDefinitions } from "@vite-hub/queue/vite"
 import { discoverWorkflowDefinitions } from "@vite-hub/workflow/vite"
 
+import type { DiscoveredQueueDefinition } from "@vite-hub/queue"
 import type { DiscoveredWorkflowDefinition } from "@vite-hub/workflow"
 import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
 import type { ConsoleDefinitionCatalog, ConsoleDefinitionField, ConsoleDefinitionSummary } from "./runtime/definitions.ts"
@@ -54,6 +56,18 @@ function workflowDefinition(
   }
 }
 
+function queueDefinition(
+  projectRoot: string,
+  definition: DiscoveredQueueDefinition,
+): ConsoleDefinitionSummary {
+  return {
+    fields: [],
+    file: relativeDefinitionFile(projectRoot, definition.handler),
+    name: definition.name,
+    source: definition.source || "queue",
+  }
+}
+
 export function discoverConsoleBuildCatalog(options: {
   discoveryRoot: string
   projectRoot: string
@@ -71,9 +85,18 @@ export function discoverConsoleBuildCatalog(options: {
         .filter(definition => definition.source !== "agent-workflow-recovery")
         .map(definition => workflowDefinition(options.projectRoot, definition))
     : []
+  const queues = options.sections.includes("queues")
+    ? discoverQueueDefinitions({
+        rootDir: options.discoveryRoot,
+        serverDirs: options.serverDirs,
+      }).map(definition => queueDefinition(options.projectRoot, definition))
+    : []
+  const definitions: ConsoleDefinitionCatalog = {}
+  if (options.sections.includes("workflows")) definitions.workflows = workflows
+  if (options.sections.includes("queues")) definitions.queues = queues
   return {
     agents,
-    definitions: options.sections.includes("workflows") ? { workflows } : {},
+    definitions,
   }
 }
 

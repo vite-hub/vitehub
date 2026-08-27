@@ -92,6 +92,19 @@ const router = createRouter({
         sectionsBase,
       },
     },
+    {
+      component: ConsoleDefinitions,
+      name: "vitehub-console-queues",
+      path: "/queues",
+      meta: { consoleSection: "queues", title: "Queues · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        searchBase: "/api/_vitehub/console/search",
+        section: "queues",
+        sectionsBase,
+      },
+    },
   ],
 });
 

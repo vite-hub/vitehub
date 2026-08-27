@@ -230,6 +230,47 @@ describe("ViteHub Console", () => {
     }
   })
 
+  it("serializes discovered Queue Definition metadata without loading handlers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-queue-host-"))
+    try {
+      await mkdir(join(root, "server/queues"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/queues/email.ts"),
+        `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["queues"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/api/_vitehub/console/definitions",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects production console builds without durable local storage", async () => {
     const plugin = consoleVitePlugin({ preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config

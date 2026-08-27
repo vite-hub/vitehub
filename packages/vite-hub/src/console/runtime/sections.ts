@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "kv", "workflows"] as const
+export const consoleSectionIds = ["agents", "kv", "workflows", "queues"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -21,6 +21,12 @@ export const consoleSectionDetails = {
     label: "Workflows",
     routeName: "vitehub-console-workflows",
   },
+  queues: {
+    description: "Inspect discovered Queue Definitions and their source metadata.",
+    icon: "i-lucide-inbox",
+    label: "Queues",
+    routeName: "vitehub-console-queues",
+  },
 } as const satisfies Record<ConsoleSectionId, {
   description: string
   icon: string
@@ -39,11 +45,12 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown; queue?: unknown; workflow?: unknown }): ConsoleSectionId[] {
   return [
     ...(options.agent ? ["agents" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
     ...(options.workflow ? ["workflows" as const] : []),
+    ...(options.queue ? ["queues" as const] : []),
   ]
 }
 

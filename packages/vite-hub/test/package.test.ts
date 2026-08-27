@@ -298,6 +298,7 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/definitions.js`)).toBe(true)
     expect(manifest.exports).not.toHaveProperty("./console/runtime/definitions")
@@ -315,6 +316,7 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation")
     expect(consoleClient).toContain("/kv")
     expect(consoleClient).toContain("/workflows")
+    expect(consoleClient).toContain("/queues")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8")).toContain("vitehub-console")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
@@ -329,6 +331,7 @@ describe("framework package contract", () => {
           console: { exposure: "host-managed" },
           kv: true,
           preset: "node",
+          queue: true,
           workflow: true,
         })
         .find((candidate) => Reflect.get(Object(candidate), "name") === "vite-hub/console")
