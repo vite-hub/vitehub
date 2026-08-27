@@ -99,6 +99,16 @@ describe("Resend Email driver", () => {
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: false } })
   })
 
+  it.each([
+    [undefined, false],
+    ["send-1", true],
+  ])("reports ambiguous request failures as retryable only with idempotency", async (idempotencyKey, retryable) => {
+    const driver = resend({ apiKey: "re_secret", fetch: async () => { throw new Error("connection reset") } })
+
+    await expect(driver.send({ ...message, idempotencyKey }, context))
+      .resolves.toMatchObject({ error: { code: "NETWORK", retryable } })
+  })
+
   it("cancels and times out a stalled response body", async () => {
     vi.useFakeTimers()
     const cancel = vi.fn()
@@ -232,6 +242,15 @@ describe("Resend Email driver", () => {
     await expect(driver.send({ ...message, idempotencyKey: "invalid\nvalue" }, context)).resolves.toMatchObject({
       error: { code: "INVALID_OPTIONS", driver: "resend" },
     })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it("rejects an empty primary recipient list before delivery", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, to: [], cc: ["copy@example.com"] }, context))
+      .resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } })
     expect(request).not.toHaveBeenCalled()
   })
 

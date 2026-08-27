@@ -97,6 +97,8 @@ function attachment(value: EmailAttachment): Record<string, unknown> {
 function payload(message: EmailMessage): Record<string, unknown> {
   const from = addresses(message.from)[0]
   if (!from) throw emailProviderError("resend", "INVALID_OPTIONS", "from is required.")
+  const to = addresses(message.to)
+  if (to.length === 0) throw emailProviderError("resend", "INVALID_OPTIONS", "to must contain at least one recipient.")
   return {
     ...(message.attachments?.length ? { attachments: message.attachments.map(attachment) } : {}),
     ...(message.bcc ? { bcc: addresses(message.bcc).map(formatAddress) } : {}),
@@ -112,7 +114,7 @@ function payload(message: EmailMessage): Record<string, unknown> {
     subject: message.subject,
     ...(message.tags ? { tags: message.tags } : {}),
     ...(message.text !== undefined ? { text: message.text } : {}),
-    to: addresses(message.to).map(formatAddress),
+    to: to.map(formatAddress),
   }
 }
 
@@ -201,7 +203,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         if (isEmailProviderError(cause)) return { data: null, error: cause }
         if (requestTimedOut) return { data: null, error: emailProviderError("resend", "TIMEOUT", "Resend request timed out.", { cause, retryable: idempotencyKey !== undefined }) }
         if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", { cause, retryable: false }) }
-        return { data: null, error: emailProviderError("resend", "NETWORK", "Resend request failed.", { cause, retryable: true }) }
+        return { data: null, error: emailProviderError("resend", "NETWORK", "Resend request failed.", { cause, retryable: idempotencyKey !== undefined }) }
       }
       clearTimeout(requestTimeout)
       let text: string
