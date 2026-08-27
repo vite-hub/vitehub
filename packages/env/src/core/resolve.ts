@@ -277,8 +277,8 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use mode: "runtime".`)
     }
     const source = resolveEnvSource(value, valuePath, prefix)
-    if (source.kind !== "env") {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use env.source() in v1.`)
+    if (source.kind !== "env" && source.kind !== "provider") {
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use env.source() or env.provider().`)
     }
     if (!isDefaultStringEnvVariable(value)) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema, but runtime schemas cannot be serialized in v1.`)
@@ -347,6 +347,8 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: context.build.timestamp() }
     case "package-json":
       return { label: source.label, value: readPath(await resolveBuiltInSource(source.label, () => context.packageJson()), source.path) }
+    case "provider":
+      throw invalidEnvDeclaration("env", "env.provider() is available only to Server Env at runtime.")
   }
 }
 

@@ -153,6 +153,7 @@ describe("built-in deployment preset integration", () => {
               required: env({ secret: true, source: env.source("VITEHUB_TOKEN") }),
               optional: env({ optional: true, secret: true, source: env.source("OPTIONAL_TOKEN") }),
               alternatives: env({ secret: true, source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"]) }),
+              external: env({ secret: true, source: env.provider("credentials", "github/token") }),
               publicValue: env({ source: env.source("PUBLIC_VALUE") }),
             },
           },
@@ -165,7 +166,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ preset: "cloudflare" })],
+        plugins: [vitehub({ env: { providers: { credentials: "./server/env/credentials.ts" } }, preset: "cloudflare" })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
 
       expect((config as typeof config & {

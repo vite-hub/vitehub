@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import {
   createProgram,
@@ -333,6 +334,112 @@ describe("Vite plugin", () => {
       rootNames: [typesPath],
     })
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  })
+
+  it("executes generated provider-backed Server Env modules as coherent rotating snapshots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-"))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
+    await mkdir(join(root, "server", "env"), { recursive: true })
+    const providerPath = join(root, "server", "env", "secrets.mjs")
+    await writeFile(providerPath, [
+      `export const stats = { reads: 0 }`,
+      `export default { async read({ env, keys }) {`,
+      `  stats.reads += 1`,
+      `  const value = env.gatewayKey.unseal() + ":" + stats.reads`,
+      `  return Object.fromEntries(keys.map(key => [key, value]))`,
+      `} }`,
+      ``,
+    ].join("\n"), "utf8")
+    const runtimeFacadePath = join(root, "env-runtime.mjs")
+    await writeFile(runtimeFacadePath, [
+      `export { inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
+      ``,
+    ].join("\n"), "utf8")
+
+    const plugin = hubEnv({
+      providers: {
+        secrets: "./server/env/secrets.mjs",
+        unused: "./server/env/unused.mjs",
+      },
+      runtimeImports: { server: pathToFileURL(runtimeFacadePath).href },
+    })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        server: {
+          gatewayKey: env({ secret: true, source: env.source("GATEWAY_KEY") }),
+          codexAuth: env({ secret: true, source: env.provider("secrets", "shared/token") }),
+          githubToken: env({ secret: true, source: env.provider("secrets", "shared/token") }),
+        },
+      },
+      root,
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
+
+    const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    expect(serverModule).toContain(`import envProvider0 from ${JSON.stringify(providerPath)}`)
+    expect(serverModule).not.toContain("unused.mjs")
+    expect(serverModule).toContain("export async function loadServerEnv")
+    expect(serverModule).toContain("export async function inspectServerEnv")
+    expect(serverModule).toContain("shared/token")
+    expect(serverModule).not.toContain("gateway-secret")
+
+    const serverTypes = await readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")
+    expect(serverTypes).toContain("loadServerEnv(event?: unknown")
+    expect(serverTypes).toContain("Promise<ReadonlyServerEnv>")
+    expect(serverTypes).toContain("inspectServerEnv(event?: unknown")
+    expect(serverTypes).toContain('"codexAuth": SecretEnv<string>')
+
+    const generated = await import(`${pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href}?test=${Date.now()}`) as {
+      inspectServerEnv(event?: unknown): Promise<{ entries: Array<{ source: string, status: string }> }>
+      loadServerEnv(event?: unknown): Promise<{
+        codexAuth: { unseal(): string }
+        githubToken: { unseal(): string }
+      }>
+      runWithServerEnv<T>(event: unknown, callback: (env: {
+        codexAuth: { unseal(): string }
+        githubToken: { unseal(): string }
+      }) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>
+    }
+    const provider = await import(pathToFileURL(providerPath).href) as { stats: { reads: number } }
+    const event = { env: { GATEWAY_KEY: "gateway-secret" } }
+    const first = await generated.loadServerEnv(event)
+    expect(first.codexAuth.unseal()).toBe("gateway-secret:1")
+    expect(first.githubToken.unseal()).toBe("gateway-secret:1")
+    expect(provider.stats.reads).toBe(1)
+    expect(Object.isFrozen(first)).toBe(true)
+
+    await expect(generated.inspectServerEnv(event)).resolves.toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({ source: "provider", status: "available" }),
+      ]),
+    })
+    expect(provider.stats.reads).toBe(2)
+
+    await expect(generated.runWithServerEnv(event, snapshot => [
+      snapshot.codexAuth.unseal(),
+      snapshot.githubToken.unseal(),
+    ])).resolves.toEqual(["gateway-secret:3", "gateway-secret:3"])
+    expect(provider.stats.reads).toBe(3)
+
+    const aborted = new AbortController()
+    const abortReason = new Error("generated load cancelled")
+    aborted.abort(abortReason)
+    await expect(generated.runWithServerEnv(event, () => undefined, { signal: aborted.signal })).rejects.toBe(abortReason)
+    expect(provider.stats.reads).toBe(3)
+
+    const second = await generated.loadServerEnv(event)
+    expect(second.codexAuth.unseal()).toBe("gateway-secret:4")
+    expect(provider.stats.reads).toBe(4)
+
+    const missing = hubEnv()
+    const missingConfig = missing.config as typeof configHook
+    await expect(missingConfig({
+      env: { server: { token: env({ source: env.provider("secrets", "token") }) } },
+      root,
+    }, { command: "build", mode: "production" })).rejects.toThrow("hubEnv({ providers })")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {

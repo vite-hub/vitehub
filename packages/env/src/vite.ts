@@ -77,6 +77,7 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
 
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
+  let providerModules: Record<string, string> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   let diagnosticsText: string | undefined
   const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
@@ -88,7 +89,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   const prepareTypes = async (config: EnvViteConfigOptions | undefined, viteRoot: string) => {
     const root = resolveProjectRoot(viteRoot)
     const packageRoot = await resolvePackageRoot(viteRoot, root)
-    await prepareEnvGeneratedTypes(root, packageRoot, config?.public, createRuntimeRegistry(config?.server, { prefix: options.prefix }), runtimeImports)
+    const registry = createRuntimeRegistry(config?.server, { prefix: options.prefix })
+    assertConfiguredProviders(registry, resolveProviderModules(options.providers, root))
+    await prepareEnvGeneratedTypes(root, packageRoot, config?.public, registry, runtimeImports)
   }
 
   return {
@@ -104,13 +107,14 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
+      const root = resolveProjectRoot(config.root || process.cwd())
+      providerModules = resolveProviderModules(options.providers, root)
       if (!envConfig) {
         serverRegistry = {}
         for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
         return
       }
 
-      const root = resolveProjectRoot(config.root || process.cwd())
       const loadedEnv = loadEnv(env.mode, root, "")
       const context = createSourceContext({
         env: { ...loadedEnv, ...process.env },
@@ -135,6 +139,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 
       buildPublicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
       serverRegistry = createServerEnvRegistry(envConfig.server)
+      assertConfiguredProviders(serverRegistry, providerModules)
       for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
       diagnosticsText = formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics)
 
@@ -151,14 +156,14 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       }
       const projectRoot = resolveProjectRoot(config.root)
       const packageRoot = await resolvePackageRoot(config.root, projectRoot)
-      await refreshEnvGeneratedFiles(projectRoot, packageRoot, buildPublicConfig, serverRegistry, runtimeImports)
+      await refreshEnvGeneratedFiles(projectRoot, packageRoot, buildPublicConfig, serverRegistry, runtimeImports, providerModules)
     },
     load(id) {
       if (id === RESOLVED_PUBLIC_ID) {
         return createPublicEnvModule(buildPublicConfig)
       }
       if (id === RESOLVED_SERVER_ID) {
-        return createServerEnvModule(serverRegistry, runtimeImports)
+        return createServerEnvModule(serverRegistry, runtimeImports, providerModules)
       }
     },
     resolveId: {
@@ -219,18 +224,49 @@ function resolveRuntimeImports(imports: EnvRuntimeImportSpecifiers | undefined):
   }
 }
 
+function resolveProviderModules(providers: Record<string, string> | undefined, root: string): Record<string, string> {
+  const output: Record<string, string> = {}
+  for (const [name, specifier] of Object.entries(providers || {})) {
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) {
+      throw new TypeError("[vitehub] Env provider names must start with a letter and contain only letters, numbers, underscores, or hyphens.")
+    }
+    if (typeof specifier !== "string" || !specifier.trim()) {
+      throw new TypeError(`[vitehub] Env provider ${JSON.stringify(name)} requires a non-empty module specifier.`)
+    }
+    const normalized = specifier.trim()
+    output[name] = normalized.startsWith(".") ? resolve(root, normalized) : normalized
+  }
+  return output
+}
+
+function assertConfiguredProviders(registry: EnvRuntimeRegistry, providers: Record<string, string>): void {
+  const visit = (value: EnvRuntimeRegistryValue, path: string) => {
+    if (!isRecord(value)) return
+    if (isProviderEntry(value)) {
+      if (!Object.hasOwn(providers, value.source.provider)) {
+        throw new TypeError(`[vitehub] ${path} references Env provider ${JSON.stringify(value.source.provider)}, but hubEnv({ providers }) does not configure it.`)
+      }
+      return
+    }
+    if (isLiteralEntry(value) || isEnvEntry(value)) return
+    for (const [key, child] of Object.entries(value)) visit(child as EnvRuntimeRegistryValue, `${path}.${key}`)
+  }
+  for (const [key, value] of Object.entries(registry)) visit(value, `env.server.${key}`)
+}
+
 async function refreshEnvGeneratedFiles(
   root: string,
   packageRoot: string | undefined,
   publicConfig: Record<string, unknown>,
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+  providerModules: Record<string, string>,
 ): Promise<void> {
   const publicTypes = createPublicTypeEntries(publicConfig)
   await Promise.all([
     ...(packageRoot && packageRoot !== root
       ? [
-          ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports),
+          ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports, providerModules),
           writeFileIfChanged(
             viteHubEnvAmbientTypesPath(packageRoot),
             createAmbientTypesReference(packageRoot, root),
@@ -240,7 +276,7 @@ async function refreshEnvGeneratedFiles(
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
-    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports, providerModules)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ])
 }
@@ -256,12 +292,13 @@ function packageEnvModuleWrites(
   publicConfig: Record<string, unknown>,
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+  providerModules: Record<string, string>,
 ): Promise<void>[] {
   const publicTypes = createPublicTypeEntries(publicConfig)
   return [
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
-    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports)),
+    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports, providerModules)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ]
 }
@@ -310,25 +347,54 @@ function createPublicEnvModuleTypes(publicTypes: Record<string, string>): string
   ].join("\n")
 }
 
-function createServerEnvModule(serverRegistry: EnvRuntimeRegistry, runtimeImports: Required<EnvRuntimeImportSpecifiers>): string {
+function createServerEnvModule(
+  serverRegistry: EnvRuntimeRegistry,
+  runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+  providerModules: Record<string, string>,
+): string {
+  const referenced = referencedProviderNames(serverRegistry)
+  const providers = Object.entries(providerModules).filter(([name]) => referenced.has(name))
   return [
-    `import { resolveServerEnv } from ${JSON.stringify(runtimeImports.server)};`,
+    `import { inspectServerEnv as inspectRegistry, loadServerEnv as loadRegistry, resolveServerEnv } from ${JSON.stringify(runtimeImports.server)};`,
+    ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(specifier)};`),
     `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
+    `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
     "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
-    "export async function runWithServerEnv(event, callback) { return await callback(useServerEnv(event)); }",
+    "export async function loadServerEnv(event, options) { return await loadRegistry(registry, event, { ...options, providers }); }",
+    "export async function inspectServerEnv(event, options) { return await inspectRegistry(registry, event, { ...options, providers }); }",
+    "export async function runWithServerEnv(event, callback, options) { return await callback(await loadServerEnv(event, options)); }",
     "",
   ].join("\n")
+}
+
+function referencedProviderNames(registry: EnvRuntimeRegistry): Set<string> {
+  const names = new Set<string>()
+  const visit = (value: EnvRuntimeRegistryValue) => {
+    if (!isRecord(value)) return
+    if (isProviderEntry(value)) {
+      names.add(value.source.provider)
+      return
+    }
+    if (isLiteralEntry(value) || isEnvEntry(value)) return
+    for (const child of Object.values(value)) visit(child as EnvRuntimeRegistryValue)
+  }
+  for (const value of Object.values(registry)) visit(value)
+  return names
 }
 
 function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeImports: Required<EnvRuntimeImportSpecifiers>): string {
   return [
     `import type { SecretEnv } from ${JSON.stringify(runtimeImports.secret)}`,
     "",
+    ...createServerEnvInspectionTypes(0),
     "export interface ServerEnv {",
     ...createServerTypeFields(serverRegistry, 2),
     "}",
     "export function useServerEnv(event?: unknown): ServerEnv",
-    "export function runWithServerEnv<T>(event: unknown, callback: (env: ServerEnv) => T | Promise<T>): Promise<T>",
+    ...createReadonlyServerEnvTypes(0),
+    "export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ReadonlyServerEnv>",
+    "export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ServerEnvInspection>",
+    "export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>",
     "",
   ].join("\n")
 }
@@ -347,14 +413,45 @@ function createViteTypes(
     "  export function usePublicEnv(): PublicEnv",
     "}",
     "declare module \"#vitehub/env/server\" {",
+    ...createServerEnvInspectionTypes(2),
     "  export interface ServerEnv {",
     ...createServerTypeFields(serverRegistry, 4, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
-    "  export function runWithServerEnv<T>(event: unknown, callback: (env: ServerEnv) => T | Promise<T>): Promise<T>",
+    ...createReadonlyServerEnvTypes(2),
+    "  export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ReadonlyServerEnv>",
+    "  export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ServerEnvInspection>",
+    "  export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>",
     "}",
     "",
   ].join("\n")
+}
+
+function createServerEnvInspectionTypes(indent: number): string[] {
+  const prefix = " ".repeat(indent)
+  return [
+    `${prefix}export interface ServerEnvInspectionEntry {`,
+    `${prefix}  masked: boolean`,
+    `${prefix}  path?: string`,
+    `${prefix}  source: "env" | "literal" | "provider"`,
+    `${prefix}  status: "available" | "defaulted" | "error" | "invalid" | "missing"`,
+    `${prefix}}`,
+    `${prefix}export interface ServerEnvInspection {`,
+    `${prefix}  entries: readonly ServerEnvInspectionEntry[]`,
+    `${prefix}}`,
+  ]
+}
+
+function createReadonlyServerEnvTypes(indent: number): string[] {
+  const prefix = " ".repeat(indent)
+  return [
+    `${prefix}export type ReadonlyServerEnv = DeepReadonly<ServerEnv>`,
+    `${prefix}type DeepReadonly<T> = T extends (...args: infer TArguments) => infer TResult`,
+    `${prefix}  ? (...args: TArguments) => TResult`,
+    `${prefix}  : T extends object`,
+    `${prefix}    ? { readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }`,
+    `${prefix}    : T`,
+  ]
 }
 
 function createPublicTypeEntries(publicConfig: Record<string, unknown>): Record<string, string> {
@@ -390,7 +487,7 @@ function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number, se
 
 function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, secretType: string): string {
   if (isLiteralEntry(value)) return literalType(value.value)
-  if (isEnvEntry(value)) return value.secret ? `${secretType}<string>` : "string"
+  if (isEnvEntry(value) || isProviderEntry(value)) return value.secret ? `${secretType}<string>` : "string"
 
   const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2, secretType)
   if (!fields.length) return "Record<string, never>"
@@ -399,7 +496,7 @@ function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, secretTyp
 }
 
 function isOptionalServerValue(value: EnvRuntimeRegistryValue): boolean {
-  return isEnvEntry(value) && !value.required && typeof value.default === "undefined"
+  return (isEnvEntry(value) || isProviderEntry(value)) && !value.required && typeof value.default === "undefined"
 }
 
 function literalType(value: unknown): string {
@@ -428,8 +525,22 @@ function isEnvEntry(value: EnvRuntimeRegistryValue): value is Extract<EnvRuntime
   if (!isRecord(value)) return false
   const record = value as Record<string, unknown>
   return isRecord(record.source)
+    && record.source.kind === "env"
     && typeof record.required === "boolean"
     && typeof record.secret === "boolean"
+}
+
+function isProviderEntry(value: EnvRuntimeRegistryValue): value is EnvRuntimeRegistryValue & {
+  default?: unknown
+  required: boolean
+  secret: boolean
+  source: { kind: "provider", provider: string }
+} {
+  if (!isRecord(value)) return false
+  const record = value as Record<string, unknown>
+  return isRecord(record.source)
+    && record.source.kind === "provider"
+    && typeof record.source.provider === "string"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
