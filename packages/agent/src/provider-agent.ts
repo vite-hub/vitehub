@@ -1343,7 +1343,7 @@ async function* runProvider<
     const cleanup = createProviderCleanupSignal(completed ? undefined : effectiveSignal)
     let cleanupTimedOut = false
     let invocationCleanupDeferred: Promise<void> | undefined
-    let forcedRootCleanup: Promise<void> | undefined
+    let forcedCleanup: Promise<void> | undefined
     const cleanupTask = (async () => {
       const runtimeAndToolCleanup = await Promise.allSettled([
         runtimeCleanupDeferred ? undefined : runtime?.close(),
@@ -1407,8 +1407,8 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
-        forcedRootCleanup = cleanupRoot()
-        observeLateCleanup(forcedRootCleanup)
+        forcedCleanup = Promise.all([cleanupRoot(), cleanupCredentialHome()]).then(() => undefined)
+        observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)
       }
       else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
@@ -1427,7 +1427,7 @@ async function* runProvider<
     finally {
       cleanup.dispose()
     }
-    const deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
+    const deferredCleanup = forcedCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
     if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
     if (sessionKey) {

@@ -1840,17 +1840,25 @@ describe("Provider Agent Driver", () => {
       const threadId = "thread-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       provider.close.mockImplementationOnce(() => new Promise(() => {}))
-      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+      })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const stream = await adapter.stream!(context(threadId) as never)
       const result = collect(stream)
 
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      const shadowHome = runtimeCall?.[0].settings?.shadowHomePath as string
+      await expect(access(shadowHome)).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10_000)
 
       await expect(result).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ recoverable: true, type: "error" }),
       ]))
+      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
     }
     finally {
       vi.useRealTimers()
