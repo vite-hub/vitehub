@@ -127,8 +127,9 @@ async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
       return await operation()
     }
     catch (error) {
-      if (!isSqliteBusy(error) || attempt >= 7) throw error
-      await new Promise(resolve => setTimeout(resolve, Math.min(50, 2 ** attempt)))
+      if (!isSqliteBusy(error) || attempt >= 12) throw error
+      const maximumDelayMs = Math.min(100, 2 ** attempt)
+      await new Promise(resolve => setTimeout(resolve, 1 + Math.floor(Math.random() * maximumDelayMs)))
     }
   }
 }
@@ -408,44 +409,45 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async update(id, input, claimId) {
       return write(async () => {
         await initialize()
-        const transaction = await client.transaction("write")
-        let updated: AgentInvocationRecord | undefined
-        try {
-          const result = await transaction.execute({
-            args: claimId ? [id, id, claimId] : [id],
-            sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId
-              ? ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`
-              : ""} LIMIT 1`,
-          })
-          const row = result.rows[0]
-          const record = row ? deserialize(row.record, row.sequence) : undefined
-          if (!record) {
+        return await retrySqliteBusy(async () => {
+          const transaction = await client.transaction("write")
+          try {
+            const result = await transaction.execute({
+              args: claimId ? [id, id, claimId] : [id],
+              sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId
+                ? ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`
+                : ""} LIMIT 1`,
+            })
+            const row = result.rows[0]
+            const record = row ? deserialize(row.record, row.sequence) : undefined
+            if (!record) {
+              await transaction.commit()
+              return
+            }
+            const updated = applyAgentInvocationStoreUpdate(record, input)
+            const stored = storedRecord(updated)
+            await transaction.execute({
+              args: [id],
+              sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
+            })
+            await transaction.execute({
+              args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, serialize(stored), id],
+              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
+            })
+            if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") {
+              await prune(transaction)
+            }
             await transaction.commit()
-            return
+            return updated
           }
-          updated = applyAgentInvocationStoreUpdate(record, input)
-          const stored = storedRecord(updated)
-          await transaction.execute({
-            args: [id],
-            sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
-          })
-          await transaction.execute({
-            args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, serialize(stored), id],
-            sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
-          })
-          await transaction.commit()
-        }
-        catch (error) {
-          await transaction.rollback()
-          throw error
-        }
-        finally {
-          await transaction.close()
-        }
-        if (updated && (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled")) {
-          await prune()
-        }
-        return updated
+          catch (error) {
+            await transaction.rollback().catch(() => undefined)
+            throw error
+          }
+          finally {
+            await transaction.close()
+          }
+        })
       })
     },
   }
