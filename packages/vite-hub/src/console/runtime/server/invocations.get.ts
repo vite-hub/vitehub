@@ -5,9 +5,11 @@ import type { ConsoleRequestEvent } from "./request.ts"
 import type { AgentInvocationListResult } from "@vite-hub/agent"
 
 interface ConsoleInvocationCursor {
-  active?: string
-  terminal?: string
+  active?: string | null
+  terminal?: string | null
 }
+
+const defaultListLimit = 50
 
 function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   if (!value) return {}
@@ -18,8 +20,8 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
       || cursor === null
       || Array.isArray(cursor)
       || !("active" in cursor || "terminal" in cursor)
-      || ("active" in cursor && typeof cursor.active !== "string")
-      || ("terminal" in cursor && typeof cursor.terminal !== "string")
+      || ("active" in cursor && cursor.active !== null && typeof cursor.active !== "string")
+      || ("terminal" in cursor && cursor.terminal !== null && typeof cursor.terminal !== "string")
     ) throw new TypeError()
     return cursor as ConsoleInvocationCursor
   }
@@ -31,9 +33,9 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   }
 }
 
-function encodeCursor(active: string | undefined, terminal: string | undefined): string | undefined {
-  if (!active && !terminal) return
-  return JSON.stringify({ ...(active ? { active } : {}), ...(terminal ? { terminal } : {}) })
+function encodeCursor(cursor: ConsoleInvocationCursor): string | undefined {
+  if (!("active" in cursor || "terminal" in cursor)) return
+  return JSON.stringify(cursor)
 }
 
 const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocationListResult> = async (event) => {
@@ -72,28 +74,41 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       statusMessage: "Invalid invocation limit",
     })
   }
-  const listOptions = {
-    ...(agentName ? { agentName } : {}),
-    ...(limit === undefined ? {} : { limit }),
-  }
+  const pageLimit = limit ?? defaultListLimit
+  const listOptions = agentName ? { agentName } : {}
   const emptyPage: AgentInvocationListResult = { invocations: [] }
-  const [active, terminal] = await Promise.all([
-    cursor.terminal && !cursor.active
-      ? Promise.resolve(emptyPage)
-      : getConsoleInvocations().list({
-          ...listOptions,
-          ...(cursor.active ? { cursor: cursor.active } : {}),
-          status: ["pending", "running"],
-        }),
-    cursor.active && !cursor.terminal
-      ? Promise.resolve(emptyPage)
-      : getConsoleInvocations().list({
-          ...listOptions,
-          ...(cursor.terminal ? { cursor: cursor.terminal } : {}),
-          status: ["cancelled", "completed", "failed"],
-        }),
-  ])
-  const nextCursor = encodeCursor(active.cursor, terminal.cursor)
+  const initialPage = !("active" in cursor || "terminal" in cursor)
+  const hasTerminalPage = initialPage || "terminal" in cursor
+  const activeLimit = cursor.terminal === null
+    ? 0
+    : hasTerminalPage
+      ? Math.ceil(pageLimit / 2)
+      : pageLimit
+  const active = activeLimit > 0 && (initialPage || "active" in cursor)
+    ? await getConsoleInvocations().list({
+        ...listOptions,
+        ...(cursor.active ? { cursor: cursor.active } : {}),
+        limit: activeLimit,
+        status: ["pending", "running"],
+      })
+    : emptyPage
+  const terminalLimit = pageLimit - active.invocations.length
+  const terminal = terminalLimit > 0 && hasTerminalPage
+    ? await getConsoleInvocations().list({
+        ...listOptions,
+        ...(cursor.terminal ? { cursor: cursor.terminal } : {}),
+        limit: terminalLimit,
+        status: ["cancelled", "completed", "failed"],
+      })
+    : emptyPage
+  const nextCursor = encodeCursor({
+    ...(active.cursor ? { active: active.cursor } : {}),
+    ...(terminal.cursor
+      ? { terminal: terminal.cursor }
+      : terminalLimit === 0 && hasTerminalPage
+        ? { terminal: cursor.terminal ?? null }
+        : {}),
+  })
   return {
     ...(nextCursor ? { cursor: nextCursor } : {}),
     invocations: [...active.invocations, ...terminal.invocations],

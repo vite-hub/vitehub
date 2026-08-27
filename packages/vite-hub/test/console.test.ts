@@ -427,7 +427,7 @@ describe("Agent invocation console", () => {
     })
   })
 
-  it("bounds active and terminal console sessions to the requested page size", async () => {
+  it("bounds each console response to the requested page size", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [index, status] of (["pending", "pending", "pending", "completed", "completed", "completed"] as const).entries()) {
       store.create({
@@ -447,17 +447,22 @@ describe("Agent invocation console", () => {
 
     const result = await invocationsHandler(requestEvent)
 
-    expect(result.invocations.filter(invocation => invocation.status === "pending")).toHaveLength(2)
-    expect(result.invocations.filter(invocation => invocation.status === "completed")).toHaveLength(2)
+    expect(result.invocations.map(invocation => invocation.id)).toEqual(["pending-2", "completed-5"])
     expect(result.cursor).toBeDefined()
 
     requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(result.cursor!)}`
     requestEvent.req!.url = requestEvent.node!.req!.url
     const next = await invocationsHandler(requestEvent)
 
-    expect(next.invocations.filter(invocation => invocation.status === "pending")).toHaveLength(1)
-    expect(next.invocations.filter(invocation => invocation.status === "completed")).toHaveLength(1)
-    expect(next.cursor).toBeUndefined()
+    expect(next.invocations.map(invocation => invocation.id)).toEqual(["pending-1", "completed-4"])
+    expect(next.cursor).toBeDefined()
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(next.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    const last = await invocationsHandler(requestEvent)
+
+    expect(last.invocations.map(invocation => invocation.id)).toEqual(["pending-0", "completed-3"])
+    expect(last.cursor).toBeUndefined()
   })
 
   it("continues active pagination after terminal sessions are exhausted", async () => {
@@ -479,13 +484,13 @@ describe("Agent invocation console", () => {
     requestEvent.req!.url = url
 
     const first = await invocationsHandler(requestEvent)
-    expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-3", "pending-2", "completed-0"])
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-3", "completed-0"])
     expect(first.cursor).toBeDefined()
 
     requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
     requestEvent.req!.url = requestEvent.node!.req!.url
     const second = await invocationsHandler(requestEvent)
-    expect(second.invocations.map(invocation => invocation.id)).toEqual(["pending-1"])
+    expect(second.invocations.map(invocation => invocation.id)).toEqual(["pending-2", "pending-1"])
     expect(second.cursor).toBeUndefined()
   })
 
