@@ -164,6 +164,7 @@ async function importPackagesWithoutRootFallback(appDir: string, includeOptional
       const runnerDir = join(appDir, ".isolated", info.name)
       const packageNameParts = info.packageName.split("/")
       const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
+      await rm(runnerDir, { recursive: true, force: true })
       await mkdir(linkDir, { recursive: true })
       const packageDirName = packageNameParts.at(-1)
       if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
@@ -174,7 +175,7 @@ async function importPackagesWithoutRootFallback(appDir: string, includeOptional
           && contract.kind !== "type-only"
           && (includeOptionalPeers || contract.optionalPeers.length === 0))
         .map(contract => contract.specifier))
-      if (includeOptionalPeers) await typecheckPackageExports(info.packageName, packageRoot, runnerDir)
+      await typecheckPackageExports(info.packageName, packageRoot, runnerDir, includeOptionalPeers)
     })
   }
 }
@@ -238,20 +239,16 @@ async function addOptionalPeers(appDir: string) {
   return Object.keys(peers)
 }
 
-async function withRequiredVue(appDir: string, runWithVue: () => Promise<void>) {
+async function addRequiredVue(appDir: string) {
   const version = await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json"))
   await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", `vue@${version}`], appDir)
-  try {
-    await runWithVue()
-  }
-  finally {
-    await run("corepack", ["pnpm", "remove", "vue"], appDir)
-  }
 }
 
-async function typecheckPackageExports(packageName: string, packageRoot: string, runnerDir: string) {
+async function typecheckPackageExports(packageName: string, packageRoot: string, runnerDir: string, includeOptionalPeers: boolean) {
   const modules = publicPackageExportContracts.filter(contract =>
-    contract.packageName === packageName && isJavaScriptModule(contract.target),
+    contract.packageName === packageName
+    && isJavaScriptModule(contract.target)
+    && (includeOptionalPeers || contract.optionalPeers.length === 0),
   )
   const ambientModules: Record<string, string> = {
     "@vite-hub/blob": "#vitehub/blob/config",
@@ -365,14 +362,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       }
 
       const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
-      await withRequiredVue(appDir, async () => {
-        await importSpecifiers(appDir, publicPackageExportContracts
-          .filter(contract => contract.packageName === "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
-          .map(contract => contract.specifier))
-      })
       await assertResolution(appDir, optionalPeers, false)
       await importSpecifiers(appDir, publicPackageExportContracts
         .filter(contract => contract.packageName !== "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
+        .map(contract => contract.specifier))
+      await addRequiredVue(appDir)
+      await importSpecifiers(appDir, publicPackageExportContracts
+        .filter(contract => contract.packageName === "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
         .map(contract => contract.specifier))
       await importPackagesWithoutRootFallback(appDir, false)
 
