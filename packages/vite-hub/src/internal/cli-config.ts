@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import type { InlineConfig, ResolvedConfig } from "vite"
@@ -62,11 +62,13 @@ export async function loadViteHubCliConfig(
   const loadNuxt = dependencies.loadNuxt ?? await resolveNuxtLoader(rootDir)
   const nuxt = await loadNuxt({ cwd: rootDir, dev: false, ready: true })
   try {
+    const nuxtRoot = nuxt.options.rootDir || rootDir
+    const viteRoot = resolve(nuxtRoot, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : nuxtRoot)
     return {
       ...await resolveViteConfig({
-      ...nuxt.options.vite,
-      configFile: false,
-      root: nuxt.options.rootDir || rootDir,
+        ...nuxt.options.vite,
+        configFile: false,
+        root: viteRoot,
       }, "serve", "development"),
       vitehubConfigResolved: true,
     }
