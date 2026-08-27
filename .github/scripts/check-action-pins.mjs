@@ -87,12 +87,13 @@ export function inspectGitHubActionReferences(path, source) {
     return isScalar(pairKey) && pairKey.value === key
   })
   const inspectSteps = (steps) => {
+    const sequenceComment = steps?.comment ?? ""
     if (isAlias(steps)) steps = steps.resolve(document)
     if (!isSeq(steps)) return
     for (let step of steps.items) {
       const aliasComment = step?.comment ?? ""
       if (isAlias(step)) step = step.resolve(document)
-      if (isMap(step)) inspectUses(findPair(step, "uses"), aliasComment || step.comment || "")
+      if (isMap(step)) inspectUses(findPair(step, "uses"), aliasComment || step.comment || sequenceComment)
     }
   }
 
@@ -105,9 +106,10 @@ export function inspectGitHubActionReferences(path, source) {
     const jobs = findPair(root, "jobs")?.value
     if (!isMap(jobs)) return failures
     for (const jobPair of jobs.items) {
+      const aliasComment = jobPair.value?.comment ?? ""
       const job = isAlias(jobPair.value) ? jobPair.value.resolve(document) : jobPair.value
       if (!isMap(job)) continue
-      inspectUses(findPair(job, "uses"), job.comment ?? "")
+      inspectUses(findPair(job, "uses"), aliasComment || job.comment || "")
       inspectSteps(findPair(job, "steps")?.value)
     }
   }

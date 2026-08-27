@@ -198,6 +198,15 @@ jobs:
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("allows pinned steps with a flow-sequence version comment", async () => {
+    const reference = pinnedCheckout.split(" #")[0]
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps: [{ uses: ${reference} }] # v6.1.0\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
   it("inspects action references through aliased workflow jobs", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `job: &unpinned-job
@@ -211,6 +220,15 @@ jobs:
     await expect(checkGitHubActionPins(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("actions/checkout@v6") }),
     ])
+  })
+
+  it("allows a pinned aliased reusable-workflow job with a version comment", async () => {
+    const reference = "owner/repo/.github/workflows/build.yml@1234567890abcdef1234567890abcdef12345678"
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `job: &call\n  uses: ${reference}\njobs:\n  call: *call # v1.2.3\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
   it("inspects action fields whose mapping keys are aliases", async () => {
