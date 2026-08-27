@@ -1345,7 +1345,11 @@ describe("agent Vite plugin", () => {
         packages: [
           { name: "@openai/codex", resolveFrom: join(root, "package.json") },
           { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
-          { name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(root, "package.json") },
+          {
+            name: "@anthropic-ai/claude-agent-sdk",
+            resolveFrom: join(root, "package.json"),
+            includePeerDependencies: true,
+          },
           { name: claudePlatformPackage, resolveFrom: join(claudePackageDir, "package.json") },
         ],
         rootDir: root,
