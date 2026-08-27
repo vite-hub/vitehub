@@ -1,5 +1,23 @@
 import { defineConfig } from "vite-plus";
 
+const bundledFilesSdkDrivers = new Set([
+  "akamai",
+  "azure",
+  "box",
+  "digitalocean-spaces",
+  "dropbox",
+  "fs",
+  "gcs",
+  "google-drive",
+  "hetzner",
+  "minio",
+  "onedrive",
+  "s3",
+  "storj",
+  "supabase",
+  "uploadthing",
+]);
+
 export default defineConfig({
   pack: {
     alias: {
@@ -50,9 +68,21 @@ export default defineConfig({
     exports: {
       customExports(exports) {
         return Object.fromEntries(
-          Object.entries(exports).filter(([key]) =>
-            key !== "./drivers/vercel-bundled" && key !== "./storage"
-          ),
+          Object.entries(exports)
+            .filter(([key]) => key !== "./drivers/vercel-bundled" && key !== "./storage")
+            .map(([key, value]) => {
+              const driver = key.match(/^\.\/drivers\/(.+)$/)?.[1];
+              if (!driver || !bundledFilesSdkDrivers.has(driver) || typeof value !== "string") {
+                return [key, value];
+              }
+              return [
+                key,
+                {
+                  types: value.replace(/\.js$/, ".d.ts"),
+                  default: value,
+                },
+              ];
+            }),
         );
       },
       inlinedDependencies: false,
