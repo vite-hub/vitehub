@@ -66,7 +66,8 @@ describe("Deno deployment output", () => {
 await import("data-package", { with: { type: "json" } })
 await import("identifier-options", importOptions)
 await import("function-options", createImportOptions())
-`)).toEqual(["data-package", "function-options", "identifier-options"])
+await import(\`template-package\`)
+`)).toEqual(["data-package", "function-options", "identifier-options", "template-package"])
   })
 
   it("ignores import-shaped member calls", () => {
@@ -332,20 +333,24 @@ import "real"
     expect(existsSync(join(root, ".output/node_modules/image-package/node_modules/image-package-linux-x64/package.json"))).toBe(true)
   })
 
-  it("stages literal dynamic application and Schedule imports with attributes", async () => {
+  it("stages literal dynamic application and Schedule imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-attributes-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeRuntimePackage(root, "application-data-package")
     await writeRuntimePackage(root, "schedule-data-package")
+    await writeRuntimePackage(root, "application-template-package")
+    await writeRuntimePackage(root, "schedule-template-package")
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
-    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'await import("schedule-data-package", { with: { type: "json" } })\n', "utf8")
-    await writeFile(join(root, "main.ts"), 'await import("application-data-package", { with: { type: "json" } })\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'await import("schedule-data-package", { with: { type: "json" } })\nawait import(`schedule-template-package`)\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("application-data-package", { with: { type: "json" } })\nawait import(`application-template-package`)\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     expect(existsSync(join(root, ".output/node_modules/application-data-package/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/schedule-data-package/package.json"))).toBe(true)
+    expect(existsSync(join(root, ".output/node_modules/application-template-package/package.json"))).toBe(true)
+    expect(existsSync(join(root, ".output/node_modules/schedule-template-package/package.json"))).toBe(true)
   })
 
   it("preserves regex aliases while staging Deno entrypoints", async () => {

@@ -88,7 +88,7 @@ interface LiteralDynamicImport {
 
 function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
   const imports: LiteralDynamicImport[] = []
-  for (const match of source.matchAll(/(?:^|[^\w$.#])import\s*\(\s*(["'])/g)) {
+  for (const match of source.matchAll(/(?:^|[^\w$.#])import\s*\(\s*(["'`])/g)) {
     const start = match.index! + match[0].indexOf("import")
     const quote = match[1]!
     const literalStart = match.index! + match[0].length - 1
@@ -134,6 +134,20 @@ function maskInertImportText(source: string): string {
   }
 
   function scanTemplate(): void {
+    if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(output)) {
+      let literalEnd = index + 1
+      while (literalEnd < source.length) {
+        if (source[literalEnd] === "\\") literalEnd += 2
+        else if (source[literalEnd] === "$" && source[literalEnd + 1] === "{") break
+        else {
+          if (source[literalEnd++] === "`") {
+            output += source.slice(index, literalEnd)
+            index = literalEnd
+            return
+          }
+        }
+      }
+    }
     output += " "
     index++
     while (index < source.length) {
