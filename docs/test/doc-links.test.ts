@@ -68,6 +68,7 @@ to: "#install"
 ---
 ::
 <a href="/docs/html&#35;install">HTML</a>
+<a href="/docs/literal&notit=bar">Attribute entity</a>
 <https://vitehub.dev/docs/autolink>
 https://vitehub.dev/docs/bare-autolink
 
@@ -109,6 +110,7 @@ https://vitehub.dev/docs/bare-autolink
       "/docs/card#install",
       "#install",
       "/docs/html#install",
+      "/docs/literal&notit=bar",
       "https://vitehub.dev/docs/autolink",
       "https://vitehub.dev/docs/bare-autolink",
     ]);
@@ -200,6 +202,17 @@ https://vitehub.dev/docs/bare-autolink
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('file "../../../../etc/passwd" is outside the repository'),
     ]);
+  });
+
+  it("decodes repository-relative URL paths before lookup", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "packages/example/package.json": JSON.stringify({ name: "example" }),
+      "packages/example/README.md": "[Notes](../release%20notes/README.md)",
+      "packages/release notes/README.md": "# Notes",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
   });
 
   it("accepts explicit HTML anchors in docs content", () => {
@@ -481,6 +494,15 @@ to: /docs/missing-card
     ]);
   });
 
+  it("normalizes every trailing slash on rendered routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Docs](/docs///)",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
   it("validates same-site links in the repository README", () => {
     const repoRoot = fixture({
       "README.md": "# ViteHub\n\n[Missing](https://vitehub.dev/docs/missing)",
@@ -513,6 +535,13 @@ to: /docs/missing-card
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('file "./dark.svg" does not exist'),
       expect.stringContaining('file "./dark@2x.svg" does not exist'),
+    ]);
+  });
+
+  it("uses only ASCII whitespace to delimit source-set candidates", () => {
+    expect(markdownLinks('<source srcset="./a\u00a0b.png 1x, ./second.png 2x">', { renderer: "github" })).toEqual([
+      "./a\u00a0b.png",
+      "./second.png",
     ]);
   });
 

@@ -63,7 +63,9 @@ function markdownSlug(value) {
 function htmlAttribute(tag, attributeName) {
   const attributes = tag.slice(tag.search(/\s/));
   for (const match of attributes.matchAll(/\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
-    if (match[1].toLowerCase() === attributeName) return decode(match[2] ?? match[3] ?? match[4] ?? "");
+    if (match[1].toLowerCase() === attributeName) {
+      return decode(match[2] ?? match[3] ?? match[4] ?? "", { scope: "attribute" });
+    }
   }
   return undefined;
 }
@@ -77,12 +79,13 @@ function htmlTags(value) {
 }
 
 function sourceSetLinks(value) {
+  const asciiWhitespace = /[ \t\n\f\r]/;
   const links = [];
   let position = 0;
   while (position < value.length) {
-    while (/[\s,]/.test(value[position] ?? "")) position += 1;
+    while (asciiWhitespace.test(value[position] ?? "") || value[position] === ",") position += 1;
     const start = position;
-    while (position < value.length && !/\s/.test(value[position])) position += 1;
+    while (position < value.length && !asciiWhitespace.test(value[position])) position += 1;
     let url = value.slice(start, position);
     const trailingCommas = url.match(/,+$/)?.[0].length ?? 0;
     if (trailingCommas) url = url.slice(0, -trailingCommas);
@@ -223,7 +226,7 @@ function normalizeRoute(route) {
 }
 
 function normalizeRenderedRoute(route) {
-  return route.length > 1 ? route.replace(/\/$/, "") : route;
+  return route.length > 1 ? route.replace(/\/+$/, "") || "/" : route;
 }
 
 function publicReadmes(repoRoot) {
@@ -385,7 +388,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
           continue;
         }
       } else {
-        targetFile = resolve(dirname(sourcePath), path);
+        const decodedPath = decodeFragment(path);
+        targetFile = resolve(dirname(sourcePath), decodedPath);
         if (targetFile !== repoRoot && !targetFile.startsWith(`${repoRoot}${sep}`)) {
           errors.push(`${relative(repoRoot, sourcePath)}: file ${JSON.stringify(path)} is outside the repository`);
           continue;

@@ -5,7 +5,12 @@ const defaultAttempts = 3;
 const repositoryMetadataSchema = object({ default_branch: string() });
 
 function githubRepository(actionUrl) {
-  const url = new URL(actionUrl);
+  let url;
+  try {
+    url = new URL(actionUrl);
+  } catch {
+    return undefined;
+  }
   if (url.hostname !== "github.com") return undefined;
   const [owner, repository] = url.pathname.split("/").filter(Boolean);
   return owner && repository ? { owner, repository } : undefined;

@@ -40,6 +40,20 @@ describe("public example link checks", () => {
     ]);
   });
 
+  it("continues auditing after a malformed catalog URL", async () => {
+    const fetchImpl = vi.fn(async () => new Response("ok", { status: 200 }));
+    const result = await checkExampleLinks([
+      { name: "Malformed", kind: "project", status: "published", action: { to: "not a URL" } },
+      { name: "Later", kind: "project", status: "published", action: { to: "https://example.com/later" } },
+    ], { attempts: 1, fetchImpl });
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({ category: "catalog-url", name: "Malformed" }),
+    ]);
+    expect(result.checks).toHaveLength(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("times out, retries, and reports the final request error", async () => {
     const fetchImpl = vi.fn((_input: string | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
