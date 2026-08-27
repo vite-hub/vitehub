@@ -334,7 +334,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         .join("");
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
-      const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
+      const failed = sorted.some(item => item.type === "error" || /\.(error|failed)$/.test(item.name));
       const approvalDenied = attributes["approval.approved"] === false;
       const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|failed|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
@@ -353,7 +353,11 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         && invocation.status !== "running"
         ? invocation.status === "failed" ? "failed" : "completed"
         : undefined;
-      const endedAt = unfinishedTerminalStatus ? invocationEndedAt ?? observedEndedAt : observedEndedAt;
+      const endedAt = unfinishedTerminalStatus
+        ? invocationEndedAt ?? observedEndedAt
+        : started && !completed && invocation.status === "running"
+          ? invocation.updatedAt
+          : observedEndedAt;
       const observedDuration = Date.parse(endedAt ?? "") - Date.parse(first.timestamp);
       const durationMs = numericAttribute(attributes, "tool.durationMs")
         ?? (Number.isFinite(observedDuration) ? Math.max(0, observedDuration) : undefined);
