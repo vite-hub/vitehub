@@ -35,6 +35,23 @@ async function directorySize(directory: string): Promise<number> {
   return size
 }
 
+interface DeployInvocation {
+  args: string[]
+  cwd: string
+  entry?: boolean
+  legacyEntry?: boolean
+  libvips?: boolean
+  sharp?: boolean
+}
+
+function parseDeployInvocation(source: string): DeployInvocation {
+  const value: unknown = JSON.parse(source)
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected a deployment invocation object.")
+  const record = value as Record<string, unknown>
+  if (!Array.isArray(record.args) || !record.args.every(argument => typeof argument === "string") || typeof record.cwd !== "string") throw new Error("Expected deployment invocation arguments and cwd.")
+  return { ...record, args: record.args, cwd: record.cwd } as DeployInvocation
+}
+
 describe("Deno deployment output", () => {
   it("finds external packages without treating runtime protocols as npm packages", () => {
     expect(
@@ -62,6 +79,9 @@ import "real"
 const matcher = /import\("healthcheck"\)/
 const characterClass = /[\\/]require\("missing"\)/g
 if (ready) {} /import\("after-block"\)/.test(value)
+switch (value) {} /import\("after-switch"\)/.test(value)
+try {} catch (error) {} /import\("after-catch"\)/.test(value)
+block: {} /import\("after-bare-block"\)/.test(value)
 while (ready) /require\("after-condition"\)/.test(value)
 try {} finally {} /import\("after-finally"\)/.test(value)
 function done() {} /import\("after-function"\)/.test(value)
@@ -107,6 +127,22 @@ import "real"
     })
     await expect(execFile("deno", ["check", "--config", join(root, ".output/deno.json"), join(root, ".output/main.ts")])).resolves.toMatchObject({ stderr: "" })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
+  })
+
+  it("bundles package import mappings into relocated entrypoints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-imports-"))
+    await writeJson(join(root, "package.json"), { imports: { "#config": "./config.ts" } })
+    await writeFile(join(root, "config.ts"), 'export default "mapped-config"\n', "utf8")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import config from "#config"\nglobalThis.scheduleConfig = config\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'import config from "#config"\nglobalThis.entryConfig = config\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain("mapped-config")
+    await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toContain("mapped-config")
   })
 
   it("rejects computed local application imports that cannot survive relocation", async () => {
@@ -416,7 +452,7 @@ import "real"
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
     expect(deployRunner).toContain('process.env.DENO_DEPLOY_APP || "package-default"')
-    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', "creation.signal == null", '["deploy", ".", "--prod", "--config", "deno.json"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', "creation.signal != null && !interrupted", '["deploy", ".", "--prod", "--config", "deno.json"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
     await expect(readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       deploy: { runtime: { mode: "dynamic", entrypoint: "./server/index.mjs", cwd: "." } },
     })
@@ -543,6 +579,7 @@ await appendFile(log, JSON.stringify({
   sharp: existsSync("node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"),
   libvips: existsSync("node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"),
 }) + "\\n")
+if (process.env.VITEHUB_DENO_SELF_SIGNAL === "1") process.kill(process.pid, "SIGTERM")
 process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 : 0)
 `, "utf8")
       await chmod(fakeDeno, 0o755)
@@ -556,14 +593,7 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
       }
       await execFile(process.execPath, [join(output, "deploy.mjs")], { env })
 
-      const invocations = (await readFile(invocationsFile, "utf8")).trim().split("\n").map(line => JSON.parse(line) as {
-        args: string[]
-        cwd: string
-        entry: boolean
-        legacyEntry: boolean
-        libvips: boolean
-        sharp: boolean
-      })
+      const invocations = (await readFile(invocationsFile, "utf8")).trim().split("\n").map(parseDeployInvocation)
       expect(invocations).toHaveLength(2)
       expect(invocations[0]!.args.slice(0, 3)).toEqual(["deploy", "create", "."])
       expect(invocations[1]!.args.slice(0, 2)).toEqual(["deploy", "."])
@@ -578,13 +608,21 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
       await expect(execFile(process.execPath, [join(output, "deploy.mjs")], {
         env: {
           ...env,
+          VITEHUB_DENO_INVOCATIONS: join(root, "signaled-invocations.jsonl"),
+          VITEHUB_DENO_SELF_SIGNAL: "1",
+        },
+      })).rejects.toThrow()
+
+      await expect(execFile(process.execPath, [join(output, "deploy.mjs")], {
+        env: {
+          ...env,
           VITEHUB_DENO_ALWAYS_FAIL: "1",
           VITEHUB_DENO_INVOCATIONS: failedInvocationsFile,
         },
       })).rejects.toThrow()
       const failedInvocations = (await readFile(failedInvocationsFile, "utf8")).trim().split("\n")
       expect(failedInvocations).toHaveLength(2)
-      const failedStages = failedInvocations.map(line => JSON.parse(line) as { args: string[], cwd: string })
+      const failedStages = failedInvocations.map(parseDeployInvocation)
       expect(failedStages[0]!.cwd).toBe(failedStages[1]!.cwd)
       for (const invocation of failedStages) expect(invocation.args).toContain("--allow-node-modules")
       const failedStage = failedStages[1]!

@@ -2,6 +2,8 @@ import { access, cp, mkdir, readdir, readFile, realpath, rename, rm, stat, write
 import { builtinModules, createRequire } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
+import type { Plugin } from "esbuild"
+
 import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
 
 const builtinModuleNames = new Set([
@@ -200,8 +202,9 @@ function canStartRegexLiteral(output: string): boolean {
   if (prefix.endsWith("++") || prefix.endsWith("--")) return false
   if ("([{,:;=!?&|~%^<>*+-".includes(prefix.at(-1)!)) return true
   if (endsWithDeclaration(prefix)) return true
-  if (/\b(?:if|for|while|with)\s*\([^;{}]*\)\s*(?:\{[^{}]*\})?$/.test(prefix)) return true
+  if (/\b(?:catch|if|for|switch|while|with)\s*\([^;{}]*\)\s*(?:\{[^{}]*\})?$/.test(prefix)) return true
   if (/\b(?:do|else|finally|try)\s*\{[^{}]*\}$/.test(prefix)) return true
+  if (/(?:^|[;{}])\s*\{[^{}]*\}$/.test(prefix)) return true
   return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(prefix)
 }
 
@@ -217,6 +220,26 @@ function endsWithDeclaration(source: string): boolean {
   if (depth !== 0) return false
   const header = source.slice(0, bodyStart).trimEnd()
   return /(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^;]*\)|class\s+[\w$]+(?:\s+extends\s+[^;{}]+)?)\s*$/.test(header)
+}
+
+function packageImportPlugin(): Plugin {
+  const resolvingPackageImport = "vitehubResolvingPackageImport"
+  return {
+    name: "vitehub-package-imports",
+    setup(build) {
+      build.onResolve({ filter: /^#/ }, async (args) => {
+        if (args.pluginData?.[resolvingPackageImport]) return
+        return build.resolve(args.path, {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: { ...args.pluginData, [resolvingPackageImport]: true },
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
+      })
+    },
+  }
 }
 
 export function collectDenoRuntimePackageNames(source: string): string[] {
@@ -240,10 +263,42 @@ interface RuntimePackageJson {
   cpu?: string[]
   dependencies?: Record<string, string>
   libc?: string[]
+  name?: string
   optionalDependencies?: Record<string, string>
   os?: string[]
   peerDependencies?: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
+function parseRuntimePackageJson(source: string): RuntimePackageJson {
+  const value: unknown = JSON.parse(source)
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected package.json to contain an object.")
+  const record = value as Record<string, unknown>
+  const stringArray = (key: string): string[] | undefined => {
+    const property = record[key]
+    if (property === undefined) return
+    if (!Array.isArray(property) || !property.every(item => typeof item === "string")) throw new Error(`Expected package.json ${key} to contain strings.`)
+    return property
+  }
+  const stringRecord = (key: string): Record<string, string> | undefined => {
+    const property = record[key]
+    if (property === undefined) return
+    if (!property || typeof property !== "object" || Array.isArray(property) || !Object.values(property).every(item => typeof item === "string")) throw new Error(`Expected package.json ${key} to contain string values.`)
+    return property as Record<string, string>
+  }
+  const peerMeta = record.peerDependenciesMeta
+  if (peerMeta !== undefined && (!peerMeta || typeof peerMeta !== "object" || Array.isArray(peerMeta))) throw new Error("Expected package.json peerDependenciesMeta to contain an object.")
+  if (record.name !== undefined && typeof record.name !== "string") throw new Error("Expected package.json name to contain a string.")
+  return {
+    cpu: stringArray("cpu"),
+    dependencies: stringRecord("dependencies"),
+    libc: stringArray("libc"),
+    name: record.name,
+    optionalDependencies: stringRecord("optionalDependencies"),
+    os: stringArray("os"),
+    peerDependencies: stringRecord("peerDependencies"),
+    peerDependenciesMeta: peerMeta as RuntimePackageJson["peerDependenciesMeta"],
+  }
 }
 
 async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: string, packages: RuntimePackage[], rootDir: string }): Promise<void> {
@@ -272,7 +327,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   }
   const resolvedPackageJsonPath = await realpath(packageJsonPath)
   const packageDir = dirname(resolvedPackageJsonPath)
-  const packageJson = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8")) as RuntimePackageJson
+  const packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
@@ -296,7 +351,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     for (const dependencyName of Object.keys(packageJson.optionalDependencies || {})) {
       const dependencyPackageJsonPath = await resolvePackageJson(dependencyName, packageRequire, packageDir)
       if (!dependencyPackageJsonPath) continue
-      const dependencyPackageJson = JSON.parse(await readFile(dependencyPackageJsonPath, "utf8")) as RuntimePackageJson
+      const dependencyPackageJson = parseRuntimePackageJson(await readFile(dependencyPackageJsonPath, "utf8"))
       if (supportsDenoRuntime(dependencyPackageJson)) dependencyNames.add(dependencyName)
     }
   }
@@ -348,7 +403,7 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
       const candidate = join(current, "package.json")
       try {
         await access(candidate)
-        const packageJson = JSON.parse(await readFile(candidate, "utf8")) as { name?: string }
+        const packageJson = parseRuntimePackageJson(await readFile(candidate, "utf8"))
         if (packageJson.name === name) return candidate
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
@@ -483,7 +538,9 @@ function contains(parent, child) {
 const sourceRoot = await realpath(fileURLToPath(new URL(".", import.meta.url)))
 const uploadRoot = await realpath(await mkdtemp(join(tmpdir(), "vitehub-deno-deploy-")))
 const signals = ["SIGINT", "SIGTERM"]
+let interrupted = false
 const handleSignal = (signal) => {
+  interrupted = true
   activeChild?.kill(signal)
   void rm(uploadRoot, { force: true, recursive: true }).finally(() => {
     process.kill(process.pid, signal)
@@ -499,7 +556,10 @@ try {
 
   const common = ["--allow-node-modules", "--org", organization, "--app", app]
   const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
-  if (creation.signal == null && creation.code !== 0) {
+  if (creation.signal != null && !interrupted) {
+    throw new Error("deno deploy create exited with " + creation.signal)
+  }
+  if (!interrupted && creation.code !== 0) {
     const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
     if (deployment.code !== 0) {
       throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
@@ -539,6 +599,7 @@ export async function finalizeDenoDeploymentOutput(
         format: "esm",
         packages: "external",
         platform: "neutral",
+        plugins: [packageImportPlugin()],
         rootDir: options.rootDir,
         workingDir: options.rootDir,
       })
@@ -557,6 +618,7 @@ export async function finalizeDenoDeploymentOutput(
         format: "esm",
         packages: "external",
         platform: "neutral",
+        plugins: [packageImportPlugin()],
         rootDir: options.rootDir,
         workingDir: options.rootDir,
       })
