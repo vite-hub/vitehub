@@ -1954,6 +1954,9 @@ importers:
       mlly:
         specifier: catalog:unjs
         version: 1.8.2
+      playwright-core:
+        specifier: catalog:browser
+        version: 1.61.1
       uploadthing:
         specifier: catalog:storage
         version: 7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3)

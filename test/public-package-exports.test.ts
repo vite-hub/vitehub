@@ -31,9 +31,11 @@ describe("public package export contracts", () => {
   it("marks eager framework exports as optional-peer consumers", () => {
     const eagerPeerExports = new Map<string, string>([
       ["@vite-hub/auth/nuxt", "vite"],
+      ["@vite-hub/browser/controllers/playwright", "playwright-core"],
       ["@vite-hub/source/client", "vue"],
       ["@vite-hub/workspace/collections/client", "vue"],
       ["vite-hub", "vite"],
+      ["vite-hub/browser/controllers/playwright", "playwright-core"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/ui", "vue"],

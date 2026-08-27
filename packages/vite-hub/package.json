@@ -228,6 +228,7 @@
     "@nuxt/ui": "^4.11.0",
     "comark-content": "catalog:markdown",
     "evalite": "catalog:ai",
+    "playwright-core": "catalog:browser",
     "reka-ui": "^2.10.3",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
@@ -241,6 +242,9 @@
       "optional": true
     },
     "evalite": {
+      "optional": true
+    },
+    "playwright-core": {
       "optional": true
     },
     "reka-ui": {
