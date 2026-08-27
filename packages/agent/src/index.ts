@@ -5660,7 +5660,13 @@ async function executeAgentInvocationWithCapacityLease<
           })
         }
         else {
-          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          const finishOutcome = finishOutcomeFromCleanup(outcome)
+          const usage = finishResult && hasRuntimeType(finishResult, "object")
+            ? toAgentRunResult(finishResult).usageRecord
+            : undefined
+          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcome.status === "success"
+            ? { ...finishOutcome, usage, usageResolved: true }
+            : finishOutcome, streamFailureMessage, outputExtensions)
         }
       }, {
         abortSignal: invocation.input.abortSignal,
