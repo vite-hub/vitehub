@@ -274,7 +274,8 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const selectedWorkspaceScope = options.selectedWorkspaceScope
   const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
   const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path =>
-    !isLazySourcePath(resolvedDefinition, path) || isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
+    !isLazySourcePath(resolvedDefinition, path)
+    || selectedScopeCanRead(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
   ))
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   let readWorkspace!: Workspace

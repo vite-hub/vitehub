@@ -1044,6 +1044,37 @@ describe("Workspace Source Resolution", () => {
     expect(getItem).toHaveBeenCalledOnce()
   })
 
+  it("does not serve startup snapshots outside the selected scope", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["public.md", "private.md"] },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+      selectedWorkspaceScope: {
+        all: false,
+        name: "public",
+        paths: ["docs/public.md"],
+        role: "reader",
+        sources: ["docs"],
+      },
+    })
+
+    await expect(workspace.fs.readFile("docs/public.md")).resolves.toBe("public.md\n")
+    await expect(workspace.fs.readFile("docs/private.md")).rejects.toThrow("outside the selected Workspace scope")
+  })
+
   it("does not serve parent startup snapshots through resolved child Sources", async () => {
     const childGetItem = vi.fn(async (key: string) => ({ key, content: "resolved\n" }))
     const definition: WorkspaceDefinition = {
