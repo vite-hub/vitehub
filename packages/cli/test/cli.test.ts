@@ -79,6 +79,25 @@ describe("ViteHub CLI", () => {
     expect(exit).toHaveBeenCalledWith(0)
   })
 
+  it("exits with callback-less configured entrypoint streams", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+    expect(stdout.output()).toContain("Usage: vitehub")
+  })
+
   it("routes package-contributed CLI features", async () => {
     const stdout = stream()
     const stderr = stream()

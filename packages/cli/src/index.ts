@@ -220,8 +220,15 @@ function exitAfterStreamsFlush(exitCode: number, streams: ViteHubCliStreams): vo
     pending--
     if (pending === 0) process.exit(exitCode)
   }
-  streams.stdout.write("", flushed)
-  streams.stderr.write("", flushed)
+  for (const stream of [streams.stdout, streams.stderr]) {
+    if (stream.write.length < 2) {
+      stream.write("")
+      flushed()
+    }
+    else {
+      stream.write("", flushed)
+    }
+  }
 }
 
 export function runViteHubCliEntrypoint(options: RunViteHubCliOptions = {}): void {
