@@ -113,6 +113,19 @@ import "real"
     )
   })
 
+  it("rejects computed local application imports inside template interpolations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-template-entry-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), '`${await import(new URL("./helper.ts", import.meta.url).href)}`\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+      'unsupported computed local import "./helper.ts"',
+    )
+  })
+
   it("rejects computed imports retained from bundled application helpers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-helper-"))
     await mkdir(join(root, ".output/server"), { recursive: true })

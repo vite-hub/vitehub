@@ -78,39 +78,87 @@ function collectImportedPackageNames(source: string): Set<string> {
 
 function maskInertImportText(source: string): string {
   let output = ""
-  for (let index = 0; index < source.length;) {
-    const character = source[index]!
-    const next = source[index + 1]
-    if (character === "/" && next === "/") {
-      const end = source.indexOf("\n", index)
-      const length = (end === -1 ? source.length : end) - index
-      output += " ".repeat(length)
-      index += length
-      continue
-    }
-    if (character === "/" && next === "*") {
-      const closing = source.indexOf("*/", index + 2)
-      const length = (closing === -1 ? source.length : closing + 2) - index
-      output += source.slice(index, index + length).replace(/[^\n]/g, " ")
-      index += length
-      continue
-    }
-    if (character === '"' || character === "'" || character === "`") {
-      const prefix = output.slice(Math.max(0, output.length - 120))
-      const keep = character !== "`" && /(?:\b(?:from|import|export)|\b(?:import|require)\s*\(|\bnew\s+URL\s*\()\s*$/.test(prefix)
-      let end = index + 1
-      while (end < source.length) {
-        if (source[end] === "\\") end += 2
-        else if (source[end++] === character) break
-      }
-      const literal = source.slice(index, end)
-      output += keep ? literal : literal.replace(/[^\n]/g, " ")
-      index = end
-      continue
-    }
-    output += character
-    index++
+  let index = 0
+
+  function maskLiteralText(text: string): string {
+    return text.replace(/[^\n]/g, " ")
   }
+
+  function scanTemplate(): void {
+    output += " "
+    index++
+    while (index < source.length) {
+      if (source[index] === "\\") {
+        const end = Math.min(index + 2, source.length)
+        output += maskLiteralText(source.slice(index, end))
+        index = end
+      }
+      else if (source[index] === "`") {
+        output += " "
+        index++
+        return
+      }
+      else if (source[index] === "$" && source[index + 1] === "{") {
+        output += "${"
+        index += 2
+        scanCode(true)
+      }
+      else {
+        output += source[index] === "\n" ? "\n" : " "
+        index++
+      }
+    }
+  }
+
+  function scanCode(stopAtTemplateExpressionEnd = false): void {
+    let braceDepth = 0
+    while (index < source.length) {
+      const character = source[index]!
+      const next = source[index + 1]
+      if (stopAtTemplateExpressionEnd && character === "}" && braceDepth === 0) {
+        output += character
+        index++
+        return
+      }
+      if (character === "/" && next === "/") {
+        const end = source.indexOf("\n", index)
+        const length = (end === -1 ? source.length : end) - index
+        output += " ".repeat(length)
+        index += length
+        continue
+      }
+      if (character === "/" && next === "*") {
+        const closing = source.indexOf("*/", index + 2)
+        const length = (closing === -1 ? source.length : closing + 2) - index
+        output += maskLiteralText(source.slice(index, index + length))
+        index += length
+        continue
+      }
+      if (character === "`") {
+        scanTemplate()
+        continue
+      }
+      if (character === '"' || character === "'") {
+        const prefix = output.slice(Math.max(0, output.length - 120))
+        const keep = /(?:\b(?:from|import|export)|\b(?:import|require)\s*\(|\bnew\s+URL\s*\()\s*$/.test(prefix)
+        let end = index + 1
+        while (end < source.length) {
+          if (source[end] === "\\") end += 2
+          else if (source[end++] === character) break
+        }
+        const literal = source.slice(index, end)
+        output += keep ? literal : maskLiteralText(literal)
+        index = end
+        continue
+      }
+      if (character === "{") braceDepth++
+      else if (character === "}") braceDepth--
+      output += character
+      index++
+    }
+  }
+
+  scanCode()
   return output
 }
 
