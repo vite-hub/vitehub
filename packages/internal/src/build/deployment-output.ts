@@ -143,6 +143,7 @@ interface ProviderDeploymentOutputFinalization {
 }
 
 const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
+const providerDeploymentOutputCompletedResets = new WeakMap<ProviderOutputCatalogType, Promise<void>>()
 
 const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "agent",
@@ -281,7 +282,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   }
 
   try {
-    await Promise.all(writes)
+    await settleWrites(writes)
     signal?.throwIfAborted()
     publicationSucceeded = true
   }
@@ -452,35 +453,53 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
 async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOptions, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   const outputRoot = options.outputRoot ?? createDefaultNetlifyOutputRoot(options.rootDir)
-  const functionsRoot = resolve(outputRoot, "functions")
+  const stagedOutputRoot = `${outputRoot}.pending`
+  const previousOutputRoot = `${outputRoot}.previous`
+  const functionsRoot = resolve(stagedOutputRoot, "functions")
+  let replacedOutput = false
+  let installedOutput = false
+  await rm(stagedOutputRoot, { force: true, recursive: true })
+  await rm(previousOutputRoot, { force: true, recursive: true })
+  try {
+    await cp(outputRoot, stagedOutputRoot, { recursive: true })
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
   const functionWrites = (options.functions ?? []).map(async (func) => {
     const outfile = resolveNetlifyFunctionFile(functionsRoot, func.functionName)
-    const stagedOutfile = `${outfile}.pending`
     await mkdir(dirname(outfile), { recursive: true })
-    try {
-      await rm(stagedOutfile, { force: true, recursive: true })
-      await bundleEsmEntry(func.bundleEntry, stagedOutfile, {
-        ...func.bundleOptions,
-        minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
-        rootDir: options.rootDir,
-        signal,
-      })
-      await appendNetlifyFunctionConfig(stagedOutfile, func.config)
-      signal?.throwIfAborted()
-      await rename(stagedOutfile, outfile)
-    }
-    catch (error) {
-      await rm(stagedOutfile, { force: true, recursive: true })
-      throw error
-    }
+    await bundleEsmEntry(func.bundleEntry, outfile, {
+      ...func.bundleOptions,
+      minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
+      rootDir: options.rootDir,
+      signal,
+    })
+    await appendNetlifyFunctionConfig(outfile, func.config)
   })
 
-  await mkdir(outputRoot, { recursive: true })
-  await Promise.all([
-    writeProviderOutputConfig(resolve(outputRoot, "config.json"), options.config ?? {}, { keys: options.configKeys }),
-    ...functionWrites,
-  ])
-  signal?.throwIfAborted()
+  try {
+    await mkdir(stagedOutputRoot, { recursive: true })
+    await settleWrites([
+      writeProviderOutputConfig(resolve(stagedOutputRoot, "config.json"), options.config ?? {}, { keys: options.configKeys }),
+      ...functionWrites,
+    ])
+    signal?.throwIfAborted()
+    if (existsSync(outputRoot)) {
+      renameSync(outputRoot, previousOutputRoot)
+      replacedOutput = true
+    }
+    renameSync(stagedOutputRoot, outputRoot)
+    installedOutput = true
+    signal?.throwIfAborted()
+    rmSync(previousOutputRoot, { force: true, recursive: true })
+  }
+  catch (error) {
+    await rm(stagedOutputRoot, { force: true, recursive: true })
+    if (installedOutput) rmSync(outputRoot, { force: true, recursive: true })
+    if (replacedOutput && existsSync(previousOutputRoot)) renameSync(previousOutputRoot, outputRoot)
+    throw error
+  }
 }
 
 async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>), signal?: AbortSignal): Promise<void> {
@@ -598,6 +617,11 @@ export function contributeProviderDeploymentOutput(
 
 export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): Promise<void> {
   if (!catalog) return
+  const completedReset = providerDeploymentOutputCompletedResets.get(catalog)
+  if (completedReset) {
+    await completedReset
+    return
+  }
   const active = providerDeploymentOutputFinalizations.get(catalog)
   if (active?.reset) {
     await active.reset
@@ -607,6 +631,7 @@ export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCata
   catalog?.resetDeploymentContributions()
   if (active) {
     active.reset = active.promise.catch(() => undefined)
+    providerDeploymentOutputCompletedResets.set(catalog, active.reset)
     await active.reset
   }
 }
@@ -616,6 +641,7 @@ export async function finalizeProviderDeploymentOutputs(
   options: FinalizeProviderDeploymentOutputOptions = {},
 ): Promise<void> {
   if (!catalog) return
+  providerDeploymentOutputCompletedResets.delete(catalog)
   const existing = providerDeploymentOutputFinalizations.get(catalog)
   if (existing) {
     try {

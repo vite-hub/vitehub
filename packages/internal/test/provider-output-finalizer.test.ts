@@ -270,6 +270,30 @@ describe("Provider Output finalizer", () => {
     expect(newerWrite).toHaveBeenCalledOnce()
   })
 
+  it("preserves newer contributions from a reset repeated after teardown", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let releaseWrite!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => await new Promise<void>(resolve => releaseWrite = resolve),
+    })
+
+    const failedFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(releaseWrite).toBeDefined())
+    const reset = resetProviderDeploymentOutputs(catalog)
+    releaseWrite()
+    await reset
+    await expect(failedFinalization).rejects.toThrow("Provider Output finalization reset")
+
+    const newerWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: newerWrite })
+    await resetProviderDeploymentOutputs(catalog)
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(newerWrite).toHaveBeenCalledOnce()
+  })
+
   it("joins every reset waiter to the same replacement finalization", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

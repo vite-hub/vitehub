@@ -20,6 +20,8 @@ export async function copyVercelFunctionRuntimePackageDirectories(options: {
   const previousNodeModules = resolve(stagingRoot, "previous-node_modules")
   let movedPreviousOutput = false
   let installedReplacement = false
+  let publicationSucceeded = false
+  let restorationSucceeded = false
 
   try {
     try {
@@ -58,15 +60,21 @@ export async function copyVercelFunctionRuntimePackageDirectories(options: {
       await rename(stagedNodeModules, outputNodeModules)
       installedReplacement = true
       options.signal?.throwIfAborted()
+      publicationSucceeded = true
     }
     catch (error) {
       if (installedReplacement) await rm(outputNodeModules, { force: true, recursive: true })
-      if (movedPreviousOutput) await rename(previousNodeModules, outputNodeModules)
+      if (movedPreviousOutput) {
+        await rename(previousNodeModules, outputNodeModules)
+        restorationSucceeded = true
+      }
       throw error
     }
   }
   finally {
-    await rm(stagingRoot, { force: true, recursive: true })
+    if (!movedPreviousOutput || publicationSucceeded || restorationSucceeded) {
+      await rm(stagingRoot, { force: true, recursive: true })
+    }
   }
 }
 

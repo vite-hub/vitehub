@@ -600,7 +600,7 @@ describe("provider deployment outputs", () => {
     await expect(readFile(functionFile, "utf8")).resolves.toContain("\"nodeBundler\": \"esbuild\"")
     expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
       join(rootDir, "agent.mjs"),
-      `${functionFile}.pending`,
+      join(`${netlifyDir}.pending`, "functions", "vitehub-agent.mjs"),
       { format: "esm", minifyIdentifiers: true, platform: "node", rootDir, signal: undefined },
     )
     await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
