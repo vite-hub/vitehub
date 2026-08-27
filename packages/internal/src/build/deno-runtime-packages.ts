@@ -18,6 +18,7 @@ const denoRuntimeTargets = [
 
 interface FinalizeDenoDeploymentOutputOptions {
   alias?: ViteAlias[]
+  conditions?: string[]
   deploymentName?: string
   hasScheduleIntegration?: boolean
   outputDir?: string
@@ -86,6 +87,69 @@ interface LiteralDynamicImport {
   start: number
 }
 
+function cookImportSpecifier(source: string): string {
+  let cooked = ""
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]!
+    if (character !== "\\") {
+      cooked += character
+      continue
+    }
+    const escape = source[++index]
+    if (escape === undefined) throw new Error("Deno output contains an incomplete import escape sequence.")
+    if (escape === "\n") continue
+    if (escape === "\r") {
+      if (source[index + 1] === "\n") index++
+      continue
+    }
+    const simpleEscapes: Record<string, string> = {
+      "0": "\0",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\v",
+    }
+    const simpleEscape = simpleEscapes[escape]
+    if (simpleEscape !== undefined) {
+      if (escape === "0" && /\d/.test(source[index + 1] || "")) {
+        throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
+      }
+      cooked += simpleEscape
+      continue
+    }
+    if (escape === "x") {
+      const digits = source.slice(index + 1, index + 3)
+      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw new Error("Deno output contains an invalid hexadecimal import escape sequence.")
+      cooked += String.fromCharCode(Number.parseInt(digits, 16))
+      index += 2
+      continue
+    }
+    if (escape === "u") {
+      if (source[index + 1] === "{") {
+        const end = source.indexOf("}", index + 2)
+        const digits = end === -1 ? "" : source.slice(index + 2, end)
+        const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
+        if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
+          throw new Error("Deno output contains an invalid Unicode import escape sequence.")
+        }
+        cooked += String.fromCodePoint(codePoint)
+        index = end
+        continue
+      }
+      const digits = source.slice(index + 1, index + 5)
+      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw new Error("Deno output contains an invalid Unicode import escape sequence.")
+      cooked += String.fromCharCode(Number.parseInt(digits, 16))
+      index += 4
+      continue
+    }
+    if (/[1-9]/.test(escape)) throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
+    cooked += escape
+  }
+  return cooked
+}
+
 function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
   const imports: LiteralDynamicImport[] = []
   for (const match of source.matchAll(/(?:^|[^\w$.#])import\s*\(\s*(["'`])/g)) {
@@ -110,7 +174,7 @@ function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
     if (depth !== 0) continue
     imports.push({
       end: cursor,
-      specifier: source.slice(literalStart + 1, literalEnd - 1),
+      specifier: cookImportSpecifier(source.slice(literalStart + 1, literalEnd - 1)),
       start,
     })
   }
@@ -668,6 +732,7 @@ export async function finalizeDenoDeploymentOutput(
       await bundleEsmEntry(scheduleSource, temporaryScheduleOutput, {
         external: [...builtinModuleNames],
         alias: options.alias,
+        conditions: options.conditions,
         format: "esm",
         packages: "external",
         platform: "neutral",
@@ -687,6 +752,7 @@ export async function finalizeDenoDeploymentOutput(
       await bundleEsmEntry(applicationEntrySource, temporaryApplicationOutput, {
         external: [...builtinModuleNames, "./schedule/deno-cron.mjs", "./server/index.mjs"],
         alias: options.alias,
+        conditions: options.conditions,
         format: "esm",
         packages: "external",
         platform: "neutral",

@@ -354,7 +354,7 @@ function deploymentNitroModule(
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
-  resolvedBuildConfig: () => { alias: ViteAlias[], hasScheduleIntegration: boolean },
+  resolvedBuildConfig: () => { alias: ViteAlias[], conditions: string[], hasScheduleIntegration: boolean },
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
@@ -388,7 +388,11 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  let resolvedBuildConfig = { alias: [] as ViteAlias[], hasScheduleIntegration: false }
+  let resolvedBuildConfig: { alias: ViteAlias[], conditions: string[], hasScheduleIntegration: boolean } = {
+    alias: [],
+    conditions: [],
+    hasScheduleIntegration: false,
+  }
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
@@ -568,6 +572,7 @@ function deploymentPlugins(
               ? [{ customResolver: alias.customResolver !== undefined, find: alias.find, replacement: alias.replacement }]
               : [],
           ),
+          conditions: [...config.resolve.conditions],
           hasScheduleIntegration: config.plugins.some(plugin => plugin.name === "@vite-hub/schedule/vite"),
         }
         if (plan.preset === "cloudflare") {

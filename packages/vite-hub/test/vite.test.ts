@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
+  finalizeDenoDeploymentOutput: vi.fn(),
+  finalizeDeploymentPlanOutput: vi.fn(),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
@@ -41,6 +43,12 @@ const integrationMocks = vi.hoisted(() => ({
 vi.mock("@vite-hub/agent/vite", () => ({
   discoverAgentDefinitionEntries: integrationMocks.discoverAgentDefinitionEntries,
   hubAgent: integrationMocks.hubAgent,
+}))
+vi.mock("@vite-hub/internal/build/deno-runtime-packages", () => ({
+  finalizeDenoDeploymentOutput: integrationMocks.finalizeDenoDeploymentOutput,
+}))
+vi.mock("@vite-hub/internal/build/deployment-plan-output", () => ({
+  finalizeDeploymentPlanOutput: integrationMocks.finalizeDeploymentPlanOutput,
 }))
 vi.mock("@vite-hub/auth/vite", () => ({
   hubAuth: integrationMocks.hubAuth,
@@ -954,6 +962,48 @@ describe("vitehub", () => {
       plugins: [],
       resolve: { alias: [{ customResolver, find: "#app", replacement: "/app/index.ts" }] },
     }])).not.toThrow()
+  })
+
+  it("forwards Vite resolve conditions to Deno output staging", async () => {
+    integrationMocks.finalizeDenoDeploymentOutput.mockClear()
+    integrationMocks.finalizeDeploymentPlanOutput.mockClear()
+    const plugins = vitehub({ preset: "deno" })
+    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
+    const config: Record<string, unknown> = {}
+    await callHook(preset.config, [config, { command: "build", mode: "production" }])
+    // SAFETY: The preset config hook populated Nitro modules for the Deno build above.
+    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
+    callHook(output.configResolved, [{
+      command: "build",
+      nitro: nitroConfig,
+      plugins: [],
+      resolve: { alias: [], conditions: ["launch"] },
+    }])
+    let compiled: (() => Promise<void>) | undefined
+    const nitro = {
+      hooks: {
+        hook: vi.fn((name: string, callback: () => Promise<void>) => {
+          if (name === "compiled") compiled = callback
+        }),
+      },
+      options: {
+        commands: nitroConfig.commands,
+        output: { dir: "/app/.output", serverDir: "/app/.output/server" },
+        preset: "deno_deploy",
+        rootDir: "/app",
+      },
+    }
+    // SAFETY: The deployment preset prepends its Nitro module to the configured module list.
+    const module = nitroConfig.modules[0] as (target: typeof nitro) => void
+    module(nitro)
+    if (!compiled) throw new TypeError("Expected the Deno output callback.")
+
+    await compiled()
+
+    expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
+      conditions: ["launch"],
+    }))
   })
 
   it("composes deployment output through a Nitro module", async () => {
