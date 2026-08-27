@@ -269,6 +269,20 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     if (length < value.length) budget.truncated = true
     return value.slice(0, length).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
   }
+  if (value instanceof Date) {
+    budget.truncated = true
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null
+  }
+  if (value instanceof Map) {
+    budget.truncated = true
+    const entries = Array.from(value.entries())
+    const length = Math.min(entries.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    if (length < entries.length) budget.truncated = true
+    return entries.slice(0, length).map(([key, child]) => [
+      boundedObservationValue(key, budget, depth + 1, maxStringLength),
+      boundedObservationValue(child, budget, depth + 1, maxStringLength),
+    ])
+  }
   if (!value || !hasRuntimeType(value, "object")) {
     const string = String(value)
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true

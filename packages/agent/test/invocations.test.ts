@@ -246,6 +246,35 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(observation?.payload).length).toBeLessThan(100_000)
   })
 
+  it("serializes structured public payload values before persisting invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          createdAt: new Date("2026-08-27T00:00:00.000Z"),
+          files: new Map([["README.md", 42]]),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        createdAt: "2026-08-27T00:00:00.000Z",
+        files: [["README.md", 42]],
+      },
+      visibility: "public",
+    })
+  })
+
   it("preserves canonical trace attributes when bounding invocation observations", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-trace-attributes"))
