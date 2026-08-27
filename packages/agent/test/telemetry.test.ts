@@ -196,6 +196,10 @@ describe("Agent telemetry", () => {
 
     const root = telemetry.mock.calls[0]![0].spans[0]
     const configured = root.events.find((event: { name: string }) => event.name === "vitehub.agent.configured")
+    expect(configured.attributes).toMatchObject({
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+    })
     expect(configured.attributes["vitehub.agent.configuration"]).toMatchObject({
       agent: { name: "support" },
       capabilities: expect.arrayContaining([{
@@ -495,6 +499,10 @@ describe("Agent telemetry", () => {
       .flatMap(exported => exported.records)
       .filter(record => record.eventName === "vitehub.agent.configured")
     expect(configurationRecords).toHaveLength(1)
+    expect(configurationRecords[0]?.attributes).toMatchObject({
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+    })
     expect(configurationRecords[0]?.attributes["vitehub.agent.configuration"]).toMatchObject({
       driver: { model: { id: "late-model", provider: "late-provider" } },
     })

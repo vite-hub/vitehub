@@ -2556,6 +2556,8 @@ function agentTelemetryConfigurationLogRecord(
   return {
     attributes: {
       "agent.invocation.id": invocationId,
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
       "vitehub.agent.configuration": configuration,
       "vitehub.event.sequence": 0,
       "vitehub.event.type": "capability",
@@ -2651,6 +2653,8 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
             events: [
               {
                 attributes: {
+                  "vitehub.activity.owner": "vitehub",
+                  "vitehub.activity.phase": "setup",
                   "vitehub.agent.configuration": configurationValue,
                 },
                 name: "vitehub.agent.configured",
