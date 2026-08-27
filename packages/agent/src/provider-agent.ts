@@ -1207,7 +1207,9 @@ async function* runProvider<
     }
     const providerSettings: Record<string, unknown> = {}
     if (codexExecutable) providerSettings.binaryPath = codexExecutable
-    Object.assign(providerSettings, options.providerSettings)
+    for (const [key, value] of Object.entries(options.providerSettings || {})) {
+      if (value !== undefined) providerSettings[key] = value
+    }
     if (credentialHome) providerSettings.shadowHomePath = credentialHome
     const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = Object.keys(providerSettings).length
       ? { ...runtimeOptions, settings: providerSettings }

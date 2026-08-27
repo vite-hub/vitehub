@@ -138,6 +138,21 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
   })
 
+  it("keeps the installed Codex executable when provider setting overrides are undefined", async () => {
+    const threadId = "thread-undefined-provider-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({
+      provider: "codex",
+      providerSettings: { binaryPath: undefined, launchArgs: undefined },
+    }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
+    }))
+  })
+
   it("isolates resolved Codex credentials in a private shadow home and removes it after runtime shutdown", async () => {
     const threadId = "thread-credentials"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
