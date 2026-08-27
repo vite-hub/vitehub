@@ -654,9 +654,15 @@ describe("Agent Invocation Interface lifecycle", () => {
   it("merges raw stream run annotations", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
+    class ExistingAnnotations {
+      get existing() {
+        return "kept"
+      }
+    }
+    const streamedAnnotations = Object.create({ streamed: "new" })
     const raw = Object.assign((async function* () {
-      yield { type: "usage", usageRecord: { run: { annotations: { streamed: "new" } } } }
-    })(), { usageRecord: { run: { annotations: { existing: "kept" } } } })
+      yield { type: "usage", usageRecord: { run: { annotations: streamedAnnotations } } }
+    })(), { usageRecord: { run: { annotations: new ExistingAnnotations() } } })
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
     // SAFETY: The driver returns the raw async iterable unchanged to the caller.

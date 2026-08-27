@@ -3809,7 +3809,7 @@ function mergedUsageRecordMetadata(key: "credentialSource" | "latency" | "respon
   const merged = Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
   if (key === "run") {
     const annotations = values.map(value => definedObjectPropertiesWithInherited(value, ["annotations"]).annotations)
-    if (annotations.some(Boolean)) merged.annotations = mergedDefinedObjects(...annotations)
+    if (annotations.some(Boolean)) merged.annotations = mergedReadableObjects(...annotations)
   }
   return merged
 }
