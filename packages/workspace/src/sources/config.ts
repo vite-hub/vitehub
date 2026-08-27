@@ -308,7 +308,14 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     },
     async getItems(ctx) {
       const source = await loadSource()
-      return await source.getItems?.(ctx) ?? await Promise.all((await source.getKeys(ctx)).map(async key => await source.getItem(key, ctx)))
+      if (source.getItems) return await source.getItems(ctx)
+      return await Promise.all((await source.getKeys(ctx)).map(async (key) => {
+        const [item, metadata] = await Promise.all([
+          source.getItem(key, ctx),
+          source.getMeta?.(key, ctx),
+        ])
+        return metadata ? { ...item, metadata: { ...metadata, ...item.metadata } } : item
+      }))
     },
     async getMeta(key, ctx) {
       return await (await loadSource()).getMeta?.(key, ctx)

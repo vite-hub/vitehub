@@ -545,6 +545,30 @@ describe("lazy sources", () => {
     expect(getMeta).toHaveBeenCalledOnce()
   })
 
+  it("completes metadata for inferred bulk source items", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "ready.md"), "# Ready\n")
+
+    registerWorkspace("inferred-bulk-item-metadata", defineWorkspace({
+      rootDir: root,
+      store: { provider: "memory" },
+      sources: {
+        docs: globSource({ cwd: "docs", include: "*.md", materialize: "lazy" }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("inferred-bulk-item-metadata")
+    await workspace.materializeSources?.({ sources: ["docs"] })
+
+    await expect(workspace.stat("docs/ready.md")).resolves.toMatchObject({
+      metadata: {
+        digest: expect.any(String),
+        mtime: expect.any(Number),
+      },
+    })
+  })
+
   it("lets sources read existing workspace files while materializing", async () => {
     let previousReport = ""
     const store = createMemoryWorkspaceStore()
