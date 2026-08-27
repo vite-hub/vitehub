@@ -3575,7 +3575,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
     if (hasRuntimeType(current, "string") && current) return result
     if (!Object.isExtensible(result)) {
-      return { raw: result, text }
+      return { ...toAgentRunResult(result), raw: result, text }
     }
     return resultWithPreservedProperties(result, {
       text: {

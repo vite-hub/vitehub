@@ -301,6 +301,9 @@ describe("Agent Invocation Interface lifecycle", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const raw = Object.freeze({
+      artifacts: [{ path: "artifacts/answer.txt", url: "https://example.com/answer.txt" }],
+      finishReason: "stop",
+      warnings: [{ message: "provider warning" }],
       async *[Symbol.asyncIterator]() {
         yield { text: "answer", type: "text-delta" }
         yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
@@ -316,9 +319,12 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
       result: {
+        artifacts: [{ path: "artifacts/answer.txt", url: "https://example.com/answer.txt" }],
+        finishReason: "stop",
         raw,
         text: "answer",
         usage: { totalTokens: 2 },
+        warnings: [{ message: "provider warning" }],
       },
     })
   })
