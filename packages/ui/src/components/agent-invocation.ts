@@ -219,8 +219,11 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const suffix = agentConfigurationSummary(activity)
     ?? channelDeliverySummary(activity)
     ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
-  const deliveryBody = activity.kind === "delivery"
-    ? stringAttribute(activity.attributes, "channel.effect.content")
+  const capturedDeliveryBody = activity.kind === "delivery"
+    ? activity.attributes["channel.effect.content"]
+    : undefined;
+  const deliveryBody = typeof capturedDeliveryBody === "string" && capturedDeliveryBody.trim()
+    ? capturedDeliveryBody
     : undefined;
   const visibleDelivery = Boolean(deliveryBody);
   const deliveryFailure = activity.kind === "delivery"

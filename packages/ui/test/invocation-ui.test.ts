@@ -285,6 +285,31 @@ describe("Agent Invocation UI", () => {
     expect(delivery.get(".vh-invocation-event__notice").text()).toContain("truncated");
   });
 
+  it("preserves Markdown-significant whitespace in captured delivery bodies", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "indented-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "    delivered as code\n",
+          "channel.effect.kind": "reply",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+
+    expect(delivery.get(".vh-invocation-delivery__body .vh-invocation-event__markdown").element.textContent)
+      .toBe("    delivered as code\n");
+  });
+
   it("includes failure in a collapsed activity's accessible text", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
