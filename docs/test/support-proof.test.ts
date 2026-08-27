@@ -100,6 +100,7 @@ describe("support proof ledger", () => {
 
     expect(component).toContain('from "../data/support-proof"');
     expect(component).toContain('useState("support-proof-observed-at"');
+    expect(component).toContain("const sections = reactive<");
     expect(component).toContain("scheduleProofRefresh");
     for (const tier of supportProofTiers) {
       expect(component).toContain(`proofValues("${tier}")`);

@@ -115,7 +115,7 @@ const proofValues = (tier: SupportProofTier): Record<string, MatrixCell> =>
     }),
   );
 
-const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
+const sections = reactive<{ anchor?: string; label: string; rows: MatrixRow[] }[]>([
   {
     label: "Runtime",
     rows: [
@@ -633,7 +633,7 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
       },
     ],
   },
-];
+]);
 
 const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
   available: { label: "Available", mark: "✓" },
