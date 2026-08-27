@@ -70,14 +70,16 @@ function payload(message: EmailMessage): Record<string, unknown> {
 
 export default function resendEmailDriver(options: ResendEmailDriverOptions): EmailDriver {
   requiredOption("resend", options?.apiKey, "apiKey")
+  if (typeof options.apiKey !== "string") throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must be a string.")
   if (!options.apiKey.startsWith("re_")) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must start with 're_'.")
   if (/[^\u0021-\u007E]/.test(options.apiKey)) throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey contains an invalid HTTP header character.")
   const request = options.fetch ?? globalThis.fetch
   if (!(request instanceof Function)) throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.")
-  const endpoint = options.endpoint ?? "https://api.resend.com"
+  let endpoint: string
   try {
-    const url = new URL(endpoint)
+    const url = new URL(options.endpoint ?? "https://api.resend.com")
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new TypeError("Unsupported protocol")
+    endpoint = url.href.replace(/\/$/, "")
   }
   catch (cause) {
     throw emailProviderError("resend", "INVALID_OPTIONS", "endpoint must be a valid HTTP or HTTPS URL.", { cause })

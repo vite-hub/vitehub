@@ -23,12 +23,25 @@ describe("Resend Email driver", () => {
     expect(() => resend({ apiKey: "secret" })).toThrow("apiKey must start with 're_'")
   })
 
+  it("rejects non-string API keys during configuration", () => {
+    expect(() => resend({ apiKey: 123 as unknown as string })).toThrow("apiKey must be a string")
+  })
+
   it("rejects API keys with invalid header characters during configuration", () => {
     expect(() => resend({ apiKey: "re_secret\n" })).toThrow("apiKey contains an invalid HTTP header character")
   })
 
   it.each(["", "not a url", "ftp://api.resend.com"])("rejects an invalid endpoint during configuration", (endpoint) => {
     expect(() => resend({ apiKey: "re_secret", endpoint })).toThrow("endpoint must be a valid HTTP or HTTPS URL")
+  })
+
+  it("normalizes a trailing slash in the endpoint", async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
+    const driver = resend({ apiKey: "re_secret", endpoint: "https://resend.example.test/", fetch: request })
+
+    await driver.send(message, context)
+
+    expect(request).toHaveBeenCalledWith("https://resend.example.test/emails", expect.any(Object))
   })
 
   it("maps the portable message and returns the provider id", async () => {
