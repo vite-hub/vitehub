@@ -51,10 +51,15 @@ function resolvePackageSpec(spec, environment) {
 function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   const specs = []
   const environment = new Map(inheritedEnvironment)
-  let ignoredHereDocument
+  let dataHereDocument
   for (const line of command.split("\n")) {
-    if (ignoredHereDocument) {
-      if (line.trim() === ignoredHereDocument) ignoredHereDocument = undefined
+    if (dataHereDocument) {
+      if (line.trim() === dataHereDocument.delimiter) dataHereDocument = undefined
+      else if (dataHereDocument.expand) {
+        for (const substitution of line.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
+          specs.push(...findExecutablePackageSpecs(substitution[1] ?? substitution[2], environment))
+        }
+      }
       continue
     }
     if (line.trimStart().startsWith("#")) continue
@@ -62,11 +67,32 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const tokens = shellTokens(line)
     const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
     const commandName = tokens.find(token => !token.includes("=") && !shellOperatorPattern.test(token))
-    if (hereDocument && !shellCommands.has(commandName)) ignoredHereDocument = hereDocument[2]
+    if (hereDocument && !shellCommands.has(commandName)) {
+      dataHereDocument = { delimiter: hereDocument[2], expand: hereDocument[1] === "" }
+    }
+    let commandStart = true
     for (let index = 0; index < tokens.length; index++) {
       let argumentsStart
       let acceptsPackageOptions = false
       const token = tokens[index]
+
+      if (shellOperatorPattern.test(token)) {
+        commandStart = token !== ")"
+        continue
+      }
+      if (!commandStart) continue
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue
+      commandStart = false
+
+      if (shellCommands.has(token)) {
+        const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
+        const invocation = tokens.slice(index + 1, end === -1 ? tokens.length : end)
+        const callIndex = invocation.indexOf("-c")
+        if (callIndex !== -1 && invocation[callIndex + 1]) {
+          specs.push(...findExecutablePackageSpecs(invocation[callIndex + 1], environment))
+        }
+        continue
+      }
 
       if (token === "npx") {
         argumentsStart = index + 1

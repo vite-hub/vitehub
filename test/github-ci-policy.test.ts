@@ -82,6 +82,7 @@ describe("GitHub CI input policy", () => {
         "      - run: npm exec -c 'echo ok'",
         "      - run: npx \"tool@$TOOL_VERSION\" --help",
         "      - run: echo '$(npx unpinned)'",
+        "      - run: echo npx unpinned",
         "      - run: echo ok # npx unpinned",
         "      - run: echo pinned shell",
         "        shell: npx --package=shell@1.2.3 -- bash {0}",
@@ -385,6 +386,7 @@ jobs:
     "VERSION=latest npx tool@$VERSION",
     "npx tool@$UNRESOLVED_VERSION",
     "(npx unpinned)",
+    "bash -c 'npx unpinned'",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -448,9 +450,24 @@ jobs:
         "          EOF",
       ].join("\n"),
     })
+    const expandingDataRoot = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          cat <<EOF",
+        "          npx is-just-data",
+        "          $(npx unpinned)",
+        "          EOF",
+      ].join("\n"),
+    })
 
     await expect(checkGitHubCIInputs(dataRoot)).resolves.toEqual([])
     await expect(checkGitHubCIInputs(shellRoot)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+    await expect(checkGitHubCIInputs(expandingDataRoot)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
   })
