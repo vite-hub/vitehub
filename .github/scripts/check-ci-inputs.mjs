@@ -15,6 +15,7 @@ const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
 const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "until", "while"])
 const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
 const envSplitStringOptions = new Set(["--split-string", "-S"])
+const commandValueOptions = new Set(["--argv0", "-a"])
 
 function shellTokens(line) {
   const tokens = []
@@ -37,6 +38,11 @@ function shellTokens(line) {
     else {
       tokens[wordIndex] += value
     }
+    if (token[3] !== undefined) {
+      for (const substitution of token[3].matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
+        tokens.push("$(", ...shellTokens(substitution[1] ?? substitution[2]), ")")
+      }
+    }
     if (token[1] === undefined) continue
     for (const substitution of token[1].matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
       tokens.push("$(", ...shellTokens(substitution[1] ?? substitution[2]), ")")
@@ -47,7 +53,6 @@ function shellTokens(line) {
 
 function commandIndexes(tokens) {
   const indexes = []
-  const delegatedCommands = []
   let commandStart = true
   let commandOptions = false
   const groups = []
@@ -84,7 +89,23 @@ function commandIndexes(tokens) {
     }
     else if (commandStart && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
       let executableIndex = index
-      while (executableIndex < tokens.length && executableName(tokens[executableIndex]) === "env") {
+      while (executableIndex < tokens.length) {
+        const wrapper = executableName(tokens[executableIndex])
+        if (wrapper === "command" || wrapper === "exec") {
+          executableIndex++
+          while (executableIndex < tokens.length) {
+            const argument = tokens[executableIndex]
+            if (argument === "--") {
+              executableIndex++
+              break
+            }
+            if (commandValueOptions.has(argument)) executableIndex += 2
+            else if (argument.startsWith("-")) executableIndex++
+            else break
+          }
+          continue
+        }
+        if (wrapper !== "env") break
         executableIndex++
         while (executableIndex < tokens.length) {
           const argument = tokens[executableIndex]
@@ -94,16 +115,13 @@ function commandIndexes(tokens) {
           }
           if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(argument)) executableIndex++
           else if (envSplitStringOptions.has(argument)) {
-            delegatedCommands.push(tokens[executableIndex + 1] ?? "")
-            executableIndex += 2
+            tokens.splice(executableIndex, 2, ...shellTokens(tokens[executableIndex + 1] ?? ""))
           }
           else if (argument.startsWith("--split-string=")) {
-            delegatedCommands.push(argument.slice("--split-string=".length))
-            executableIndex++
+            tokens.splice(executableIndex, 1, ...shellTokens(argument.slice("--split-string=".length)))
           }
           else if (/^-S.+/.test(argument)) {
-            delegatedCommands.push(argument.slice(2))
-            executableIndex++
+            tokens.splice(executableIndex, 1, ...shellTokens(argument.slice(2)))
           }
           else if (envValueOptions.has(argument)) executableIndex += 2
           else if (argument.startsWith("-")) executableIndex++
@@ -117,7 +135,7 @@ function commandIndexes(tokens) {
       commandOptions = false
     }
   }
-  return { delegatedCommands, indexes }
+  return indexes
 }
 
 function executableName(token) {
@@ -151,10 +169,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     if (line.trimStart().startsWith("#")) continue
 
     const tokens = shellTokens(line)
-    const { delegatedCommands, indexes: executableIndexes } = commandIndexes(tokens)
-    for (const delegatedCommand of delegatedCommands) {
-      specs.push(...findExecutablePackageSpecs(delegatedCommand, environment))
-    }
+    const executableIndexes = commandIndexes(tokens)
     const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
     if (hereDocument && !executableIndexes.some(index => isShellCommand(tokens[index]))) {
       dataHereDocument = { delimiter: hereDocument[2], expand: hereDocument[1] === "" }

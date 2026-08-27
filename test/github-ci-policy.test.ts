@@ -82,6 +82,9 @@ describe("GitHub CI input policy", () => {
         "      - run: npm exec -c 'echo ok'",
         "      - run: env FOO=bar",
         "      - run: env -S 'npx tool@1.2.3'",
+        "      - run: env -S '-u FOO npx tool@1.2.3'",
+        "      - run: command npx tool@1.2.3",
+        "      - run: exec -a tool npx tool@1.2.3",
         "      - run: |",
         "          npx \\",
         "            tool@1.2.3",
@@ -407,6 +410,13 @@ jobs:
     "$NVM_BIN/npx unpinned",
     "env -S \"npx unpinned\"",
     "env --split-string=\"npx unpinned\"",
+    "env -S '-u FOO npx unpinned'",
+    "env -S 'FOO=bar npx unpinned'",
+    "command npx unpinned",
+    "command -p -- npx unpinned",
+    "exec npx unpinned",
+    "exec -a tool npx unpinned",
+    "echo ${FOO:-$(npx unpinned)}",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
