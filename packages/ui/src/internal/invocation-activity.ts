@@ -344,18 +344,21 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
-      const endedAt = sorted.at(-1)?.timestamp;
-      const observedDuration = Date.parse(endedAt ?? "") - Date.parse(first.timestamp);
-      const durationMs = numericAttribute(attributes, "tool.durationMs")
-        ?? (Number.isFinite(observedDuration) ? Math.max(0, observedDuration) : undefined);
+      const observedEndedAt = sorted.at(-1)?.timestamp;
+      const invocationEndedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt;
       const started = /\.(request|start|started)$/.test(first.name);
-      const terminalStartedAt = !started && endedAt && durationMs !== undefined
-        ? new Date(Date.parse(endedAt) - durationMs).toISOString()
-        : undefined;
       const unfinishedTerminalStatus = started
+        && !completed
         && invocation.status !== "pending"
         && invocation.status !== "running"
         ? invocation.status === "failed" ? "failed" : "completed"
+        : undefined;
+      const endedAt = unfinishedTerminalStatus ? invocationEndedAt ?? observedEndedAt : observedEndedAt;
+      const observedDuration = Date.parse(endedAt ?? "") - Date.parse(first.timestamp);
+      const durationMs = numericAttribute(attributes, "tool.durationMs")
+        ?? (Number.isFinite(observedDuration) ? Math.max(0, observedDuration) : undefined);
+      const terminalStartedAt = !started && endedAt && durationMs !== undefined
+        ? new Date(Date.parse(endedAt) - durationMs).toISOString()
         : undefined;
       const draft = {
         attributes,

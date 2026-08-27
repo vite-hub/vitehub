@@ -1029,7 +1029,13 @@ describe("Agent Invocation UI", () => {
       cancelledAt: "2026-08-22T00:01:05.000Z",
       createdAt: "2026-08-22T00:00:00.000Z",
       id: "cancelled",
-      observations: [],
+      observations: [{
+        attributes: { "tool.id": "search", "tool.name": "search" },
+        name: "agent.tool.start",
+        sequence: 1,
+        timestamp: "2026-08-22T00:01:00.000Z",
+        type: "run",
+      }],
       startedAt: "2026-08-22T00:00:00.000Z",
       status: "cancelled",
       traceId: "trace",
@@ -1038,6 +1044,13 @@ describe("Agent Invocation UI", () => {
 
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
+    expect(invocationActivities(invocation)[0]).toMatchObject({
+      durationMs: 5_000,
+      endedAt: "2026-08-22T00:01:05.000Z",
+      startedAt: "2026-08-22T00:01:00.000Z",
+      status: "completed",
+    });
+    expect(wrapper.get(".vh-invocation-timeline__row").text()).toContain("+1m 0s · 5s");
   });
 
   it("carries rounded duration seconds into minutes", () => {
