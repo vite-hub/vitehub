@@ -8,15 +8,28 @@ const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
 const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|\$(?:\{[A-Z][A-Z0-9_]*\}|[A-Z][A-Z0-9_]*))$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
-const shellOperatorPattern = /^(?:&&|\|\||;|\|)$/
+const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`)$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
+const npmGlobalValueOptions = new Set([
+  "--cache",
+  "--globalconfig",
+  "--include",
+  "--location",
+  "--loglevel",
+  "--omit",
+  "--prefix",
+  "--registry",
+  "--userconfig",
+  "--workspace",
+  "-w",
+])
 
 function findExecutablePackageSpecs(command) {
   const specs = []
   for (const line of command.split("\n")) {
     if (line.trimStart().startsWith("#")) continue
 
-    const tokens = [...line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|])|([^\s;&|]+)/g)]
+    const tokens = [...line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`])|([^\s;&|()`]+)/g)]
       .map(token => token[1] ?? token[2] ?? token[3] ?? token[4])
     for (let index = 0; index < tokens.length; index++) {
       let argumentsStart
@@ -24,8 +37,14 @@ function findExecutablePackageSpecs(command) {
       const token = tokens[index]
 
       if (token === "npx" || token === "bunx") argumentsStart = index + 1
-      else if (token === "npm" && (tokens[index + 1] === "exec" || tokens[index + 1] === "x")) {
-        argumentsStart = index + 2
+      else if (token === "npm") {
+        let subcommand = index + 1
+        while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
+          const option = tokens[subcommand++]
+          if (!option.includes("=") && npmGlobalValueOptions.has(option)) subcommand++
+        }
+        if (tokens[subcommand] !== "exec" && tokens[subcommand] !== "x") continue
+        argumentsStart = subcommand + 1
         npmExec = true
       }
       else if (token === "vp" || token === "pnpm" || token === "yarn") {
@@ -45,6 +64,7 @@ function findExecutablePackageSpecs(command) {
       if (npmExec) {
         for (let argumentIndex = 0; argumentIndex < invocation.length; argumentIndex++) {
           const argument = invocation[argumentIndex]
+          if (argument === "--") break
           if (argument.startsWith("--package=") || argument.startsWith("-p=")) {
             packageSpecs.push(argument.slice(argument.indexOf("=") + 1))
           }
@@ -196,7 +216,10 @@ export function inspectGitHubCIInputs(path, source) {
       if (!isMap(job)) continue
       inspectUses(findPair(job, "uses"), aliasComment || job.comment || enclosingJobsComment)
       inspectSteps(findPair(job, "steps")?.value)
-      for (let container of [findPair(job, "container")?.value, ...((findPair(job, "services")?.value?.items ?? []).map(pair => pair.value))]) {
+      let services = findPair(job, "services")?.value
+      if (isAlias(services)) services = services.resolve(document)
+      const serviceContainers = isMap(services) ? services.items.map(pair => pair.value) : []
+      for (let container of [findPair(job, "container")?.value, ...serviceContainers]) {
         if (isAlias(container)) container = container.resolve(document)
         if (isScalar(container)) {
           const line = lineCounter.linePos(container.range?.[0] ?? 0).line

@@ -69,6 +69,7 @@ describe("GitHub CI input policy", () => {
         "      - run: pnpm --silent dlx tool@1.2.3 --help",
         "      - run: pnpm --dir . dlx tool@1.2.3 --help",
         "      - run: npm exec --package=tool@1.2.3 --package helper@2.3.4 -- tool",
+        "      - run: npm --silent exec --package=tool@1.2.3 -- tool --package unpinned",
         "  scalar:",
         "    container: *pinned-image",
         "    steps: []",
@@ -354,7 +355,11 @@ jobs:
     "pnpm --silent dlx unpinned",
     "pnpm --dir . dlx unpinned",
     "npm x unpinned",
+    "npm --silent exec unpinned",
+    "npm --prefix . exec unpinned",
     "npm exec --package=safe@1.2.3 --package=unpinned -- cmd",
+    "version=$(npx unpinned --version)",
+    "(npx unpinned)",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -394,6 +399,24 @@ jobs:
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("must not use latest") }),
+      expect.objectContaining({ message: expect.stringContaining("must not use latest") }),
+    ])
+  })
+
+  it("rejects mutable service containers through an aliased services map", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "shared-services: &shared-services",
+        "  database:",
+        "    image: example/database",
+        "jobs:",
+        "  test:",
+        "    services: *shared-services",
+        "    steps: []",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("must not use latest") }),
     ])
   })
