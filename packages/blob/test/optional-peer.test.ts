@@ -74,10 +74,17 @@ describe("optional peer imports", () => {
   })
 
   it("ships the generic Files SDK runtime through the public driver", async () => {
-    const built = await readFile(new URL("../dist/drivers/files.js", import.meta.url), "utf8")
+    const closure = (await readLocalClosure(new URL("../dist/drivers/files.js", import.meta.url))).join("\n")
 
-    expect(built).not.toContain('from "files-sdk')
-    expect(built).not.toContain('import("files-sdk')
+    expect(closure).not.toContain('from "files-sdk')
+    expect(closure).not.toContain('import("files-sdk')
+    expect(closure).not.toContain('from "node:module"')
+  })
+
+  it("keeps the Netlify driver closure free of Node module loading", async () => {
+    const closure = (await readLocalClosure(new URL("../dist/drivers/netlify-blobs.js", import.meta.url))).join("\n")
+
+    expect(closure).not.toContain('from "node:module"')
   })
 
   it("keeps the Cloudflare-native R2 driver free of HTTP fallback peers", async () => {

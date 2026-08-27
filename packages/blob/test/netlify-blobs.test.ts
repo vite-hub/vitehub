@@ -46,6 +46,30 @@ describe("Netlify Blobs driver", () => {
     expect(init).toMatchObject({ headers: { authorization: "Bearer environment-token" } })
   })
 
+  it("decodes context and resumes cursors without Buffer", async () => {
+    const context = btoa(JSON.stringify({ siteID: "environment-site", token: "environment-token" }))
+    vi.stubGlobal("Buffer", undefined)
+    vi.stubEnv("NETLIFY_BLOBS_CONTEXT", context)
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      json: async () => ({
+        blobs: [
+          { etag: "one", key: "one.txt" },
+          { etag: "two", key: "two.txt" },
+        ],
+        directories: [],
+      }),
+    })))
+    store.getMetadata.mockResolvedValue({ metadata: {} })
+
+    const driver = createDriver({ driver: "netlify-blobs", name: "vitehub-blob" })
+    const first = await driver.list({ limit: 1 })
+    const second = await driver.list({ cursor: first.cursor, limit: 1 })
+
+    expect(first.blobs.map(blob => blob.pathname)).toEqual(["one.txt"])
+    expect(second.blobs.map(blob => blob.pathname)).toEqual(["two.txt"])
+  })
+
   it("retries transient list failures", async () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 500 }))

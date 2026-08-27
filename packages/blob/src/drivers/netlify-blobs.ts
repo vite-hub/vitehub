@@ -42,10 +42,21 @@ const MAX_FETCH_RETRIES = 5
 const MIN_RETRY_DELAY = 1_000
 const RATE_LIMIT_HEADER = "X-RateLimit-Reset"
 
+function decodeBase64(value: string) {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
+  return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
+}
+
+function encodeBase64Url(value: string) {
+  const binary = Array.from(new TextEncoder().encode(value), byte => String.fromCharCode(byte)).join("")
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0, page: 0 }
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Partial<FoldedCursor>
+    const parsed = JSON.parse(decodeBase64(cursor)) as Partial<FoldedCursor>
     return {
       directoriesConsumed: parsed.directoriesConsumed === true,
       index: typeof parsed.index === "number" && parsed.index >= 0 ? parsed.index : 0,
@@ -70,7 +81,7 @@ function getEnvironmentContext(): NetlifyEnvironmentContext {
     || runtime.process?.env?.NETLIFY_BLOBS_CONTEXT
   if (typeof encoded !== "string" || !encoded) return {}
   try {
-    return JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as NetlifyEnvironmentContext
+    return JSON.parse(decodeBase64(encoded)) as NetlifyEnvironmentContext
   }
   catch {
     return {}
@@ -157,7 +168,7 @@ async function mapWithConcurrency<T, U>(values: readonly T[], visit: (value: T) 
 }
 
 function encodeCursor(cursor: FoldedCursor) {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url")
+  return encodeBase64Url(JSON.stringify(cursor))
 }
 
 function createStore(options: NetlifyBlobsStoreConfig) {
