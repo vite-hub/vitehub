@@ -5,7 +5,11 @@ import {
 
 import { viteHubTypesPlugin } from "../internal/types.ts"
 
-import type { SourceGenerationOptions, SourceVitePluginOptions } from "@vite-hub/source/vite"
+import type {
+  GeneratedSourceHandler,
+  SourceGenerationOptions,
+  SourceVitePluginOptions,
+} from "@vite-hub/source/vite"
 import type { Plugin } from "vite"
 
 export {
@@ -19,7 +23,7 @@ export type {
   SourceVitePluginOptions,
 } from "@vite-hub/source/vite"
 
-export function prepareSourceGeneration(options: SourceGenerationOptions) {
+export function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
   return prepareOwnerSourceGeneration({ importBase: "vite-hub/source", ...options })
 }
 
