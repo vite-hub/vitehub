@@ -1509,7 +1509,7 @@ describe("workspace host sessions", () => {
     expect(maximum).toBeLessThanOrEqual(16)
   })
 
-  it("honors the host inspection concurrency across executable probes and file reads", async () => {
+  it("honors the host inspection concurrency across concurrent operations", async () => {
     const docs = workspace()
     const host = Object.assign(memoryHost(), { inspectionConcurrency: 1 })
     const exec = host.exec.bind(host)
@@ -1535,6 +1535,11 @@ describe("workspace host sessions", () => {
     await docs.snapshot({ name: "baseline" })
 
     const session = await docs.startSession({ host })
+    maximum = 0
+    await Promise.all([
+      session.diff(),
+      session.list("", { recursive: true }),
+    ])
     await session.close()
 
     expect(maximum).toBe(1)

@@ -31,6 +31,7 @@ import type {
 
 const publicationQueues = new WeakMap<object, Promise<void>>()
 const defaultHostInspectionConcurrency = 16
+const hostInspectionLimiters = new WeakMap<object, <T>(inspect: () => Promise<T>) => Promise<T>>()
 
 function resolveHostInspectionConcurrency(host: WorkspaceSessionHost): number {
   const concurrency = host.inspectionConcurrency ?? defaultHostInspectionConcurrency
@@ -40,16 +41,33 @@ function resolveHostInspectionConcurrency(host: WorkspaceSessionHost): number {
   return concurrency
 }
 
-async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, visit: (value: T) => Promise<U>) {
-  const results = new Array<U>(values.length)
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-    while (next < values.length) {
-      const index = next++
-      results[index] = await visit(values[index]!)
+function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
+  const existing = hostInspectionLimiters.get(host)
+  if (existing) return existing
+  const concurrency = resolveHostInspectionConcurrency(host)
+  let active = 0
+  const queued: Array<() => void> = []
+  const run = async <T>(inspect: () => Promise<T>): Promise<T> => {
+    if (active < concurrency) active++
+    else await new Promise<void>(resolve => queued.push(() => {
+      active++
+      resolve()
+    }))
+    try {
+      return await inspect()
     }
-  }))
-  return results
+    finally {
+      active--
+      queued.shift()?.()
+    }
+  }
+  hostInspectionLimiters.set(host, run)
+  return run
+}
+
+async function mapHostInspections<T, U>(host: WorkspaceSessionHost, values: readonly T[], visit: (value: T) => Promise<U>) {
+  const inspect = resolveHostInspectionLimiter(host)
+  return await Promise.all(values.map(value => inspect(async () => await visit(value))))
 }
 
 async function waitForOperation<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -277,7 +295,7 @@ async function listHostEntries(
   const entries = listed
     .map(entry => ({ executable: entry.executable, workspaceEntry: toWorkspaceEntry(root, entry) }))
     .filter(({ workspaceEntry }) => !isExcludedWorkspacePath(workspaceEntry.path, excluded) && (!include || include(workspaceEntry)))
-  const resolved = await mapWithConcurrency(entries, resolveHostInspectionConcurrency(host), async ({ executable, workspaceEntry }) => {
+  const resolved = await mapHostInspections(host, entries, async ({ executable, workspaceEntry }) => {
     abortSignal?.throwIfAborted()
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
     if (executable !== undefined) return workspaceEntry
@@ -314,7 +332,7 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
 
 async function captureHostEntriesState(host: WorkspaceSessionHost, root: string, entries: WorkspaceEntry[], name?: string, abortSignal?: AbortSignal) {
   const contents = new Map<string, Uint8Array | string>()
-  const files = await mapWithConcurrency(entries, resolveHostInspectionConcurrency(host), async (entry) => {
+  const files = await mapHostInspections(host, entries, async (entry) => {
     abortSignal?.throwIfAborted()
     if (entry.type !== "file") return entry
     const content = isGitSymlinkEntry(entry)
