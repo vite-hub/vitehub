@@ -54,12 +54,13 @@ describe("examples catalog", () => {
       expect.objectContaining({
         name: "Nuxt Agent",
         kind: "template",
-        status: "published",
+        status: "pending",
         action: {
           kind: "use",
-          label: "Use template",
-          to: "https://github.com/vite-hub/nuxt-agent/generate",
+          label: "Template unavailable",
         },
+        publicationNote:
+          "Pending an explicit license and Node 24 support for local and Vercel runtimes.",
         builtWith: ["Agent Definitions", "MCP", "Workspaces", "Channels", "Rate Limit", "Workflow"],
         startPath: "server/agents/nuxt/agent.ts",
       }),

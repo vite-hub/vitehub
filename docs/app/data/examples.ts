@@ -25,7 +25,18 @@ interface PublishedProject extends ExampleBase {
   };
 }
 
-interface Template extends ExampleBase {
+interface PendingTemplate extends ExampleBase {
+  kind: "template";
+  status: "pending";
+  action: {
+    kind: "use";
+    label: "Template unavailable";
+  };
+  publicationNote: string;
+  startPath: string;
+}
+
+interface PublishedTemplate extends ExampleBase {
   kind: "template";
   status: "published";
   action: {
@@ -36,7 +47,7 @@ interface Template extends ExampleBase {
   startPath: string;
 }
 
-export type Example = PendingProject | PublishedProject | Template;
+export type Example = PendingProject | PublishedProject | PendingTemplate | PublishedTemplate;
 
 export const examples: readonly Example[] = [
   {
@@ -90,12 +101,13 @@ export const examples: readonly Example[] = [
       "A ViteHub Agent that answers Nuxt questions through Telegram text and voice using Nuxt's MCP server and public documentation.",
     builtWith: ["Agent Definitions", "MCP", "Workspaces", "Channels", "Rate Limit", "Workflow"],
     kind: "template",
-    status: "published",
+    status: "pending",
     action: {
       kind: "use",
-      label: "Use template",
-      to: "https://github.com/vite-hub/nuxt-agent/generate",
+      label: "Template unavailable",
     },
+    publicationNote:
+      "Pending an explicit license and Node 24 support for local and Vercel runtimes.",
     startPath: "server/agents/nuxt/agent.ts",
   },
   {
