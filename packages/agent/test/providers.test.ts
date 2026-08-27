@@ -3599,7 +3599,14 @@ describe("server helpers", () => {
     const run = vi.fn(() => "unreachable")
     const handler = createChannelChatRouteHandler(
       defineAgent({
-        channels: { portal: webChat() },
+        channels: {
+          portal: webChat({
+            route: {
+              admission: { authenticate: () => true },
+              input: { trust: ["meta"] },
+            },
+          }),
+        },
         driver: { run },
         messages: {
           meta: {

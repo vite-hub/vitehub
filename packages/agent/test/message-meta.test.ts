@@ -221,6 +221,10 @@ describe("Agent message metadata", () => {
   it("resolves programmatic Invokers from parsed metadata", async () => {
     const resolve = vi.fn(({ defaultInvoker, input }) => {
       expect(input.context?.invoker).toEqual({
+        email: {
+          address: "user@example.com",
+          domain: "example.com",
+        },
         id: "chat:user-1",
         kind: "chat",
         meta: { audience: "technical", email: "user@example.com" },
@@ -229,6 +233,10 @@ describe("Agent message metadata", () => {
     })
     const run = vi.fn(({ invoker }) => {
       expect(invoker).toEqual({
+        email: {
+          address: "user@example.com",
+          domain: "example.com",
+        },
         id: "chat:user-1",
         kind: "chat",
         meta: { audience: "technical", email: "user@example.com" },
@@ -239,6 +247,10 @@ describe("Agent message metadata", () => {
       capabilities: ({ input }) => {
         expect(input.context?.channel).toEqual({ meta: { audience: "technical" } })
         expect(input.context?.invoker).toEqual({
+          email: {
+            address: "user@example.com",
+            domain: "example.com",
+          },
           id: "chat:user-1",
           kind: "chat",
           meta: { audience: "technical", email: "user@example.com" },
