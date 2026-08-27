@@ -98,7 +98,7 @@ describe("Workspace runtime preparation", () => {
     expect(getItems).toHaveBeenCalledOnce()
   })
 
-  it("aborts active preparation on stop and can start again", async () => {
+  it("serializes a restart with active preparation shutdown", async () => {
     let started!: () => void
     const firstAttemptStarted = new Promise<void>((resolve) => {
       started = resolve
@@ -122,9 +122,11 @@ describe("Workspace runtime preparation", () => {
 
     const first = preparation.start()
     await firstAttemptStarted
-    await preparation.stop()
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
     await expect(first).resolves.toMatchObject({ status: "preparing" })
-    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await stopping
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
     expect(attempts).toBe(2)
     await preparation.stop()
   })

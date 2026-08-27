@@ -69,6 +69,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let started = false
   let stopped = true
+  let lifecycle = 0
 
   const publish = (next: WorkspacePreparationState) => {
     state = Object.freeze(next)
@@ -83,6 +84,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
     if (stopped) return state
     if (active) return await active
 
+    const attemptLifecycle = lifecycle
     const startedAtMs = Date.now()
     const startedAt = new Date(startedAtMs).toISOString()
     publish({ startedAt, status: "preparing" })
@@ -109,6 +111,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         }
         await options.validate?.(result)
 
+        if (stopped || attemptLifecycle !== lifecycle) return state
         const finishedAtMs = Date.now()
         return publish({
           durationMs: finishedAtMs - startedAtMs,
@@ -119,7 +122,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         })
       }
       catch (error) {
-        if (stopped && controller.signal.aborted) return state
+        if (stopped || attemptLifecycle !== lifecycle) return state
         const finishedAtMs = Date.now()
         const next = publish({
           durationMs: finishedAtMs - startedAtMs,
@@ -128,10 +131,10 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
           startedAt,
           status: "error",
         })
-        if (!stopped) {
+        if (!stopped && attemptLifecycle === lifecycle) {
           retryTimer = setTimeout(() => {
             retryTimer = undefined
-            void run()
+            if (!stopped && attemptLifecycle === lifecycle) void run()
           }, retryDelayMs)
         }
         return next
@@ -167,11 +170,15 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
       if (started) return active ? await active : state
       started = true
       stopped = false
+      const startLifecycle = ++lifecycle
+      if (active) await active
+      if (!started || stopped || startLifecycle !== lifecycle) return state
       return await run()
     },
     async stop() {
       started = false
       stopped = true
+      lifecycle++
       if (retryTimer) clearTimeout(retryTimer)
       retryTimer = undefined
       const current = active

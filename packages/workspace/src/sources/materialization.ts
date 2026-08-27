@@ -264,7 +264,8 @@ async function* iterateMaterializationEntries(
 
   if (source.source.getItems) {
     for await (const item of iterateSourceItems(source, ctx)) {
-      const entry = createMaterializationEntry(source, item, item.metadata)
+      const upstreamMeta = item.metadata ?? await source.source.getMeta?.(item.key, ctx)
+      const entry = createMaterializationEntry(source, item, upstreamMeta)
       if (materializationPathMatches(entry.path, options)) yield entry
     }
     return

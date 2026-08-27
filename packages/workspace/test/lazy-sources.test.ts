@@ -523,6 +523,28 @@ describe("lazy sources", () => {
     expect(getMeta).not.toHaveBeenCalled()
   })
 
+  it("falls back to source metadata when a bulk item omits it", async () => {
+    const getMeta = vi.fn(async () => ({ revision: "fallback" }))
+    const view = createWorkspaceSourceView({
+      name: "bulk-item-metadata-fallback",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          getItem: async key => ({ content: "# Ready\n", key }),
+          getItems: async () => [{ content: "# Ready\n", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          getMeta,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    await expect(view.stat("docs/ready.md")).resolves.toMatchObject({ metadata: { revision: "fallback" } })
+    expect(getMeta).toHaveBeenCalledOnce()
+  })
+
   it("lets sources read existing workspace files while materializing", async () => {
     let previousReport = ""
     const store = createMemoryWorkspaceStore()
