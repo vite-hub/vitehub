@@ -1,6 +1,7 @@
 import { browserProviderError } from "../errors.ts"
 import { cloudflareBrowserTerminated } from "./connections.ts"
 import { attachPlaywrightBrowser } from "./playwright.ts"
+import { importBrowserOptionalPeer } from "./optional-peer.ts"
 
 import type { Browser } from "playwright-core"
 import type { PlaywrightClient } from "../controllers/playwright.ts"
@@ -14,7 +15,7 @@ interface CloudflarePlaywright {
 
 async function loadCloudflare(): Promise<CloudflarePlaywright> {
   try {
-    return await import("@cloudflare/playwright") as unknown as CloudflarePlaywright
+    return await importBrowserOptionalPeer<CloudflarePlaywright>("@cloudflare/playwright")
   }
   catch (error) {
     throw browserProviderError("playwright", "load @cloudflare/playwright", { cause: error })

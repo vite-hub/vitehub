@@ -1,5 +1,6 @@
 import { browserProviderError } from "../errors.ts"
 import { attachPlaywrightBrowser } from "../internal/playwright.ts"
+import { importBrowserOptionalPeer } from "../internal/optional-peer.ts"
 
 import type {
   Browser,
@@ -26,7 +27,7 @@ export interface PlaywrightControllerOptions {
 
 async function loadChromium(): Promise<Pick<BrowserType, "connectOverCDP">> {
   try {
-    return (await import("playwright-core")).chromium
+    return (await importBrowserOptionalPeer<typeof import("playwright-core")>("playwright-core")).chromium
   }
   catch (error) {
     throw browserProviderError("playwright", "load playwright-core", { cause: error })
@@ -35,7 +36,7 @@ async function loadChromium(): Promise<Pick<BrowserType, "connectOverCDP">> {
 
 async function loadCloudflare(): Promise<NonNullable<PlaywrightControllerOptions["cloudflare"]>> {
   try {
-    return await import("@cloudflare/playwright") as unknown as NonNullable<PlaywrightControllerOptions["cloudflare"]>
+    return await importBrowserOptionalPeer<NonNullable<PlaywrightControllerOptions["cloudflare"]>>("@cloudflare/playwright")
   }
   catch (error) {
     throw browserProviderError("playwright", "load @cloudflare/playwright", { cause: error })

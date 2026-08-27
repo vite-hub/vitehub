@@ -1,5 +1,3 @@
-import { H3, toWebHandler } from "h3/cloudflare"
-
 import { resolveAppFetch, type VitehubApp } from "./app.ts"
 import type { CloudflareWorkerEnv, CloudflareWorkerExecutionContext } from "./cloudflare-env.ts"
 
@@ -16,8 +14,15 @@ export interface CloudflareHostedWorkerAdapter<TEnv extends CloudflareWorkerEnv 
 }
 
 function createWebRequestHandler(appHandler: AppHandler | undefined): AppHandler {
-  const defaultHandler = toWebHandler(new H3())
-  return async (request, context) => await Promise.resolve(appHandler ? appHandler(request, context) : defaultHandler(request, context as never))
+  return async (request, context) => await Promise.resolve(
+    appHandler
+      ? appHandler(request, context)
+      : new Response(JSON.stringify({ status: 404, message: `Cannot find any route matching [${request.method}] ${request.url}` }), {
+          headers: { "content-type": "application/json;charset=UTF-8" },
+          status: 404,
+          statusText: "Not Found",
+        }),
+  )
 }
 
 export function createCloudflareHostedWorker<TEnv extends CloudflareWorkerEnv = CloudflareWorkerEnv>(

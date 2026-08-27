@@ -8,7 +8,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
@@ -125,6 +125,7 @@ describe("Vite schedule integration", () => {
     ].join("\n"), "utf8")
 
     const userConfig: Record<string, unknown> = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
       root,
       nitro: {
         cloudflare: {
@@ -148,8 +149,8 @@ describe("Vite schedule integration", () => {
             triggers: { crons: ["0 0 * * *", "*/10 * * * *"] },
           },
         },
-        modules: ["./.vitehub/nitro/schedule/module.mjs"],
-        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+        modules: [join(root, ".vitehub/nitro/schedule/module.mjs")],
+        plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
       },
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")

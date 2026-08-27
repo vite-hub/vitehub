@@ -8,8 +8,9 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
-import { hubQueue } from "../src/vite.ts"
+import { createQueueNitroConfig, hubQueue } from "../src/vite.ts"
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
@@ -20,6 +21,37 @@ afterEach(async () => {
 })
 
 describe("hubQueue", () => {
+  it("registers absolute generated paths when Nitro owns the Vite config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-owned-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const plugin = hubQueue({ provider: "cloudflare" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
+    const userConfig = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      nitro: { preset: "cloudflare_module" },
+      root,
+    }
+
+    config(userConfig)
+
+    expect(userConfig.nitro).toMatchObject({
+      handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
+      plugins: [resolve(root, ".vitehub/nitro/queue/plugin.ts")],
+    })
+
+    const nitro = await createQueueNitroConfig(plugin, {
+      nitro: userConfig.nitro,
+      projectRoot: root,
+      root,
+    })
+    expect(nitro).toMatchObject({
+      handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
+      plugins: [resolve(root, ".vitehub/nitro/queue/plugin.ts")],
+    })
+  })
+
   it("registers and generates the Nitro queue runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)

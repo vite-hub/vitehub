@@ -131,6 +131,63 @@ function installMarkdownTemplateResolver(config: Record<string, unknown>, plugin
   }
 }
 
+const nitroRuntimeResolverNames = new Set([
+  "@vite-hub/blob/vite",
+  "@vite-hub/kv/vite",
+])
+
+function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
+  if (typeof plugin.resolveId === "function") return plugin.resolveId
+  return plugin.resolveId?.handler
+}
+
+function pluginLoadHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["load"]>> | undefined {
+  if (typeof plugin.load === "function") return plugin.load
+  return plugin.load?.handler
+}
+
+function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
+  if (!nitroRuntimeResolverNames.has(plugin.name)) return
+  const resolveId = pluginResolveIdHandler(plugin)
+  const load = pluginLoadHandler(plugin)
+  if (!resolveId && !load) return
+
+  return {
+    name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
+    ...(resolveId
+      ? {
+          resolveId(...args) {
+            return resolveId.call(this, ...args)
+          },
+        }
+      : {}),
+    ...(load
+      ? {
+          load(...args) {
+            return load.call(this, ...args)
+          },
+        }
+      : {}),
+  }
+}
+
+function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: Plugin[]): void {
+  const resolvers = plugins.map(nitroRuntimeResolver).filter((plugin): plugin is Plugin => Boolean(plugin))
+  if (!resolvers.length) return
+
+  const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
+  const configuredPlugins = rollupConfig.plugins as PluginOption | undefined
+  const nitroPlugins = Array.isArray(configuredPlugins)
+    ? configuredPlugins
+    : configuredPlugins
+      ? [configuredPlugins]
+      : []
+  rollupConfig.plugins = nitroPlugins
+  for (const resolver of resolvers) {
+    if (!nitroPlugins.some(candidate => pluginOptionHasName(candidate, resolver.name))) nitroPlugins.push(resolver)
+  }
+}
+
 function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[]): void {
   const typescript = (options.typescript ??= {}) as Record<string, unknown>
   const tsConfig = (typescript.tsConfig ??= {}) as Record<string, unknown>
@@ -331,6 +388,30 @@ function deploymentOutputEnvPluginHandler(plugin: Plugin): ((envPlugin: Plugin) 
   }).vitehub?.deploymentOutput?.useEnvPlugin
 }
 
+type VitePluginNitroModule = {
+  name?: string
+  setup: (nitro: unknown) => void | Promise<void>
+}
+
+function vitePluginNitroModule(plugin: Plugin): VitePluginNitroModule | undefined {
+  const nitro = (plugin as Plugin & { nitro?: VitePluginNitroModule }).nitro
+  return nitro && typeof nitro.setup === "function" ? nitro : undefined
+}
+
+function installVitePluginNitroModules(config: Record<string, unknown>, plugins: Plugin[]): void {
+  const configured = config.modules
+  const modules = Array.isArray(configured) ? configured : configured ? [configured] : []
+  config.modules = modules
+  for (const plugin of plugins) {
+    const nitroModule = vitePluginNitroModule(plugin)
+    if (!nitroModule) continue
+    if (!modules.some((candidate) => {
+      if (candidate === nitroModule) return true
+      return Boolean(nitroModule.name && candidate && typeof candidate === "object" && Reflect.get(candidate, "name") === nitroModule.name)
+    })) modules.push(nitroModule)
+  }
+}
+
 function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
   return options.flatMap((option) => {
     if (Array.isArray(option)) return [withoutDeploymentOutput(option)]
@@ -415,7 +496,10 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     }
   }
 
-  if (config.nitro) Object.assign(nitroConfig, config.nitro)
+  if (config.nitro) {
+    installVitePluginNitroModules(config.nitro, plugins)
+    Object.assign(nitroConfig, config.nitro)
+  }
 }
 
 type ViteHubNuxtModule = {
@@ -458,6 +542,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     wasm.lazy ??= true
   }
   const rootDir = nuxt.options.rootDir || process.cwd()
+  nuxt.options.vite ??= {}
+  nuxt.options.vite.root ??= rootDir
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
   if (options.console) {
@@ -482,7 +568,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     )
   }
-  nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
@@ -648,6 +733,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)
     Object.assign(config, mergeGeneratedNitroConfig(config, generatedHandlers))
+    installNitroRuntimeResolvers(config, replayPlugins)
     installMarkdownTemplateResolver(config, markdownTemplatePlugin)
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))

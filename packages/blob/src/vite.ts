@@ -267,12 +267,15 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       command = env.command
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      cloudflareOwnedByNitro = (nitroOwned || hasNitroVitePluginOption(config.plugins)) && isNitroCloudflareHost(configuredNitro)
+      const nitroConfigContext = hasNitroConfigContext(config)
+      const nitroOwnsConfig = nitroOwned || nitroConfigContext || hasNitroVitePluginOption(config.plugins)
+      cloudflareOwnedByNitro = nitroOwnsConfig && isNitroCloudflareHost(configuredNitro)
       const blobConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflareOwnedByNitro,
+        nitroConfigContext ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
       )
       const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       ;(config as { nitro?: unknown }).nitro = composedNitro

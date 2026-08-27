@@ -416,7 +416,7 @@ describe("ViteHub CLI", () => {
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 
-  it("keeps explicit Vite config ownership in the standalone loader", async () => {
+  it("loads Nuxt plugins when a Nuxt app also has a Vite config", async () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, "vite.config.ts"), "export default {}\n")
     await writeFile(join(rootDir, "nuxt.config.ts"), "export default {}\n")
@@ -429,7 +429,7 @@ describe("ViteHub CLI", () => {
       stdout: stream(),
     })
 
-    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
+    expect(loadNuxtViteConfig).toHaveBeenCalledOnce()
   })
 
   it("fails closed when provision credentials are missing", async () => {

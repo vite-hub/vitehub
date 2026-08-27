@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -192,8 +192,12 @@ describe("sources, loaders, and publishers", () => {
 
   it("keeps Vite out of statically bundled workspace runtime output", async () => {
     const output = await readFile(join(import.meta.dirname, "../dist/index.js"), "utf8")
+    const githubRuntimeChunks = (await readdir(join(import.meta.dirname, "../dist")))
+      .filter(file => /^github-.*\.js$/.test(file))
+    const githubRuntimeOutput = (await Promise.all(githubRuntimeChunks.map(async file => await readFile(join(import.meta.dirname, "../dist", file), "utf8")))).join("\n")
 
     expect(output).not.toContain('import("vite")')
+    expect(githubRuntimeOutput).not.toMatch(/\bimport\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)?["']vite["']/)
     expect(output).not.toContain("createRequire(import.meta.url)")
     expect(output).not.toContain("node-fetch-native")
     expect(output).not.toContain("node:http")

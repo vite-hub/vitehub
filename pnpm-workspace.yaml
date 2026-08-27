@@ -56,6 +56,8 @@ catalogs:
     docus: https://pkg.pr.new/docus@986a334
     nuxt: ^4.5.2
     nuxt-schema-org: ^6.3.0
+  nuxt-compat:
+    nuxt: ^4.5.2 || >=5.0.0-0
   realtime:
     "@tiptap/core": ^3.29.2
     "@tiptap/extension-collaboration": ^3.29.2
