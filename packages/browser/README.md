@@ -99,7 +99,7 @@ import { defineBrowser } from "vite-hub/browser"
 export default defineBrowser(async (input: { url: string }, { browser }) => {
   const session = await browser.open()
   await session.page.goto(input.url)
-  await session.page.locator("main").waitFor()
+  await session.page.locator("h1").waitFor()
   return await session.page.locator("h1").count()
 })
 ```
