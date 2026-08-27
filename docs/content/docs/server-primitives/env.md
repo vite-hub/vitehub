@@ -75,7 +75,7 @@ export default defineConfig({
       appName: env({ default: 'Acme', mode: 'build' }),
     },
     define: {
-      __BUILD_TARGET__: env({ default: 'preview' }),
+      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
     },
     server: {
       github: {
