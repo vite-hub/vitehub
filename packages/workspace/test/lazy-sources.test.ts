@@ -370,7 +370,6 @@ describe("lazy sources", () => {
 
     expect(progress).toEqual([
       expect.objectContaining({
-        cacheStatus: "disabled",
         mountPath: "docs",
         path: "docs",
         source: "docs",
@@ -396,6 +395,44 @@ describe("lazy sources", () => {
         source: "docs",
         status: "completed",
       }),
+    ])
+  })
+
+  it("reports failures during source fingerprinting", async () => {
+    const progress: unknown[] = []
+    const view = createWorkspaceSourceView({
+      name: "lazy-fingerprint-failure",
+      sources: {
+        docs: custom({
+          fingerprint: {
+            toJSON() {
+              throw new Error("fingerprint unavailable")
+            },
+          },
+          materialize: "lazy",
+          async getItem(key) {
+            return { content: "", key }
+          },
+          async getKeys() {
+            return []
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const result = await view.materializeSources({
+      onProgress(event) {
+        progress.push(event)
+      },
+      sources: ["docs"],
+    })
+
+    expect(progress).toEqual([
+      expect.objectContaining({ source: "docs", status: "started" }),
+      expect.objectContaining({ error: "fingerprint unavailable", source: "docs", status: "failed" }),
+    ])
+    expect(result.sources).toEqual([
+      expect.objectContaining({ error: "fingerprint unavailable", source: "docs", status: "error" }),
     ])
   })
 

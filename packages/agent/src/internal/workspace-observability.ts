@@ -1,10 +1,13 @@
-import type { TraceEventLog } from "@vite-hub/runtime"
+import type { TraceContext, TraceEventLog } from "@vite-hub/runtime"
 import type {
   WorkspaceMaterializeSourcesProgressEvent,
   WorkspacePrepareSessionProgressEvent,
 } from "@vite-hub/workspace"
 
 interface WorkspaceSetupObserversOptions {
+  invocationId?: string
+  runId?: string
+  trace?: TraceContext
   traceLog?: TraceEventLog
   workspace?: string
 }
@@ -56,6 +59,21 @@ async function append(traceLog: TraceEventLog | undefined, event: Parameters<Tra
   }
 }
 
+function correlatedEvent(
+  options: WorkspaceSetupObserversOptions,
+  event: Parameters<TraceEventLog["append"]>[0],
+): Parameters<TraceEventLog["append"]>[0] {
+  return {
+    ...event,
+    trace: event.trace || options.trace,
+    attributes: {
+      ...(options.invocationId ? { "agent.invocation.id": options.invocationId } : {}),
+      ...(options.runId ? { "agent.run.id": options.runId } : {}),
+      ...event.attributes,
+    },
+  }
+}
+
 export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOptions): WorkspaceSetupObservers {
   return {
     async materialization(event) {
@@ -66,7 +84,7 @@ export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOp
         : event.status === "completed"
           ? "Workspace source materialized"
           : "Materializing workspace source"
-      await append(options.traceLog, {
+      await append(options.traceLog, correlatedEvent(options, {
         attributes: {
           "error.message": event.error,
           "step.id": stepId,
@@ -104,14 +122,14 @@ export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOp
             ? "vitehub.workspace.error"
             : `vitehub.workspace.materialization.${eventSuffix(event.status)}`,
         type: event.status === "failed" ? "error" : "lifecycle",
-      })
+      }))
     },
     async preparation(event) {
       const bytes = typeof event.data?.bytes === "number" ? event.data.bytes : undefined
       const files = typeof event.data?.files === "number" ? event.data.files : undefined
       const revision = typeof event.data?.revision === "string" ? event.data.revision : undefined
       const stepId = `vitehub.${event.id}`
-      await append(options.traceLog, {
+      await append(options.traceLog, correlatedEvent(options, {
         attributes: {
           "error.message": event.error,
           "step.id": stepId,
@@ -128,7 +146,7 @@ export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOp
         },
         name: `${stepId}.${eventSuffix(event.status)}`,
         type: event.status === "failed" ? "error" : "lifecycle",
-      })
+      }))
     },
   }
 }

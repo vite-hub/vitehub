@@ -25,7 +25,7 @@ import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } fro
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
-import { createAgentStreamEventTracer } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -594,6 +594,16 @@ function selectedWorkspacePaths(context: AgentAdapterRunContext): readonly strin
   return paths.length ? paths : []
 }
 
+function workspaceSetupObserverOptions(context: AgentAdapterRunContext) {
+  return {
+    invocationId: context.context.get(agentInvocationTraceIdContextKey) as string | undefined,
+    runId: context.runtime.run?.runId,
+    trace: context.runtime.trace,
+    traceLog: context.runtime.traceLog,
+    workspace: context.workspaceDefinition?.name,
+  }
+}
+
 async function materializeWorkspaceSources(context: AgentAdapterRunContext, paths: readonly string[] | undefined) {
   const workspace = context.workspaceMaterializationSource || context.workspace
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
@@ -602,10 +612,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   if (!materialize || (paths && !paths.length)) return
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
-  const observers = createWorkspaceSetupObservers({
-    traceLog: context.runtime.traceLog,
-    workspace: context.workspaceDefinition?.name,
-  })
+  const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
   await Promise.all((paths || [""]).map(path => materialize.call(owner, {
     abortSignal: context.input.abortSignal,
     onProgress: observers.materialization,
@@ -623,10 +630,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
-    onProgress: createWorkspaceSetupObservers({
-      traceLog: context.runtime.traceLog,
-      workspace: context.workspaceDefinition?.name,
-    }).preparation,
+    onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,
   }

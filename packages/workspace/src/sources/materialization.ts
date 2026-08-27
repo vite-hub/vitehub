@@ -338,12 +338,36 @@ export async function materializeWorkspaceSources(
   for (const source of sources) {
     throwIfAborted(options.abortSignal)
     const sourceStarted = Date.now()
-    const configHash = await sourceConfigHash(source)
-    const existing = await readSourceSnapshotMetadata(store, source.key)
+    await reportMaterializationProgress(options, source, { status: "started" })
+    let configHash: string
+    let existing: SourceSnapshotMetadata | undefined
+    try {
+      configHash = await sourceConfigHash(source)
+      existing = await readSourceSnapshotMetadata(store, source.key)
+    }
+    catch (error) {
+      const durationMs = Date.now() - sourceStarted
+      const message = error instanceof Error ? error.message : String(error)
+      resultSources.push({
+        counts: emptyMaterializationCounts(),
+        durationMs,
+        error: message,
+        mountPath: source.mountPath,
+        provider: source.source.name,
+        source: source.key,
+        status: "error",
+      })
+      await reportMaterializationProgress(options, source, {
+        counts: emptyMaterializationCounts(),
+        durationMs,
+        error: message,
+        status: "failed",
+      })
+      continue
+    }
     const completeSource = materializesCompleteSource(source, options)
     const cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
-    await reportMaterializationProgress(options, source, { cacheStatus, status: "started" })
     if (cacheHit) {
       const durationMs = Date.now() - sourceStarted
       const counts = { ...emptyMaterializationCounts(), unchanged: existing?.files || 0 }

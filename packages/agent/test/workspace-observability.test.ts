@@ -6,7 +6,13 @@ import { createWorkspaceSetupObservers } from "../src/internal/workspace-observa
 describe("Workspace setup observability", () => {
   it("turns source materialization progress into one timed preparation step", async () => {
     const traceLog = createTraceEventLog({ content: "content" })
-    const observer = createWorkspaceSetupObservers({ traceLog, workspace: "docs" }).materialization
+    const observer = createWorkspaceSetupObservers({
+      invocationId: "invocation-1",
+      runId: "run-1",
+      trace: { id: "trace-1" },
+      traceLog,
+      workspace: "docs",
+    }).materialization
     const base = {
       cacheStatus: "miss" as const,
       mountPath: "skills",
@@ -32,6 +38,8 @@ describe("Workspace setup observability", () => {
     ])
     expect(traceLog.entries()[1]).toMatchObject({
       attributes: {
+        "agent.invocation.id": "invocation-1",
+        "agent.run.id": "run-1",
         "step.id": "vitehub.workspace.materialization:review-skill:skills/review",
         "vitehub.activity.detail": "review-skill · github · 7 files · 4.0 KB · cache miss · commit-123",
         "vitehub.activity.kind": "preparation",
@@ -42,6 +50,7 @@ describe("Workspace setup observability", () => {
         "workspace.name": "docs",
         "workspace.source.revision.id": "commit-123",
       },
+      trace: { id: "trace-1" },
       type: "lifecycle",
     })
   })
