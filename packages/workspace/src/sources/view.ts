@@ -26,6 +26,7 @@ import type {
   WorkspaceEntry,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceMaterializeSourcesResult,
   WorkspaceSourceItem,
   WorkspaceStat,
   WorkspaceStore,
@@ -46,6 +47,8 @@ export interface WorkspaceSourceView {
   rm(path: string, options?: RmOptions): Promise<void>
 }
 
+const materializationByStore = new WeakMap<WorkspaceStore, Map<string, Promise<WorkspaceMaterializeSourcesResult>>>()
+
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
@@ -55,7 +58,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
-  const materializeBySource = new Map<string, Promise<void>>()
+  const materializeBySource = materializationByStore.get(store) ?? new Map<string, Promise<WorkspaceMaterializeSourcesResult>>()
+  if (!materializationByStore.has(store)) materializationByStore.set(store, materializeBySource)
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)
@@ -145,13 +149,35 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await Promise.all(items.map(async source => await ensurePrepared(source.key)))
   }
 
-  async function ensureMaterialized(sourceKey: string) {
-    let pending = materializeBySource.get(sourceKey)
-    if (!pending) {
-      pending = materializeWorkspaceSources(definition, store, { sources: [sourceKey] }).then(() => undefined)
-      materializeBySource.set(sourceKey, pending)
+  const materializedSources = new Set<string>()
+
+  async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}) {
+    const sourceKeys = options.sources?.length ? options.sources : sources.map(source => source.key)
+    const previous = Promise.all(sourceKeys.flatMap((sourceKey) => {
+      const pending = materializeBySource.get(sourceKey)
+      return pending ? [pending] : []
+    }))
+    const current = (async () => {
+      await previous
+      return await materializeWorkspaceSources(definition, store, options)
+    })()
+    for (const sourceKey of sourceKeys) materializeBySource.set(sourceKey, current)
+    try {
+      return await current
     }
-    await pending
+    finally {
+      for (const sourceKey of sourceKeys) {
+        if (materializeBySource.get(sourceKey) === current) materializeBySource.delete(sourceKey)
+      }
+    }
+  }
+
+  async function ensureMaterialized(sourceKey: string) {
+    if (materializedSources.has(sourceKey)) return
+    const pending = materializeBySource.get(sourceKey)
+    if (pending) await pending
+    else await materializeSerialized({ sources: [sourceKey] })
+    materializedSources.add(sourceKey)
   }
 
   async function ensureMaterializedSources(items = sources) {
@@ -449,7 +475,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return result
     },
     async materializeSources(options) {
-      return await materializeWorkspaceSources(definition, store, options)
+      return await materializeSerialized(options)
     },
     async exists(path) {
       if (descriptorStat(normalizeWorkspacePath(path))) return true

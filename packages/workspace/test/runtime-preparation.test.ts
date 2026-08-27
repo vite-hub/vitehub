@@ -54,6 +54,9 @@ describe("Workspace runtime preparation", () => {
     expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8")
     await expect(response.json()).resolves.toEqual({ ready: true, status: "ready" })
     await preparation.stop()
+    expect(preparation.getState()).toMatchObject({ status: "stopped" })
+    expect(preparation.response().status).toBe(503)
+    await expect(preparation.response().json()).resolves.toEqual({ ready: false, status: "stopped" })
   })
 
   it("retries validation failures while keeping public errors minimal", async () => {
@@ -125,7 +128,7 @@ describe("Workspace runtime preparation", () => {
     const stopping = preparation.stop()
     const restarted = preparation.start()
     const concurrentRestart = preparation.start()
-    await expect(first).resolves.toMatchObject({ status: "preparing" })
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
     await stopping
     await expect(restarted).resolves.toMatchObject({ status: "ready" })
     await expect(concurrentRestart).resolves.toMatchObject({ status: "ready" })
@@ -149,7 +152,35 @@ describe("Workspace runtime preparation", () => {
     const started = preparation.start()
     await validationStarted
     await expect(preparation.stop()).resolves.toBeUndefined()
-    await expect(started).resolves.toMatchObject({ status: "preparing" })
+    await expect(started).resolves.toMatchObject({ status: "stopped" })
+  })
+
+  it("shares startup materialization with a concurrent lazy read", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const getItems = vi.fn(async () => {
+      started()
+      await blocked
+      return [{ content: "# Ready", key: "ready.md" }]
+    })
+    const name = registerPreparationWorkspace(getItems)
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const preparing = preparation.start()
+    await materializing
+    const reading = useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })
+    release()
+
+    await expect(preparing).resolves.toMatchObject({ status: "ready" })
+    await expect(reading).resolves.toBe("# Ready")
+    expect(getItems).toHaveBeenCalledOnce()
+    await preparation.stop()
   })
 
   it("validates preparation options at creation", () => {

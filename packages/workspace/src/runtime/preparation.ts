@@ -9,6 +9,10 @@ import type {
 
 export type WorkspacePreparationState =
   | {
+      status: "stopped"
+      stoppedAt: string
+    }
+  | {
       startedAt: string
       status: "preparing"
     }
@@ -212,6 +216,10 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
       started = false
       stopped = true
       lifecycle++
+      publish({
+        status: "stopped",
+        stoppedAt: new Date().toISOString(),
+      })
       if (retryTimer) clearTimeout(retryTimer)
       retryTimer = undefined
       const current = active
