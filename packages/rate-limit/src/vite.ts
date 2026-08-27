@@ -217,6 +217,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         }
         const namespace = resolveRateLimitNamespace(rateLimit.namespace)
         const config = resolved
+        const contributionDeclarations = declarations
+        const contributionPreviousDeclarations = previousDeclarations
         contributeProviderDeploymentOutput(composedOutput, {
           owner: "rate-limit",
           rootDir: config.root,
@@ -224,15 +226,15 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
             await writeRateLimitProviderOutput({
               clientOutDir: config.build.outDir,
               cloudflareOwnedByNitro,
-              declarations,
+              declarations: contributionDeclarations,
               namespace,
-              previousDeclarations,
+              previousDeclarations: contributionPreviousDeclarations,
               provider,
               rootDir: config.root,
               signal,
             }, write)
             signal.throwIfAborted()
-            previousDeclarations = declarations
+            previousDeclarations = contributionDeclarations
           },
         })
       }

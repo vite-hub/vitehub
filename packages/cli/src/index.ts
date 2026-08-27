@@ -31,9 +31,18 @@ type ViteHubCliSpawn = (
 ) => Promise<ViteHubCliSpawnResult>
 
 interface ViteHubCliStreams {
-  stderr: { write: (chunk: string | Uint8Array) => unknown }
-  stdout: { write: (chunk: string | Uint8Array) => unknown }
+  stderr: ViteHubCliStream
+  stdout: ViteHubCliStream
 }
+
+interface ViteHubCliStream {
+  flush?: () => unknown
+  write: (chunk: string | Uint8Array) => unknown
+}
+
+type ViteHubCliEntrypointStream =
+  | { flush: () => unknown, write: (chunk: string | Uint8Array) => unknown }
+  | { flush?: never, write: (chunk: string | Uint8Array) => void | PromiseLike<unknown> }
 
 interface ViteHubCliLoadedConfig {
   plugins: readonly unknown[]
@@ -50,6 +59,11 @@ export interface RunViteHubCliOptions {
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
+}
+
+export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOptions, "stderr" | "stdout"> {
+  stderr?: ViteHubCliEntrypointStream
+  stdout?: ViteHubCliEntrypointStream
 }
 
 async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
@@ -214,6 +228,78 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   return result ?? 0
 }
 
+function trackStream(stream: ViteHubCliStream) {
+  const writes: Array<Promise<PromiseSettledResult<unknown>>> = []
+  return {
+    stream: {
+      write(chunk: string | Uint8Array) {
+        const result = stream.write(chunk)
+        writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
+          value => ({ status: "fulfilled", value }),
+          reason => ({ reason, status: "rejected" }),
+        ))
+        return result
+      },
+    },
+    async flush() {
+      const results = await Promise.all(writes)
+      let flushFailure: { reason: unknown } | undefined
+      try {
+        if (stream.flush) {
+          await stream.flush()
+        }
+      }
+      catch (error: unknown) {
+        flushFailure = { reason: error }
+      }
+      const rejected = results.find(result => result.status === "rejected")
+      if (rejected) {
+        throw rejected.reason
+      }
+      if (flushFailure) {
+        throw flushFailure.reason
+      }
+    },
+  }
+}
+
+function processEntrypointStream(stream: NodeJS.WriteStream): ViteHubCliEntrypointStream {
+  return {
+    flush: () => new Promise<void>((resolveFlush, rejectFlush) => stream.write("", (error) => {
+      if (error) {
+        rejectFlush(error)
+      }
+      else {
+        resolveFlush()
+      }
+    })),
+    write: chunk => stream.write(chunk),
+  }
+}
+
+export function runViteHubCliEntrypoint(options: RunViteHubCliEntrypointOptions = {}): void {
+  const stderr = trackStream(options.stderr || processEntrypointStream(process.stderr))
+  const stdout = trackStream(options.stdout || processEntrypointStream(process.stdout))
+  void (async () => {
+    let exitCode: number
+    try {
+      exitCode = await runViteHubCli({ ...options, stderr: stderr.stream, stdout: stdout.stream })
+    }
+    catch (error: unknown) {
+      try {
+        stderr.stream.write(`${error instanceof Error ? error.message : error}\n`)
+      }
+      catch {}
+      exitCode = 1
+    }
+    const flushes = await Promise.allSettled([stdout.flush(), stderr.flush()])
+    if (flushes.some(result => result.status === "rejected")) {
+      exitCode = 1
+    }
+    process.exit(exitCode)
+  })()
+}
+
 function isCliEntrypoint() {
   if (!process.argv[1]) return false
   try {
@@ -225,10 +311,5 @@ function isCliEntrypoint() {
 }
 
 if (isCliEntrypoint()) {
-  runViteHubCli().then((exitCode) => {
-    process.exitCode = exitCode
-  }).catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  })
+  runViteHubCliEntrypoint()
 }

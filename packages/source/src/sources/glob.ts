@@ -11,14 +11,14 @@ export interface GlobSourceOptions {
   dot?: boolean
   followSymlinks?: boolean
   include: string | string[]
-  ignore?: string | string[]
+  ignore?: string | readonly string[]
   keyCache?: boolean
   prefix?: string
 }
 
-export function glob<const TKey extends string = string>(options: GlobSourceOptions): Source<TKey> {
-  let snapshot: { key: string, keys: Promise<TKey[]> } | undefined
-  let latest: { key: string, keys: TKey[] } | undefined
+export function glob(options: GlobSourceOptions): Source<string> {
+  let snapshot: { key: string, keys: Promise<string[]> } | undefined
+  let latest: { key: string, keys: string[] } | undefined
 
   async function getContextKey(ctx: SourceContext) {
     return resolveCwd(resolveSourceRoot(ctx), options.cwd)
@@ -37,7 +37,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
     return files
       .map(file => normalizeSourcePath(file))
       .filter(file => matchesAny(file, options.include) && !matchesAny(file, ignore))
-      .sort((left, right) => left.localeCompare(right)) as TKey[]
+      .sort((left, right) => left.localeCompare(right))
   }
 
   async function refreshKeys(ctx: SourceContext) {
@@ -67,7 +67,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
     return await getCachedKeys(ctx)
   }
 
-  async function assertKey(key: TKey, ctx: SourceContext) {
+  async function assertKey(key: string, ctx: SourceContext) {
     const keys = await getKnownKeys(ctx)
     if (keys.includes(key)) return
     if (options.keyCache !== false) {
@@ -77,7 +77,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
     throw sourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
   }
 
-  const source: Source<TKey> = {
+  const source: Source<string> = {
     name: "glob",
     async prepare(ctx: SourceContext) {
       snapshot = undefined
@@ -86,7 +86,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
     getKeys(ctx: SourceContext) {
       return getCachedKeys(ctx)
     },
-    async getMeta(key: TKey, ctx: SourceContext) {
+    async getMeta(key: string, ctx: SourceContext) {
       await assertKey(key, ctx)
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
@@ -96,7 +96,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
         digest: `${info.size}:${info.mtimeMs}`,
       }
     },
-    async getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey>> {
+    async getItem(key: string, ctx: SourceContext): Promise<SourceItem<string>> {
       await assertKey(key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
@@ -115,8 +115,9 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
   return source
 }
 
-function normalizePatterns(patterns: string | string[] | undefined): string[] {
-  return Array.isArray(patterns) ? patterns : patterns ? [patterns] : []
+function normalizePatterns(patterns: string | readonly string[] | undefined): readonly string[] {
+  if (!patterns) return []
+  return Array.isArray(patterns) ? patterns : [String(patterns)]
 }
 
 function resolveSourceRoot(ctx: SourceContext) {
