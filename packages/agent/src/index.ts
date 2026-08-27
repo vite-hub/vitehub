@@ -3725,17 +3725,23 @@ function resultWithPreservedProperties(result: unknown, descriptors: PropertyDes
 
 function definedObjectProperties(value: unknown): Record<string, unknown> {
   if (!value || !hasRuntimeType(value, "object")) return {}
-  return Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(value))
-    .filter(([, descriptor]) => descriptor.enumerable && "value" in descriptor && descriptor.value !== undefined)
-    .map(([key, descriptor]) => [key, descriptor.value]))
+  try {
+    return Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(value))
+      .filter(([, descriptor]) => descriptor.enumerable && "value" in descriptor && descriptor.value !== undefined)
+      .map(([key, descriptor]) => [key, descriptor.value]))
+  }
+  catch {
+    return {}
+  }
 }
 
 function definedObjectPropertiesWithInherited(value: unknown, keys: readonly string[]): Record<string, unknown> {
   const properties = definedObjectProperties(value)
   if (!value || !hasRuntimeType(value, "object")) return properties
   for (const key of keys) {
-    if (properties[key] !== undefined || !Reflect.has(value, key)) continue
+    if (properties[key] !== undefined) continue
     try {
+      if (!Reflect.has(value, key)) continue
       const property = Reflect.get(value, key)
       if (property !== undefined) properties[key] = property
     }
@@ -3756,8 +3762,9 @@ function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
   }
   const usage: Record<string, unknown> = { ...definedObjectProperties(value) }
   for (const key of ["details", "inputTokenDetails", "inputTokens", "outputTokenDetails", "outputTokens", "raw", "totalTokens"] as const) {
-    if (usage[key] !== undefined || !Reflect.has(value, key)) continue
+    if (usage[key] !== undefined) continue
     try {
+      if (!Reflect.has(value, key)) continue
       const property = Reflect.get(value, key)
       if (property !== undefined) usage[key] = property
     }
@@ -3833,9 +3840,9 @@ async function resultWithStreamedTextAndUsage(
     const hasSourceUsageRecord = Object.keys(sourceUsageRecordProperties).length > 0
     const sourceUsage = normalizedAgentUsage(sourceUsageRecordProperties.usage)
     let resolvedUsage = normalized.usage
-    if (resolvedUsage === undefined && Reflect.has(result, "totalUsage")) {
+    if (resolvedUsage === undefined) {
       try {
-        resolvedUsage = Reflect.get(result, "totalUsage")
+        if (Reflect.has(result, "totalUsage")) resolvedUsage = Reflect.get(result, "totalUsage")
       }
       catch {
         // Ignore provider totalUsage getters that cannot be read during finalization.

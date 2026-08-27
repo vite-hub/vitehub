@@ -743,12 +743,24 @@ describe("Agent Invocation Interface lifecycle", () => {
     const target = (async function* () {
       yield { text: "hello", type: "text-delta" }
     })()
+    const unreadableMetadata = new Set<PropertyKey>([
+      "artifacts",
+      "finishReason",
+      "text",
+      "totalUsage",
+      "usage",
+      "usageRecord",
+      "warnings",
+    ])
     const raw = new Proxy(target, {
       has(_target, key) {
-        if (typeof key === "string" && ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"].includes(key)) {
+        if (unreadableMetadata.has(key)) {
           throw new Error("unreadable provider metadata")
         }
         return Reflect.has(_target, key)
+      },
+      ownKeys() {
+        throw new Error("unreadable provider descriptors")
       },
     })
     const agent = defineAgent({
