@@ -171,6 +171,7 @@ export interface WorkspaceSessionHostFiles {
 
 export interface WorkspaceSessionHost {
   readonly executionAuthority: ExecutionAuthority
+  readonly inspectionConcurrency?: number
   detachAbortSignal?(): void
   files: WorkspaceSessionHostFiles
   exec(
