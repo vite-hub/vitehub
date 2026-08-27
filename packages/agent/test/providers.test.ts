@@ -8036,8 +8036,6 @@ describe("server helpers", () => {
       webhookState: state,
     }
     let stop: () => void | Promise<void> = () => undefined
-    vi.useFakeTimers()
-
     try {
       stop = handler.resume(options)
       const first = await withDeadline(
@@ -8059,7 +8057,7 @@ describe("server helpers", () => {
       const waitUntilCount = waitUntilTasks.length
       const steering = handler(request("delivery-2"), "github", options)
       await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
-      await vi.advanceTimersByTimeAsync(1_100)
+      await new Promise<void>((resolve) => setNodeTimeout(resolve, 1_100))
       const concurrentDelivery = await handler(request("delivery-6"), "github", options)
       expect(concurrentDelivery.status).toBe(503)
       await expect(concurrentDelivery.json()).resolves.toEqual({
@@ -8167,7 +8165,6 @@ describe("server helpers", () => {
       releaseSteer()
       releases.splice(0).forEach((release) => release())
       await stopping
-      vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
@@ -8193,7 +8190,7 @@ describe("server helpers", () => {
     const run = vi.fn(async (context: { run?: { runId?: string } }) => {
       const runIndex = startedRuns++
       runStarted[runIndex]?.resolve(undefined)
-      let unregister = () => undefined
+      let unregister: () => void = () => undefined
       try {
         const controlId = agentInvocationControlId(context)
         if (!controlId) throw new Error("Expected an Agent Invocation control identity.")
@@ -14335,9 +14332,7 @@ describe("server helpers", () => {
     } finally {
       if (replacementWaiting) replacement.reject(Object.assign(new Error("Test cleanup released the replacement Workflow."), { status: 503 }))
       if (replacementHandler) {
-        await withDeadline(replacementHandler.catch(() => undefined), 3_000, "Replacement webhook cleanup did not finish.").catch(
-          () => undefined,
-        )
+        await withDeadline(replacementHandler.catch(() => undefined), 3_000, "Replacement webhook cleanup did not finish.")
       }
       resetWorkflowRuntime()
       await state.disconnect()
