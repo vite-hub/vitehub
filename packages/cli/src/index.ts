@@ -245,12 +245,21 @@ function trackStream(stream: ViteHubCliStream) {
     },
     async flush() {
       const results = await Promise.all(writes)
+      let flushFailure: { reason: unknown } | undefined
+      try {
+        if (stream.flush) {
+          await stream.flush()
+        }
+      }
+      catch (error: unknown) {
+        flushFailure = { reason: error }
+      }
       const rejected = results.find(result => result.status === "rejected")
       if (rejected) {
         throw rejected.reason
       }
-      if (stream.flush) {
-        await stream.flush()
+      if (flushFailure) {
+        throw flushFailure.reason
       }
     },
   }

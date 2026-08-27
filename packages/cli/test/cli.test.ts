@@ -155,7 +155,9 @@ describe("ViteHub CLI", () => {
   })
 
   it("exits unsuccessfully when an asynchronous callback-less write fails", async () => {
+    const flush = vi.fn()
     const stdout = {
+      flush,
       write: () => Promise.reject(new Error("write failed")),
     }
     const stderr = stream()
@@ -172,6 +174,7 @@ describe("ViteHub CLI", () => {
     })
 
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    expect(flush).toHaveBeenCalledOnce()
   })
 
   it("routes package-contributed CLI features", async () => {
