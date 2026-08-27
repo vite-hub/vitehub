@@ -1685,6 +1685,7 @@ interface AgentChatBaseOptions<TRuntimeConfig extends AgentRuntimeConfig = Agent
 export interface AgentChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChatBaseOptions<TRuntimeConfig> {
   meta?: never
+  metaRevision?: never
   platforms?: never
   webhooks?: never
 }

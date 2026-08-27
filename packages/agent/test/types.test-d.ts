@@ -860,6 +860,8 @@ describe("agent public types", () => {
     // @ts-expect-error Message metadata schemas belong to Agent or Channel definitions, not the legacy chat() Capability.
     // SAFETY: the type fixture needs only the Standard Schema type to verify this rejected legacy option.
     chat({ meta: {} as StandardSchemaV1<unknown, Record<string, unknown>> })
+    // @ts-expect-error Message metadata revisions belong to Agent or Channel definitions, not the legacy chat() Capability.
+    chat({ metaRevision: "v1" })
 
     type ServerExports = typeof import("../src/server.ts")
     type _PublicDiscordGatewayRouteHandler = ServerExports["createDiscordGatewayRouteHandler"]
