@@ -133,8 +133,9 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[], w
     ...(withCloudflareHost
       ? [
           'const { registerHooks } = await import("node:module")',
-          "registerHooks({ resolve(specifier) {",
+          "registerHooks({ resolve(specifier, context, nextResolve) {",
           '  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }',
+          "  return nextResolve(specifier, context)",
           "} })",
         ]
       : []),
@@ -345,6 +346,10 @@ async function typecheckPackageModuleGroup(
 }
 
 describe("published declaration diagnostics", () => {
+  it("forwards non-Cloudflare imports through the host shim", async () => {
+    await importSpecifiers(tmpdir(), ["node:path"], true)
+  })
+
   it("keeps diagnostics without an associated file", () => {
     const diagnostic: ts.Diagnostic = {
       category: ts.DiagnosticCategory.Error,
