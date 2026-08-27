@@ -3859,9 +3859,9 @@ async function resultWithStreamedTextAndUsage(
     const canonicalUsage = normalizedUsage ? (await resolveAgentUsageRecord({ usage: normalizedUsage }))?.usage : undefined
     const canonicalResolvedUsage = canonicalUsage
       ? {
+          ...canonicalUsage,
           ...(normalizedUsage?.details ? { details: normalizedUsage.details } : {}),
           ...(normalizedUsage?.raw !== undefined ? { raw: normalizedUsage.raw } : {}),
-          ...canonicalUsage,
         }
       : undefined
     const fallbackUsage = normalizedAgentUsage(fallbackUsageRecordProperties.usage)
@@ -3913,7 +3913,7 @@ async function resultWithStreamedTextAndUsage(
     const finishResult = {
       ...normalizedWithoutUsage,
       raw: result,
-      ...(text ? { text } : {}),
+      ...(text ? { text: normalized.text || text } : {}),
       ...(mergedUsage ? { usage: mergedUsage } : {}),
       ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }

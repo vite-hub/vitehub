@@ -423,8 +423,39 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       result: expect.objectContaining({ raw, text: "answer", usage, usageRecord: { usage } }),
-      invocation: { usage: expect.objectContaining({ usage }) },
+      invocation: expect.objectContaining({ usage: expect.objectContaining({ usage }) }),
     }))
+  })
+
+  it("preserves details-only top-level usage when finalizing raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {})(), { usage: { details: { provider: 7 } } })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { usage: { details: { provider: 7 } } },
+      invocation: { usage: { usage: { details: { provider: 7 } } } },
+    })
+  })
+
+  it("preserves completed provider text when raw streams also emit text", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {
+      yield { text: "partial", type: "text-delta" }
+    })(), { text: "provider answer" })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "provider answer" } })
   })
 
   it("preserves promise-backed usage on raw streams", async () => {
