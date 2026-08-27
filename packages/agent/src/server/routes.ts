@@ -55,7 +55,7 @@ import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
-import { parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
+import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import {
   isRuntimeBigInt,
@@ -2725,7 +2725,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   restored.message.parsedMessageMeta,
                 )
               }
-              if (restored.message.resolvedInvoker) {
+              const recoveredDerivedInvokerNeedsResolution = restored.message.parsedMessageMeta?.derivedInvoker
+                && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, recoveredWorkflowInput, restored.message.run)
+              if (restored.message.resolvedInvoker && !recoveredDerivedInvokerNeedsResolution) {
                 const recoveredInvoker = resolveInputAgentInvoker(recoveredWorkflowInput.context)
                 if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredWorkflowInput, recoveredInvoker)
               }
@@ -2964,7 +2966,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         let queuedInput = queued.message.input
         // SAFETY: queued durable messages retain the Agent Definition selected by this route.
         if (queued.message.parsedMessageMeta !== undefined) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
-        if (queued.message.resolvedInvoker) {
+        const queuedDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run)
+        if (queued.message.resolvedInvoker && !queuedDerivedInvokerNeedsResolution) {
           const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
           if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
         }
@@ -3020,7 +3024,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           let retryInput = successorInput
           // SAFETY: settlement retries reuse the Agent Definition selected for the queued message.
           if (queued.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
-          if (queued.message.resolvedInvoker) {
+          const retryDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+            && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run)
+          if (queued.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
             const retryInvoker = resolveInputAgentInvoker(retryInput.context)
             if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
           }
@@ -3087,7 +3093,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             let retryInput = successorPending.message.input
             // SAFETY: successor settlement retries retain the Agent Definition selected by this route.
             if (successorPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
-            if (successorPending.message.resolvedInvoker) {
+            const retryDerivedInvokerNeedsResolution = successorPending.message.parsedMessageMeta?.derivedInvoker
+              && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run)
+            if (successorPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
               const retryInvoker = resolveInputAgentInvoker(retryInput.context)
               if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
             }
@@ -3129,7 +3137,9 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         let retryInput = claimedPending.message.input
         // SAFETY: claimed pending messages retain the Agent Definition selected by this route.
         if (claimedPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
-        if (claimedPending.message.resolvedInvoker) {
+        const retryDerivedInvokerNeedsResolution = claimedPending.message.parsedMessageMeta?.derivedInvoker
+          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run)
+        if (claimedPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
           const retryInvoker = resolveInputAgentInvoker(retryInput.context)
           if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
         }

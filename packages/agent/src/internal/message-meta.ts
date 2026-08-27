@@ -49,7 +49,8 @@ export function hasParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeCon
   run?: AgentRunMetadata,
 ): boolean {
   const invocationContext = createAgentInvocationContextStore(input.context)
-  return input.context?.[parsedAgentMessageMetaContextKey] === parsedAgentMessageMetaReceipt(definition, invocationContext, run)
+  const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
+  return receipt !== undefined && input.context?.[parsedAgentMessageMetaContextKey] === receipt
 }
 
 export function parsedAgentMessageMetaState<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(

@@ -316,6 +316,37 @@ describe("Agent message metadata", () => {
     })
   })
 
+  it("rebuilds a derived Invoker after removing the metadata schema", async () => {
+    const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
+    const input = createChatMessageTriggerInput({}, {
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      meta: { audience: "technical" },
+      user: { id: "chat:user-1" },
+    }).input
+    const prepared = await withParsedAgentMessageMeta(previousAgent, input)
+    const state = parsedAgentMessageMetaState(previousAgent, prepared)
+    const portable = await portableAgentWorkflowInput(withResolvedAgentInvokerInput(prepared, prepared.context!.invoker!))
+    let observed: unknown
+    const currentAgent = defineAgent({
+      driver: { run: ({ context }) => {
+        observed = context.get("invoker")
+        return "ok"
+      } },
+      invoker: {
+        resolve: ({ defaultInvoker }) => ({ ...defaultInvoker, id: "current-agent" }),
+      },
+    })
+
+    await runAgentWorkflowDefinition(currentAgent, {
+      id: "message-meta-schema-removal",
+      name: "message-meta-schema-removal",
+      payload: { input: portable, parsedMessageMeta: state, resolvedInvoker: true },
+      provider: "cloudflare",
+    }, runAgentInline)
+
+    expect(observed).toMatchObject({ id: "current-agent", kind: "chat" })
+  })
+
   it("transforms nonportable metadata before a durable handoff", async () => {
     const agent = defineAgent({
       driver: { run: () => "ok" },
