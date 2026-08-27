@@ -955,7 +955,7 @@ describe("agent message protocol", () => {
       ],
       driver: { run: () => "ok" },
       invoker: {
-        resolve: () => ({ id: "tenant-1", kind: "tenant" }),
+        resolve: () => ({ id: "tenant-1", kind: "tenant", meta: { name: "Acme Tenant" } }),
       },
     })
 
@@ -972,6 +972,7 @@ describe("agent message protocol", () => {
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "agent.invoker.id": "tenant-1",
       "agent.invoker.kind": "tenant",
+      "agent.invoker.label": "Acme Tenant",
       "error.message": "capability setup failed",
     })
   })

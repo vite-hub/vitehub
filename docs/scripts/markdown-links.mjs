@@ -219,9 +219,20 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
 function staticBinding(value, constants = new Map()) {
   if (value && /^[A-Za-z_$][\w$]*$/.test(value)) return constants.get(value);
   const quote = value?.[0];
-  if ((quote !== "\"" && quote !== "'") || value.at(-1) !== quote) return undefined;
-  const destination = value.slice(1, -1);
-  return destination.includes("\\") ? undefined : destination;
+  if ((quote === "\"" || quote === "'") && value.at(-1) === quote) {
+    const destination = value.slice(1, -1);
+    return destination.includes("\\") ? undefined : destination;
+  }
+  if (!value?.trimStart().startsWith("{")) return undefined;
+  const file = ts.createSourceFile("binding.ts", `const binding = (${value})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const initializer = file.statements[0]?.declarationList?.declarations?.[0]?.initializer;
+  if (!ts.isParenthesizedExpression(initializer) || !ts.isObjectLiteralExpression(initializer.expression)) return undefined;
+  const path = initializer.expression.properties.find((property) => ts.isPropertyAssignment(property)
+    && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)) && property.name.text === "path");
+  if (!path || !ts.isPropertyAssignment(path)) return undefined;
+  return ts.isStringLiteralLike(path.initializer)
+    ? path.initializer.text
+    : ts.isIdentifier(path.initializer) ? constants.get(path.initializer.text) : undefined;
 }
 
 function isStaticSiteDestination(destination) {
@@ -238,6 +249,7 @@ function vueLinks(source) {
     const file = ts.createSourceFile("component.ts", match[1], ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     for (const statement of file.statements) {
       if (!ts.isVariableStatement(statement)) continue;
+      if (!(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name) && declaration.initializer && ts.isStringLiteralLike(declaration.initializer)) {
           constants.set(declaration.name.text, declaration.initializer.text);
@@ -254,12 +266,15 @@ function vueLinks(source) {
       const boundDestination = staticBinding(htmlAttribute(tag, `:${attribute}`), constants);
       for (const destination of [staticDestination, boundDestination]) {
         if (!destination) continue;
-        if (attribute === "srcset") links.push(...sourceSetLinks(destination));
-        else links.push(destination);
+        const resource = ["src", "poster", "srcset"].includes(attribute);
+        if (attribute === "srcset") links.push(...sourceSetLinks(destination).map((value) => ({ destination: value, resource })));
+        else links.push({ destination, resource });
       }
     }
   }
-  return [...new Set(links.filter(isStaticSiteDestination))];
+  const normalizedLinks = links.map((link) => typeof link === "string" ? { destination: link, resource: false } : link);
+  return [...new Map(normalizedLinks.filter(({ destination }) => isStaticSiteDestination(destination))
+    .map((link) => [`${link.resource}:${link.destination}`, link])).values()];
 }
 
 function typescriptLinks(source, { exportNames, propertyNames } = {}) {
@@ -294,7 +309,8 @@ function typescriptLinks(source, { exportNames, propertyNames } = {}) {
         collect(statement.expression);
       }
       else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement))
-        && statement.name && exportNames.has(statement.name.text)) {
+        && ((statement.name && exportNames.has(statement.name.text))
+          || (exportNames.has("default") && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)))) {
         collect(statement);
       }
     }
@@ -570,7 +586,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   let checked = 0;
 
   for (const { destinations, renderedRoutes = [], renderer, sourcePath, sourceRoute } of sourceEntries) {
-    for (const destination of destinations) {
+    for (const link of destinations) {
+      const { destination, resource = false } = typeof link === "string" ? { destination: link } : link;
       if (/^(?:mailto:|tel:|data:|javascript:)/i.test(destination)) continue;
       if (sourceRoute === undefined && /^\/(?!\/)/.test(destination)) continue;
       let local = destination;
@@ -585,6 +602,13 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
 
       checked += 1;
       const { fragment, path } = splitDestination(local);
+      if (resource && path && !path.startsWith("/") && !isSiteLink) {
+        const assetFile = resolve(dirname(sourcePath), decodeFragment(path));
+        if (!assetFile.startsWith(`${dirname(sourcePath)}${sep}`) || !existsSync(assetFile) || !statSync(assetFile).isFile()) {
+          errors.push(`${relative(repoRoot, sourcePath)}: resource ${JSON.stringify(path)} does not exist`);
+        }
+        continue;
+      }
       if (!path && fragment && renderer === "vue") {
         for (const route of renderedRoutes) {
           const routeAnchors = applicationRoutes.get(route);
@@ -594,16 +618,20 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
         }
         continue;
       }
+      const sourceRoutes = renderer === "vue" && path && !path.startsWith("/") && renderedRoutes.length
+        ? renderedRoutes
+        : [sourceRoute];
+      for (const resolvedSourceRoute of sourceRoutes) {
       let targetFile;
       let targetRoute;
 
       if (!path) {
-        if (renderer === "vue") targetRoute = sourceRoute;
+        if (renderer === "vue") targetRoute = resolvedSourceRoute;
         else targetFile = sourcePath;
       } else if (sourceRoute !== undefined || isSiteLink) {
         const renderedPath = path.startsWith("/")
           ? path
-          : new URL(path, `${siteOrigin}${sourceRoute ?? "/"}`).pathname;
+          : new URL(path, `${siteOrigin}${resolvedSourceRoute ?? "/"}`).pathname;
         targetRoute = normalizeRenderedRoute(renderedPath);
         targetFile = routeFiles.get(targetRoute);
         if (!targetFile && !renderedPath.endsWith("/")) {
@@ -654,6 +682,7 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
         if (!routeAnchors?.has(fragment)) {
           errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist for route ${JSON.stringify(targetRoute)}`);
         }
+      }
       }
     }
   }

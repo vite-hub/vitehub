@@ -215,6 +215,34 @@ const links = [{ to: "/docs/missing-script" }]
     ]);
   });
 
+  it("validates object routes and ignores reassigned mutable bindings", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": `<script setup>
+const objectTarget = "/missing-object"
+let mutableTarget = "/missing-stale"
+mutableTarget = dynamicTarget
+</script><template><NuxtLink :to="{ path: objectTarget }" /><NuxtLink :to="mutableTarget" /></template>`,
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-object" does not exist'),
+    ]);
+  });
+
+  it("checks relative navigation on every route and resolves SFC resources from the component", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/alpha/page.vue": "<template><SharedLinks /></template>",
+      "docs/app/pages/beta/page.vue": "<template><SharedLinks /></template>",
+      "docs/app/pages/alpha/child.vue": "<template />",
+      "docs/app/components/SharedLinks.vue": '<template><NuxtLink to="./child" /><img src="./logo.svg" /></template>',
+      "docs/app/components/logo.svg": "<svg />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/beta/child" does not exist'),
+    ]);
+  });
+
   it("validates rendered aliased link fields without scanning unused exports", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
@@ -238,6 +266,19 @@ const links = [{ to: "/docs/missing-script" }]
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/missing-reexported" does not exist'),
+    ]);
+  });
+
+  it("follows selected default declarations through local re-exports", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
+      "docs/app/components/LandingPaths.vue": '<script setup>import links from "./barrel"</script><template><NuxtLink v-for="link in links()" :to="link.to" /></template>',
+      "docs/app/components/barrel.ts": 'export { default } from "./content"',
+      "docs/app/components/content.ts": 'export default function links() { return [{ to: "/missing-default" }] }',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-default" does not exist'),
     ]);
   });
 
