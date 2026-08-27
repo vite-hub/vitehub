@@ -1,0 +1,19 @@
+{
+  "name": "@vite-hub/agent-example-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "dev": "vp dev --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vite-hub/agent": "workspace:*",
+    "h3": "catalog:unjs",
+    "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/cli": "workspace:*",
+    "vite-plus": "catalog:tooling"
+  }
+}
