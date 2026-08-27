@@ -39,29 +39,15 @@ async function sendWithCancellation(
   value: unknown,
   signal: AbortSignal | undefined,
 ): Promise<void> {
-  if (!signal) return binding.send(value);
-  let abort: (() => void) | undefined;
-  const cancelled = new Promise<never>((_resolve, reject) => {
-    abort = () =>
-      reject(
-        emailProviderError(
-          "cloudflare-email",
-          "CANCELLED",
-          "Cloudflare Email send was cancelled.",
-          { cause: signal.reason, retryable: false },
-        ),
-      );
-    signal.addEventListener("abort", abort, { once: true });
-  });
-  try {
-    if (signal.aborted) {
-      abort!();
-      await cancelled;
-    }
-    await Promise.race([Promise.resolve(binding.send(value)), cancelled]);
-  } finally {
-    signal.removeEventListener("abort", abort!);
+  if (signal?.aborted) {
+    throw emailProviderError(
+      "cloudflare-email",
+      "CANCELLED",
+      "Cloudflare Email send was cancelled.",
+      { cause: signal.reason, retryable: false },
+    );
   }
+  await binding.send(value);
 }
 
 function safeHeader(value: string): string {

@@ -74,7 +74,8 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   const { oneClick } = message.unsubscribe;
   const mailto = message.unsubscribe.mailto?.trim();
   const url = message.unsubscribe.url?.trim();
-  if (oneClick) {
+  const oneClickEnabled = oneClick ?? Boolean(url);
+  if (oneClickEnabled) {
     let parsedUrl: URL | undefined;
     try {
       parsedUrl = url ? new URL(url) : undefined;
@@ -92,7 +93,7 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   );
   if (values.length > 0 && !hasHeader(headers, "list-unsubscribe"))
     headers["List-Unsubscribe"] = values.join(", ");
-  if ((oneClick ?? Boolean(url)) && url && !hasHeader(headers, "list-unsubscribe-post"))
+  if (oneClickEnabled && url && !hasHeader(headers, "list-unsubscribe-post"))
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   return { ...message, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
 }

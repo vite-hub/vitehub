@@ -365,6 +365,19 @@ describe("Resend Email driver", () => {
     },
   );
 
+  it.each(["not a URL", "http://example.com/unsubscribe"])(
+    "rejects an invalid implicit one-click unsubscribe URL %j before dispatch",
+    async (url) => {
+      const request = vi.fn();
+      const driver = resend({ apiKey: "re_secret", fetch: request });
+
+      await expect(
+        driver.send({ ...message, unsubscribe: { url } }, context),
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
   it("cancels and rejects an oversized response body", async () => {
     const cancel = vi.fn();
     const response = new Response(
@@ -709,6 +722,23 @@ describe("Cloudflare Email driver", () => {
     },
   );
 
+  it.each(["not a URL", "http://example.com/unsubscribe"])(
+    "rejects an invalid implicit one-click unsubscribe URL %j before delivery",
+    async (url) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      await expect(
+        driver.send({ ...message, unsubscribe: { url } }, context),
+      ).resolves.toMatchObject({
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      });
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects stream selection before delivery", async () => {
     const send = vi.fn();
     const Constructor = vi.fn();
@@ -984,19 +1014,27 @@ describe("Cloudflare Email driver", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("honors cancellation while Cloudflare delivery is pending", async () => {
+  it("reports the Cloudflare delivery outcome after dispatch despite cancellation", async () => {
     const controller = new AbortController();
-    const send = vi.fn(() => new Promise<void>(() => {}));
+    let resolveSend: (() => void) | undefined;
+    const send = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSend = resolve;
+        }),
+    );
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     const delivery = driver.send(message, { ...context, signal: controller.signal });
+    expect(send).toHaveBeenCalledOnce();
     controller.abort();
+    resolveSend?.();
 
     await expect(delivery).resolves.toMatchObject({
-      error: { code: "CANCELLED", driver: "cloudflare-email", retryable: false },
+      data: { driver: "cloudflare-email" },
+      error: null,
     });
-    expect(send).toHaveBeenCalledOnce();
   });
 
   it.each([
