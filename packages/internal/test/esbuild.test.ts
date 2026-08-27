@@ -301,6 +301,31 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("aliased")
   })
 
+  it("preserves first-match ordering for Vite alias arrays", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const first = join(rootDir, "first.mjs")
+    const second = join(rootDir, "second.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'import value from "virtual/value"\nexport default value\n', "utf8")
+    await writeFile(first, 'export default "first"\n', "utf8")
+    await writeFile(second, 'export default "second"\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: [
+        { find: /^virtual\/value$/, replacement: first },
+        { find: "virtual", replacement: rootDir },
+        { find: /^virtual\/value$/, replacement: second },
+      ],
+      format: "esm",
+      platform: "node",
+    })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("first")
+  })
+
   it("prefers Node exports over module exports in Node bundles", async () => {
     const rootDir = await createTempDir()
     const packageDir = join(rootDir, "node_modules", "conditional-package")

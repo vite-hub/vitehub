@@ -33,30 +33,29 @@ const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 function resolveEsbuildAliases(aliases: BundleEsmEntryOptions["alias"]): Record<string, string> | undefined {
-  if (!aliases) return
-  const entries = Array.isArray(aliases)
-    ? aliases.flatMap(alias => typeof alias.find === "string" ? [[alias.find, alias.replacement] as const] : [])
-    : Object.entries(aliases)
-  return Object.fromEntries(entries.filter(([specifier]) => !specifier.endsWith("/")))
+  if (!aliases || Array.isArray(aliases)) return
+  return Object.fromEntries(Object.entries(aliases).filter(([specifier]) => !specifier.endsWith("/")))
 }
 
-function createRegexAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin | undefined {
+function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin | undefined {
   if (!Array.isArray(aliases)) return
-  const regexAliases = aliases.filter((alias): alias is ViteAlias & { find: RegExp } => alias.find instanceof RegExp)
-  if (!regexAliases.length) return
-  const resolvingAlias = "vitehubResolvingRegexAlias"
+  const resolvingAlias = "vitehubResolvingAlias"
   return {
-    name: "vitehub-vite-regex-alias",
+    name: "vitehub-vite-alias",
     setup(build) {
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[resolvingAlias]) return
-        const alias = regexAliases.find(({ find }) => {
+        const alias = aliases.find(({ find }) => {
+          if (typeof find === "string") return args.path === find || args.path.startsWith(`${find}/`)
           find.lastIndex = 0
           return find.test(args.path)
         })
         if (!alias) return
-        alias.find.lastIndex = 0
-        return build.resolve(args.path.replace(alias.find, alias.replacement), {
+        if (alias.find instanceof RegExp) alias.find.lastIndex = 0
+        const replacement = typeof alias.find === "string"
+          ? `${alias.replacement}${args.path.slice(alias.find.length)}`
+          : args.path.replace(alias.find, alias.replacement)
+        return build.resolve(replacement, {
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
@@ -271,8 +270,11 @@ export async function bundleEsmEntry(
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
   const aliases = resolveEsbuildAliases(options.alias)
-  const regexAliasPlugin = createRegexAliasPlugin(options.alias)
-  const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
+  const viteAliasPlugin = createViteAliasPlugin(options.alias)
+  const aliasSpecifiers = Array.isArray(options.alias)
+    ? options.alias.flatMap(alias => typeof alias.find === "string" ? [alias.find] : [])
+    : Object.keys(aliases || {})
+  const frameworkRuntime = aliasSpecifiers.some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({
     absWorkingDir: options.workingDir,
@@ -303,7 +305,7 @@ export async function bundleEsmEntry(
     outfile,
     packages: options.packages,
     platform,
-    plugins: [...(options.plugins ?? []), ...(regexAliasPlugin ? [regexAliasPlugin] : []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
+    plugins: [...(options.plugins ?? []), ...(viteAliasPlugin ? [viteAliasPlugin] : []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
     sourcemap: false,
     target: "es2022",
     write: true,
