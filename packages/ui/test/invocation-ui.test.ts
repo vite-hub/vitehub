@@ -195,6 +195,26 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
   });
 
+  it("reopens Done for each newly selected terminal session", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [
+          { id: "first", status: "completed", title: "First" },
+          { id: "second", status: "failed", title: "Second" },
+        ],
+        selectedId: "first",
+      },
+    });
+    const done = wrapper.get('details[data-group="done"]');
+    if (!(done.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    done.element.open = false;
+    await done.trigger("toggle");
+
+    await wrapper.setProps({ selectedId: "second" });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
   it("keeps every session in the accessible navigation list", () => {
     const items = Array.from({ length: 100 }, (_, index) => ({
       description: index === 0 ? "The host stopped before this invocation finished." : undefined,
@@ -1408,7 +1428,8 @@ describe("Agent Invocation UI", () => {
     });
     const done = wrapper.get('details[data-group="done"]');
 
-    (done.element as HTMLDetailsElement).open = true;
+    if (!(done.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    done.element.open = true;
     await done.trigger("toggle");
 
     expect(wrapper.emitted("endReached")).toHaveLength(1);

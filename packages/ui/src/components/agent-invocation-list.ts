@@ -145,6 +145,10 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
+    const queuedOpen = ref(true);
+    const doneOpen = ref(props.items.some(item => item.id === props.selectedId
+      && item.status !== "running"
+      && item.status !== "pending"));
     const groups = computed(() => {
       const sorted = sortInvocationItems(props.items);
       return [
@@ -175,6 +179,11 @@ export const AgentInvocationList = defineComponent({
       requestedLength.value = undefined;
       requestMoreIfNeeded();
     });
+    watch(() => props.selectedId, (selectedId, previousSelectedId) => {
+      if (selectedId === previousSelectedId) return;
+      const selected = props.items.find(item => item.id === selectedId);
+      if (selected && selected.status !== "running" && selected.status !== "pending") doneOpen.value = true;
+    });
     onMounted(() => {
       requestMoreAutomatically();
       if ("ResizeObserver" in globalThis && viewport.value) {
@@ -199,14 +208,19 @@ export const AgentInvocationList = defineComponent({
       ? h("details", {
           class: "vh-invocation-list__group vh-invocation-list__group--collapsible",
           "data-group": group.key,
+          key: group.key,
           onToggle: (event: Event) => {
-            if ((event.currentTarget as HTMLDetailsElement).open) requestMoreIfNeeded();
+            if (!(event.currentTarget instanceof HTMLDetailsElement)) return;
+            if (group.key === "queued") queuedOpen.value = event.currentTarget.open;
+            else doneOpen.value = event.currentTarget.open;
+            if (event.currentTarget.open) requestMoreIfNeeded();
           },
-          open: group.defaultOpen || group.items.some(item => item.id === props.selectedId),
+          open: group.key === "queued" ? queuedOpen.value : doneOpen.value,
         }, [h("summary", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)])
       : h("section", {
           class: "vh-invocation-list__group vh-invocation-list__group--static",
           "data-group": group.key,
+          key: group.key,
         }, [h("header", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)]);
 
     return () => h("nav", {

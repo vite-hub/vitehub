@@ -40,11 +40,32 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       statusMessage: "Invalid invocation limit",
     })
   }
-  return getConsoleInvocations().list({
+  const listOptions = {
     ...(agentName ? { agentName } : {}),
     ...(cursor ? { cursor } : {}),
     ...(limit === undefined ? {} : { limit }),
+  }
+  const terminal = await getConsoleInvocations().list({
+    ...listOptions,
+    status: ["cancelled", "completed", "failed"],
   })
+  if (cursor) return terminal
+
+  const activeInvocations: AgentInvocationListResult["invocations"][number][] = []
+  let activeCursor: string | undefined
+  do {
+    const active = await getConsoleInvocations().list({
+      ...(activeCursor ? { cursor: activeCursor } : {}),
+      ...(agentName ? { agentName } : {}),
+      status: ["pending", "running"],
+    })
+    activeInvocations.push(...active.invocations)
+    activeCursor = active.cursor
+  } while (activeCursor)
+  return {
+    ...terminal,
+    invocations: [...activeInvocations, ...terminal.invocations],
+  }
 }
 
 export default invocationsHandler
