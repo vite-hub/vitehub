@@ -143,6 +143,19 @@ describe("GitHub Action pin policy", () => {
     await expect(checkGitHubActionPins(root)).resolves.toEqual([])
   })
 
+  it("does not share an enclosing sequence version comment across actions", async () => {
+    const first = pinnedCheckout.split(" #")[0]
+    const second = "actions/setup-node@1234567890abcdef1234567890abcdef12345678"
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps: [{ uses: "${first}" }, { uses: "${second}" }] # v6.1.0\n`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining(first) }),
+      expect.objectContaining({ message: expect.stringContaining(second) }),
+    ])
+  })
+
   it("allows a pinned reusable workflow with a flow-mapping version comment", async () => {
     const reference = "owner/repo/.github/workflows/build.yml@1234567890abcdef1234567890abcdef12345678"
     const root = await createFixture({
