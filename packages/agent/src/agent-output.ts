@@ -197,13 +197,22 @@ function readString(record: Record<string, unknown> | undefined, ...keys: string
 function readDetails(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return
   const details: Record<string, number> = {}
+  let descriptors: PropertyDescriptorMap
   try {
-    for (const [key, item] of Object.entries(value)) {
-      if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
-    }
+    descriptors = Object.getOwnPropertyDescriptors(value)
   }
   catch {
     return
+  }
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!descriptor.enumerable) continue
+    try {
+      const item = Reflect.get(value, key)
+      if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
+    }
+    catch {
+      // Ignore individual provider detail getters that cannot be read.
+    }
   }
   return Object.keys(details).length ? details : undefined
 }

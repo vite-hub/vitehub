@@ -3790,13 +3790,14 @@ function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
   return Object.assign({}, ...values.map((value) => {
     const properties = definedObjectProperties(value)
     if (!value || !hasRuntimeType(value, "object")) return properties
-    for (let source: object | null = value; source && source !== Object.prototype; source = Object.getPrototypeOf(source)) {
+    let source: object | null = value
+    while (source && source !== Object.prototype) {
       let descriptors: PropertyDescriptorMap
       try {
         descriptors = Object.getOwnPropertyDescriptors(source)
       }
       catch {
-        continue
+        descriptors = {}
       }
       for (const [key, descriptor] of Object.entries(descriptors)) {
         if (key === "constructor" || properties[key] !== undefined) continue
@@ -3808,6 +3809,12 @@ function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
         catch {
           // Ignore provider detail getters that cannot be read during usage normalization.
         }
+      }
+      try {
+        source = Object.getPrototypeOf(source)
+      }
+      catch {
+        source = null
       }
     }
     return properties
@@ -5569,7 +5576,7 @@ async function executeAgentInvocationWithCapacityLease<
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
     const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
     const driverUsageRecord = hasEagerFinishExtension
-      && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
+      && (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
       ? undefined
       : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
