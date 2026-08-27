@@ -1181,9 +1181,26 @@ export interface AgentProviderDriverOptions<
   output?: AgentOutputDefinition<TOutput>
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
+  providerSettings?: Record<string, unknown>
 }
 
-export type CodexDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export interface AgentProviderSealedCredential {
+  unseal(): string
+}
+
+export type AgentProviderCredentialValue = string | AgentProviderSealedCredential
+
+export type AgentProviderCredentialResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<AgentProviderCredentialValue, AgentAdapterMetadataContext<TRuntimeConfig>>
+
+export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | (string & {})
+export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
+
+export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
+  credentials?: AgentProviderCredentialResolver
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
+}
 export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
@@ -1788,9 +1805,13 @@ export interface AgentInspectionModelExecutionMetadata {
 }
 
 export interface AgentInspectionProviderMetadata {
+  credentials?: true
   model?: string
   permissions: AgentProviderPermissions
   provider?: string
+  providerSettings?: string[]
+  reasoningEffort?: string
+  reasoningSummary?: CodexReasoningSummary
 }
 
 export interface AgentInspectionDriverMetadata {

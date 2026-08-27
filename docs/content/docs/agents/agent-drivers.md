@@ -80,9 +80,12 @@ import { defineAgent } from 'vite-hub/agent'
 export default defineAgent({
   driver: {
     kind: 'codex',
+    credentials: () => process.env.CODEX_AUTH_JSON!,
     instructions: 'Review the exact pull request head before changing code.',
     model: 'gpt-5.5',
     permissions: 'ask',
+    reasoningEffort: 'high',
+    reasoningSummary: 'detailed',
   },
   workspace: { mode: 'write' },
 })
@@ -91,6 +94,8 @@ export default defineAgent({
 Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. For Codex, ViteHub resolves an installed `@openai/codex` package without requiring a global executable. Production self-hosted Node builds on macOS and Linux copy the CLI wrapper and only the build host's native optional package into `.output/server/node_modules`, so build on the same OS and CPU architecture as the deployment host. If the package is absent, ViteHub falls back to `codex` on the host `PATH`; it does not download a runtime during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
 Provider runtime cursors resume a thread while the Agent Definition process remains active. Chat-backed cursors are also partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one. Cursors are process-local and do not survive restarts or resume on another worker; use the Agent Invocation message history as the durable conversation boundary.
+
+Codex `credentials` accepts the complete `auth.json` JSON string, a sealed Server Env value, or an invocation-time resolver. ViteHub writes it to a private temporary shadow home and removes that home after the provider runtime stops. The primary Codex home continues to own session state; credentials never enter the Agent Workspace. Do not combine `credentials` with `providerSettings.shadowHomePath` because both own the same authentication boundary.
 
 Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
@@ -102,6 +107,10 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `execution.attachments.maxBytes` | Optional positive per-invocation image attachment budget; defaults to 25 MiB. Inline and application-resolved lazy images share the budget. |
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"ask"`. Set `"allow-all"` explicitly to run provider actions without approval. |
+| `credentials` | Codex-only `auth.json` JSON, sealed value, or invocation-time resolver. |
+| `reasoningEffort` | Codex-only reasoning effort. Requires an explicit `model`. |
+| `reasoningSummary` | Codex-only `"auto"`, `"concise"`, `"detailed"`, or `"none"`. Requires an explicit `model`. |
+| `providerSettings` | Advanced settings passed to the embedded provider runtime. Explicit settings override the installed Codex executable fallback. |
 | `output` | Optional structured Agent output contract. |
 | `capacity` | Optional process-local concurrency and queue limits. |
 

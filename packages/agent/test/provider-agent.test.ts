@@ -1,5 +1,6 @@
 import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
+import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -8,7 +9,10 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string> }) => providerRuntimes.shift()))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: {
+  environment?: Record<string, string>
+  settings?: Record<string, unknown>
+}) => providerRuntimes.shift()))
 const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
@@ -104,7 +108,7 @@ async function collect(value: unknown) {
 describe("Provider Agent Driver", () => {
   it("passes only host process essentials and explicitly selected environment values", async () => {
     const threadId = "thread-environment"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
     const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
 
@@ -119,6 +123,7 @@ describe("Provider Agent Driver", () => {
     const lastRuntimeCall = createProviderRuntime.mock.lastCall
     expect(lastRuntimeCall).toBeDefined()
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    expect(provider.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ modelOptions: expect.anything() }))
     vi.unstubAllEnvs()
   })
 
@@ -131,6 +136,69 @@ describe("Provider Agent Driver", () => {
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
+  })
+
+  it("isolates resolved Codex credentials in a private shadow home and removes it after runtime shutdown", async () => {
+    const threadId = "thread-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let shadowHome: string | undefined
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      shadowHome = options.settings?.shadowHomePath as string
+      expect(options.settings).toMatchObject({
+        binaryPath: "/custom/codex",
+        launchArgs: "--enable responses_websockets_v2",
+        shadowHomePath: expect.stringContaining("vitehub-codex-shadow-home-"),
+      })
+      expect((await lstat(shadowHome)).mode & 0o777).toBe(0o700)
+      expect((await lstat(join(shadowHome, "auth.json"))).mode & 0o777).toBe(0o600)
+      expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
+      return providerRuntimes.shift()
+    })
+    const credentials = vi.fn(async (metadata: { actor: { id: string } }) => {
+      expect(metadata.actor.id).toBe("actor")
+      return { unseal: () => '{ "tokens": { "access_token": "secret" } }' }
+    })
+
+    await createProviderAgentAdapter({
+      credentials,
+      provider: "codex",
+      providerSettings: {
+        binaryPath: "/custom/codex",
+        launchArgs: "--enable responses_websockets_v2",
+      },
+    }).generate(context(threadId) as never)
+
+    expect(credentials).toHaveBeenCalledOnce()
+    expect(shadowHome).toBeDefined()
+    await expect(access(shadowHome!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("passes Codex reasoning selections to provider session startup", async () => {
+    const threadId = "thread-reasoning-options"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    }).generate(context(threadId) as never)
+
+    expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-5.6-sol",
+      modelOptions: { reasoningEffort: "high", reasoningSummary: "detailed" },
+    }))
+  })
+
+  it("rejects malformed Codex credentials before starting a provider runtime", async () => {
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    await expect(createProviderAgentAdapter({
+      credentials: "not-json",
+      provider: "codex",
+    }).generate(context("thread-invalid-credentials") as never)).rejects.toThrow("must be valid JSON")
+
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
   })
 
   it("does not request another provider event after the turn completes", async () => {

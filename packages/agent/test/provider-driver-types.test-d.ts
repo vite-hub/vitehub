@@ -10,16 +10,28 @@ describe("provider Agent Driver types", () => {
     const defaultClaude = { kind: "claude-code" } satisfies BuiltInAgentDriver
     const fullAccessCodex = codexDriver({ permissions: "allow-all" })
     const fullAccessClaude = claudeCodeDriver({ permissions: "allow-all" })
+    const configuredCodex = codexDriver({
+      credentials: async () => ({ unseal: () => "{}" }),
+      model: "gpt-5.6-sol",
+      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
 
     expectTypeOf(defaultCodex.kind).toEqualTypeOf<"codex">()
     expectTypeOf(defaultClaude.kind).toEqualTypeOf<"claude-code">()
     expectTypeOf(fullAccessCodex.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
     expectTypeOf(fullAccessClaude.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
+    expectTypeOf(configuredCodex.reasoningSummary).toEqualTypeOf<"auto" | "concise" | "detailed" | "none" | undefined>()
 
     // @ts-expect-error Provider runtime modes are not public permission options.
     codexDriver({ permissions: "full-access" })
     // @ts-expect-error Provider runtime modes are not public permission options.
     claudeCodeDriver({ permissions: "approval-required" })
+    // @ts-expect-error Credentials are Codex-specific.
+    claudeCodeDriver({ credentials: "{}" })
+    // @ts-expect-error Reasoning summaries use the provider's supported values.
+    codexDriver({ reasoningSummary: "verbose" })
   })
 
   it("preserves structured output inference while invocation input evidences its options", () => {

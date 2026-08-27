@@ -6,7 +6,7 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
+import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -42,6 +42,7 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
+  AgentProviderCredentialResolver,
   AgentProviderPermissions,
   AgentRuntimeConfig,
   AgentToolDefinition,
@@ -62,12 +63,16 @@ export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
+  credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
   env?: Record<string, string | undefined>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   permissions?: AgentProviderPermissions
   provider: "claude-code" | "codex"
+  providerSettings?: Record<string, unknown>
+  reasoningEffort?: string
+  reasoningSummary?: "auto" | "concise" | "detailed" | "none"
 }
 
 interface GeneratedProviderFile {
@@ -176,6 +181,41 @@ const providerHostEnvironmentKeys = [
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+}
+
+async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeConfig>(
+  credentials: AgentProviderCredentialResolver<TRuntimeConfig>,
+  context: AgentAdapterRunContext<unknown, TRuntimeConfig>,
+): Promise<string> {
+  const resolved = await resolveRuntimeValue(credentials, providerAdapterMetadataContext(context))
+  const value = isRuntimeRecord(resolved) && hasRuntimeType(resolved.unseal, "function")
+    ? resolved.unseal()
+    : resolved
+  if (!hasRuntimeType(value, "string") || !value.trim()) {
+    throw new Error("[vitehub] Codex Driver credentials are missing.")
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  }
+  catch {
+    throw new Error("[vitehub] Codex Driver credentials must be valid JSON.")
+  }
+  if (!isRuntimeRecord(parsed) || Array.isArray(parsed)) {
+    throw new Error("[vitehub] Codex Driver credentials must contain a JSON object.")
+  }
+  const home = await mkdtemp(join(tmpdir(), "vitehub-codex-shadow-home-"))
+  try {
+    await chmod(home, 0o700)
+    const authPath = join(home, "auth.json")
+    await writeFile(authPath, `${JSON.stringify(parsed)}\n`, { mode: 0o600 })
+    await chmod(authPath, 0o600)
+    return home
+  }
+  catch (error) {
+    await rm(home, { force: true, recursive: true })
+    throw error
+  }
 }
 
 async function waitForProviderOperation<T>(
@@ -643,17 +683,7 @@ async function resolveInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
-  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  const metadataContext = {
-    ...agentInvocationCallbackContextValues(context.context),
-    ...runtime,
-    actor: context.actor,
-    context: context.context,
-    fs: context.workspace?.fs,
-    invoker: context.invoker,
-    workspace: context.workspace,
-  } as AgentAdapterMetadataContext
+  const metadataContext = providerAdapterMetadataContext(context)
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
   const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
   const content = [
@@ -666,6 +696,23 @@ async function resolveInstructions<
     context: context.context.toJSON(),
     workspace: context.workspaceInstructionBindings,
   }) : undefined
+}
+
+function providerAdapterMetadataContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  return {
+    ...agentInvocationCallbackContextValues(context.context),
+    ...runtime,
+    actor: context.actor,
+    context: context.context,
+    fs: context.workspace?.fs,
+    invoker: context.invoker,
+    workspace: context.workspace,
+  } as AgentAdapterMetadataContext
 }
 
 function latestUserMessages(messages: Message[]): Message[] {
@@ -1005,6 +1052,11 @@ async function* runProvider<
   })
   let rootCleanup: Promise<void> | undefined
   const cleanupRoot = () => rootCleanup ??= removeProviderRoot(root)
+  let credentialHome: string | undefined
+  let credentialHomeCleanup: Promise<void> | undefined
+  const cleanupCredentialHome = () => credentialHomeCleanup ??= credentialHome
+    ? rm(credentialHome, { force: true, recursive: true })
+    : Promise.resolve()
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1044,6 +1096,7 @@ async function* runProvider<
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
+        await cleanupCredentialHome()
         await cleanupRoot()
       }
     }
@@ -1123,9 +1176,18 @@ async function* runProvider<
     }
     effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
+    if (options.provider === "codex" && options.credentials !== undefined) {
+      credentialHome = await waitForProviderOperation(
+        prepareCodexCredentialHome(options.credentials, context),
+        effectiveSignal,
+        home => rm(home, { force: true, recursive: true }),
+        observeLateCleanup,
+      )
+    }
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
+      await cleanupCredentialHome()
       await cleanupRoot()
     }
     const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
@@ -1134,8 +1196,13 @@ async function* runProvider<
       environment: providerEnvironment(providerEnvironmentOverrides),
       provider: options.provider,
     }
-    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = codexExecutable
-      ? { ...runtimeOptions, settings: { binaryPath: codexExecutable } }
+    const providerSettings = {
+      ...(codexExecutable ? { binaryPath: codexExecutable } : {}),
+      ...options.providerSettings,
+      ...(credentialHome ? { shadowHomePath: credentialHome } : {}),
+    }
+    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = Object.keys(providerSettings).length
+      ? { ...runtimeOptions, settings: providerSettings }
       : runtimeOptions
     runtime = await waitForProviderOperation(
       createProviderRuntime(configuredRuntimeOptions),
@@ -1159,10 +1226,15 @@ async function* runProvider<
     const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
     const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
+    const modelOptions = Object.fromEntries(Object.entries({
+      reasoningEffort: options.reasoningEffort,
+      reasoningSummary: options.reasoningSummary,
+    }).filter((entry): entry is [string, string] => entry[1] !== undefined))
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: root,
       mcp: toolServer?.mcp,
       model: options.model,
+      ...(Object.keys(modelOptions).length ? { modelOptions } : {}),
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
       threadId,
@@ -1282,6 +1354,14 @@ async function* runProvider<
           && result.status === "rejected"
           && (result.reason === caught || result.reason === effectiveSignal?.reason)
         if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
+      }
+      if (!runtimeCleanupDeferred) {
+        try {
+          await cleanupCredentialHome()
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
       }
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)

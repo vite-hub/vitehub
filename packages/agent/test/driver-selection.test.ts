@@ -111,6 +111,60 @@ describe("built-in Agent Driver selection", () => {
     } as never)).toMatchObject({ execution: { attachments: { maxBytes: 1024 } } });
   });
 
+  it("normalizes Codex credentials, reasoning, and provider settings", () => {
+    const credentials = { unseal: () => "{}" };
+    const providerSettings = { launchArgs: "--enable responses_websockets_v2" };
+    const driver = normalizeAgentDriver({
+      driver: {
+        credentials,
+        kind: "codex",
+        model: "gpt-5.6-sol",
+        providerSettings,
+        reasoningEffort: "high",
+        reasoningSummary: "detailed",
+      },
+    });
+    providerSettings.launchArgs = "changed";
+
+    expect(driver).toMatchObject({
+      credentials,
+      kind: "provider",
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    });
+    const agent = defineAgent({ driver: {
+      credentials,
+      kind: "codex",
+      model: "gpt-5.6-sol",
+      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    } });
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider).toEqual({
+      credentials: true,
+      model: "gpt-5.6-sol",
+      permissions: "ask",
+      provider: "codex",
+      providerSettings: ["launchArgs"],
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    });
+  });
+
+  it.each([
+    [{ kind: "claude-code", credentials: "{}" }, "does not support Codex option: credentials"],
+    [{ kind: "claude-code", model: "claude", reasoningEffort: "high" }, "does not support Codex option: reasoningEffort"],
+    [{ kind: "codex", credentials: "{}", providerSettings: { shadowHomePath: "/tmp/codex" } }, "owns the Codex shadow home"],
+    [{ kind: "codex", reasoningEffort: "high" }, "requires driver.model"],
+    [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: "verbose" }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
+    [{ kind: "codex", providerSettings: [] }, "driver.providerSettings }) must be an object"],
+  ])("rejects invalid provider options %#", (driver, message) => {
+    expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);
+  });
+
   it.each([
     [null, "driver.capacity }) must be an object"],
     [{ concurrency: 0 }, "driver.capacity.concurrency }) must be a positive integer"],
