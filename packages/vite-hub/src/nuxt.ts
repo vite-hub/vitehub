@@ -143,8 +143,8 @@ function addTypeScriptDefaults(options: Record<string, unknown>, includes: strin
   }
 }
 
-function configuredProjectRoots(options: object, rootDir: string, viteRoot: string): string[] {
-  return Object.entries(options as Record<string, unknown>)
+function configuredProjectRoots(options: ViteHubNuxtOptions, rootDir: string, viteRoot: string): string[] {
+  return Object.entries(options)
     .filter((entry): entry is [string, { projectRoot: string }] => {
       const value = entry[1]
       return Boolean(value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string")
@@ -233,6 +233,13 @@ async function installConsole(
             path: "/_vitehub/queues",
           }]
         : []),
+      ...(sections.includes("schedules")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/schedules.vue"),
+            name: "vitehub-console-schedules",
+            path: "/_vitehub/schedules",
+          }]
+        : []),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)
@@ -289,7 +296,7 @@ async function installConsole(
   const plugin = join(projectRoot, generatedConsolePlugin)
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     await writeConsoleNitroPlugin(plugin, {
-      catalog: discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections, serverDirs }),
+      catalog: await discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections, serverDirs }),
       kvStores,
       projectRoot,
       sections,

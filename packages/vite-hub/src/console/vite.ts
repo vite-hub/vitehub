@@ -106,7 +106,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     await writeConsoleNitroPlugin(generatedPlugin, {
-      catalog: discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs }),
+      catalog: await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs }),
       kvStores,
       projectRoot,
       sections,
@@ -134,7 +134,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot = resolveViteHubProjectRoot(root)
       generatedPlugin = resolve(root, generatedConsolePlugin)
       await writeConsoleNitroPlugin(generatedPlugin, {
-        catalog: discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections }),
+        catalog: await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections }),
         kvStores,
         projectRoot,
         sections,

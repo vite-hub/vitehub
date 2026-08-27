@@ -33,6 +33,16 @@ function catalog(name: string): ConsoleDefinitionCatalog {
       name,
       source: "server-queues",
     }],
+    schedules: [{
+      fields: [
+        { label: "Kind", value: "Static schedule" },
+        { label: "Cron", value: "0 9 * * *" },
+        { label: "Time zone", value: "UTC" },
+      ],
+      file: `server/schedules/${name}.ts`,
+      name,
+      source: "server-schedules",
+    }],
     workflows: [{
       fields: [{ label: "Steps", value: "prepare, publish" }],
       file: `server/workflows/${name}.workflow.ts`,
@@ -72,6 +82,19 @@ describe("Console definition inspection", () => {
       }],
       section: "queues",
     })
+    expect(definitionsHandler(event("?section=schedules"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Kind", value: "Static schedule" },
+          { label: "Cron", value: "0 9 * * *" },
+          { label: "Time zone", value: "UTC" },
+        ],
+        file: "server/schedules/release.ts",
+        name: "release",
+        source: "server-schedules",
+      }],
+      section: "schedules",
+    })
   })
 
   it("validates methods and definition sections", () => {
@@ -79,7 +102,7 @@ describe("Console definition inspection", () => {
 
     expect(() => definitionsHandler(event("", "POST"))).toThrow(expect.objectContaining({ statusCode: 405 }))
     expect(() => definitionsHandler(event())).toThrow(expect.objectContaining({ statusCode: 400 }))
-    expect(() => definitionsHandler(event("?section=schedules"))).toThrow(expect.objectContaining({ statusCode: 400 }))
+    expect(() => definitionsHandler(event("?section=future"))).toThrow(expect.objectContaining({ statusCode: 400 }))
   })
 
   it("isolates concurrent project catalogs across runtime realms", () => {

@@ -76,6 +76,7 @@ export default defineConfig({
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/queues.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/schedules.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/workflows.vue", to: "dist/console/runtime/pages" },
       { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },

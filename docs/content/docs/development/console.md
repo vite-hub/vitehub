@@ -7,7 +7,7 @@ icon: i-lucide-monitor-dot
 
 The ViteHub Console is a read-only app for inspecting the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
-The Console currently exposes Agents, KV, Workflow, and Queue. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. KV lists configured stores and keys, then fetches a value only after the key is selected. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules.
+The Console currently exposes Agents, KV, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. KV lists configured stores and keys, then fetches a value only after the key is selected. Workflow, Queue, and Schedule list discovered Definitions and their source metadata without loading the Definition modules. Static Schedule Definitions also show their cron expression and UTC time zone; runtime targets show whether runtime Schedules are allowed.
 
 Console data can contain user prompts, model output, tool activity, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
@@ -26,6 +26,7 @@ export default defineConfig({
     preset: 'node',
     kv: true,
     queue: true,
+    schedule: true,
     workflow: true,
   })],
 })
@@ -142,7 +143,7 @@ VITEHUB_CONSOLE_DATABASE_URL=libsql://my-database.turso.io
 VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN=secret-token
 ```
 
-The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data. Workflow and Queue Definition inspection do not use the journal. They do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data.
+The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data. Workflow, Queue, and Schedule Definition inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page is a build-time Definition catalog; it does not include runtime-created Schedule records or their run store yet.
 
 The fallback applies only when an Agent Definition does not configure `invocations`. An explicit `defineAgent({ invocations })` store remains authoritative, and its sessions are not copied into `console.sqlite` or read by the built-in Console.
 

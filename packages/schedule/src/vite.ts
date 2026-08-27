@@ -16,6 +16,14 @@ import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
+export { discoverScheduleDefinitions } from "./discovery.ts"
+
+export async function readScheduleDefinitionCrons(
+  definitions: DiscoveredScheduleDefinition[],
+): Promise<Map<string, string>> {
+  return await readDefinitionCrons(definitions)
+}
+
 const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"

@@ -271,6 +271,51 @@ describe("ViteHub Console", () => {
     }
   })
 
+  it("serializes discovered Schedule timing metadata without loading handlers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-schedule-host-"))
+    try {
+      await mkdir(join(root, "server/schedules"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/schedules/adhoc.ts"),
+        `export default defineScheduleTarget({ handler() { throw new Error("The Console must not evaluate Schedule Definitions during discovery.") } })\n`,
+      )
+      await writeFile(
+        join(root, "server/schedules/daily.ts"),
+        `export default defineSchedule({ cron: "0 9 * * *", allowRuntimeSchedules: true, handler() { throw new Error("The Console must not evaluate Schedule Definitions during discovery.") } })\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["schedules"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/api/_vitehub/console/definitions",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":[{"fields":[{"label":"Kind","value":"Runtime target"},{"label":"Runtime schedules","value":"Allowed"}],"file":"server/schedules/adhoc.ts","name":"adhoc","source":"server-schedules"},{"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 9 * * *"},{"label":"Time zone","value":"UTC"},{"label":"Runtime schedules","value":"Allowed"}],"file":"server/schedules/daily.ts","name":"daily","source":"server-schedules"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects production console builds without durable local storage", async () => {
     const plugin = consoleVitePlugin({ preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config
