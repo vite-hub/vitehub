@@ -1784,6 +1784,75 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("returns the current SQLite invocation when stores concurrently recreate a pruned duplicate", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-concurrent-duplicate-retention-"))
+    const clients = [
+      createClient({ url: `file:${join(directory, "invocations.sqlite")}` }),
+      createClient({ url: `file:${join(directory, "invocations.sqlite")}` }),
+    ]
+    const unboundedStore = createLibsqlAgentInvocationStore({ client: clients[0], maxAgeMs: false, maxRecords: false })
+    const stores = clients.map(client => createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false }))
+    const expired = new Date(Date.now() - 2_000).toISOString()
+    const current = new Date().toISOString()
+    try {
+      await unboundedStore.create({
+        createdAt: expired,
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "old-trace",
+        updatedAt: expired,
+      })
+
+      const results = await Promise.all(stores.map((store, index) => store.create({
+        createdAt: current,
+        id: "retry",
+        observations: [],
+        status: "pending",
+        traceId: `new-trace-${index}`,
+        updatedAt: current,
+      })))
+
+      expect(results.filter(result => result.created)).toHaveLength(1)
+      expect(results[0]!.record).toEqual(results[1]!.record)
+      await expect(stores[0]!.get("retry")).resolves.toEqual(results[0]!.record)
+    }
+    finally {
+      clients.forEach(client => client.close())
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("prunes a recreated terminal SQLite duplicate before create returns", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-retention-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
+    const timestamp = new Date().toISOString()
+    const terminal = (id: string, traceId = `${id}-trace`) => ({
+      createdAt: timestamp,
+      id,
+      observations: [],
+      status: "completed" as const,
+      traceId,
+      updatedAt: timestamp,
+    })
+    try {
+      await unboundedStore.create(terminal("retry", "old-trace"))
+      await unboundedStore.create(terminal("newer"))
+
+      await expect(store.create(terminal("retry", "replacement-trace"))).resolves.toMatchObject({
+        created: true,
+        record: { id: "retry", traceId: "replacement-trace" },
+      })
+      await expect(store.list({ limit: 10 })).resolves.toMatchObject({ invocations: [{ id: "retry" }] })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("validates and disables SQLite invocation retention limits", async () => {
     for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       // SAFETY: invalid retention options throw before the client is accessed.

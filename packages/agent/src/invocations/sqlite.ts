@@ -236,7 +236,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const row = result.rows[0]
     return row ? deserialize(row.record, row.sequence) : undefined
   }
-  const prune = async () => {
+  const prune = async (executor?: Pick<Client, "execute">) => {
     const filters: string[] = []
     const args: Array<number | string> = []
     const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
@@ -251,14 +251,19 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       args.push(...terminalStatuses, maxRecords)
     }
     if (!filters.length) return
-    await client.batch([
-      {
-        args: [...terminalStatuses, ...args],
-        sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
-      },
-      `DELETE FROM ${table}_claims
-        WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`,
-    ], "write")
+    const deleteInvocations = {
+      args: [...terminalStatuses, ...args],
+      sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
+    }
+    const deleteClaims = `DELETE FROM ${table}_claims
+      WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
+    if (executor) {
+      await executor.execute(deleteInvocations)
+      await executor.execute(deleteClaims)
+    }
+    else {
+      await client.batch([deleteInvocations, deleteClaims], "write")
+    }
   }
   return {
     async claim(id, claimId, leaseMs, force) {
@@ -278,22 +283,40 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async create(input: AgentInvocationStoreCreateInput) {
       return write(async () => {
         await initialize()
-        let result = await client.execute({
-          args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
-          sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
-        })
-        let record = await read(input.id)
-        if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
-        await prune()
-        if (result.rowsAffected === 0 && !await read(input.id)) {
-          result = await client.execute({
+        const transaction = await client.transaction("write")
+        try {
+          await prune(transaction)
+          const result = await transaction.execute({
             args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
             sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
           })
-          record = await read(input.id)
-          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
+          const selected = await transaction.execute({
+            args: [input.id],
+            sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+          })
+          const selectedRow = selected.rows[0]
+          const selectedRecord = selectedRow ? deserialize(selectedRow.record, selectedRow.sequence) : undefined
+          if (!selectedRecord) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
+          if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
+            await prune(transaction)
+          }
+          const current = await transaction.execute({
+            args: [input.id],
+            sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+          })
+          const row = current.rows[0]
+          const record = row ? deserialize(row.record, row.sequence) : selectedRecord
+          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} could not be read.`)
+          await transaction.commit()
+          return { created: result.rowsAffected > 0, record }
         }
-        return { created: result.rowsAffected > 0, record }
+        catch (error) {
+          await transaction.rollback()
+          throw error
+        }
+        finally {
+          await transaction.close()
+        }
       })
     },
     get: read,
