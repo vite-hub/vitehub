@@ -17,6 +17,10 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 
+function isJavaScriptModule(target: string) {
+  return target.endsWith(".js") || target.endsWith(".mjs")
+}
+
 const stringRecord = record(string(), string())
 const packageManifestSchema = object({
   dependencies: optional(stringRecord),
@@ -161,7 +165,7 @@ async function importPackagesWithoutRootFallback(appDir: string) {
       if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
       await symlink(packageRoot, join(linkDir, packageDirName), "dir")
       await importSpecifiers(runnerDir, publicPackageExportContracts
-        .filter(contract => contract.packageName === info.packageName && contract.target.endsWith(".js") && contract.kind !== "type-only")
+        .filter(contract => contract.packageName === info.packageName && isJavaScriptModule(contract.target) && contract.kind !== "type-only")
         .map(contract => contract.specifier))
       await typecheckPackageExports(info.packageName, packageRoot, runnerDir)
     })
@@ -216,6 +220,7 @@ async function addOptionalPeers(appDir: string) {
     "comark-content": await installedVersion(join(repoRoot, "packages/source/node_modules/comark-content/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     "files-sdk": await installedVersion(join(repoRoot, "packages/blob/node_modules/files-sdk/package.json")),
+    "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
     vitest: agentManifest.peerDependencies!.vitest!,
   }
   const args = Object.entries(peers).map(([name, version]) => `${name}@${version}`)
@@ -225,7 +230,7 @@ async function addOptionalPeers(appDir: string) {
 
 async function typecheckPackageExports(packageName: string, packageRoot: string, runnerDir: string) {
   const modules = publicPackageExportContracts.filter(contract =>
-    contract.packageName === packageName && contract.target.endsWith(".js"),
+    contract.packageName === packageName && isJavaScriptModule(contract.target),
   )
   const ambientModules: Record<string, string> = {
     "@vite-hub/blob": "#vitehub/blob/config",
@@ -265,6 +270,7 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
+    types: ["node"],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
@@ -319,16 +325,16 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         }
       }
 
-      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "vitest"]
+      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "playwright-core", "vitest"]
       await assertResolution(appDir, optionalPeers, false)
       await importSpecifiers(appDir, publicPackageExportContracts
-        .filter(contract => contract.target.endsWith(".js") && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
+        .filter(contract => isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
         .map(contract => contract.specifier))
 
       expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
       await importSpecifiers(appDir, publicPackageExportContracts
-        .filter(contract => contract.target.endsWith(".js") && contract.kind !== "type-only")
+        .filter(contract => isJavaScriptModule(contract.target) && contract.kind !== "type-only")
         .map(contract => contract.specifier))
       await importPackagesWithoutRootFallback(appDir)
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
