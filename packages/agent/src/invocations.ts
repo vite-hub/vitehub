@@ -738,13 +738,13 @@ function journalTraceLog(
         entry = await createTraceEventLog({ content }).append(event)
       }
       try {
-        const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
-        if (content === "metadata" && safeEntry.attributes && event.attributes) {
+        const safeEntry = await createTraceEventLog({ content }).append(entry)
+        if (content === "metadata" && safeEntry.attributes && entry.attributes) {
           const omitted = Array.isArray(safeEntry.attributes["content.omitted"])
             ? safeEntry.attributes["content.omitted"].filter(key => !metadataContent.has(String(key)))
             : undefined
           for (const key of metadataContent) {
-            if (key in event.attributes) safeEntry.attributes[key] = event.attributes[key]
+            if (key in entry.attributes) safeEntry.attributes[key] = entry.attributes[key]
           }
           if (omitted?.length) safeEntry.attributes["content.omitted"] = omitted
           else delete safeEntry.attributes["content.omitted"]

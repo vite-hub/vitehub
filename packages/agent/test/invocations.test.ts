@@ -308,7 +308,7 @@ describe("Agent Invocations", () => {
       payload: { value: [undefined], visibility: "public" },
       type: "lifecycle",
     })
-    Object.defineProperty(Array.prototype, "0", { configurable: true, value: "inherited-secret" })
+    Object.defineProperty(Array.prototype, "0", { configurable: true, value: "inherited-secret", writable: true })
     try {
       await journal.context.traceLog?.append({
         name: "workspace.sparse-array",
@@ -378,6 +378,36 @@ describe("Agent Invocations", () => {
       attributes: { "vitehub.observation.truncated": true },
       payload: { value: -0, visibility: "public" },
     })
+  })
+
+  it("persists the base log payload snapshot", async () => {
+    let releaseEntry!: () => void
+    const entryReleased = new Promise<void>(resolve => {
+      releaseEntry = resolve
+    })
+    const onEntry = vi.fn(async () => {
+      await entryReleased
+    })
+    const traceLog = createTraceEventLog({ onEntry })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, { ...runtime("payload-snapshot"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const value = { message: "original" }
+
+    const appended = journal.context.traceLog?.append({
+      name: "workspace.snapshot",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+    await vi.waitFor(() => expect(onEntry).toHaveBeenCalledOnce())
+    value.message = "mutated"
+    releaseEntry()
+    await appended
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("payload-snapshot"))?.observations
+      .find(entry => entry.name === "workspace.snapshot")
+    expect(observation?.payload).toEqual({ value: { message: "original" }, visibility: "public" })
   })
 
   it("bounds large structured public payload values before persistence", async () => {
