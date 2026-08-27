@@ -781,6 +781,35 @@ describe("createCrabboxRuntime", () => {
     })
   }, 30_000)
 
+  it("isolates concurrent sessions on a Crabbox static host", async () => {
+    const root = await temporaryRoot()
+    const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
+    const bin = join(root, "bin")
+    const staticIdLog = join(root, "static-ids.log")
+    await Promise.all([...workspaces.map(workspace => mkdir(workspace)), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({
+      CRABBOX_STATIC_HOST: "localhost",
+      CRABBOX_TEST_STATIC_ID_LOG: staticIdLog,
+      PATH: `${bin}:${process.env.PATH || ""}`,
+    }, async () => {
+      const sessions = await Promise.all(workspaces.map(async (workspace) => {
+        const box = await resolveBox({
+          runtime: createCrabboxRuntime({ profile: "babysitter", reclaim: true }),
+          cwd: workspace,
+        }, {})
+        return await boxProvider(box).createSession()
+      }))
+
+      await Promise.all(sessions.map(session => session.destroy()))
+    })
+
+    const ids = [...new Set((await readFile(staticIdLog, "utf8")).trim().split("\n"))]
+    expect(ids).toHaveLength(2)
+    expect(ids.every(id => /^vitehub-[0-9a-f-]{36}$/.test(id))).toBe(true)
+  }, 30_000)
+
   it("serializes sessions that share an authoritative workspace", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
@@ -929,6 +958,7 @@ verb="$1"
 shift
 if [ -n "$CRABBOX_TEST_LOG" ]; then printf '%s|%s|%s\n' "$PWD" "$verb" "$*" >> "$CRABBOX_TEST_LOG"; fi
 if [ -n "$CRABBOX_TEST_STATE_LOG" ]; then printf '%s\n' "$XDG_STATE_HOME" >> "$CRABBOX_TEST_STATE_LOG"; fi
+if [ -n "$CRABBOX_TEST_STATIC_ID_LOG" ]; then printf '%s\n' "$CRABBOX_STATIC_ID" >> "$CRABBOX_TEST_STATIC_ID_LOG"; fi
 case "$verb" in
   warmup)
     test "$CRABBOX_PROFILE" = babysitter || exit 20

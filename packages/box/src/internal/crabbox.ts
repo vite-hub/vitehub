@@ -43,6 +43,7 @@ interface CrabboxSandboxOptions extends CrabboxOptions {
 }
 
 interface CrabboxSessionOptions extends CrabboxSandboxOptions {
+  staticId?: string
   stateHome: string
 }
 
@@ -199,6 +200,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
     } = {}) {
       const sessionOptions: CrabboxSessionOptions = {
         ...options,
+        ...(process.env.CRABBOX_STATIC_HOST ? { staticId: `vitehub-${randomUUID()}` } : {}),
         stateHome: await mkdtemp(join(tmpdir(), "vitehub-crabbox-state-")),
       }
       let releaseWorkspace = () => {};
@@ -1064,6 +1066,7 @@ function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSigna
     env: {
       ...process.env,
       XDG_STATE_HOME: options.stateHome,
+      ...(options.staticId ? { CRABBOX_STATIC_ID: options.staticId } : {}),
       ...(options.profile ? { CRABBOX_PROFILE: options.profile } : {}),
     },
     signal: abortSignal,
