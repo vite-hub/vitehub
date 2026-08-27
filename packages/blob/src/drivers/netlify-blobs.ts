@@ -38,6 +38,9 @@ type NetlifyEnvironmentContext = {
 }
 
 const METADATA_CONCURRENCY = 16
+const MAX_FETCH_RETRIES = 5
+const MIN_RETRY_DELAY = 1_000
+const RATE_LIMIT_HEADER = "X-RateLimit-Reset"
 
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0, page: 0 }
@@ -56,13 +59,35 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
 }
 
 function getEnvironmentContext(): NetlifyEnvironmentContext {
-  const encoded = globalThis.netlifyBlobsContext
+  const encoded = globalThis.netlifyBlobsContext || process.env.NETLIFY_BLOBS_CONTEXT
   if (typeof encoded !== "string" || !encoded) return {}
   try {
     return JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as NetlifyEnvironmentContext
   }
   catch {
     return {}
+  }
+}
+
+function getRetryDelay(response?: Response) {
+  const reset = response?.headers.get(RATE_LIMIT_HEADER)
+  if (!reset) return process.env.NODE_ENV === "test" ? 1 : 5_000
+  return Math.max(Number(reset) * 1_000 - Date.now(), MIN_RETRY_DELAY)
+}
+
+async function fetchWithRetry(url: URL, options: RequestInit, attemptsLeft = MAX_FETCH_RETRIES): Promise<Response> {
+  try {
+    const response = await fetch(url, options)
+    if (attemptsLeft > 0 && (response.status === 429 || response.status >= 500)) {
+      await new Promise(resolve => setTimeout(resolve, getRetryDelay(response)))
+      return await fetchWithRetry(url, options, attemptsLeft - 1)
+    }
+    return response
+  }
+  catch (error) {
+    if (attemptsLeft === 0) throw error
+    await new Promise(resolve => setTimeout(resolve, getRetryDelay()))
+    return await fetchWithRetry(url, options, attemptsLeft - 1)
   }
 }
 
@@ -96,7 +121,7 @@ function createListPageFetcher(options: NetlifyBlobsStoreConfig) {
     const url = new URL(pathname, edgeURL ?? context.apiURL ?? "https://api.netlify.com")
     for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value)
     if (options.deployScoped && !edgeURL) url.searchParams.set("region", "auto")
-    return await fetch(url, { headers: { authorization: `Bearer ${token}` } })
+    return await fetchWithRetry(url, { headers: { authorization: `Bearer ${token}` } })
   }
 }
 

@@ -23,6 +23,7 @@ const options = { driver: "netlify-blobs", name: "vitehub-blob", siteID: "site-i
 beforeEach(() => {
   vi.clearAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 function mockListPages(pages: Record<string, { blobs: Array<{ etag: string, key: string }>, directories: string[], next_cursor?: string }>) {
@@ -34,6 +35,27 @@ function mockListPages(pages: Record<string, { blobs: Array<{ etag: string, key:
 }
 
 describe("Netlify Blobs driver", () => {
+  it("uses NETLIFY_BLOBS_CONTEXT for SDK and list requests", async () => {
+    vi.stubEnv("NETLIFY_BLOBS_CONTEXT", Buffer.from(JSON.stringify({ siteID: "environment-site", token: "environment-token" })).toString("base64"))
+    mockListPages({ first: { blobs: [], directories: [] } })
+
+    await createDriver({ driver: "netlify-blobs", name: "vitehub-blob" }).list()
+
+    const [input, init] = vi.mocked(fetch).mock.calls[0]!
+    expect(new URL(input.toString()).pathname).toBe("/api/v1/blobs/environment-site/site:vitehub-blob")
+    expect(init).toMatchObject({ headers: { authorization: "Bearer environment-token" } })
+  })
+
+  it("retries transient list failures", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ blobs: [], directories: [] }), { status: 200 })))
+
+    await createDriver(options).list()
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   it("buffers streams and records their actual byte length", async () => {
     store.set.mockResolvedValue({ etag: "etag" })
     const body = new Blob(["streamed"]).stream()
