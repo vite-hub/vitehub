@@ -1,4 +1,4 @@
-import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
+import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, registerWorkspaceAccessWrapper, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
@@ -374,6 +374,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         },
       })
       markTrustedWorkspaceAccessScope(context.context)
+      registerWorkspaceAccessWrapper(context.context, workspace => createModelSafeWorkspaceFacade(workspace, workspaceRuntime))
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
         markTrustedWorkspaceSourceResolutionDefinition(context.context)

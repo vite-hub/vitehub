@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
+import type { ReadonlyWorkspaceFacade, WorkspaceSession } from "@vite-hub/workspace"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -885,6 +886,12 @@ describe("agent capability runtime", () => {
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
     await expect(resolved.workspace?.fs.search({ paths: [`pull-request/${expansivePattern}`], pattern: "review" })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    const session = await (resolved.workspace as ReadonlyWorkspaceFacade & {
+      startSession(): Promise<WorkspaceSession>
+    }).startSession()
+    await expect(session.glob(expansivePattern)).rejects.toThrow(
       "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
     )
     expect(sourceQueries).toBe(0)
