@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
@@ -209,6 +209,7 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
 
 async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
+  await rm(resolve(generatedDir, 'runtime/sandbox-definitions'), { recursive: true, force: true })
   const emitted = new Map<string, EmittedArtifact>()
   const typeTemplate = plan.manifest.typeTemplate
 

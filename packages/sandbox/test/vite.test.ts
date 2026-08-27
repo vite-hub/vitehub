@@ -1078,6 +1078,30 @@ describe("hubSandbox", () => {
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
   })
 
+  it("removes generated bundles for definitions that no longer exist", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const previousDefinition = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    await expect(readFile(previousDefinition, "utf8")).resolves.toContain("release-notes")
+
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await writeFile(join(rootDir, "src/tools/next.sandbox.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ run: async () => ({ next: true }) })`,
+      ``,
+    ].join("\n"))
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__next.mjs"), "utf8")).resolves.toContain("next")
+  })
+
   it("refreshes generated options when a Sandbox project manifest changes", async () => {
     const rootDir = await createViteRoot()
     const projectDir = join(rootDir, "server/sandboxes/example")
