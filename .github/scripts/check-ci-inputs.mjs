@@ -6,35 +6,44 @@ import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from "yam
 
 const actionCommitPattern = /^[^/@\s]+\/[^/@\s]+(?:\/[^/@\s]+)*@[0-9a-f]{40}$/
 const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
-const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|\$(?:\{[A-Z][A-Z0-9_]*\}|[A-Z][A-Z0-9_]*))$/
+const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
+const variablePackagePattern = /^((?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+))@(?:\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*))$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`)$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
-const npmGlobalValueOptions = new Set([
-  "--cache",
-  "--globalconfig",
-  "--include",
-  "--location",
-  "--loglevel",
-  "--omit",
-  "--prefix",
-  "--registry",
-  "--userconfig",
-  "--workspace",
-  "-w",
-])
 
-function findExecutablePackageSpecs(command) {
+function shellTokens(line) {
+  const tokens = []
+  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`])|([^\s;&|()`]+)/g)) {
+    const value = token[1] ?? token[2] ?? token[3] ?? token[4]
+    tokens.push(value)
+    if (token[1] === undefined) continue
+    for (const substitution of token[1].matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
+      tokens.push("(", ...shellTokens(substitution[1] ?? substitution[2]), ")")
+    }
+  }
+  return tokens
+}
+
+function resolvePackageSpec(spec, environment) {
+  const variable = variablePackagePattern.exec(spec)
+  if (!variable) return spec
+  return `${variable[1]}@${environment.get(variable[2] ?? variable[3]) ?? "(unresolved)"}`
+}
+
+function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   const specs = []
+  const environment = new Map(inheritedEnvironment)
   for (const line of command.split("\n")) {
     if (line.trimStart().startsWith("#")) continue
 
-    const tokens = [...line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`])|([^\s;&|()`]+)/g)]
-      .map(token => token[1] ?? token[2] ?? token[3] ?? token[4])
+    const tokens = shellTokens(line)
     for (let index = 0; index < tokens.length; index++) {
       let argumentsStart
       let acceptsPackageOptions = false
       const token = tokens[index]
+      const assignment = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(token)
+      if (assignment) environment.set(assignment[1], assignment[2])
 
       if (token === "npx") {
         argumentsStart = index + 1
@@ -45,7 +54,11 @@ function findExecutablePackageSpecs(command) {
         let subcommand = index + 1
         while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
           const option = tokens[subcommand++]
-          if (!option.includes("=") && npmGlobalValueOptions.has(option)) subcommand++
+          if (!option.includes("=")
+            && tokens[subcommand] !== "exec" && tokens[subcommand] !== "x"
+            && !tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
+            subcommand++
+          }
         }
         if (tokens[subcommand] !== "exec" && tokens[subcommand] !== "x") continue
         argumentsStart = subcommand + 1
@@ -80,7 +93,7 @@ function findExecutablePackageSpecs(command) {
       if (packageSpecs.length === 0) {
         packageSpecs.push(invocation.find(candidate => candidate !== "--" && !candidate.startsWith("-")) ?? "(missing)")
       }
-      specs.push(...packageSpecs)
+      specs.push(...packageSpecs.map(spec => resolvePackageSpec(spec, environment)))
     }
   }
   return specs
@@ -179,7 +192,21 @@ export function inspectGitHubCIInputs(path, source) {
     const pairKey = isAlias(pair.key) ? pair.key.resolve(document) : pair.key
     return isScalar(pairKey) && pairKey.value === key
   })
-  const inspectSteps = (steps) => {
+  const environmentWith = (inherited, value) => {
+    const environment = new Map(inherited)
+    if (isAlias(value)) value = value.resolve(document)
+    if (!isMap(value)) return environment
+    for (const pair of value.items) {
+      const key = isAlias(pair.key) ? pair.key.resolve(document) : pair.key
+      const entry = isAlias(pair.value) ? pair.value.resolve(document) : pair.value
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
+      if (isScalar(key) && isScalar(entry) && typeof entry.value === "string") {
+        environment.set(key.value, entry.value)
+      }
+    }
+    return environment
+  }
+  const inspectSteps = (steps, inheritedEnvironment = new Map()) => {
     const sequenceComment = steps?.comment ?? ""
     if (isAlias(steps)) steps = steps.resolve(document)
     if (!isSeq(steps)) return
@@ -189,6 +216,20 @@ export function inspectGitHubCIInputs(path, source) {
       if (isAlias(step)) step = step.resolve(document)
       if (!isMap(step)) continue
       inspectUses(findPair(step, "uses"), aliasComment || step.comment || enclosingSequenceComment)
+      const environment = environmentWith(inheritedEnvironment, findPair(step, "env")?.value)
+      const shellPair = findPair(step, "shell")
+      if (shellPair) {
+        const shell = isAlias(shellPair.value) ? shellPair.value.resolve(document) : shellPair.value
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
+        if (isScalar(shell) && typeof shell.value === "string") {
+          const line = lineCounter.linePos(shellPair.key.range?.[0] ?? 0).line
+          for (const spec of findExecutablePackageSpecs(shell.value, environment)) {
+            if (!exactPackagePattern.test(spec)) {
+              failures.push({ line, message: `transient package executor must use an exact version: ${spec}`, path })
+            }
+          }
+        }
+      }
       const runPair = findPair(step, "run")
       if (!runPair) continue
       const line = lineCounter.linePos(runPair.key.range?.[0] ?? 0).line
@@ -197,7 +238,7 @@ export function inspectGitHubCIInputs(path, source) {
         failures.push({ line, message: "run must be a string", path })
         continue
       }
-      for (const spec of findExecutablePackageSpecs(runPair.value.value)) {
+      for (const spec of findExecutablePackageSpecs(runPair.value.value, environment)) {
         if (!exactPackagePattern.test(spec)) {
           failures.push({ line, message: `transient package executor must use an exact version: ${spec}`, path })
         }
@@ -207,6 +248,7 @@ export function inspectGitHubCIInputs(path, source) {
 
   const root = document.contents
   if (!isMap(root)) return failures
+  const workflowEnvironment = environmentWith(new Map(), findPair(root, "env")?.value)
 
   const isDirectWorkflow = /^\.github\/workflows\/[^/]+\.ya?ml$/.test(normalizedPath)
   const isActionManifest = /(?:^|\/)action\.ya?ml$/.test(normalizedPath) && !isDirectWorkflow
@@ -219,7 +261,8 @@ export function inspectGitHubCIInputs(path, source) {
       const job = isAlias(jobPair.value) ? jobPair.value.resolve(document) : jobPair.value
       if (!isMap(job)) continue
       inspectUses(findPair(job, "uses"), aliasComment || job.comment || enclosingJobsComment)
-      inspectSteps(findPair(job, "steps")?.value)
+      const jobEnvironment = environmentWith(workflowEnvironment, findPair(job, "env")?.value)
+      inspectSteps(findPair(job, "steps")?.value, jobEnvironment)
       let services = findPair(job, "services")?.value
       if (isAlias(services)) services = services.resolve(document)
       const serviceContainers = isMap(services) ? services.items.map(pair => pair.value) : []
@@ -253,7 +296,7 @@ export function inspectGitHubCIInputs(path, source) {
   }
   else {
     const runs = findPair(root, "runs")?.value
-    if (isMap(runs)) inspectSteps(findPair(runs, "steps")?.value)
+    if (isMap(runs)) inspectSteps(findPair(runs, "steps")?.value, workflowEnvironment)
   }
 
   return failures

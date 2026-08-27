@@ -60,6 +60,8 @@ describe("GitHub CI input policy", () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": [
         `image: &pinned-image example/service@sha256:${"a".repeat(64)}`,
+        "env:",
+        "  TOOL_VERSION: 1.2.3",
         "jobs:",
         "  test:",
         "    container:",
@@ -72,6 +74,10 @@ describe("GitHub CI input policy", () => {
         "      - run: npm --silent exec --package=tool@1.2.3 -- tool --package unpinned",
         "      - run: npx --package=tool@1.2.3 -- tool --package unpinned",
         "      - run: pnpx tool@1.2.3 --help",
+        "      - run: npx \"tool@$TOOL_VERSION\" --help",
+        "      - run: echo '$(npx unpinned)'",
+        "      - run: echo pinned shell",
+        "        shell: npx --package=shell@1.2.3 -- bash {0}",
         "  scalar:",
         "    container: *pinned-image",
         "    steps: []",
@@ -361,8 +367,13 @@ jobs:
     "npm x unpinned",
     "npm --silent exec unpinned",
     "npm --prefix . exec unpinned",
+    "npm --user-agent custom exec unpinned",
     "npm exec --package=safe@1.2.3 --package=unpinned -- cmd",
     "version=$(npx unpinned --version)",
+    "echo \"$(npx unpinned --version)\"",
+    'echo "`npx unpinned --version`"',
+    "VERSION=latest npx tool@$VERSION",
+    "npx tool@$UNRESOLVED_VERSION",
     "(npx unpinned)",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
@@ -371,6 +382,26 @@ jobs:
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("must use an exact version") }),
+    ])
+  })
+
+  it("rejects mutable environment versions and custom shell executors", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  TOOL_VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: npx tool@$TOOL_VERSION",
+        "      - run: echo custom shell",
+        "        shell: npx --package=shell -- bash {0}",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+      expect.objectContaining({ message: expect.stringContaining("shell") }),
     ])
   })
 
