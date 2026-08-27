@@ -61,6 +61,11 @@ import "real"
     expect(collectDenoRuntimePackageNames(String.raw`
 const matcher = /import\("healthcheck"\)/
 const characterClass = /[\\/]require\("missing"\)/g
+if (ready) {} /import\("after-block"\)/.test(value)
+while (ready) /require\("after-condition"\)/.test(value)
+try {} finally {} /import\("after-finally"\)/.test(value)
+function done() {} /import\("after-function"\)/.test(value)
+class Ready {} /require\("after-class"\)/.test(value)
 import "real"
 `)).toEqual(["real"])
   })
@@ -376,7 +381,7 @@ import "real"
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
     expect(deployRunner).toContain('process.env.DENO_DEPLOY_APP || "package-default"')
-    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', '["deploy", ".", "--prod", "--config", "deno.json"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', "creation.signal == null", '["deploy", ".", "--prod", "--config", "deno.json"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
     await expect(readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       deploy: { runtime: { mode: "dynamic", entrypoint: "./server/index.mjs", cwd: "." } },
     })

@@ -190,7 +190,24 @@ function canStartRegexLiteral(output: string): boolean {
   const prefix = output.trimEnd()
   if (!prefix) return true
   if ("([{,:;=!?&|~%^<>*+-".includes(prefix.at(-1)!)) return true
+  if (endsWithDeclaration(prefix)) return true
+  if (/\b(?:if|for|while|with)\s*\([^;{}]*\)\s*(?:\{[^{}]*\})?$/.test(prefix)) return true
+  if (/\b(?:do|else|finally|try)\s*\{[^{}]*\}$/.test(prefix)) return true
   return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(prefix)
+}
+
+function endsWithDeclaration(source: string): boolean {
+  if (!source.endsWith("}")) return false
+  let depth = 1
+  let bodyStart = source.length - 1
+  while (bodyStart > 0 && depth > 0) {
+    bodyStart--
+    if (source[bodyStart] === "}") depth++
+    else if (source[bodyStart] === "{") depth--
+  }
+  if (depth !== 0) return false
+  const header = source.slice(0, bodyStart).trimEnd()
+  return /(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^;]*\)|class\s+[\w$]+(?:\s+extends\s+[^;{}]+)?)\s*$/.test(header)
 }
 
 export function collectDenoRuntimePackageNames(source: string): string[] {
@@ -471,7 +488,7 @@ try {
 
   const common = ["--allow-node-modules", "--org", organization, "--app", app]
   const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
-  if (creation.code !== 0) {
+  if (creation.signal == null && creation.code !== 0) {
     const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
     if (deployment.code !== 0) {
       throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
