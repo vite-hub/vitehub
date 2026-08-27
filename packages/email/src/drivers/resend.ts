@@ -76,6 +76,9 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       if (message.raw !== undefined) {
         return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support raw message payloads.") }
       }
+      if (message.template !== undefined) {
+        return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support template payloads.") }
+      }
       let body: string
       let idempotencyKey: string | undefined
       try {

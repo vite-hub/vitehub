@@ -48,10 +48,10 @@ function attachmentPart(boundary: string, value: EmailAttachment): string {
   const filename = quotedParameter(value.filename)
   return [
     `--${boundary}`,
-    `Content-Type: ${safeHeader(value.contentType ?? "application/octet-stream")}; name="${filename}"`,
+    headerLine("Content-Type", `${value.contentType ?? "application/octet-stream"}; name="${filename}"`),
     "Content-Transfer-Encoding: base64",
-    `Content-Disposition: ${value.disposition ?? "attachment"}; filename="${filename}"`,
-    ...(value.cid ? [`Content-ID: <${safeHeader(value.cid)}>`] : []),
+    headerLine("Content-Disposition", `${value.disposition ?? "attachment"}; filename="${filename}"`),
+    ...(value.cid ? [headerLine("Content-ID", `<${value.cid}>`)] : []),
     "",
     content,
   ].join("\r\n")
@@ -142,6 +142,9 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         }
         if (message.idempotencyKey !== undefined) {
           return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support idempotency keys.") }
+        }
+        if (message.template !== undefined) {
+          return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support template payloads.") }
         }
         message = applyPersonalization("cloudflare-email", message)
         const from = addresses(message.from)[0]

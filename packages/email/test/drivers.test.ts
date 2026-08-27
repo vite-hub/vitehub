@@ -120,6 +120,16 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it("rejects template payloads before fetch", async () => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, template: { id: "welcome" } }, context)).resolves.toMatchObject({
+      error: { code: "UNSUPPORTED", driver: "resend" },
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it("rejects unsupported personalizations before fetch", async () => {
     const request = vi.fn()
     const driver = resend({ apiKey: "re_secret", fetch: request })
@@ -320,6 +330,7 @@ describe("Cloudflare Email driver", () => {
     ["raw message payloads", { raw: "From: hello@example.com\r\n\r\nHello" }],
     ["idempotency keys", { idempotencyKey: "send-1" }],
     ["sandbox delivery", { sandbox: true }],
+    ["template payloads", { template: { id: "welcome" } }],
   ])("rejects unsupported %s before sending", async (_name, unsupported) => {
     const send = vi.fn()
     const Constructor = vi.fn()
@@ -376,6 +387,17 @@ describe("Cloudflare Email driver", () => {
     const encoded = raw.match(/Content-Transfer-Encoding: base64\r\nContent-Disposition: [^\r]+\r\n\r\n([\s\S]+?)\r\n--vitehub-/)?.[1] ?? ""
     expect(encoded.split("\r\n").every(line => line.length <= 76)).toBe(true)
     expect(encoded.replaceAll("\r\n", "")).toBe("A".repeat(160))
+  })
+
+  it("rejects overlong attachment MIME headers before sending", async () => {
+    const send = vi.fn()
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() })
+
+    await expect(driver.send({
+      ...message,
+      attachments: [{ content: "report", filename: `${"x".repeat(980)}.txt` }],
+    }, context)).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } })
+    expect(send).not.toHaveBeenCalled()
   })
 
   it("rejects header injection before sending", async () => {
