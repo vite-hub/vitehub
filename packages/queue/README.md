@@ -8,6 +8,7 @@ Applications that already use the `vite-hub` framework distribution should enabl
 
 ```sh
 pnpm add @vite-hub/queue
+pnpm add -D vite
 ```
 
 The package requires Node 24 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output.
