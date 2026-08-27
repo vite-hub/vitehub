@@ -3832,6 +3832,14 @@ async function resultWithStreamedTextAndUsage(
     const hasSourceUsageRecord = Object.keys(sourceUsageRecordProperties).length > 0
     const sourceUsage = normalizedAgentUsage(sourceUsageRecordProperties.usage)
     let resolvedUsage = normalized.usage
+    if (resolvedUsage === undefined && Reflect.has(result, "totalUsage")) {
+      try {
+        resolvedUsage = Reflect.get(result, "totalUsage")
+      }
+      catch {
+        // Ignore provider totalUsage getters that cannot be read during finalization.
+      }
+    }
     if (resolveUsage && resolvedUsage && hasRuntimeType(resolvedUsage, "object")) {
       let then: unknown
       try {
