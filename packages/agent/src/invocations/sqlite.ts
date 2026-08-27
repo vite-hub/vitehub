@@ -259,7 +259,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const row = result.rows[0]
     return row ? deserialize(row.record, row.sequence) : undefined
   }
-  const prune = async (executor?: Pick<Client, "execute">) => {
+  const pruneStatements = () => {
     const filters: string[] = []
     const args: Array<number | string> = []
     const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
@@ -273,7 +273,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       )`)
       args.push(...terminalStatuses, maxRecords)
     }
-    if (!filters.length) return
+    if (!filters.length) return []
     const reconcileStatuses = `UPDATE ${table}
       SET status = json_extract(record, '$.status')
       WHERE status != json_extract(record, '$.status')`
@@ -283,14 +283,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     }
     const deleteClaims = `DELETE FROM ${table}_claims
       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
+    return [reconcileStatuses, deleteInvocations, deleteClaims]
+  }
+  const prune = async (executor?: Pick<Client, "execute">) => {
+    const statements = pruneStatements()
+    if (!statements.length) return
     if (executor) {
-      await executor.execute(reconcileStatuses)
-      await executor.execute(deleteInvocations)
-      await executor.execute(deleteClaims)
+      for (const statement of statements) await executor.execute(statement)
+      return
     }
-    else {
-      await client.batch([reconcileStatuses, deleteInvocations, deleteClaims], "write")
-    }
+    await client.batch(statements, "write")
   }
   return {
     async claim(id, claimId, leaseMs, force) {
@@ -311,40 +313,27 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         return await retrySqliteBusy(async () => {
-          const transaction = await client.transaction("write")
-          try {
-            await prune(transaction)
-            const result = await transaction.execute({
+          const prePrune = pruneStatements()
+          const insertIndex = prePrune.length
+          const statements = [
+            ...prePrune,
+            {
               args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
               sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
-            })
-            const selected = await transaction.execute({
-              args: [input.id],
-              sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
-            })
-            const selectedRow = selected.rows[0]
-            const selectedRecord = selectedRow ? deserialize(selectedRow.record, selectedRow.sequence) : undefined
-            if (!selectedRecord) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
-            if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
-              await prune(transaction)
             }
-            const current = await transaction.execute({
-              args: [input.id],
-              sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
-            })
-            const row = current.rows[0]
-            const record = row ? deserialize(row.record, row.sequence) : undefined
-            if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
-            await transaction.commit()
-            return { created: result.rowsAffected > 0, record }
+          ]
+          if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
+            statements.push(...pruneStatements())
           }
-          catch (error) {
-            await transaction.rollback().catch(() => undefined)
-            throw error
-          }
-          finally {
-            await transaction.close()
-          }
+          statements.push({
+            args: [input.id],
+            sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+          })
+          const results = await client.batch(statements, "write")
+          const row = results.at(-1)?.rows[0]
+          const record = row ? deserialize(row.record, row.sequence) : undefined
+          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
+          return { created: results[insertIndex]!.rowsAffected > 0, record }
         })
       })
     },
