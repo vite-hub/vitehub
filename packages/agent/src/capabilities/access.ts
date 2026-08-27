@@ -472,14 +472,14 @@ function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
     || hasNonEmptyScopeGrant(value)
 }
 
-function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
+function normalizeSelection(value: unknown): NormalizedWorkspaceScopeSelection | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
   const candidate = value as { role?: unknown, scope?: unknown }
   if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
   return {
     ...(hasInlineScopeDefinition(value as Record<string, unknown>)
-      ? { definition: value as AccessWorkspaceScopeDefinition<TSourceName> }
+      ? { definition: value as AccessWorkspaceScopeDefinition }
       : {}),
     ...(typeof candidate.role === "string" && candidate.role.trim() ? { role: candidate.role } : {}),
     scope: candidate.scope,

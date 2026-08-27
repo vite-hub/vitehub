@@ -133,10 +133,13 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
           throw new Error(`[vitehub] Workspace "${workspaceName}" has no startup sources to prepare.`)
         }
 
-        const result = await workspace.materializeSources({
-          abortSignal: controller.signal,
-          sources: selectedSources,
-        })
+        const result = await waitForAbortable(
+          workspace.materializeSources({
+            abortSignal: controller.signal,
+            sources: selectedSources,
+          }),
+          controller.signal,
+        )
         const sourceResults = new Map(result.sources.map(source => [source.source, source]))
         const failures = selectedSources.filter(source => sourceResults.get(source)?.status !== "ready")
         if (failures.length) {

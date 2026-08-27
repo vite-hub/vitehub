@@ -294,6 +294,30 @@ describe("Workspace runtime preparation", () => {
     await preparation.stop()
   })
 
+  it("stops and restarts when a Source ignores cancellation", async () => {
+    let started!: () => void
+    const firstAttemptStarted = new Promise<void>((resolve) => { started = resolve })
+    let attempts = 0
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => {
+        attempts++
+        if (attempts === 1) {
+          started()
+          await new Promise(() => {})
+        }
+        return [{ content: "# Ready", key: "ready.md" }]
+      }),
+    })
+
+    const first = preparation.start()
+    await firstAttemptStarted
+    await expect(preparation.stop()).resolves.toBeUndefined()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
   it("stops without waiting for a pending validator", async () => {
     let validating!: () => void
     const validationStarted = new Promise<void>((resolve) => {

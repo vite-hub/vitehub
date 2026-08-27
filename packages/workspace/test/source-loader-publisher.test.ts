@@ -1028,6 +1028,33 @@ describe("sources, loaders, and publishers", () => {
     await expect(syncing).rejects.toThrow("preparation stopped")
   })
 
+  it("forwards cancellation through the default files loader", async () => {
+    let loading!: () => void
+    const loadingStarted = new Promise<void>((resolve) => { loading = resolve })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({
+      name: "support",
+      sources: {
+        docs: custom({
+          async getKeys(ctx) {
+            loading()
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
+            return []
+          },
+          async getItem() { throw new Error("unexpected item read") },
+        }),
+      },
+    }, createMemoryWorkspaceStore(), controller.signal)
+
+    await loadingStarted
+    controller.abort(new Error("preparation stopped"))
+    await expect(syncing).rejects.toThrow("preparation stopped")
+  })
+
   it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
     const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({
