@@ -414,9 +414,10 @@ function normalizedTraceActivity(activity: TraceActivityContext | undefined): Tr
   }
 }
 
-function isSharedArrayBuffer(value: object): boolean {
-  const constructor = (globalThis as typeof globalThis & { SharedArrayBuffer?: typeof SharedArrayBuffer }).SharedArrayBuffer
-  if (constructor && value instanceof constructor) return true
+function isSharedArrayBuffer(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
+  if (hasRuntimeType(constructor, "function") && value instanceof constructor) return true
   return Object.prototype.toString.call(value) === "[object SharedArrayBuffer]"
 }
 

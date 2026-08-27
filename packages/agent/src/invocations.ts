@@ -242,7 +242,10 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     return "[truncated]"
   }
   budget.items--
-  if (value === undefined) return undefined
+  if (value === undefined) {
+    budget.truncated = true
+    return null
+  }
   if (hasRuntimeType(value, "string")) {
     if (budget.stringLength <= 0) {
       budget.truncated = true
@@ -348,7 +351,7 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     .slice(0, length)
     .flatMap(([key, child]) => {
       if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-      return child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]
+      return [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]
     }))
 }
 

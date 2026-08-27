@@ -281,6 +281,46 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("marks undefined public payload values as truncated and preserves their positions", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("undefined-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          direct: undefined,
+          files: new Map([["README.md", undefined]]),
+          paths: new Set([undefined]),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.undefined",
+      payload: { value: undefined, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("undefined-public-payload"))?.observations
+    const observation = observations?.find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        direct: null,
+        files: [["README.md", null]],
+        paths: [null],
+      },
+      visibility: "public",
+    })
+    expect(observations?.find(entry => entry.name === "workspace.undefined")?.payload).toEqual({
+      value: null,
+      visibility: "public",
+    })
+  })
+
   it("bounds large structured public payload values before persistence", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-structured-public-payload"))

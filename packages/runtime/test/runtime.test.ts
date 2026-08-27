@@ -502,6 +502,7 @@ describe("@vite-hub/runtime", () => {
   })
 
   it("preserves public payloads while rejecting shared memory when the constructor is hidden", async () => {
+    // SAFETY: The test environment provides WebAssembly.Memory; the structural type narrows its tested constructor contract.
     const WebAssemblyMemory = (globalThis as typeof globalThis & {
       WebAssembly: {
         Memory: new (descriptor: { initial: number, maximum: number, shared: boolean }) => { buffer: ArrayBufferLike }
