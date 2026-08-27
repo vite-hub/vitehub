@@ -66,7 +66,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/database": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
-  "@vite-hub/history": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/queue": true,
