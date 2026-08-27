@@ -231,10 +231,10 @@ mutableTarget = dynamicTarget
 
   it("checks relative navigation on every route and resolves SFC resources from the component", () => {
     const repoRoot = fixture({
-      "docs/app/pages/alpha/page.vue": "<template><SharedLinks /></template>",
-      "docs/app/pages/beta/page.vue": "<template><SharedLinks /></template>",
+      "docs/app/pages/alpha/page.vue": "<template><NestedSharedLinks /></template>",
+      "docs/app/pages/beta/page.vue": "<template><NestedSharedLinks /></template>",
       "docs/app/pages/alpha/child.vue": "<template />",
-      "docs/app/components/SharedLinks.vue": '<template><NuxtLink to="./child" /><img src="./logo.svg" /></template>',
+      "docs/app/components/nested/SharedLinks.vue": '<template><NuxtLink to="./child" /><img src="../logo.svg" /></template>',
       "docs/app/components/logo.svg": "<svg />",
     });
 
@@ -257,11 +257,33 @@ mutableTarget = dynamicTarget
 
   it("validates aliased link fields declared in the rendering Vue file", () => {
     const repoRoot = fixture({
-      "docs/app/pages/index.vue": '<script setup>const items = [{ destination: "/docs/missing-local" }]</script><template><NuxtLink v-for="item in items" :to="item.destination" /></template>',
+      "docs/app/pages/index.vue": '<script setup>const items = [{ destination: "/docs/missing-local" }]; const unused = [{ destination: "/docs/missing-unused" }]</script><template><NuxtLink v-for="item in items" :to="item.destination" /></template>',
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs/missing-local" does not exist'),
+    ]);
+  });
+
+  it("resolves constant-backed imported destinations", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<script setup>import { links } from "../links"</script><template><NuxtLink v-for="link in links" :to="link.to" /></template>',
+      "docs/app/links.ts": 'const target = "/docs/missing-constant"; export const links = [{ to: target }]',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/missing-constant" does not exist'),
+    ]);
+  });
+
+  it("validates URLs rendered from Nuxt configuration", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/nuxt.config.ts": 'export default defineNuxtConfig({ app: { head: { link: [{ href: "/missing-icon.ico" }] } } })',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-icon.ico" does not exist'),
     ]);
   });
 

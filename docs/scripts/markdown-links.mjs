@@ -244,9 +244,10 @@ function isStaticSiteDestination(destination) {
 function vueLinks(source) {
   const links = [];
   const constants = new Map();
-  const propertyNames = new Set(["to", "href", "src", "poster", "srcset", ...vueLinkProperties(source)]);
+  const dynamicProperties = vueLinkProperties(source);
+  const propertyNames = new Set(["to", "href", "src", "poster", "srcset", ...dynamicProperties.keys()]);
   for (const match of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
-    links.push(...typescriptLinks(match[1], { propertyNames }));
+    links.push(...typescriptLinks(match[1], { propertyNames, scopedProperties: dynamicProperties }));
     const file = ts.createSourceFile("component.ts", match[1], ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     for (const statement of file.statements) {
       if (!ts.isVariableStatement(statement)) continue;
@@ -273,29 +274,61 @@ function vueLinks(source) {
       }
     }
   }
-  const normalizedLinks = links.map((link) => typeof link === "string" ? { destination: link, resource: false } : link);
+  const normalizedLinks = links.map((link) => link?.constructor === String ? { destination: link, resource: false } : link);
   return [...new Map(normalizedLinks.filter(({ destination }) => isStaticSiteDestination(destination))
     .map((link) => [`${link.resource}:${link.destination}`, link])).values()];
 }
 
-function typescriptLinks(source, { exportNames, propertyNames } = {}) {
+function typescriptLinks(source, { exportNames, propertyNames, scopedProperties = new Map() } = {}) {
   const links = [];
   const file = ts.createSourceFile("application.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const linkProperties = propertyNames ?? new Set(["to", "href", "src", "poster", "srcset"]);
+  const constants = new Map();
+  for (const statement of file.statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer && ts.isStringLiteralLike(declaration.initializer)) {
+        constants.set(declaration.name.text, declaration.initializer.text);
+      }
+    }
+  }
   function collect(node) {
     if (ts.isPropertyAssignment(node)) {
       const name = ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)
         ? node.name.text
         : undefined;
-      if (linkProperties.has(name)
-        && ts.isStringLiteralLike(node.initializer)) {
-        links.push(node.initializer.text);
+      if (linkProperties.has(name)) {
+        const destination = ts.isStringLiteralLike(node.initializer)
+          ? node.initializer.text
+          : ts.isIdentifier(node.initializer) ? constants.get(node.initializer.text) : undefined;
+        if (destination) links.push(destination);
       }
     }
     ts.forEachChild(node, collect);
   }
   if (!exportNames || exportNames.has("*")) {
-    collect(file);
+    if (!scopedProperties.size) {
+      collect(file);
+      return [...new Set(links.filter(isStaticSiteDestination))];
+    }
+    const unscopedProperties = new Set([...linkProperties].filter((name) => !scopedProperties.has(name)));
+    const originalProperties = new Set(linkProperties);
+    for (const statement of file.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+        const selectedProperties = new Set(unscopedProperties);
+        for (const [property, roots] of scopedProperties) {
+          if (roots.has(declaration.name.text)) selectedProperties.add(property);
+        }
+        if (!selectedProperties.size) continue;
+        linkProperties.clear();
+        for (const property of selectedProperties) linkProperties.add(property);
+        collect(declaration.initializer);
+      }
+    }
+    linkProperties.clear();
+    for (const property of originalProperties) linkProperties.add(property);
   }
   else {
     for (const statement of file.statements) {
@@ -363,17 +396,22 @@ function applicationImports(source, extension) {
 }
 
 function vueLinkProperties(source) {
-  const properties = new Set();
+  const properties = new Map();
   const templateSource = withoutHtmlComments(source)
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
   for (const tag of htmlTags(templateSource)) {
     for (const attribute of ["to", "href", "src", "poster", "srcset"]) {
       const binding = htmlAttribute(tag, `:${attribute}`);
-      const property = binding && !staticBinding(binding)
-        ? binding.match(/\.([A-Za-z_$][\w$]*)\s*$/)?.[1]
+      const expression = binding && !staticBinding(binding)
+        ? binding.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*$/)
         : undefined;
-      if (property) properties.add(property);
+      if (!expression) continue;
+      const [, alias, property] = expression;
+      const sourceName = templateSource.match(new RegExp(`\\bv-for=["'][^"']*\\b${alias}\\s+in\\s+([A-Za-z_$][\\w$]*)`))?.[1];
+      if (!sourceName) continue;
+      if (!properties.has(property)) properties.set(property, new Set());
+      properties.get(property).add(sourceName);
     }
   }
   return properties;
@@ -476,7 +514,7 @@ function applicationInventory(docsRoot) {
         }
       }
       const linkProperties = extname(file) === ".vue"
-        ? vueLinkProperties(source)
+        ? new Set(vueLinkProperties(source).keys())
         : importedProperties.get(file) ?? new Set();
       for (const applicationImport of applicationImports(source, extname(file))) {
         const { specifier } = applicationImport;
@@ -546,6 +584,7 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
     ...walk(join(docsRoot, "app"), (path) => path.endsWith(".vue")),
     ...application.importedFiles,
   ])];
+  const nuxtConfig = join(docsRoot, "nuxt.config.ts");
   const sourceEntries = [
     ...markdownFiles.map((sourcePath) => {
       const sourceRoute = sourcePath.startsWith(`${contentRoot}${sep}`)
@@ -571,6 +610,12 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       sourcePath,
       sourceRoute: [...(application.sourceRoutes.get(sourcePath) ?? [])][0] ?? "/",
     })),
+    ...(existsSync(nuxtConfig) ? [{
+      destinations: typescriptLinks(readFileSync(nuxtConfig, "utf8")),
+      renderer: "vue",
+      sourcePath: nuxtConfig,
+      sourceRoute: "/",
+    }] : []),
   ];
   const routeFiles = new Map(contentFiles.map((path) => [routeFromContentPath(contentRoot, path), path]));
   const applicationRoutes = application.routeAnchors;
@@ -589,7 +634,7 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
 
   for (const { destinations, renderedRoutes = [], renderer, sourcePath, sourceRoute } of sourceEntries) {
     for (const link of destinations) {
-      const { destination, resource = false } = typeof link === "string" ? { destination: link } : link;
+      const { destination, resource = false } = link?.constructor === String ? { destination: link } : link;
       if (/^(?:mailto:|tel:|data:|javascript:)/i.test(destination)) continue;
       if (sourceRoute === undefined && /^\/(?!\/)/.test(destination)) continue;
       let local = destination;
@@ -606,7 +651,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       const { fragment, path } = splitDestination(local);
       if (resource && path && !path.startsWith("/") && !isSiteLink) {
         const assetFile = resolve(dirname(sourcePath), decodeFragment(path));
-        if (!assetFile.startsWith(`${dirname(sourcePath)}${sep}`) || !existsSync(assetFile) || !statSync(assetFile).isFile()) {
+        const appRoot = join(docsRoot, "app");
+        if (!assetFile.startsWith(`${appRoot}${sep}`) || !existsSync(assetFile) || !statSync(assetFile).isFile()) {
           errors.push(`${relative(repoRoot, sourcePath)}: resource ${JSON.stringify(path)} does not exist`);
         }
         continue;
