@@ -261,7 +261,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         contributeProviderDeploymentOutput(providerOutput, {
           owner: "queue",
           rootDir,
-          write: async ({ write }) => {
+          write: async ({ signal, write }) => {
             await generateProviderOutputs({
               clientOutDir: config.build.outDir,
               cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
@@ -273,6 +273,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
                 : undefined),
               rootDir,
               serverFunctionName: resolveNitroVercelFunctionName(config, "queue"),
+              signal,
             }, write)
           },
         })

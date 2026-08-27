@@ -87,6 +87,7 @@ interface GenerateProviderOutputsOptions {
   queue: QueueModuleOptions | undefined
   rootDir: string
   serverFunctionName?: string
+  signal?: AbortSignal
 }
 
 export interface CloudflareQueueConfigOptions {
@@ -501,12 +502,15 @@ async function writeVercelQueueFunctions(
   artifacts: GeneratedQueueArtifacts,
   providerOutput: ProviderOutputCatalog | undefined,
   providerImportAliases: Record<string, string> | undefined,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted()
   const outputRoot = createDefaultVercelOutputRoot(rootDir)
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
   const queueConfig = resolveOutputQueueConfig(queue, "vercel")
 
   await rm(queueRoot, { force: true, recursive: true })
+  signal?.throwIfAborted()
   if (!isVercelQueueEnabled(queueConfig)) {
     return
   }
@@ -527,13 +531,16 @@ async function writeVercelQueueFunctions(
     const functionPath = relative(resolve(outputRoot, "functions"), functionDir).replace(/\\/g, "/")
     const consumer = sanitizeVercelConsumerName(functionPath)
     await mkdir(functionDir, { recursive: true })
+    signal?.throwIfAborted()
     await writeFile(wrapperFile, createVercelQueueWrapperContents(wrapperFile, artifacts.registryFile, definition.name, queueConfig), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: createProviderRuntimeAliases(providerOutput, "vercel", providerImportAliases),
       format: "esm",
       platform: "node",
       rootDir,
+      signal,
     })
+    signal?.throwIfAborted()
     await copyVercelRuntimePackages({
       outputRoot,
       packages: getVercelRuntimePackages(providerOutput, "blob"),
@@ -556,6 +563,7 @@ export async function generateProviderOutputs(
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
+  options.signal?.throwIfAborted()
   const cloudflareQueueConfig = resolveOutputQueueConfig(options.queue, "cloudflare")
   const usesCloudflare = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare"
   const cloudflareNamePrefix = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare" ? cloudflareQueueConfig.namePrefix : undefined
@@ -577,6 +585,7 @@ export async function generateProviderOutputs(
   await write({
     afterWrite: async () => {
       const previousVercelOutput = await readVercelQueueOutputState(options.rootDir)
+      options.signal?.throwIfAborted()
       const vercelFunctionCandidates = new Set(["__server.func", "__queue.func"])
       if (previousVercelOutput) vercelFunctionCandidates.add(previousVercelOutput.serverFunctionName)
       const ownedVercelFunctions: string[] = []
@@ -585,10 +594,12 @@ export async function generateProviderOutputs(
           ownedVercelFunctions.push(serverFunctionName)
         }
       }
+      options.signal?.throwIfAborted()
       await Promise.all(ownedVercelFunctions
         .filter(serverFunctionName => !createVercel || serverFunctionName !== vercelFunctionName)
         .map(serverFunctionName => rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", serverFunctionName), { force: true, recursive: true })))
       if (createVercel) {
+        options.signal?.throwIfAborted()
         const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName)
         await copyVercelRuntimePackages({
           packages: getVercelRuntimePackages(options.providerOutput, "blob"),
@@ -605,6 +616,7 @@ export async function generateProviderOutputs(
         }, null, 2)}\n`, "utf8")
       }
       else {
+        options.signal?.throwIfAborted()
         await rm(resolve(options.rootDir, vercelQueueOutputState), { force: true })
       }
     },
@@ -614,13 +626,15 @@ export async function generateProviderOutputs(
     vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.providerImportAliases, options.serverFunctionName) : undefined,
   })
   if (createCloudflare) {
+    options.signal?.throwIfAborted()
     const queues = createCloudflareQueueBindings(artifacts.definitions, cloudflareNamePrefix)
     await mkdir(dirname(resolve(options.rootDir, cloudflareQueueOutputState)), { recursive: true })
     await writeFile(resolve(options.rootDir, cloudflareQueueOutputState), `${JSON.stringify({ queues }, null, 2)}\n`, "utf8")
   }
   else {
+    options.signal?.throwIfAborted()
     await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
   }
-  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, options.providerOutput, options.providerImportAliases)
+  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, options.providerOutput, options.providerImportAliases, options.signal)
   return artifacts
 }

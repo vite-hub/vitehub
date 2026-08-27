@@ -129,6 +129,10 @@ export class ProviderOutputCatalog {
     this.#deploymentContributions.clear()
   }
 
+  hasDeploymentContributions(): boolean {
+    return this.#deploymentContributions.size > 0
+  }
+
   takeDeploymentContributions(): ProviderDeploymentOutputContribution[] {
     const contributions = [...this.#deploymentContributions.values()]
     this.#deploymentContributions.clear()

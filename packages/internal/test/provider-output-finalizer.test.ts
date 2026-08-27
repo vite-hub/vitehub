@@ -93,6 +93,36 @@ describe("Provider Output finalizer", () => {
     expect(writes).toEqual(["agent", "blob"])
   })
 
+  it("drains contributions registered while an active finalizer settles", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const writes: string[] = []
+    let takeCount = 0
+    const take = catalog.takeDeploymentContributions.bind(catalog)
+    catalog.takeDeploymentContributions = () => {
+      const contributions = take()
+      if (++takeCount === 2) {
+        queueMicrotask(() => contributeProviderDeploymentOutput(catalog, {
+          owner: "blob",
+          rootDir,
+          write: async () => { writes.push("blob") },
+        }))
+      }
+      return contributions
+    }
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("agent") },
+    })
+
+    const first = finalizeProviderDeploymentOutputs(catalog)
+    const overlapping = finalizeProviderDeploymentOutputs(catalog)
+    await Promise.all([first, overlapping])
+
+    expect(writes).toEqual(["agent", "blob"])
+  })
+
   it("isolates concurrent roots", async () => {
     const first = createProviderOutputCatalog()
     const second = createProviderOutputCatalog()
@@ -272,6 +302,41 @@ describe("Provider Output finalizer", () => {
     await expect(finalization).rejects.toThrow("Provider Output finalization reset")
     await reset
     expect(existsSync(join(outputRoot, "index.js"))).toBe(false)
+  })
+
+  it("does not start cleanup after finalization is reset", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const staleFile = join(outputRoot, "stale.js")
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(staleFile, "stale\n")
+    let releaseCleanup!: () => void
+    let cleanupStarted!: () => void
+    const started = new Promise<void>(resolve => cleanupStarted = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cleanup: {
+          cloudflare: async () => {
+            cleanupStarted()
+            await new Promise<void>(resolve => releaseCleanup = resolve)
+            return { fileNames: ["stale.js"] }
+          },
+        },
+        rootDir,
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog)
+    releaseCleanup()
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    expect(existsSync(staleFile)).toBe(true)
   })
 
   it("removes stale output for every disabled host", async () => {

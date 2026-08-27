@@ -328,8 +328,9 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
   signal?.throwIfAborted()
 }
 
-async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)): Promise<void> {
+async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>), signal?: AbortSignal): Promise<void> {
   const cleanup = typeof cleanupInput === "function" ? await cleanupInput() : cleanupInput
+  signal?.throwIfAborted()
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
   const writes = (cleanup.fileNames ?? []).map(fileName => rm(resolve(outputRoot, fileName), { force: true, recursive: true }))
   writes.push(writeCloudflareWranglerConfig({
@@ -347,7 +348,8 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: 
   }
 }
 
-async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelProviderDeploymentCleanup): Promise<void> {
+async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelProviderDeploymentCleanup, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const outputRoot = cleanup.outputRoot ?? createDefaultVercelOutputRoot(rootDir)
   const writes: Array<Promise<void>> = []
   if (cleanup.serverFunctionName) {
@@ -357,11 +359,12 @@ async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelPro
   await Promise.all(writes)
 }
 
-async function cleanupVercelDeploymentOutputs(rootDir: string, cleanup: VercelProviderDeploymentCleanup | VercelProviderDeploymentCleanup[]): Promise<void> {
-  await Promise.all((Array.isArray(cleanup) ? cleanup : [cleanup]).map(item => cleanupVercelDeploymentOutput(rootDir, item)))
+async function cleanupVercelDeploymentOutputs(rootDir: string, cleanup: VercelProviderDeploymentCleanup | VercelProviderDeploymentCleanup[], signal?: AbortSignal): Promise<void> {
+  await Promise.all((Array.isArray(cleanup) ? cleanup : [cleanup]).map(item => cleanupVercelDeploymentOutput(rootDir, item, signal)))
 }
 
-async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyProviderDeploymentCleanup): Promise<void> {
+async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyProviderDeploymentCleanup, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const outputRoot = cleanup.outputRoot ?? createDefaultNetlifyOutputRoot(rootDir)
   const functionsRoot = resolve(outputRoot, "functions")
   const writes = (cleanup.functionNames ?? []).map(functionName =>
@@ -404,14 +407,15 @@ async function writeProviderDeploymentOutputsNow(
 
   const cleanups: Array<Promise<void>> = []
   if (!options.cloudflare && options.cleanup?.cloudflare) {
-    cleanups.push(cleanupCloudflareDeploymentOutput(options.rootDir, options.cleanup.cloudflare))
+    cleanups.push(cleanupCloudflareDeploymentOutput(options.rootDir, options.cleanup.cloudflare, signal))
   }
   if (!options.netlify && options.cleanup?.netlify) {
-    cleanups.push(cleanupNetlifyDeploymentOutput(options.rootDir, options.cleanup.netlify))
+    cleanups.push(cleanupNetlifyDeploymentOutput(options.rootDir, options.cleanup.netlify, signal))
   }
   if (!options.vercel && options.cleanup?.vercel) {
     const cleanup = typeof options.cleanup.vercel === "function" ? await options.cleanup.vercel() : options.cleanup.vercel
-    if (cleanup) cleanups.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup))
+    signal?.throwIfAborted()
+    if (cleanup) cleanups.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup, signal))
   }
   await settleWrites(cleanups)
   signal?.throwIfAborted()
@@ -451,7 +455,11 @@ export async function finalizeProviderDeploymentOutputs(
 ): Promise<void> {
   if (!catalog) return
   const existing = providerDeploymentOutputFinalizations.get(catalog)
-  if (existing) return await existing.promise
+  if (existing) {
+    await existing.promise
+    if (catalog.hasDeploymentContributions()) await finalizeProviderDeploymentOutputs(catalog, options)
+    return
+  }
 
   const controller = new AbortController()
   const finalization = (async () => {

@@ -330,12 +330,15 @@ export async function writeVercelScheduleFunctions(options: {
   outputRoot: string
   registryFile: string
   rootDir: string
+  signal?: AbortSignal
   workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
+  options.signal?.throwIfAborted()
   const definitions = staticScheduleDefinitions(options.definitions)
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   await rm(functionRoot, { force: true, recursive: true })
+  options.signal?.throwIfAborted()
 
   const emittedFunctionNames = new Map<string, string>()
   for (const definition of definitions) {
@@ -351,6 +354,7 @@ export async function writeVercelScheduleFunctions(options: {
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
+    options.signal?.throwIfAborted()
     await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
@@ -359,8 +363,10 @@ export async function writeVercelScheduleFunctions(options: {
       platform: "node",
       plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.rootDir,
+      signal: options.signal,
       workingDir: options.rootDir,
     })
+    options.signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
   }
@@ -447,12 +453,15 @@ async function writeNetlifyScheduleFunctions(options: {
   outputRoot: string
   registryFile: string
   rootDir: string
+  signal?: AbortSignal
 }) {
+  options.signal?.throwIfAborted()
   const functionRoot = resolve(options.outputRoot, "functions")
   const existingFiles = await readdir(functionRoot).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return []
     throw error
   })
+  options.signal?.throwIfAborted()
   await Promise.all(existingFiles
     .filter(file => /^vitehub-schedule-.+\.mjs$/.test(file))
     .map(file => rm(resolve(functionRoot, file), { force: true, recursive: true })))
@@ -462,13 +471,15 @@ async function writeNetlifyScheduleFunctions(options: {
     functionRoot,
     registryFile: options.registryFile,
   })
+  options.signal?.throwIfAborted()
   if (outputs.length === 0) {
     await removeEmptyDirectories(functionRoot, options.rootDir)
     return
   }
 
   await mkdir(functionRoot, { recursive: true })
-  await Promise.all(outputs.map(async output => writeFile(output.file, output.source, "utf8")))
+  options.signal?.throwIfAborted()
+  await Promise.all(outputs.map(async output => writeFile(output.file, output.source, { encoding: "utf8", signal: options.signal })))
 }
 
 async function writeCloudflareScheduleOutput(options: {
@@ -477,7 +488,9 @@ async function writeCloudflareScheduleOutput(options: {
   crons: string[]
   rootDir: string
   stateFile: string
+  signal?: AbortSignal
 }) {
+  options.signal?.throwIfAborted()
   const outputRoot = createDefaultCloudflareOutputRoot(options.rootDir)
   await mkdir(outputRoot, { recursive: true })
 
@@ -494,6 +507,7 @@ async function writeCloudflareScheduleOutput(options: {
     ? wranglerConfig.triggers as { crons?: string[] }
     : {}
   const previousState = await readCloudflareOutputState(options.stateFile)
+  options.signal?.throwIfAborted()
   const externalCrons = (existingTriggers.crons ?? []).filter(cron => !previousState?.crons.includes(cron))
   const ownedCrons = options.crons.filter(cron => !externalCrons.includes(cron))
   const main = typeof wranglerConfig.main === "string" && wranglerConfig.main
@@ -520,9 +534,10 @@ async function writeCloudflareScheduleOutput(options: {
       platform: "neutral",
       plugins: [createScheduleDefinitionAliasPlugin()],
       rootDir: options.rootDir,
+      signal: options.signal,
     }),
-    writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
-    writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, "utf8"),
+    writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
+    writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
   ])
 }
 
@@ -599,6 +614,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       crons: [...new Set(crons.values())],
       rootDir: options.rootDir,
       stateFile: cloudflareStateFile,
+      signal: options.signal,
     })
   }
   else {
@@ -619,6 +635,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     outputRoot: createDefaultVercelOutputRoot(options.rootDir),
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
+    signal: options.signal,
     workflow: options.workflow,
   }, crons)
   options.signal?.throwIfAborted()
@@ -627,6 +644,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
+    signal: options.signal,
   })
   return artifacts
 }
