@@ -361,6 +361,31 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("retains delivery outcomes when a running journal is at capacity", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("running-delivery-at-capacity"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    for (let index = 0; index < 256; index++) {
+      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+    }
+    await journal.context.traceLog?.append({
+      attributes: { "channel.effect.content": "Reply before finalization" },
+      name: "agent.channel.delivery.effect",
+      type: "run",
+    })
+
+    await vi.waitFor(async () => {
+      const record = await invocations.getByRunId("running-delivery-at-capacity")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "running" })
+      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations.at(-1)).toMatchObject({
+        attributes: { "channel.effect.content": "Reply before finalization" },
+        name: "agent.channel.delivery.effect",
+      })
+    })
+  })
+
   it("persists truncation when a running invocation reaches observation capacity", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))

@@ -387,6 +387,7 @@ function deliveryOutcomeObservation(observation: TraceEventLogEntry): boolean {
 function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
   if (failureEvidenceObservation(observation)) return 0
   if (terminalObservation(observation)) return 1
+  if (deliveryOutcomeObservation(observation)) return 2
 }
 
 function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
@@ -415,10 +416,16 @@ function prioritizePendingOutcomes(
     : terminalObservation(incoming)
       ? incoming
       : pendingTerminal
+  const deliveries = [
+    ...pending.filter(deliveryOutcomeObservation),
+    ...(deliveryOutcomeObservation(incoming) ? [incoming] : []),
+  ]
   const outcomes: TraceEventLogEntry[] = []
   if (fatal) outcomes.push(fatal)
   if (terminal && terminal !== fatal) outcomes.push(terminal)
-  const ordinary = pending.filter(observation => !failureEvidenceObservation(observation) && !terminalObservation(observation))
+  const deliveryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
+  outcomes.push(...deliveries.slice(-deliveryLimit))
+  const ordinary = pending.filter(observation => outcomeObservationPriority(observation) === undefined)
   const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
   pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
