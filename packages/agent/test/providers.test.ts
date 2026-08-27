@@ -11850,11 +11850,12 @@ describe("server helpers", () => {
 
   it("traces failed and skipped queued finish replies", async () => {
     const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.editMessage.mockRejectedValueOnce(new Error("stream edit failed"))
-    const observe = vi.fn()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -11864,6 +11865,7 @@ describe("server helpers", () => {
         }),
       },
       driver: { run: () => "Agent output" },
+      invocations,
       hooks: {
         "agent:finish": (event) => [
           event.reply((async function* () {
@@ -11873,7 +11875,6 @@ describe("server helpers", () => {
             yield "Skipped reply"
           })()),
         ],
-        "hook:observe": observe,
       },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -11881,29 +11882,34 @@ describe("server helpers", () => {
 
     await expect(handler(chatWebhookRequest(91_035), "telegram")).rejects.toThrow("stream edit failed")
 
-    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
-      attributes: expect.objectContaining({
-        "channel.effect.content": "Partial reply",
-        "error.message": "stream edit failed",
-      }),
-      name: "channel:delivery-effect",
-    }))
-    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
-      attributes: expect.objectContaining({
-        "error.message": "Skipped after an earlier queued reply failed: stream edit failed",
-      }),
-      name: "channel:delivery-effect",
-    }))
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "Partial reply",
+          "error.message": "stream edit failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "error.message": "Skipped after an earlier queued reply failed: stream edit failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+    })
     expect(adapter.postMessage).toHaveBeenCalledTimes(2)
   })
 
   it("defers static queued finish reply traces until delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.postMessage.mockRejectedValueOnce(new Error("static post failed"))
-    const observe = vi.fn()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -11913,6 +11919,7 @@ describe("server helpers", () => {
         }),
       },
       driver: { run: () => "Agent output" },
+      invocations,
       hooks: {
         "agent:finish": event => event.reply({
           artifacts: [{
@@ -11923,7 +11930,6 @@ describe("server helpers", () => {
           }],
           body: "Static reply",
         }),
-        "hook:observe": observe,
       },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -11931,13 +11937,17 @@ describe("server helpers", () => {
 
     await expect(handler(chatWebhookRequest(91_036), "telegram")).rejects.toThrow("static post failed")
 
-    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
-      attributes: expect.objectContaining({
-        "channel.effect.content": "Static reply\n\n[Result report](<https://assets.example/reports/result.md>)",
-        "error.message": "static post failed",
-      }),
-      name: "channel:delivery-effect",
-    }))
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "Static reply\n\n[Result report](<https://assets.example/reports/result.md>)",
+          "error.message": "static post failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+    })
   })
 
   it("delivers only explicit manual replies after deleting the placeholder", async () => {

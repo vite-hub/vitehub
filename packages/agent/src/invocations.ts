@@ -470,7 +470,7 @@ export function applyAgentInvocationStoreUpdate(
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
     ...(status === "cancelled" && !record.cancelledAt ? { cancelledAt: input.timestamp } : {}),
     status,
-    updatedAt: input.timestamp,
+    updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt,
   }
 }
 
@@ -976,7 +976,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             return true
           }
           if (await finishOnce() || terminalRetry) return
-          const retry = (async () => {
+          const retryWork = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
@@ -990,12 +990,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
               ownsRecord = false
             }
-          })().finally(() => {
+          })()
+          const retry = retryWork.finally(async () => {
             if (!finished && terminalRetry === retry) {
               terminalRetry = undefined
               finishing = false
               pendingObservations.push(...terminalRetryObservations.splice(0))
               writeNextObservation()
+              while (observationWrite) await observationWrite
             }
           })
           terminalRetry = retry

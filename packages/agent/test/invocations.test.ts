@@ -159,6 +159,7 @@ describe("Agent Invocations", () => {
           attributes: { "channel.effect.content": "Reply delivered during retry" },
           name: "agent.channel.delivery.effect",
         }))
+        expect(Date.parse(record!.updatedAt)).toBeGreaterThanOrEqual(Date.parse(record!.completedAt!))
       })
     }
     finally {
