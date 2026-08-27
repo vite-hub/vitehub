@@ -1233,7 +1233,7 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({
       nitro: {
         externals: {
-          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
+          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
         },
         rollupConfig: {
           external: optionalAgentRuntimeExternals,
@@ -1291,7 +1291,9 @@ describe("agent Vite plugin", () => {
     if (!platformPackage) throw new Error(`Unsupported test platform ${process.platform}/${process.arch}.`)
     const nitroRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-nitro-"))
     const root = join(nitroRoot, "app")
-    const claudePlatformPackage = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`
+    const runtimeReport = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined
+    const runtimeGlibc = runtimeReport?.header?.glibcVersionRuntime
+    const claudePlatformPackage = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${process.platform === "linux" && !runtimeGlibc ? "-musl" : ""}`
     try {
       await mkdir(join(root, "server", "agents", "support"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")

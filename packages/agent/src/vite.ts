@@ -64,7 +64,7 @@ const optionalAgentRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
+const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp"]
 const optionalNetlifyAgentBundleExternals = [
   "@t3tools/provider-runtime",
   "@ai-sdk/mcp",
