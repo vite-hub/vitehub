@@ -3788,12 +3788,12 @@ function mergedUsageRecordMetadata(key: "credentialSource" | "latency" | "respon
   return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
 }
 
-function resultWithStreamedTextAndUsage(
+async function resultWithStreamedTextAndUsage(
   result: unknown,
   text: string,
   usageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
-): unknown {
+): Promise<unknown> {
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
@@ -3804,7 +3804,17 @@ function resultWithStreamedTextAndUsage(
     const normalizedUsageRecordProperties = mergedUsageRecords(normalized.usageRecord)
     const hasSourceUsageRecord = Object.keys(sourceUsageRecordProperties).length > 0
     const sourceUsage = normalizedAgentUsage(sourceUsageRecordProperties.usage)
-    const normalizedUsage = normalizedAgentUsage(normalized.usage)
+    let resolvedUsage = normalized.usage
+    if (resolvedUsage && hasRuntimeType(resolvedUsage, "object")) {
+      try {
+        if (hasRuntimeType(Reflect.get(resolvedUsage, "then"), "function")) resolvedUsage = await resolvedUsage
+      }
+      catch {
+        // Ignore provider usage promises and then getters that fail during finalization.
+        resolvedUsage = undefined
+      }
+    }
+    const normalizedUsage = normalizedAgentUsage(resolvedUsage)
     const fallbackUsage = normalizedAgentUsage(fallbackUsageRecordProperties.usage)
     const streamedUsage = normalizedAgentUsage(streamedUsageRecordProperties.usage)
     const normalizedRecordUsage = normalizedAgentUsage(normalizedUsageRecordProperties.usage)
@@ -3881,12 +3891,17 @@ function withStreamedResult(
   let finalText = ""
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+  let finalizedUsageRecord: AgentUsageRecord | undefined
   return {
-    finishResult(resultOverride: unknown = result) {
-      return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
+    async finishResult(resultOverride: unknown = result) {
+      const finishResult = await resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
+      finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+        ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+        : undefined
+      return finishResult
     },
     finishUsage() {
-      return usageRecord ?? fallbackUsageRecord
+      return finalizedUsageRecord
     },
     stream: (async function* () {
       for await (const chunk of stream) {
@@ -4641,7 +4656,7 @@ async function finalizeAgentInvocationResult<
         const streamed = withStreamedResult(stream, result, undefined, context.toolResults, context.tools)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
-            const finishResult = streamed.finishResult()
+            const finishResult = await streamed.finishResult()
             const finishOutcome = finishOutcomeFromCleanup(outcome, finishResult)
             const usage = streamed.finishUsage()
             if (!outcome.failed && !outcome.completed) {
@@ -4664,7 +4679,7 @@ async function finalizeAgentInvocationResult<
             ? toReadableAsyncIterableStream(value)
             : value
         }
-        const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
+        const value = withCapabilityCleanup(streamed.stream, async outcome => finishStreamAgentInvocation(context, lifecycle, await streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
@@ -5159,7 +5174,7 @@ async function executeAgentInvocationWithCapacityLease<
             finishing = true
             const finalOutcome = await cancelPreservedSources(outcome)
             if (finishTask) return await finishTask
-            const finishResult = streamed.finishResult(preserved)
+            const finishResult = await streamed.finishResult(preserved)
             finishTask = (async () => {
               if (!finalOutcome.failed && !finalOutcome.completed) {
                 await lifecycle.finish({
@@ -5302,7 +5317,7 @@ async function executeAgentInvocationWithCapacityLease<
                     finishing = true
                     const finalOutcome = await cancelPreservedSources(outcome)
                     if (finishTask) return await finishTask
-                    let finishResult = streamed?.finishResult(preserved) ?? preserved
+                    let finishResult = streamed ? await streamed.finishResult(preserved) : preserved
                     if (finishResult !== preserved && Object.isExtensible(preserved)) {
                       const collectedDescriptors: PropertyDescriptorMap = {}
                       for (const key of ["text", "usage", "usageRecord"]) {
@@ -5614,7 +5629,7 @@ async function executeAgentInvocationWithCapacityLease<
           const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
-          const finishResult = streamed.finishResult()
+          const finishResult = await streamed.finishResult()
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,
