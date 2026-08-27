@@ -1549,6 +1549,7 @@ describe("agent Vite plugin", () => {
         )
       }
       if (!isRuntimeFunction(netlifyPlugin.closeBundle) && netlifyPlugin.closeBundle?.handler) {
+        if (isRuntimeFunction(netlifyPlugin.buildEnd)) await netlifyPlugin.buildEnd.call({} as never)
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
@@ -1628,6 +1629,7 @@ describe("agent Vite plugin", () => {
         )
       }
       if (!isRuntimeFunction(netlifyPlugin.closeBundle) && netlifyPlugin.closeBundle?.handler) {
+        if (isRuntimeFunction(netlifyPlugin.buildEnd)) await netlifyPlugin.buildEnd.call({} as never)
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }

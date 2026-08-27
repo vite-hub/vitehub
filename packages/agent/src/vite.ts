@@ -2930,7 +2930,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "agent",
         rootDir: config.root,
-        write: async ({ write }) => {
+        write: async ({ signal, write }) => {
           const normalized = normalizeAgentOptions(agent)
           if (normalized && normalized.runtime === "deno") return
           if (normalized && hasHostedAgentDefinitions(config.root, serverDirs) && isNetlifyHosting(config)) {
@@ -2949,6 +2949,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           else if (isNetlifyHosting(config)) {
             await cleanupNetlifyAgentProviderOutput(config, write)
           }
+          signal.throwIfAborted()
           await copyVercelFunctionRuntimePackages({
             packages: [
               { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },

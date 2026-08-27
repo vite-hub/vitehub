@@ -461,7 +461,13 @@ export async function finalizeProviderDeploymentOutputs(
             for (const contribution of rootContributions) {
               throwIfProviderOutputAborted(controller.signal)
               try {
-                await contribution.write({ signal: controller.signal, write: writeProviderDeploymentOutputsNow })
+                await contribution.write({
+                  signal: controller.signal,
+                  write: async (writeOptions) => {
+                    throwIfProviderOutputAborted(controller.signal)
+                    await writeProviderDeploymentOutputsNow(writeOptions)
+                  },
+                })
               }
               catch (error) {
                 controller.abort(error)

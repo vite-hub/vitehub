@@ -203,35 +203,41 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-      if (cloudflareOwnedByNitro && provider === "cloudflare") {
-        const configuredDeclarations = declarations
-        collectDeclarations()
-        if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {
-          throw new Error("[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves.")
+      try {
+        if (cloudflareOwnedByNitro && provider === "cloudflare") {
+          const configuredDeclarations = declarations
+          collectDeclarations()
+          if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {
+            throw new Error("[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves.")
+          }
+          await writeRateLimitManifest(resolved.root, declarations, provider)
         }
-        await writeRateLimitManifest(resolved.root, declarations, provider)
+        else {
+          await refreshDeclarations()
+        }
+        const namespace = resolveRateLimitNamespace(rateLimit.namespace)
+        const config = resolved
+        contributeProviderDeploymentOutput(composedOutput, {
+          owner: "rate-limit",
+          rootDir: config.root,
+          write: async ({ write }) => {
+            await writeRateLimitProviderOutput({
+              clientOutDir: config.build.outDir,
+              cloudflareOwnedByNitro,
+              declarations,
+              namespace,
+              previousDeclarations,
+              provider,
+              rootDir: config.root,
+            }, write)
+            previousDeclarations = declarations
+          },
+        })
       }
-      else {
-        await refreshDeclarations()
+      catch (error) {
+        await resetProviderDeploymentOutputs(composedOutput)
+        throw error
       }
-      const namespace = resolveRateLimitNamespace(rateLimit.namespace)
-      const config = resolved
-      contributeProviderDeploymentOutput(composedOutput, {
-        owner: "rate-limit",
-        rootDir: config.root,
-        write: async ({ write }) => {
-          await writeRateLimitProviderOutput({
-            clientOutDir: config.build.outDir,
-            cloudflareOwnedByNitro,
-            declarations,
-            namespace,
-            previousDeclarations,
-            provider,
-            rootDir: config.root,
-          }, write)
-          previousDeclarations = declarations
-        },
-      })
     },
     closeBundle: {
       order: "post",

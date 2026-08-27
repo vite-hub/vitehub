@@ -242,39 +242,45 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
-      let definitions: DiscoveredQueueDefinition[] | undefined
-      if (resolveNuxtDefinitions && nuxtConfiguredDefinitions) {
-        definitions = resolveStableQueueDefinitions(resolveNuxtDefinitions, nuxtConfiguredDefinitions, "Nuxt")
+      try {
+        let definitions: DiscoveredQueueDefinition[] | undefined
+        if (resolveNuxtDefinitions && nuxtConfiguredDefinitions) {
+          definitions = resolveStableQueueDefinitions(resolveNuxtDefinitions, nuxtConfiguredDefinitions, "Nuxt")
+        }
+        else if (validatesNitroDefinitions) {
+          definitions = resolveStableQueueDefinitions(
+            () => discoverQueueDefinitions({ rootDir: resolved!.root }),
+            configuredDefinitions,
+            "Nitro Cloudflare",
+          )
+        }
+        const config = resolved
+        const rootDir = nuxtProjectRoot || config.root
+        // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
+        const nitro = (config as { nitro?: unknown }).nitro
+        contributeProviderDeploymentOutput(providerOutput, {
+          owner: "queue",
+          rootDir,
+          write: async ({ write }) => {
+            await generateProviderOutputs({
+              clientOutDir: config.build.outDir,
+              cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
+              definitions,
+              providerImportAliases: internalOptions?.providerImportAliases,
+              providerOutput,
+              queue: queue ?? (resolveNitroHosting(cloneNitroConfig(nitro))
+                ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
+                : undefined),
+              rootDir,
+              serverFunctionName: resolveNitroVercelFunctionName(config, "queue"),
+            }, write)
+          },
+        })
       }
-      else if (validatesNitroDefinitions) {
-        definitions = resolveStableQueueDefinitions(
-          () => discoverQueueDefinitions({ rootDir: resolved!.root }),
-          configuredDefinitions,
-          "Nitro Cloudflare",
-        )
+      catch (error) {
+        await resetProviderDeploymentOutputs(providerOutput)
+        throw error
       }
-      const config = resolved
-      const rootDir = nuxtProjectRoot || config.root
-      // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
-      const nitro = (config as { nitro?: unknown }).nitro
-      contributeProviderDeploymentOutput(providerOutput, {
-        owner: "queue",
-        rootDir,
-        write: async ({ write }) => {
-          await generateProviderOutputs({
-            clientOutDir: config.build.outDir,
-            cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
-            definitions,
-            providerImportAliases: internalOptions?.providerImportAliases,
-            providerOutput,
-            queue: queue ?? (resolveNitroHosting(cloneNitroConfig(nitro))
-              ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
-              : undefined),
-            rootDir,
-            serverFunctionName: resolveNitroVercelFunctionName(config, "queue"),
-          }, write)
-        },
-      })
     },
     closeBundle: {
       order: "post",

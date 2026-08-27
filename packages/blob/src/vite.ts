@@ -326,28 +326,33 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
       }
-
-      providerArtifacts = await prepareProviderOutputs({
-        blob,
-        cloudflareOwnedByNitro,
-        providerOutput,
-        rootDir,
-      })
-      contributeProviderDeploymentOutput(providerOutput, {
-        owner: "blob",
-        rootDir,
-        write: async ({ write }) => {
-          await generateProviderOutputs({
-            blob,
-            clientOutDir,
-            cloudflareOwnedByNitro,
-            artifacts: providerArtifacts,
-            providerOutput,
-            rootDir,
-            serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
-          }, write)
-        },
-      })
+      try {
+        providerArtifacts = await prepareProviderOutputs({
+          blob,
+          cloudflareOwnedByNitro,
+          providerOutput,
+          rootDir,
+        })
+        contributeProviderDeploymentOutput(providerOutput, {
+          owner: "blob",
+          rootDir,
+          write: async ({ write }) => {
+            await generateProviderOutputs({
+              blob,
+              clientOutDir,
+              cloudflareOwnedByNitro,
+              artifacts: providerArtifacts,
+              providerOutput,
+              rootDir,
+              serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
+            }, write)
+          },
+        })
+      }
+      catch (error) {
+        await resetProviderDeploymentOutputs(providerOutput)
+        throw error
+      }
     },
     closeBundle: {
       order: "post",

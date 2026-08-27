@@ -187,28 +187,34 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         return
       }
 
-      await writeGeneratedDatabaseArtifacts(runtimeConfig)
-      providerArtifacts = await prepareProviderOutputs({
-        appRootDir: resolved.root,
-        providerOutput,
-        rootDir: databaseRoot(),
-        runtimeConfig,
-      })
-      contributeProviderDeploymentOutput(providerOutput, {
-        owner: "database",
-        rootDir: resolved.root,
-        write: async ({ write }) => {
-          await writeGeneratedDatabaseArtifacts(runtimeConfig!)
-          await generateProviderOutputs({
-            artifacts: providerArtifacts,
-            clientOutDir: resolved!.build.outDir,
-            providerOutput,
-            rootDir: resolved!.root,
-            runtimeConfig: runtimeConfig!,
-            serverFunctionName: resolveNitroVercelFunctionName(resolved!, "database"),
-          }, write)
-        },
-      })
+      try {
+        await writeGeneratedDatabaseArtifacts(runtimeConfig)
+        providerArtifacts = await prepareProviderOutputs({
+          appRootDir: resolved.root,
+          providerOutput,
+          rootDir: databaseRoot(),
+          runtimeConfig,
+        })
+        contributeProviderDeploymentOutput(providerOutput, {
+          owner: "database",
+          rootDir: resolved.root,
+          write: async ({ write }) => {
+            await writeGeneratedDatabaseArtifacts(runtimeConfig!)
+            await generateProviderOutputs({
+              artifacts: providerArtifacts,
+              clientOutDir: resolved!.build.outDir,
+              providerOutput,
+              rootDir: resolved!.root,
+              runtimeConfig: runtimeConfig!,
+              serverFunctionName: resolveNitroVercelFunctionName(resolved!, "database"),
+            }, write)
+          },
+        })
+      }
+      catch (error) {
+        await resetProviderDeploymentOutputs(providerOutput)
+        throw error
+      }
     },
     resolveId(id) {
       return resolveDatabaseVirtualId(id)

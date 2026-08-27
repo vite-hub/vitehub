@@ -210,6 +210,33 @@ describe("Provider Output finalizer", () => {
     expect(laterWrite).not.toHaveBeenCalled()
   })
 
+  it("prevents publication resumed after active finalization is reset", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let releaseContribution!: () => void
+    let contributionStarted!: () => void
+    const started = new Promise<void>(resolve => contributionStarted = resolve)
+    const publication = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        contributionStarted()
+        await new Promise<void>(resolve => releaseContribution = resolve)
+        await write({ clientOutDir: "dist/client", rootDir })
+        await publication()
+      },
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog)
+    releaseContribution()
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    expect(publication).not.toHaveBeenCalled()
+  })
+
   it("removes stale output for every disabled host", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

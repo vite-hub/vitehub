@@ -628,9 +628,10 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "schedule",
         rootDir,
-        write: async () => {
+        write: async ({ signal }) => {
           const workflow = await prepareWorkflow?.()
           const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+          signal.throwIfAborted()
           await generateProviderOutputsWithinLock({
             bundleAlias: {
               ...resolveStringAliases(config),
