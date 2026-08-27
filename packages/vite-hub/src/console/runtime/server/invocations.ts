@@ -30,14 +30,14 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
   const configuredUrl = process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
   const url = configuredUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
   const authToken = process.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
-  if (!url.startsWith("file:")) return { ...(authToken ? { authToken } : {}), url }
+  if (!/^file:/i.test(url)) return { ...(authToken ? { authToken } : {}), url }
 
   const fragmentIndex = url.indexOf("#")
   const urlWithoutFragment = fragmentIndex === -1 ? url : url.slice(0, fragmentIndex)
   const queryIndex = urlWithoutFragment.indexOf("?")
   const fileUrl = queryIndex === -1 ? urlWithoutFragment : urlWithoutFragment.slice(0, queryIndex)
   const query = queryIndex === -1 ? "" : urlWithoutFragment.slice(queryIndex)
-  const isAbsoluteFileUrl = fileUrl.startsWith("file:/")
+  const isAbsoluteFileUrl = /^file:\//i.test(fileUrl)
   const relativeFilePath = isAbsoluteFileUrl
     ? undefined
     : decodeURIComponent(fileUrl.slice("file:".length))

@@ -796,6 +796,23 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("resolves Console database file URL schemes case-insensitively", () => {
+    const projectRoot = join(tmpdir(), "vitehub-console-uppercase-scheme-project")
+    const relativeDatabasePath = join(projectRoot, "data/invocations.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "FILE:data/invocations.sqlite")
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+      url: pathToFileURL(relativeDatabasePath).href,
+    })
+
+    const absoluteDatabasePath = join(tmpdir(), "vitehub-console-uppercase-scheme", "console.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", pathToFileURL(absoluteDatabasePath).href.replace("file:", "FILE:"))
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+      url: pathToFileURL(absoluteDatabasePath).href,
+    })
+  })
+
   it("preserves query parameters on configured Console database file URLs", () => {
     const projectRoot = join(tmpdir(), "vitehub-console-query-project")
     const databasePath = join(projectRoot, "data/invocations.sqlite")
