@@ -44,7 +44,7 @@ Optional servers do not need a conditional Capability array. Declare credentials
 import { useServerEnv } from '#vitehub/env/server'
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
-import { remoteMcpServer } from 'vite-hub/agent/mcp'
+import { remoteMcpServer } from '@vite-hub/agent/mcp'
 
 export default defineAgent({
   driver: { model },
