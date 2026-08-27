@@ -22,6 +22,37 @@ describe("writeDocsArtifacts", () => {
     );
   });
 
+  it("makes rendered reference-style links portable", () => {
+    expect(toRawMarkdown([
+      "[Install][install]",
+      "",
+      "[install]: /docs/getting-started \"Get started\"",
+      "[external]: https://example.com/docs",
+      "",
+      "```md",
+      "[literal]: /docs/literal",
+      "```",
+      "",
+      "<pre>",
+      "[literal-html]: /docs/literal-html",
+      "</pre>",
+    ].join("\n"))).toBe([
+      "[Install][install]",
+      "",
+      "[install]: https://vitehub.dev/docs/getting-started \"Get started\"",
+      "[external]: https://example.com/docs",
+      "",
+      "```md",
+      "[literal]: /docs/literal",
+      "```",
+      "",
+      "<pre>",
+      "[literal-html]: /docs/literal-html",
+      "</pre>",
+      "",
+    ].join("\n"));
+  });
+
   it("builds a docs manifest from the unified content tree only", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const docsRoot = resolve(rootDir, "docs");

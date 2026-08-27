@@ -82,11 +82,16 @@ function absoluteUrl(value: string) {
 }
 
 function rewriteMarkdownLinks(line: string) {
-  return line.replace(/(!?\[[^\]]*\]\()([^\s)]+)([^)]*\))/g, (_match, opening: string, target: string, closing: string, offset: number) => {
+  const inlineLinks = line.replace(/(!?\[[^\]]*\]\()([^\s)]+)([^)]*\))/g, (_match, opening: string, target: string, closing: string, offset: number) => {
     const bracketOffset = offset + (opening.startsWith("!") ? 1 : 0);
     if (isEscaped(line, bracketOffset)) return _match;
     return `${opening}${absoluteUrl(target)}${closing}`;
   });
+
+  return inlineLinks.replace(
+    /^([ \t]{0,3}\[[^\]]+\]:[ \t]*<?)(\/(?!\/)[^\s>]*)(>?(?:[ \t]+.*)?)$/gm,
+    (_match, opening: string, target: string, closing: string) => `${opening}${absoluteUrl(target)}${closing}`,
+  );
 }
 
 function rawHtmlBlockEnd(line: string) {
