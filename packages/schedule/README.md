@@ -181,7 +181,7 @@ export default defineConfig({
 
 Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, and concurrency `1`. The interval cannot exceed one minute. `concurrency` limits wake delivery only inside that process. The KV run store records occurrences but does not provide distributed leader election or locking, so multiple replicas can execute the same work. A stopped process does not backfill minutes that it missed.
 
-Process Runtime selection and static `providerOutput` selection are independent. Set `providerOutput: false` when only the process should wake Static Schedules.
+With the Process Runtime, the default `providerOutput: "auto"` emits no host Provider Output, so the process owns Static Schedule wakes. Set `providerOutput: "standalone"` or `"nitro"` to move Static Schedule wakes to that Provider Output while the process continues to run Runtime Schedules. `providerOutput: false` explicitly records the same wake ownership as `"auto"` in this configuration.
 
 `installScheduleRuntime()` returns only after its driver reconciles the complete stored snapshot, including disabled Runtime Schedules. Later creates, updates, and deletes persist first and reconcile one at a time. If host reconciliation fails, ViteHub restores the previous stored record and rejects the change.
 
