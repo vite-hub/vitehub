@@ -74,6 +74,21 @@ describe("Netlify Blobs driver", () => {
     }
   })
 
+  it("does not read protected Deno environment variables with explicit credentials", async () => {
+    const getEnvironmentVariable = vi.fn(() => {
+      throw new Error("Requires env access")
+    })
+    vi.stubGlobal("Deno", {
+      env: {
+        get: getEnvironmentVariable,
+      },
+    })
+    mockListPages({ first: { blobs: [], directories: [] } })
+
+    await expect(createDriver(options).list()).resolves.toMatchObject({ blobs: [] })
+    expect(getEnvironmentVariable).not.toHaveBeenCalled()
+  })
+
   it("buffers streams and records their actual byte length", async () => {
     store.set.mockResolvedValue({ etag: "etag" })
     const body = new Blob(["streamed"]).stream()

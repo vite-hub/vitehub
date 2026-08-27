@@ -100,15 +100,15 @@ async function fetchWithRetry(url: URL, options: RequestInit, attemptsLeft = MAX
 }
 
 function createListPageFetcher(options: NetlifyBlobsStoreConfig) {
-  const environmentContext = getEnvironmentContext()
-  const context = !options.deployScoped && options.siteID && options.token ? {} : environmentContext
+  const hasExplicitCredentials = !options.deployScoped && options.siteID && options.token
+  const context = hasExplicitCredentials ? {} : getEnvironmentContext()
   const siteID = context.siteID ?? options.siteID
   const token = context.token ?? options.token
   if (!siteID || !token) {
     throw new Error("The environment has not been configured to use Netlify Blobs. Supply siteID and token when creating the store.")
   }
   const storeName = options.deployScoped
-    ? `deploy:${environmentContext.deployID}${options.name ? `:${options.name}` : ""}`
+    ? `deploy:${context.deployID}${options.name ? `:${options.name}` : ""}`
     : `site:${options.name}`
   const edgeURL = options.consistency === "strong" ? context.uncachedEdgeURL : context.edgeURL
   if (options.consistency === "strong" && context.edgeURL && !edgeURL) {
@@ -117,7 +117,7 @@ function createListPageFetcher(options: NetlifyBlobsStoreConfig) {
 
   return async (parameters: Record<string, string>) => {
     const region = options.deployScoped && edgeURL ? context.primaryRegion : undefined
-    if (options.deployScoped && !environmentContext.deployID) {
+    if (options.deployScoped && !context.deployID) {
       throw new Error("The environment has not been configured with a Netlify deploy ID.")
     }
     if (options.deployScoped && edgeURL && !region) {
