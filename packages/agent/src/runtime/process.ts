@@ -112,7 +112,8 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
       }
 
       const limit = Math.min(resources.memoryHigh, resources.memoryMax)
-      const availableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : resources.availableMemory
+      const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY
+      const availableMemory = Math.min(resources.availableMemory, cgroupAvailableMemory)
       const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
       const cpuConcurrency = Math.max(1, resources.parallelism)
@@ -172,16 +173,25 @@ async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessRes
     readFile(`${root}/memory.high`, { encoding: "utf8", signal }),
     readFile(`${root}/memory.max`, { encoding: "utf8", signal }),
     readFile(`${root}/memory.events`, { encoding: "utf8", signal }),
-    readFile(`${root}/cpu.pressure`, { encoding: "utf8", signal }),
-    readFile(`${root}/memory.pressure`, { encoding: "utf8", signal }),
+    readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
+    readOptionalCgroupFile(`${root}/memory.pressure`, signal),
   ])
   return {
-    cpuPressure: parsePressure(cpuPressure),
+    cpuPressure: parsePressure(cpuPressure ?? ""),
     memoryCurrent: Number(current.trim()),
     memoryHigh: parseLimit(high),
     memoryHighEvents: parseEvent(events, "high"),
     memoryMax: parseLimit(max),
-    memoryPressure: parsePressure(memoryPressure),
+    memoryPressure: parsePressure(memoryPressure ?? ""),
+  }
+}
+
+async function readOptionalCgroupFile(path: string, signal: AbortSignal): Promise<string | undefined> {
+  try {
+    return await readFile(path, { encoding: "utf8", signal })
+  } catch (error) {
+    if (signal.aborted) throw error
+    return undefined
   }
 }
 

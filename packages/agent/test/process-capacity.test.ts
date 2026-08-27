@@ -16,6 +16,7 @@ const resources = vi.hoisted(() => ({
   memoryMax: 10 * 1024 ** 3,
   memoryPressure: 0,
   parallelism: 8,
+  pressureAvailable: true,
 }))
 
 vi.mock("node:fs/promises", () => ({
@@ -32,6 +33,7 @@ vi.mock("node:fs/promises", () => ({
     if (value.endsWith("/memory.high")) return String(resources.memoryHigh)
     if (value.endsWith("/memory.max")) return String(resources.memoryMax)
     if (value.endsWith("/memory.events")) return `low 0\nhigh ${resources.memoryHighEvents}\nmax 0\n`
+    if (value.endsWith(".pressure") && !resources.pressureAvailable) throw new Error("PSI unavailable")
     if (value.endsWith("/cpu.pressure")) return pressure(resources.cpuPressure)
     if (value.endsWith("/memory.pressure")) return pressure(resources.memoryPressure)
     throw new Error(`Unexpected resource path: ${value}`)
@@ -65,7 +67,9 @@ beforeEach(() => {
     memoryMax: 10 * GiB,
     memoryPressure: 0,
     parallelism: 8,
+    pressureAvailable: true,
   })
+  vi.spyOn(process, "availableMemory").mockImplementation(() => resources.availableMemory)
 })
 
 afterEach(() => {
@@ -125,7 +129,6 @@ describe("process Agent capacity", () => {
   it("uses Node memory when cgroup v2 data is unavailable", async () => {
     resources.cgroupAvailable = false
     resources.availableMemory = 5 * GiB
-    vi.spyOn(process, "availableMemory").mockReturnValue(5 * GiB)
     const sample = createBuiltInSample({
       concurrency: 6,
       memory: { perInvocationBytes: 2 * GiB, reserveBytes: GiB },
@@ -134,6 +137,33 @@ describe("process Agent capacity", () => {
     await expect(sample({ active: 1, concurrency: 6, pending: 0, signal: new AbortController().signal })).resolves.toEqual({
       concurrency: 3,
       reason: "capacity available (5.0 GiB memory headroom)",
+    })
+  })
+
+  it("bounds cgroup headroom by Node available memory", async () => {
+    resources.availableMemory = 3 * GiB
+    const sample = createBuiltInSample({
+      concurrency: 6,
+      memory: { perInvocationBytes: GiB, reserveBytes: GiB },
+    })
+
+    await expect(sample({ active: 1, concurrency: 6, pending: 1, signal: new AbortController().signal })).resolves.toEqual({
+      concurrency: 3,
+      reason: "capacity available (3.0 GiB memory headroom)",
+    })
+  })
+
+  it("keeps cgroup memory limits when PSI files are unavailable", async () => {
+    resources.pressureAvailable = false
+    resources.memoryHigh = 4 * GiB
+    const sample = createBuiltInSample({
+      concurrency: 6,
+      memory: { perInvocationBytes: GiB, reserveBytes: GiB },
+    })
+
+    await expect(sample({ active: 1, concurrency: 6, pending: 1, signal: new AbortController().signal })).resolves.toEqual({
+      concurrency: 2,
+      reason: "capacity available (2.0 GiB memory headroom)",
     })
   })
 
