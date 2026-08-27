@@ -195,6 +195,23 @@ describe("process Agent capacity", () => {
     await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
   })
 
+  it("resumes at zero pressure when the resume thresholds are zero", async () => {
+    const sample = createBuiltInSample({
+      concurrency: 6,
+      cpu: { resumePressure: 0 },
+      memory: { resumePressure: 0 },
+    })
+    const context = { active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal }
+
+    resources.cpuPressure = 0.26
+    resources.memoryPressure = 0.06
+    await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+
+    resources.cpuPressure = 0
+    resources.memoryPressure = 0
+    await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+  })
+
   it("validates and forwards the adaptive sample timeout", () => {
     expect(() => createProcessAgentCapacity({ concurrency: 1, sampleTimeoutMs: 0 })).toThrow(
       "sampleTimeoutMs }) must be a positive finite number no greater than 2147483647",
