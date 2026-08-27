@@ -6,7 +6,7 @@ import { useRoute, useRouter } from "vue-router"
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
-import { encodeAgentRouteParam, resolveAgentRouteName } from "../agent-route"
+import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
 import { requestConsole } from "../client/request"
 import { relativeDuration } from "../client/time"
 
@@ -95,7 +95,7 @@ function itemDescription(item: ConsoleSearchItem): string {
 async function selectAgent(name: string): Promise<void> {
   open.value = false
   await router.push({
-    name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+    name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
   })
 }
@@ -104,7 +104,7 @@ async function selectSession(item: ConsoleSearchItem): Promise<void> {
   if (!item.agentName) return
   open.value = false
   await router.push({
-    name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
+    name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(item.agentName), invocation: item.id },
   })
 }

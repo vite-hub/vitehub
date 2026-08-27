@@ -1,11 +1,13 @@
 ---
 title: Console
-description: Enable the Agent invocation console, protect its routes, and understand its storage limits.
+description: Enable the read-only Console, navigate configured primitives, and protect its routes.
 navigation.order: 32
 icon: i-lucide-monitor-dot
 ---
 
-The ViteHub Console is a read-only app for inspecting discovered Agents and retained Agent Invocations. It is off by default. Enable it, start the app, then open `/_vitehub` to browse sessions, search retained text, and inspect invocation events.
+The ViteHub Console is a read-only app for inspecting the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
+
+The Console currently exposes Agents and KV. The home sidebar lists only configured primitives. Opening a section replaces those items with that section's navigation, and **All sections** returns to the Console home. Agents retains its session browser, search, and invocation details. KV is a read-only placeholder while store inspection is being implemented.
 
 Console data can contain user prompts, model output, tool activity, and provider metadata. Protect the Console before making it reachable on a production URL.
 
@@ -22,6 +24,7 @@ export default defineConfig({
     agent: true,
     console: true,
     preset: 'node',
+    kv: true,
   })],
 })
 ```
@@ -122,7 +125,7 @@ Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in re
 
 ## Know what the Console stores
 
-The Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, and progress updates.
+When Agents are configured, the Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, and progress updates. A KV-only Console does not install the Agent journal or Agent read endpoints.
 
 Set `VITEHUB_CONSOLE_DATABASE_URL` when the journal belongs on another volume or libSQL endpoint. Relative `file:` paths resolve from the ViteHub project root:
 
@@ -143,7 +146,7 @@ The fallback applies only when an Agent Definition does not configure `invocatio
 
 The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store. Use the [Invocation UI](/docs/ui/invocation) with that store when the app needs a custom inspection page.
 
-Production Console builds currently require `preset: 'node'` because the fallback journal uses local SQLite. The Node preset supports the build, but it does not make `.vitehub/data/console.sqlite` persistent: the host must provide durable storage that survives process and deployment replacement. The file is also local to one replica and is not shared across replicas. Other presets can run the Console during development. Their production builds fail while Console is enabled, so ViteHub does not write the journal to storage that may disappear between requests or deployments.
+Production Console builds with Agents currently require `preset: 'node'` because the fallback journal uses local SQLite. The Node preset supports the build, but it does not make `.vitehub/data/console.sqlite` persistent: the host must provide durable storage that survives process and deployment replacement. The file is also local to one replica and is not shared across replicas. Other presets can run the Agent Console during development. Their production builds fail while Agents are exposed in the Console, so ViteHub does not write the journal to storage that may disappear between requests or deployments. A KV-only Console does not have this storage restriction.
 
 The Console API accepts `GET` requests only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
@@ -158,7 +161,9 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Symptom | Check |
 | --- | --- |
 | `/_vitehub` returns `404` | Confirm `console: true`, then restart the development server. Omitted and false configurations register no route. |
-| The Console opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
+| Agents is absent from the Console home | Configure `agent`. The Console only lists primitives active in the same ViteHub configuration. |
+| KV is absent from the Console home | Configure `kv`. KV inspection is currently a read-only placeholder. |
+| Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
 | A production build rejects `console: true` | Use `console: { access: 'auth' }` with callback-backed policies for both route groups, or acknowledge host middleware with `console: { exposure: 'host-managed' }`. Production also requires the Node preset. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the host's `authorize` callback and the current user's role or permission. |
