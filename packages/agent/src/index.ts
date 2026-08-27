@@ -2970,6 +2970,7 @@ async function createAgentInvocationContext<
   const resolvedContext = createResolvedRuntimeContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
   await parseAgentMessageMeta(definition, invocationContext, context.run)
+  const parsedInput = { ...input, context: invocationContext.toJSON() }
   const telemetryInvocationId = createTraceId()
   let telemetryScheduler: AgentTelemetryScheduler | undefined
   const telemetryChanged = (entry: TraceEventLogEntry) => telemetryScheduler?.changed(entry)
@@ -3036,7 +3037,7 @@ async function createAgentInvocationContext<
       definition?.invoker,
       callbackContext,
       invocationContext,
-      input,
+      parsedInput,
       context.run,
       invocationContext.get(scheduledAgentTurnContextKey) === true,
     )

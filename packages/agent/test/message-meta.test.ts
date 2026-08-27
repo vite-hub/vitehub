@@ -185,4 +185,42 @@ describe("Agent message metadata", () => {
     })
     expect(context.get("actor")).toEqual(context.get("invoker"))
   })
+
+  it("resolves programmatic Invokers from parsed metadata", async () => {
+    const resolve = vi.fn(({ defaultInvoker, input }) => {
+      expect(input.context?.invoker).toEqual({
+        id: "chat:user-1",
+        kind: "chat",
+        meta: { audience: "technical", email: "user@example.com" },
+      })
+      return defaultInvoker
+    })
+    const run = vi.fn(({ invoker }) => {
+      expect(invoker).toEqual({
+        id: "chat:user-1",
+        kind: "chat",
+        meta: { audience: "technical", email: "user@example.com" },
+      })
+      return "ok"
+    })
+    const agent = defineAgent({
+      driver: { run },
+      invoker: { resolve },
+      messages: { meta: metaSchema },
+    })
+
+    await runAgentInline(agent, runtime(), {
+      context: {
+        channel: { meta: { audience: "technical", ignored: true } },
+        invoker: {
+          id: "chat:user-1",
+          kind: "chat",
+          meta: { audience: "technical", email: "user@example.com", ignored: true },
+        },
+      },
+    })
+
+    expect(resolve).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledOnce()
+  })
 })
