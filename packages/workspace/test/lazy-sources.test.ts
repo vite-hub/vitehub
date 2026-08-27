@@ -785,6 +785,34 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it("retries a failed explicit scope for the path required by lazy access", async () => {
+    let fail = true
+    const view = createWorkspaceSourceView({
+      name: "failed-scoped-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            if (fail) {
+              fail = false
+              throw new Error("temporary source failure")
+            }
+            return ["a.md", "b.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ path: "docs/a.md", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+    await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md\n")
+  })
+
   it("serializes implicit lazy access with explicit materialization", async () => {
     let releaseFirst!: () => void
     let calls = 0

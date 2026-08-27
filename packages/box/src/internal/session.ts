@@ -20,6 +20,7 @@ export interface RuntimeSession {
   readonly defaultWorkingDirectory: string;
   readonly description?: string;
   readonly id: string;
+  readonly inspectionConcurrency?: number;
   readonly ports?: readonly number[];
   destroy?(): Promise<void>;
   existsFile(options: { abortSignal?: AbortSignal; path: string }): Promise<boolean>;
@@ -222,6 +223,9 @@ export function createBoxSession(
       },
     },
     id: runtime.id,
+    ...(runtime.inspectionConcurrency === undefined
+      ? {}
+      : { inspectionConcurrency: runtime.inspectionConcurrency }),
     ...(runtime.getPortUrl
       ? {
           ports: {

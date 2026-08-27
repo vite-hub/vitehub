@@ -4,11 +4,12 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { runViteHubCli } from "../src/index.ts"
+import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 
 const directories: string[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(directories.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -39,12 +40,202 @@ function stream() {
     output: () => value,
     write(chunk: string | Uint8Array) {
       value += String(chunk)
-      return true
     },
   }
 }
 
 describe("ViteHub CLI", () => {
+  it("flushes configured entrypoint streams before exiting", async () => {
+    const callbacks: Array<() => void> = []
+    const createStream = () => ({
+      output: "",
+      flush() {
+        return new Promise<void>(resolve => callbacks.push(resolve))
+      },
+      write(chunk: string | Uint8Array, callback: () => void = () => {}) {
+        this.output += String(chunk)
+        callback()
+        return true
+      },
+    })
+    const stdout = createStream()
+    const stderr = createStream()
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+    await vi.waitFor(() => expect(callbacks).toHaveLength(2))
+
+    expect(stdout.output).toContain("Usage: vitehub")
+    expect(exit).not.toHaveBeenCalled()
+    callbacks.shift()!()
+    expect(exit).not.toHaveBeenCalled()
+    callbacks.shift()!()
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+  })
+
+  it("exits unsuccessfully when a configured entrypoint stream fails to flush", async () => {
+    const stdout = {
+      flush: () => Promise.reject(new Error("flush failed")),
+      write: vi.fn(),
+    }
+    const stderr = {
+      flush: () => undefined,
+      write: vi.fn(),
+    }
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+  })
+
+  it("exits unsuccessfully when the process stream fails to flush", async () => {
+    // SAFETY: The mock implements the callback overload used by the production flush barrier.
+    const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(((
+      _chunk: string | Uint8Array,
+      callback?: (error?: Error | null) => void,
+    ) => {
+      callback?.(new Error("write failed"))
+      return false
+    }) as typeof process.stdout.write)
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr: stream(),
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    expect(stdoutWrite).toHaveBeenCalledWith("", expect.any(Function))
+  })
+
+  it("exits with callback-less configured entrypoint streams", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+    expect(stdout.output()).toContain("Usage: vitehub")
+  })
+
+  it("awaits asynchronous callback-less entrypoint streams before exiting", async () => {
+    const flushes: Array<() => void> = []
+    const createStream = () => ({
+      output: "",
+      write(chunk: string | Uint8Array) {
+        this.output += String(chunk)
+        return new Promise<void>(resolve => flushes.push(resolve))
+      },
+    })
+    const stdout = createStream()
+    const stderr = createStream()
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+    await vi.waitFor(() => expect(flushes).toHaveLength(1))
+
+    expect(stdout.output).toContain("Usage: vitehub")
+    expect(exit).not.toHaveBeenCalled()
+    flushes.shift()!()
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+  })
+
+  it("exits unsuccessfully when an asynchronous callback-less write fails", async () => {
+    const flush = vi.fn()
+    const stdout = {
+      flush,
+      write: () => Promise.reject(new Error("write failed")),
+    }
+    const stderr = stream()
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["--help"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr,
+      stdout,
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    expect(flush).toHaveBeenCalledOnce()
+  })
+
+  it("flushes and exits when reporting an error throws synchronously", async () => {
+    const stdoutFlush = vi.fn()
+    const stderrFlush = vi.fn()
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+
+    runViteHubCliEntrypoint({
+      args: ["missing"],
+      loadConfig: async () => ({
+        plugins: [],
+        root: "/repo",
+      }),
+      stderr: {
+        flush: stderrFlush,
+        write: () => {
+          throw new Error("write failed")
+        },
+      },
+      stdout: {
+        flush: stdoutFlush,
+        write: vi.fn(),
+      },
+    })
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    expect(stdoutFlush).toHaveBeenCalledOnce()
+    expect(stderrFlush).toHaveBeenCalledOnce()
+  })
+
   it("routes package-contributed CLI features", async () => {
     const stdout = stream()
     const stderr = stream()

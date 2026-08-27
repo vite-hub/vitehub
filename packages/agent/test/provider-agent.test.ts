@@ -15,6 +15,7 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
+import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -1437,6 +1438,41 @@ describe("Provider Agent Driver", () => {
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
     expect(session.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "chore: save provider work" }))
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
+    const threadId = "thread-workspace-materialization-cancellation"
+    runtime(threadId, [])
+    const abort = new AbortController()
+    let releaseActive!: () => void
+    let activeSettled = false
+    const active = new Promise<void>(resolve => releaseActive = resolve)
+    const materializeSources = vi.fn(async ({ path }: { path: string }) => {
+      if (path === "docs/a.md") {
+        await active
+        activeSettled = true
+        throw abort.signal.reason
+      }
+      throw abort.signal.reason
+    })
+    const workspace = { fs: {}, materializeSources, tools: {} }
+    const runContext = context(threadId, {
+      input: { abortSignal: abort.signal, prompt: "hello" },
+      workspace,
+      workspaceDefinition: { name: "docs" },
+      workspaceMaterializationPaths: ["docs/a.md", "docs/b.md"],
+    })
+    runContext.context.set("access", { workspaceScope: { all: false, paths: ["docs/a.md", "docs/b.md"] } })
+    markTrustedWorkspaceAccessScope(runContext.context as never)
+
+    const generation = createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+    await vi.waitFor(() => expect(materializeSources).toHaveBeenCalledTimes(2))
+    abort.abort(new DOMException("Canceled", "AbortError"))
+    await Promise.resolve()
+    expect(activeSettled).toBe(false)
+    releaseActive()
+    await expect(generation).rejects.toThrow("Canceled")
+    expect(activeSettled).toBe(true)
   })
 
   it("keeps colocated Skills readable and out of Workspace writeback", async () => {

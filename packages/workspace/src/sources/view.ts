@@ -205,7 +205,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
-      pending = materializeSources({ ...retryOptionsBySource.get(sourceKey), sources: [sourceKey] }).then(() => undefined)
+      pending = materializeSources({ ...retryOptionsBySource.get(sourceKey), path, sources: [sourceKey] }).then(() => undefined)
       materializeBySource.set(sourceKey, pending)
     }
     await pending

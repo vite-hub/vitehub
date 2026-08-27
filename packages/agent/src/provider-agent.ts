@@ -615,11 +615,13 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
   const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
-  await Promise.all((paths || [""]).map(path => materialize.call(owner, {
+  const results = await Promise.allSettled((paths || [""]).map(path => materialize.call(owner, {
     abortSignal: context.input.abortSignal,
     onProgress: observers.materialization,
     path,
   })))
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+  if (failure) throw failure.reason
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
