@@ -61,16 +61,16 @@ test -f .output/main.ts
 find .output -maxdepth 4 -type f | sort
 ```
 
-The generated Deno Deploy server listens locally on Deno's default port, `8000`.
+Pin the generated Deno Deploy server to port `8000` so inherited shell variables cannot change the documented address.
 
 ```bash [Terminal]
-deno run --unstable-cron --allow-env --allow-read=.output --allow-net=0.0.0.0:8000 .output/main.ts
+HOST=0.0.0.0 PORT=8000 deno run --unstable-cron --allow-env --allow-read=.output --allow-net=0.0.0.0:8000 .output/main.ts
 ```
 
 A route using `driver: 'deno-kv'` also requires Deno KV support.
 
 ```bash [Terminal]
-deno run --unstable-cron --unstable-kv --allow-env --allow-read=.output --allow-net=0.0.0.0:8000 .output/main.ts
+HOST=0.0.0.0 PORT=8000 deno run --unstable-cron --unstable-kv --allow-env --allow-read=.output --allow-net=0.0.0.0:8000 .output/main.ts
 ```
 
 For a single discovered `support` Agent with the default chat route enabled, the generated route accepts the following request. The target Agent must attach a route-enabled `webChat()` Channel; Agents without one remain unreachable through the dispatcher.
