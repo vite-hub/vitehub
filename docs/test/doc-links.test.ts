@@ -183,6 +183,18 @@ https://vitehub.dev/docs/bare-autolink
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [] });
   });
 
+  it("rejects public README targets outside the repository", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "packages/example/package.json": JSON.stringify({ name: "example" }),
+      "packages/example/README.md": "[Host file](../../../../etc/passwd)",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('file "../../../../etc/passwd" is outside the repository'),
+    ]);
+  });
+
   it("accepts explicit HTML anchors in docs content", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",

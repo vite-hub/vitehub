@@ -368,6 +368,10 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
         }
       } else {
         targetFile = resolve(dirname(sourcePath), path);
+        if (targetFile !== repoRoot && !targetFile.startsWith(`${repoRoot}${sep}`)) {
+          errors.push(`${relative(repoRoot, sourcePath)}: file ${JSON.stringify(path)} is outside the repository`);
+          continue;
+        }
         if (!existsSync(targetFile)) {
           errors.push(`${relative(repoRoot, sourcePath)}: file ${JSON.stringify(path)} does not exist`);
           continue;
