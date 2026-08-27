@@ -47,6 +47,7 @@ function valueType(value: unknown): string {
   if (value === null) return "null"
   if (Array.isArray(value)) return "array"
   if (value instanceof Uint8Array) return "bytes"
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The type label intentionally reports the remaining JavaScript primitive representation.
   return typeof value
 }
 
@@ -68,6 +69,7 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
   const type = valueType(value)
   let format: "json" | "text" = "json"
   let rendered: string
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- KV drivers return unknown values, so string identity is validated at this formatting boundary.
   if (typeof value === "string") {
     format = "text"
     rendered = value
@@ -86,12 +88,13 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
     }
   }
   const result = truncateValue(rendered)
-  return {
+  const formatted: Pick<ConsoleKVValue, "format" | "truncated" | "type" | "value"> = {
     format,
     type,
     value: result.value,
-    ...(result.truncated ? { truncated: true } : {}),
   }
+  if (result.truncated) formatted.truncated = true
+  return formatted
 }
 
 function selectStore(storage: KVStorage, stores: readonly string[], requested: string | null): { name: string; storage: KVStorage } {
@@ -114,12 +117,13 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
     const key = requiredParameter(requestedKey, "key")
     const value = unwrap(await selected.storage.get(key))
     const found = value !== null || unwrap(await selected.storage.has(key))
-    return {
+    const response: ConsoleKVValue = {
       found,
       key,
       store: selected.name,
-      ...(found ? formatValue(value) : {}),
     }
+    if (found) Object.assign(response, formatValue(value))
+    return response
   }
 
   const prefix = url.searchParams.get("prefix") ?? ""

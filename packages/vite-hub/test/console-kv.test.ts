@@ -14,6 +14,7 @@ import type { KVResult, KVStorage } from "@vite-hub/kv"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
+// SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
 const scope = globalThis as ConsoleInvocationScope
 
 function success<TResult>(value: TResult): KVResult<TResult> {
