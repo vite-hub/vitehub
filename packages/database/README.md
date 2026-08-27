@@ -7,7 +7,7 @@
 | You are building | Install | Configure | Import application code from |
 | --- | --- | --- | --- |
 | A ViteHub application | `vite-hub` and `drizzle-orm` | `vitehub({ database: true, preset: "node" })` | `vite-hub/database` and `vite-hub/database/drizzle` |
-| A library, custom Vite composition, or package-level tool | `@vite-hub/database` | `hubDb()` | `@vite-hub/database` and `@vite-hub/database/drizzle` |
+| A library, custom Vite composition, or package-level tool | `@vite-hub/database` and `drizzle-orm` | `hubDb()` | `@vite-hub/database` and `@vite-hub/database/drizzle` |
 
 Start new applications with `vite-hub`. It includes the ViteHub CLI and keeps deployment configuration in one `vitehub()` call. Install this owner package directly when you need its Vite integration without the rest of the framework distribution.
 
@@ -153,7 +153,7 @@ Application code imports `useDatabase()` from `@vite-hub/database/drizzle`. The 
 
 Do not run an unbuilt source file that imports `@vite-hub/database/drizzle` with plain `node`. Run it through the Vite-built server, as in the example. Run a Vite or ViteHub CLI command once before type-checking Named Database lookups, so `hubDb()` can write the generated declarations.
 
-`useDatabase(name)` returns `{ db, schema }`. The generated registry types each discovered name and its Drizzle schema. Use the same name in the Definition, discovered filename, and runtime lookup.
+`useDatabase(name)` returns `{ db, schema }`. The generated registry types each discovered name and its Drizzle schema. For a Named Database, use the same name in the Definition, discovered path, and runtime lookup. A Default Database omits `name`, uses one of the default Definition paths shown above, and is looked up as `default`.
 
 ## Public imports
 
