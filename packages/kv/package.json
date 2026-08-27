@@ -28,6 +28,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./errors": "./dist/errors.js",
+    "./runtime/cloudflare-kv": "./dist/runtime/cloudflare-kv.js",
     "./runtime/upstash-driver": "./dist/runtime/upstash-driver.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",

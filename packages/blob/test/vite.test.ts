@@ -628,7 +628,6 @@ describe("hubBlob", () => {
     config(value, { command: "build" })
     ;(value.nitro as Record<string, unknown>).preset = "vercel"
     const resolved = { ...value, build: { outDir: "dist" } }
-    delete (resolved as Record<symbol, unknown>)[Symbol.for("vitehub.cloudflareProviderOutput")]
     await configResolved(resolved as never)
 
     expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets.0")

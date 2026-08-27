@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "pathe"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, registerProviderRuntimeModules, registerVercelRuntimePackages, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderRuntime, createDefaultCloudflareOutputRoot, getProviderRuntimeModule, hasProviderRuntimeModule, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -12,7 +12,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const blobPackageName = "@vite-hub/blob"
@@ -72,7 +72,7 @@ interface GenerateProviderOutputsOptions {
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined
   clientOutDir: string
   cloudflareOwnedByNitro?: boolean
-  providerOutput?: ComposedProviderOutput
+  providerOutput?: ProviderOutputCatalog
   rootDir: string
   serverFunctionName?: string
 }
@@ -392,7 +392,7 @@ async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | R
   } satisfies GeneratedBlobArtifacts
 }
 
-function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts, providerOutput: ComposedProviderOutput | undefined): CloudflareProviderDeploymentOutput {
+function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts, providerOutput: ProviderOutputCatalog | undefined): CloudflareProviderDeploymentOutput {
   const resolved = resolveBlobConfig(blob, "cloudflare")
   const databaseRuntime = getProviderRuntimeModule(providerOutput, "database", "cloudflare")
   const databaseDefinitionDefaults = getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")
@@ -497,7 +497,7 @@ async function createNitroCloudflareCleanup(rootDir: string, hasCurrentContribut
 
 function createVercelOutput(
   artifacts: GeneratedBlobArtifacts,
-  providerOutput: ComposedProviderOutput | undefined,
+  providerOutput: ProviderOutputCatalog | undefined,
   serverFunctionName?: string,
 ): VercelProviderDeploymentOutput {
   const databaseRuntime = getProviderRuntimeModule(providerOutput, "database", "vercel")
@@ -558,9 +558,8 @@ function hasFilesSdkStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | 
     .some(store => store.driver !== "fs" && store.driver !== "netlify-blobs" && store.driver !== "vercel-blob")
 }
 
-function hasSiblingVercelRuntime(providerOutput: ComposedProviderOutput | undefined): boolean {
-  return Object.entries(providerOutput?.runtimeModuleFilesByProduct || {})
-    .some(([product, modules]) => product !== productName && Boolean(modules?.vercel))
+function hasSiblingVercelRuntime(providerOutput: ProviderOutputCatalog | undefined): boolean {
+  return hasProviderRuntimeModule(providerOutput, "vercel", { except: "blob" })
 }
 
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
@@ -620,7 +619,7 @@ function getVercelBlobOutputCleanup(options: GenerateProviderOutputsOptions) {
 }
 
 function registerSupportedProviderRuntimeModules(
-  providerOutput: ComposedProviderOutput | undefined,
+  providerOutput: ProviderOutputCatalog | undefined,
   artifacts: GeneratedBlobArtifacts,
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
   cloudflareOwnedByNitro = false,
@@ -630,13 +629,13 @@ function registerSupportedProviderRuntimeModules(
       ? { cloudflare: artifacts.runtimeModuleFiles.cloudflare }
       : artifacts.runtimeModuleFiles
     : {}
-  registerProviderRuntimeModules(providerOutput, productName, runtimeModuleFiles)
-  if (cloudflareOwnedByNitro) {
-    if (providerOutput?.vercelRuntimePackagesByProduct) delete providerOutput.vercelRuntimePackagesByProduct[productName]
-  }
-  else {
-    registerVercelRuntimePackages(providerOutput, productName, shouldCreateProviderOutput(blob) ? getVercelBlobRuntimePackages(blob) : [])
-  }
+  contributeProviderRuntime(providerOutput, {
+    owner: "blob",
+    runtimeModules: runtimeModuleFiles,
+    ...(!cloudflareOwnedByNitro && shouldCreateProviderOutput(blob)
+      ? { vercelRuntimePackages: getVercelBlobRuntimePackages(blob) }
+      : {}),
+  })
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {

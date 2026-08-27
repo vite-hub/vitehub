@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { getProviderRuntimeModule, writeProviderDeploymentOutputs, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderRuntime, createProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../src/config.ts"
@@ -156,16 +156,17 @@ async function createHostedDatabaseRuntimeFixture(rootDir: string, options: { lo
     "",
   ].join("\n"), "utf8")
   await writeFile(definitionDefaultsFile, 'export default { connection: { url: "libsql://composed.example" } }\n', "utf8")
-  return {
-    runtimeModuleFilesByProduct: {
-      database: {
-        cloudflare: runtimeFile,
-        "cloudflare-definition-defaults": definitionDefaultsFile,
-        vercel: runtimeFile,
-        "vercel-definition-defaults": definitionDefaultsFile,
-      },
+  const providerOutput = createProviderOutputCatalog()
+  contributeProviderRuntime(providerOutput, {
+    owner: "database",
+    runtimeModules: {
+      cloudflare: runtimeFile,
+      "cloudflare-definition-defaults": definitionDefaultsFile,
+      vercel: runtimeFile,
+      "vercel-definition-defaults": definitionDefaultsFile,
     },
-  } satisfies ComposedProviderOutput
+  })
+  return providerOutput
 }
 
 beforeAll(async () => {
@@ -446,12 +447,14 @@ describe("Vite provider outputs", () => {
       triggers: { crons: ["0 0 * * *"] },
     }
     await writeFile(join(cloudflareOutput, "wrangler.json"), `${JSON.stringify(foreignWrangler, null, 2)}\n`, "utf8")
+    const providerOutput = createProviderOutputCatalog()
+    contributeProviderRuntime(providerOutput, { owner: "database", runtimeModules: { vercel: "unused" } })
 
     const options = {
       blob: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
       clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
-      providerOutput: { runtimeModuleFilesByProduct: { queue: { vercel: "unused" } } },
+      providerOutput,
       rootDir,
       serverFunctionName: "__blob.func",
     } as const
@@ -493,10 +496,13 @@ describe("Vite provider outputs", () => {
 
   it("does not register Blob Vercel runtime or packages when Nitro owns Cloudflare output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-cloudflare-registry-")
-    const providerOutput: ComposedProviderOutput = {
-      runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } },
-      vercelRuntimePackagesByProduct: { blob: [{ name: "stale-package", resolveFrom: rootDir }] },
-    }
+    const providerOutput = createProviderOutputCatalog()
+    contributeProviderRuntime(providerOutput, { owner: "database", runtimeModules: { vercel: "database-runtime.mjs" } })
+    contributeProviderRuntime(providerOutput, {
+      owner: "blob",
+      runtimeModules: {},
+      vercelRuntimePackages: [{ name: "stale-package", resolveFrom: rootDir }],
+    })
     const blob = { bucketName: "assets", driver: "cloudflare-r2" as const }
 
     const artifacts = await prepareProviderOutputs({
@@ -505,7 +511,7 @@ describe("Vite provider outputs", () => {
       providerOutput,
       rootDir,
     })
-    expect(providerOutput.vercelRuntimePackagesByProduct?.blob).toBeUndefined()
+    expect(getVercelRuntimePackages(providerOutput, "blob")).toEqual([])
     expect(getProviderRuntimeModule(providerOutput, "blob", "cloudflare")).toBeDefined()
     expect(getProviderRuntimeModule(providerOutput, "blob", "vercel")).toBeUndefined()
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toBe("database-runtime.mjs")
@@ -518,7 +524,7 @@ describe("Vite provider outputs", () => {
       providerOutput,
       rootDir,
     })
-    expect(providerOutput.vercelRuntimePackagesByProduct?.blob).toBeUndefined()
+    expect(getVercelRuntimePackages(providerOutput, "blob")).toEqual([])
   })
 
   it("does not copy Blob dependencies when Nitro owns Cloudflare output", { timeout: 30_000 }, async () => {
@@ -526,12 +532,14 @@ describe("Vite provider outputs", () => {
     const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
     await mkdir(functionDir, { recursive: true })
     await writeFile(join(functionDir, "index.mjs"), "export default 'sibling'\n", "utf8")
+    const providerOutput = createProviderOutputCatalog()
+    contributeProviderRuntime(providerOutput, { owner: "database", runtimeModules: { vercel: "database-runtime.mjs" } })
 
     await generateProviderOutputs({
       blob: { bucketName: "assets", driver: "cloudflare-r2" },
       clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
-      providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
+      providerOutput,
       rootDir,
     })
 
@@ -544,11 +552,13 @@ describe("Vite provider outputs", () => {
     const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
     const siblingEntry = join(rootDir, "sibling.mjs")
     await writeFile(siblingEntry, "export default 'sibling'\n", "utf8")
+    const providerOutput = createProviderOutputCatalog()
+    contributeProviderRuntime(providerOutput, { owner: "database", runtimeModules: { vercel: "database-runtime.mjs" } })
 
     await generateProviderOutputs({
       blob: { bucketName: "assets", driver: "cloudflare-r2" },
       clientOutDir: "dist",
-      providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
+      providerOutput,
       rootDir,
     })
 
@@ -811,7 +821,7 @@ describe("Vite provider outputs", () => {
 
   it("does not register local fs provider runtimes for composed sibling output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-registry-")
-    const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
+    const providerOutput = createProviderOutputCatalog()
     const blob = { driver: "fs" as const, base: ".vitehub/data/blob" }
 
     await prepareProviderOutputs({ blob, providerOutput, rootDir })
