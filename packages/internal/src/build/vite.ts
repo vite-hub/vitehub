@@ -62,6 +62,7 @@ interface NitroVercelConfig {
 
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
+export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
 
 function includesNitroVitePlugin(value: unknown): boolean {

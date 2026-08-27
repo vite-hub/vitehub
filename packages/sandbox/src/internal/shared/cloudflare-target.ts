@@ -29,11 +29,17 @@ export interface WranglerWorkerLoader {
 export interface WranglerDurableObjectBinding {
   name: string
   class_name: string
+  script_name?: string
+  environment?: string
 }
 
 export interface WranglerMigration {
   tag: string
   new_sqlite_classes?: string[]
+  new_classes?: string[]
+  renamed_classes?: Array<{ from: string, to: string }>
+  deleted_classes?: string[]
+  transferred_classes?: Array<{ from: string, from_script?: string, to: string }>
 }
 
 export interface WranglerWorkflow {

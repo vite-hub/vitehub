@@ -14,10 +14,6 @@ function compareNumericStrings(left: string, right: string) {
   return left.localeCompare(right, undefined, { numeric: true })
 }
 
-function compareMigrationTags(left: WranglerMigration, right: WranglerMigration) {
-  return compareNumericStrings(left.tag, right.tag)
-}
-
 function isSameKVNamespace(left: WranglerKVNamespace, right: WranglerKVNamespace) {
   return left.binding === right.binding
     && left.id === right.id
@@ -37,6 +33,8 @@ function isSameContainer(left: WranglerContainer, right: WranglerContainer) {
 function isSameDurableObjectBinding(left: WranglerDurableObjectBinding, right: WranglerDurableObjectBinding) {
   return left.name === right.name
     && left.class_name === right.class_name
+    && left.script_name === right.script_name
+    && left.environment === right.environment
 }
 
 function isSameWorkerLoader(left: WranglerWorkerLoader, right: WranglerWorkerLoader) {
@@ -84,21 +82,23 @@ function mergeMigrations(migrations: WranglerMigration[] | undefined) {
   if (!migrations?.length)
     return undefined
 
-  const byTag = new Map<string, Set<string>>()
+  const byTag = new Map<string, WranglerMigration>()
 
   for (const migration of migrations) {
-    const classes = byTag.get(migration.tag) || new Set<string>()
-    for (const className of migration.new_sqlite_classes || [])
-      classes.add(className)
-    byTag.set(migration.tag, classes)
+    const existing = byTag.get(migration.tag)
+    if (!existing) {
+      byTag.set(migration.tag, migration)
+      continue
+    }
+    const classes = new Set(existing.new_sqlite_classes || [])
+    for (const className of migration.new_sqlite_classes || []) classes.add(className)
+    byTag.set(migration.tag, {
+      ...existing,
+      ...(classes.size ? { new_sqlite_classes: [...classes] } : {}),
+    })
   }
 
-  return [...byTag.entries()]
-    .map(([tag, classes]) => ({
-      tag,
-      ...(classes.size ? { new_sqlite_classes: [...classes].sort(compareNumericStrings) } : {}),
-    } satisfies WranglerMigration))
-    .sort(compareMigrationTags)
+  return [...byTag.values()]
 }
 
 function validateDurableObjectMigrations(wrangler: MutableWranglerConfig) {
@@ -108,9 +108,14 @@ function validateDurableObjectMigrations(wrangler: MutableWranglerConfig) {
 
   const declaredClasses = new Set(
     (wrangler.migrations || [])
-      .flatMap(migration => migration.new_sqlite_classes || []),
+      .flatMap(migration => [
+        ...(migration.new_sqlite_classes || []),
+        ...(migration.new_classes || []),
+        ...(migration.renamed_classes || []).map(entry => entry.to),
+        ...(migration.transferred_classes || []).map(entry => entry.to),
+      ]),
   )
-  const missingClasses = [...new Set(bindings.map(binding => binding.class_name))]
+  const missingClasses = [...new Set(bindings.filter(binding => !binding.script_name).map(binding => binding.class_name))]
     .filter(className => !declaredClasses.has(className))
     .sort(compareNumericStrings)
 

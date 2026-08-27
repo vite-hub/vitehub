@@ -3,7 +3,7 @@ import { join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
-import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
@@ -440,6 +440,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   }, nuxt.options.vite ?? {}) as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
   }
@@ -701,6 +702,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+  viteConfig[VITEHUB_PROJECT_ROOT] = projectRoot
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
   const installedVitePlugins: unknown = [
     ...plugins.filter(plugin => !existingNames.has(plugin.name)),

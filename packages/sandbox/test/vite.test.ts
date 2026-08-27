@@ -169,16 +169,16 @@ describe("hubSandbox", () => {
     expect(code).toContain('"provider": "vercel"')
   })
 
-  it("keeps project definitions when the resolved Vite root is a nested app directory", async () => {
+  it("keeps project definitions when Nuxt owns a custom nested Vite root", async () => {
     const rootDir = await createViteRoot()
-    const appDir = join(rootDir, "app")
-    await mkdir(appDir)
+    const appDir = join(rootDir, "src/client")
+    await mkdir(appDir, { recursive: true })
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
 
-    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configHook({ root: rootDir, __vitehubProjectRoot: rootDir }, { command: "build", mode: "production" })
     await configResolved({ root: appDir, resolve: { alias: [] } })
 
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"), "utf8"))
@@ -684,7 +684,7 @@ describe("hubSandbox", () => {
     })
   })
 
-  it("orders existing Cloudflare migrations before the sandbox migration", async () => {
+  it("preserves existing Cloudflare migration fields and order", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "cloudflare" })
@@ -696,7 +696,7 @@ describe("hubSandbox", () => {
         preset: "cloudflare-module",
         cloudflare: {
           wrangler: {
-            migrations: [{ tag: "v2", new_sqlite_classes: ["AnalysisState"] }],
+            migrations: [{ tag: "z-initial", new_classes: ["AnalysisState"] }],
           },
         },
       },
@@ -705,9 +705,18 @@ describe("hubSandbox", () => {
     await configHook(userConfig, { command: "build", mode: "production" })
 
     expect(userConfig.nitro.cloudflare.wrangler.migrations).toEqual([
+      { tag: "z-initial", new_classes: ["AnalysisState"] },
       { tag: "v1", new_sqlite_classes: ["Sandbox"] },
-      { tag: "v2", new_sqlite_classes: ["AnalysisState"] },
     ])
+  })
+
+  it("does not require local migrations for external Durable Object bindings", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const target = { cloudflare: { wrangler: { durable_objects: { bindings: [
+      { name: "REMOTE", class_name: "RemoteObject", script_name: "other-worker" },
+    ] } } } }
+
+    expect(() => finalizeCloudflareWranglerConfig(target)).not.toThrow()
   })
 
   it("rejects Wrangler exports before adding legacy migrations", async () => {

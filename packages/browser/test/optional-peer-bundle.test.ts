@@ -31,7 +31,8 @@ async function bundle(entry: string): Promise<string> {
 
 describe("Browser optional peer bundle", () => {
   it("keeps page-session peers out of root entry points", async () => {
-    const output = await bundle(new URL("../dist/index.js", import.meta.url).pathname)
+    const builtEntry = new URL(`../${"dist"}/index.js`, import.meta.url).pathname
+    const output = await bundle(builtEntry)
 
     expect(output).not.toContain('import("@cloudflare/playwright")')
     expect(output).not.toContain('import("playwright-core")')

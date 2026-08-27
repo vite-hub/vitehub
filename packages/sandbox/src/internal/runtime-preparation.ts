@@ -2,11 +2,11 @@ import { readFile, rm } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
-import { resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
+import { VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
 import { detectHosting } from '@vite-hub/internal/hosting'
 import { isPlainObject } from '@vite-hub/internal/object'
-import { basename, resolve } from 'pathe'
+import { resolve } from 'pathe'
 
 import { discoverSandboxDefinitions } from '../discovery'
 import { createSandboxFeaturePlan, resolveSandboxFeatureConfig } from '../feature'
@@ -239,8 +239,9 @@ export async function prepareSandboxRuntime(options: {
   writeArtifacts?: boolean
 }) {
   const resolvedRoot = options.resolvedConfig?.root || resolve(process.cwd(), typeof options.userConfig.root === 'string' ? options.userConfig.root : '.')
-  const rootDir = basename(resolvedRoot) === 'app'
-    ? resolveViteHubProjectRoot(resolvedRoot)
+  const configuredProjectRoot = options.userConfig[VITEHUB_PROJECT_ROOT]
+  const rootDir = typeof configuredProjectRoot === 'string'
+    ? resolve(configuredProjectRoot)
     : resolvedRoot
   const configOptions = options.userConfig.sandbox as SandboxPublicOptions | undefined
   const disabled = typeof configOptions === 'undefined'
