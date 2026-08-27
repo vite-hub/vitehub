@@ -59,6 +59,7 @@ interface GenerateProviderOutputsOptions {
   definitions?: DiscoveredScheduleDefinition[]
   rootDir: string
   runtimeImport?: string
+  signal?: AbortSignal
   source?: DiscoveredScheduleDefinition["source"]
   workflow?: ScheduleWorkflowRuntime
 }
@@ -582,12 +583,16 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
 }
 
 export async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+  options.signal?.throwIfAborted()
   const generatedDir = ensureGeneratedDir(options.rootDir, productName)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
+  options.signal?.throwIfAborted()
   const crons = await readDefinitionCrons(artifacts.definitions)
+  options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
     await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+    options.signal?.throwIfAborted()
     await writeCloudflareScheduleOutput({
       bundleAlias: options.bundleAlias,
       bundleEntry: artifacts.cloudflareWorkerFile,
@@ -597,6 +602,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     })
   }
   else {
+    options.signal?.throwIfAborted()
     await Promise.all([
       rm(artifacts.cloudflareWorkerFile, { force: true }),
       rm(artifacts.denoCronFile, { force: true }),
@@ -605,6 +611,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile),
     ])
   }
+  options.signal?.throwIfAborted()
   await writeVercelScheduleFunctions({
     bundleAlias: options.bundleAlias,
     bundleExternal: options.bundleExternal,
@@ -614,6 +621,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     rootDir: options.rootDir,
     workflow: options.workflow,
   }, crons)
+  options.signal?.throwIfAborted()
   await writeNetlifyScheduleFunctions({
     definitions: artifacts.definitions,
     outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),

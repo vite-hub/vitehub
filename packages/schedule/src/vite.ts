@@ -644,6 +644,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
             rootDir,
             runtimeImport: internalOptions.runtimeImport,
+            signal,
             source: standaloneProviderSource,
             workflow,
           })
