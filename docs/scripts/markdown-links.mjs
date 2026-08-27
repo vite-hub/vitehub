@@ -131,6 +131,9 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const githubSlugger = new GithubSlugger();
   const { body } = splitFrontmatter(markdown);
   visit(parseMarkdown(body, { renderer }), (node) => {
+    if (renderer === "mdc" && typeof node.attributes?.id === "string") {
+      anchors.add(node.attributes.id);
+    }
     if (node.type === "html") {
       for (const tag of htmlTags(node.value)) {
         if (renderer === "mdc") {
@@ -410,6 +413,9 @@ function vueLinkProperties(source) {
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
   const scopes = [];
+  const voidElements = new Set([
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr",
+  ]);
   const tags = templateSource.match(/<\/?[a-z][^'">]*(?:"[^"]*"|'[^']*'|[^'">]*)*>/gi) ?? [];
   for (const tag of tags) {
     if (tag.startsWith("</")) {
@@ -420,8 +426,9 @@ function vueLinkProperties(source) {
     const loop = htmlAttribute(tag, "v-for")?.match(/^\s*(.*?)\s+(?:in|of)\s+([A-Za-z_$][\w$]*)(?:\(\))?\s*$/);
     if (loop) {
       const sourceName = loop[2];
-      const bindings = loop[1].replace(/^\(|\)$/g, "").trim();
-      const destructured = bindings.match(/^\{([\s\S]*)\}$/);
+      const bindings = loop[1].replace(/^\((.*)\)$/s, "$1").trim();
+      const valueBinding = bindings.match(/^\s*(\{(?:[^{}]|\{[^{}]*\})*\}|\[(?:[^[\]]|\[[^[\]]*\])*\]|[A-Za-z_$][\w$]*)\s*(?:,|$)/s)?.[1] ?? bindings;
+      const destructured = valueBinding.match(/^\{([\s\S]*)\}$/);
       if (destructured) {
         for (const field of destructured[1].split(",")) {
           const [property, alias = property] = field.split(":").map(value => value.trim());
@@ -431,7 +438,7 @@ function vueLinkProperties(source) {
         }
       }
       else {
-        const alias = bindings.split(",", 1)[0].replace(/^\[/, "").trim();
+        const alias = valueBinding.replace(/^\[/, "").trim();
         if (/^[A-Za-z_$][\w$]*$/.test(alias)) scope.set(alias, { sourceName });
       }
     }
@@ -447,7 +454,8 @@ function vueLinkProperties(source) {
       if (!properties.has(property)) properties.set(property, new Set());
       properties.get(property).add(sourceName);
     }
-    if (!tag.endsWith("/>")) scopes.push(scope);
+    const tagName = tag.match(/^<([a-z][\w-]*)/i)?.[1]?.toLowerCase();
+    if (!tag.endsWith("/>") && !voidElements.has(tagName)) scopes.push(scope);
   }
   return properties;
 }
@@ -497,10 +505,11 @@ function isStaticApplicationRoute(route) {
   return !route.split("/").some((segment) => segment.includes("[") || segment.includes("]"));
 }
 
-function applicationInventory(docsRoot) {
+function applicationInventory(docsRoot, docsRoutes) {
   const appRoot = join(docsRoot, "app");
   const pagesRoot = join(docsRoot, "app/pages");
   const componentsRoot = join(docsRoot, "app/components");
+  const layoutsRoot = join(docsRoot, "app/layouts");
   const componentFiles = walk(componentsRoot, (path) => path.endsWith(".vue"));
   const components = new Map(componentFiles.map((path) => {
     const name = relative(componentsRoot, path).replace(/\.vue$/, "").split(sep)
@@ -529,7 +538,13 @@ function applicationInventory(docsRoot) {
   const routeAnchors = new Map(walk(pagesRoot, (path) => path.endsWith(".vue")).flatMap((path) => {
     const route = relative(join(docsRoot, "app/pages"), path)
       .split(sep).join("/").replace(/\.vue$/, "").replace(/\/index$/, "").replace(/^index$/, "");
-    if (!isStaticApplicationRoute(route)) return [];
+    const concreteRoutes = isStaticApplicationRoute(route)
+      ? [normalizeRoute(`/${route}`)]
+      : docsRoutes.map(normalizeRoute).filter((candidate) => {
+          const pattern = `/${route}`.replace(/\/\[\.\.\.[^\]]+\]$/, "(?:/.*)?").replace(/\[[^\]]+\]/g, "[^/]+");
+          return new RegExp(`^${pattern}$`).test(candidate);
+        });
+    if (!concreteRoutes.length) return [];
     const anchors = new Set();
     const pending = [path];
     const visited = new Set();
@@ -538,7 +553,7 @@ function applicationInventory(docsRoot) {
       if (visited.has(file)) continue;
       visited.add(file);
       if (!sourceRoutes.has(file)) sourceRoutes.set(file, new Set());
-      sourceRoutes.get(file).add(normalizeRoute(`/${route}`));
+      for (const concreteRoute of concreteRoutes) sourceRoutes.get(file).add(concreteRoute);
       const source = readFileSync(file, "utf8");
       if (extname(file) === ".vue") {
         for (const anchor of staticHtmlAnchors(source)) anchors.add(anchor);
@@ -546,6 +561,11 @@ function applicationInventory(docsRoot) {
         for (const [name, componentPath] of components) {
           const kebabName = name.replace(/\B([A-Z])/g, "-$1").toLowerCase();
           if (new RegExp(`<(?:${name}|${kebabName})(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
+        }
+        if (file === path) {
+          const layoutName = source.match(/definePageMeta\s*\(\s*\{[\s\S]*?\blayout\s*:\s*["']([^"']+)["']/)?.[1];
+          const layoutPath = layoutName && join(layoutsRoot, `${layoutName}.vue`);
+          if (layoutPath && existsSync(layoutPath)) pending.push(layoutPath);
         }
       }
       const scopedLinkProperties = extname(file) === ".vue" ? vueLinkProperties(source) : undefined;
@@ -588,7 +608,7 @@ function applicationInventory(docsRoot) {
         }
       }
     }
-    return [[normalizeRoute(`/${route}`), anchors]];
+    return concreteRoutes.map(concreteRoute => [concreteRoute, anchors]);
   }));
   for (const path of walk(join(docsRoot, "server/routes"), (path) => path.endsWith(".ts"))) {
     const route = relative(join(docsRoot, "server/routes"), path).split(sep).join("/").replace(/\.ts$/, "");
@@ -635,7 +655,7 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
     .filter((path) => routeFromContentPath(contentRoot, path) !== undefined);
   const readmes = publicReadmes(repoRoot);
   const markdownFiles = [...contentFiles, ...readmes];
-  const application = applicationInventory(docsRoot);
+  const application = applicationInventory(docsRoot, docsRoutes);
   const applicationFiles = [...new Set([
     ...walk(join(docsRoot, "app"), (path) => path.endsWith(".vue")),
     ...application.importedFiles,

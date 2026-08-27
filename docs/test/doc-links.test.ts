@@ -158,6 +158,10 @@ https://vitehub.dev/docs/bare-autolink
     expect([...markdownAnchors("# A--B\n\n# A-B")]).toEqual(["a-b", "a-b-1"]);
     expect([...markdownAnchors("Install\n---")]).toEqual(["install"]);
     expect([...markdownAnchors("---\ntitle: Guide\n---\n\n# Install")]).toEqual(["install"]);
+    expect([...markdownAnchors(":span[Install]{#install}\n\n::card{#details}\nDetails\n::")]).toEqual([
+      "install",
+      "details",
+    ]);
   });
 
   it("uses GitHub anchors for public package READMEs", () => {
@@ -291,6 +295,39 @@ export const secondLinks = [{ target: "/missing-second", destination: "/unused-r
     ]);
   });
 
+  it("tracks destructured loop aliases with an index", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><LoopLinks /></template>",
+      "docs/app/components/LoopLinks.vue": '<script setup>import { links } from "./links"</script><template><NuxtLink v-for="({ tutorialPath: destination }, index) in links" :key="index" :to="destination" /></template>',
+      "docs/app/components/links.ts": 'export const links = [{ tutorialPath: "/missing-destructured-index" }]',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-destructured-index" does not exist'),
+    ]);
+  });
+
+  it("does not let void elements extend Vue loop scopes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><LoopLinks /></template>",
+      "docs/app/components/LoopLinks.vue": `<script setup>
+import { rendered, unused } from "./links"
+</script><template>
+<div v-for="item in unused"><img src="/logo.svg"></div>
+<NuxtLink to="/missing-rendered" /><NuxtLink :to="item.destination" />
+</template>`,
+      "docs/app/components/links.ts": `
+export const rendered = [{ destination: "/missing-rendered" }]
+export const unused = [{ destination: "/missing-unused" }]
+`,
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/logo.svg" does not exist'),
+      expect.stringContaining('route "/missing-rendered" does not exist'),
+    ]);
+  });
+
   it("validates aliased link fields declared in the rendering Vue file", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": '<script setup>const items = [{ destination: "/docs/missing-local" }]; const unused = [{ destination: "/docs/missing-unused" }]</script><template><NuxtLink v-for="item in items" :to="item.destination" /></template>',
@@ -372,6 +409,21 @@ export const secondLinks = [{ target: "/missing-second", destination: "/unused-r
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('anchor #missing does not exist for route "/examples/page"'),
     ]);
+  });
+
+  it("associates selected Nuxt layouts with every rendered docs route", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/docs/[...slug].vue": '<script setup>definePageMeta({ layout: "docs" })</script><template />',
+      "docs/app/layouts/docs.vue": '<template><NuxtLink to="./child" /><NuxtLink to="#missing" /><slot /></template>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot, docsRoutes: ["/docs/guide", "/docs/guide/child"] }).errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('anchor #missing does not exist for route "/docs/guide"'),
+        expect.stringContaining('route "/docs/child" does not exist'),
+        expect.stringContaining('anchor #missing does not exist for route "/docs/guide/child"'),
+      ]),
+    );
   });
 
   it("does not invent a route for fragment-only links in unassociated components", () => {
