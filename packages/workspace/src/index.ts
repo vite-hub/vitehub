@@ -1,5 +1,6 @@
 export { defineWorkspace } from "./core/define.ts"
 export { createWorkspace } from "./core/workspace.ts"
+export { sourceIgnores } from "@vite-hub/source"
 export {
   custom,
   fetch,

@@ -12,6 +12,7 @@ import {
   defineSource,
   defineSources,
   registerSources,
+  sourceIgnores,
   type Source,
   type SourceData,
   type SourceItem,
@@ -21,6 +22,7 @@ import {
 } from "../src/index.ts"
 import { file } from "../src/file.ts"
 import { github } from "../src/github.ts"
+import { glob } from "../src/glob.ts"
 import { mcpResources, type McpResourcesClient, type McpResourcesTransport } from "../src/mcp.ts"
 
 interface Meal {
@@ -287,6 +289,8 @@ describe("@vite-hub/source types", () => {
     const staticSource = file({ content: "# Docs\n", workspacePath: "README.md" })
     expectTypeOf(file({ content: "# Docs\n", workspacePath: "README.md" })).toMatchTypeOf<Source<"README.md">>()
     expectTypeOf(github({ auth: false, repo: "acme/app" })).toMatchTypeOf<Source>()
+    expectTypeOf(github({ ignore: sourceIgnores.defaults, repo: "acme/app" })).toMatchTypeOf<Source>()
+    expectTypeOf(glob({ ignore: sourceIgnores.generated, include: "**/*.md" })).toMatchTypeOf<Source>()
     expectTypeOf(
       mcpResources({
         server: {
@@ -301,6 +305,9 @@ describe("@vite-hub/source types", () => {
     ).toMatchTypeOf<Source<string>>()
     expectTypeOf(
       mcpResources({ server: { transport: { type: "http", url: "https://example.com/mcp" } } }),
+    ).toMatchTypeOf<Source<string>>()
+    expectTypeOf(
+      mcpResources({ ignore: sourceIgnores.media, server: { transport: { type: "http", url: "https://example.com/mcp" } } }),
     ).toMatchTypeOf<Source<string>>()
     const sources = defineSources({
       docs: staticSource,

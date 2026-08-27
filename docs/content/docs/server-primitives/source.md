@@ -93,9 +93,11 @@ Source has no discovery or Vite Integration by itself. Import the module that re
 | `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source Context root. `workspacePath` controls the Source key. |
 | `markdown(options)` | `{ path, workspacePath?, mediaType? }` or inline `{ workspacePath, content, mediaType? }`. | Uses the `file()` contract with `text/markdown` as the default media type. Unlike `file()`, it requires an options object. |
 | `glob(options)` | `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Expands local files with `tinyglobby`; `keyCache: false` refreshes keys on each read path. |
-| `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `exclude`, `cache`. | Retrieves repository archive content. `auth` can be a token string or a trusted callback. |
-| `mcpResources(options)` | `server`, `include`, `exclude`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` can be a client, client config, or resolver. |
+| `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `ignore`, `cache`. | Retrieves repository archive content. `auth` can be a token string or a trusted callback. |
+| `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` can be a client, client config, or resolver. |
 | `custom(source)` | A `Source` object. | Use when the built-in loaders do not match the origin contract. |
+
+Use `sourceIgnores` from `vite-hub/source` for reusable dependency, generated-output, media, secret, and system-file patterns. Workspace GitHub Sources apply `sourceIgnores.defaults` automatically; pass `ignore: false` to opt out or provide more patterns to extend the defaults.
 
 ### Cache options
 

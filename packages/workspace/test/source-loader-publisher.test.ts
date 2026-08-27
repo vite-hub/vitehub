@@ -17,6 +17,7 @@ import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
+import { materializeWorkspaceSources } from "../src/sources/materialization.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
@@ -228,7 +229,7 @@ describe("sources, loaders, and publishers", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/tar.gz/latest-commit-sha"))).toBe(true)
   })
 
-  it("applies GitHub include and exclude filters to root-relative keys", async () => {
+  it("applies GitHub include and ignore filters to root-relative keys", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
       "dbt/models/private/secret.sql": "select secret\n",
@@ -240,13 +241,77 @@ describe("sources, loaders, and publishers", () => {
       repo: "acme/app",
       root: "dbt",
       include: ["models/**/*.sql", "macros/**/*.sql"],
-      exclude: "models/private/**",
+      ignore: "models/private/**",
     })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-filters" })).resolves.toEqual([
       "models/marts/orders.sql",
       "macros/date_spine.sql",
     ])
+  })
+
+  it("applies safe GitHub ignores by default and supports opting out", async () => {
+    stubGitHubSource({
+      ".env": "SECRET=value\n",
+      "README.md": "# Docs\n",
+      "coverage/report.json": "{}\n",
+      "node_modules/example/index.js": "export default true\n",
+      "public/logo.png": "image\n",
+    })
+
+    const filtered = github({ repo: "acme/app" })
+    await expect(filtered.getKeys({ rootDir: "", workspace: "github-default-ignores" })).resolves.toEqual(["README.md"])
+
+    const unfiltered = github({ ignore: false, repo: "acme/app" })
+    await expect(unfiltered.getKeys({ rootDir: "", workspace: "github-ignore-opt-out" })).resolves.toEqual([
+      ".env",
+      "README.md",
+      "coverage/report.json",
+      "node_modules/example/index.js",
+      "public/logo.png",
+    ])
+  })
+
+  it("invalidates cached inferred GitHub snapshots when the effective ignore policy changes", async () => {
+    const store = createMemoryWorkspaceStore()
+    const options = {
+      cache: { maxAge: 3600 },
+      repo: "acme/app",
+    } as const
+
+    await materializeWorkspaceSources({
+      name: "github-ignore-policy-cache",
+      sources: {
+        docs: {
+          cache: options.cache,
+          materialize: "lazy",
+          fingerprint: {
+            inferredSource: "github",
+            options,
+          },
+          async getKeys() {
+            return [".env", "README.md"]
+          },
+          async getItem(key: string) {
+            return { key, content: key === ".env" ? "SECRET=value\n" : "# Docs\n" }
+          },
+        },
+      },
+    }, store)
+    await expect(store.readFile("docs/.env")).resolves.toMatchObject({ content: "SECRET=value\n" })
+
+    stubGitHubSource({
+      ".env": "SECRET=updated\n",
+      "README.md": "# Updated docs\n",
+    })
+    await materializeWorkspaceSources({
+      name: "github-ignore-policy-cache",
+      sources: { docs: options },
+    }, store)
+
+    await expect(store.readFile("docs/.env")).resolves.toBeUndefined()
+    const updatedReadme = await store.readFile("docs/README.md")
+    expect(Buffer.from(updatedReadme?.content || "").toString("utf8")).toBe("# Updated docs\n")
   })
 
   it("resolves GitHub auth lazily from runtime env", async () => {

@@ -32,7 +32,6 @@ instead of one root barrel.
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
 | `@vite-hub/email` | Declarative Unemail provider integration, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
-| `@vite-hub/history` | Shared history records, cursors, pages, and store contracts for stateful features | `@vite-hub/history` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown templates with data bindings, conditions, fragments, and direct Vite imports | `@vite-hub/markdown-template`, `@vite-hub/markdown-template/vite` |
 | `@vite-hub/queue` | Queue Definitions, queue dispatch Runtime Helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
@@ -45,7 +44,7 @@ instead of one root barrel.
 | `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/*` |
 | `@vite-hub/ui` | AI SDK-native Vue and Nuxt components, headless message scrolling, Agent inspection, and Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/headless`, `@vite-hub/ui/nuxt`, `@vite-hub/ui/vite` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, step execution, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
-| `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
+| `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, history contracts, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 
 ## Internal and support packages
 
