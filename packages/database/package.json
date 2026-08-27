@@ -48,7 +48,10 @@
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
     "./runtime/virtual-databases": "./dist/runtime/virtual-databases.js",
     "./runtime/virtual-schema": "./dist/runtime/virtual-schema.js",
-    "./virtual": "./dist/virtual.js",
+    "./virtual": {
+      "types": "./dist/virtual-module.d.ts",
+      "import": "./dist/virtual.js"
+    },
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json",
     "./runtime/cloudflare-env": "./dist/runtime/state.js"

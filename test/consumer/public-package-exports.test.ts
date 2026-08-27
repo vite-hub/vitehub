@@ -271,11 +271,13 @@ async function typecheckPackageModuleGroup(
   suffix: string,
   withCloudflareHost: boolean,
 ) {
-  const ambientModules: Record<string, string> = {
-    "@vite-hub/blob": "#vitehub/blob/config",
-    "@vite-hub/kv": "#vitehub/kv/config",
+  const ambientModules: Record<string, readonly string[]> = {
+    "@vite-hub/blob": ["#vitehub/blob/config"],
+    "@vite-hub/database": ["#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults"],
+    "@vite-hub/env": ["#vitehub/env/public", "#vitehub/env/server"],
+    "@vite-hub/kv": ["#vitehub/kv/config"],
   }
-  const ambientModule = ambientModules[packageName]
+  const ambientModuleSpecifiers = ambientModules[packageName] || []
   const source = [
     ...modules.map((contract, index) => [
       `import type * as Export${index} from ${JSON.stringify(contract.specifier)}`,
@@ -283,7 +285,10 @@ async function typecheckPackageModuleGroup(
       `declare const contract${index}: Contract${index}`,
       `void contract${index}`,
     ].join("\n")),
-    ...(ambientModule ? [`import type * as AmbientModule from ${JSON.stringify(ambientModule)}`, "void (undefined as unknown as typeof AmbientModule)"] : []),
+    ...ambientModuleSpecifiers.map((specifier, index) => [
+      `import type * as AmbientModule${index} from ${JSON.stringify(specifier)}`,
+      `void (undefined as unknown as typeof AmbientModule${index})`,
+    ].join("\n")),
   ].join("\n")
   const sourcePath = join(runnerDir, `exports${suffix}.ts`)
   await writeFile(sourcePath, `${source}\n`, "utf8")
@@ -309,7 +314,10 @@ async function typecheckPackageModuleGroup(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    types: ["node"],
+    typeRoots: packageName === "@vite-hub/agent"
+      ? [join(packageRoot, "node_modules/@types"), resolve(runnerDir, "../..", "node_modules/@types")]
+      : undefined,
+    types: packageName === "@vite-hub/agent" ? ["json-schema", "mdast", "node"] : ["node"],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
