@@ -423,7 +423,9 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
     if (!visibility || !("value" in visibility)) return { visibility: "private" }
     if (visibility.value === "public") {
       const value = Object.getOwnPropertyDescriptor(payload, "value")
-      if (value && "value" in value) return { value: value.value, visibility: "public" }
+      if (value && "value" in value) {
+        return { value: structuredClone(value.value), visibility: "public" }
+      }
     }
     if (visibility.value === "summary") {
       const summary = Object.getOwnPropertyDescriptor(payload, "summary")

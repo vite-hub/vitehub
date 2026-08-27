@@ -407,6 +407,38 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(log.entries())).not.toContain("must not leak")
   })
 
+  it("snapshots public payload values when appending trace events", async () => {
+    const log = createTraceEventLog()
+    const value = { files: ["before.txt"] }
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    value.files.push("after.txt")
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.value": { files: ["before.txt"] } },
+      payload: { value: { files: ["before.txt"] }, visibility: "public" },
+    })
+  })
+
+  it("falls back to private when a public payload value cannot be snapshotted", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: () => "must not leak", visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+  })
+
   it("removes spoofed activity attributes from untyped producers", async () => {
     const log = createTraceEventLog()
     await log.append({
