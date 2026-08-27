@@ -861,23 +861,34 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         observationWrite = settled
       }
       const persistLateObservation = async (observation: TraceEventLogEntry): Promise<void> => {
-        await write(async () => {
-          if (!await ensureCreated()) return
-          const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, true))
-          if (claimed !== true) return
-          try {
-            const timestamp = normalizedTimestamp(observation.timestamp)
-            const persistedObservation = { ...observation, timestamp }
-            if (observation.trace) persistedObservation.trace = { ...observation.trace, id: traceId }
-            await boundedStoreOperation(() => store.update(recordId, {
-              observation: boundedObservation(persistedObservation),
-              timestamp,
-            }, claimId))
+        const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
+        let persisted = false
+        while (!persisted && Date.now() < deadline) {
+          await write(async () => {
+            if (!await ensureCreated()) return
+            const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, true))
+            if (claimed !== true) return
+            try {
+              const timestamp = normalizedTimestamp(observation.timestamp)
+              const persistedObservation = { ...observation, timestamp }
+              if (observation.trace) persistedObservation.trace = { ...observation.trace, id: traceId }
+              const updated = await boundedStoreOperation(() => store.update(recordId, {
+                observation: boundedObservation(persistedObservation),
+                timestamp,
+              }, claimId))
+              persisted = updated !== undefined && updated !== storeOperationTimedOut
+            }
+            finally {
+              await boundedStoreOperation(() => store.release(recordId, claimId))
+            }
+          })
+          if (!persisted && Date.now() < deadline) {
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
+              unrefTimer(timer)
+            })
           }
-          finally {
-            await boundedStoreOperation(() => store.release(recordId, claimId))
-          }
-        })
+        }
       }
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) {
@@ -995,9 +1006,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (!finished && terminalRetry === retry) {
               terminalRetry = undefined
               finishing = false
-              pendingObservations.push(...terminalRetryObservations.splice(0))
-              writeNextObservation()
-              while (observationWrite) await observationWrite
+              const observations = terminalRetryObservations.splice(0)
+              await Promise.all(observations.map(persistLateObservation))
             }
           })
           terminalRetry = retry
