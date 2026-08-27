@@ -342,7 +342,7 @@ describe("framework package contract", () => {
     }
   })
 
-  it("runs the distributed CLI entrypoint with clean help streams", async () => {
+  it("runs both distributed CLI entrypoints with clean help streams", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"))
     try {
       const keepAlive = join(root, "keep-alive.mjs")
@@ -357,16 +357,42 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
 `),
         writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
       ])
-      const { stderr, stdout } = await execFileAsync(process.execPath, [`${packageRoot}/${manifest.bin.vitehub}`, "--help"], {
+      const entrypoints = [
+        `${packageRoot}/${manifest.bin.vitehub}`,
+        `${repoRoot}/packages/cli/dist/index.js`,
+      ]
+      for (const entrypoint of entrypoints) {
+        const { stderr, stdout } = await execFileAsync(process.execPath, [entrypoint, "--help"], {
+          cwd: root,
+          env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(keepAlive).href}`, NO_COLOR: "1" },
+          timeout: 5_000,
+        })
+
+        expect(stdout).toContain("Usage: vitehub <namespace> <feature>")
+        expect(stdout).toContain("namespace-4095")
+        expect(stdout).toContain("provision")
+        expect(stderr).toBe("")
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("flushes direct CLI errors before exiting despite active handles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-error-"))
+    try {
+      const keepAlive = join(root, "keep-alive.mjs")
+      await Promise.all([
+        writeFile(join(root, "vite.config.mjs"), "throw new Error('config exploded')\n"),
+        writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
+      ])
+
+      await expect(execFileAsync(process.execPath, [`${repoRoot}/packages/cli/dist/index.js`], {
         cwd: root,
         env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(keepAlive).href}`, NO_COLOR: "1" },
         timeout: 5_000,
-      })
-
-      expect(stdout).toContain("Usage: vitehub <namespace> <feature>")
-      expect(stdout).toContain("namespace-4095")
-      expect(stdout).toContain("provision")
-      expect(stderr).toBe("")
+      })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("config exploded") })
     }
     finally {
       await rm(root, { force: true, recursive: true })

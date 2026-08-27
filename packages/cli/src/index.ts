@@ -214,6 +214,25 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   return result ?? 0
 }
 
+function exitAfterStandardStreamsFlush(exitCode: number): void {
+  let pending = 2
+  const flushed = () => {
+    pending--
+    if (pending === 0) process.exit(exitCode)
+  }
+  process.stdout.write("", flushed)
+  process.stderr.write("", flushed)
+}
+
+export function runViteHubCliEntrypoint(options: RunViteHubCliOptions = {}): void {
+  runViteHubCli(options).then((exitCode) => {
+    exitAfterStandardStreamsFlush(exitCode)
+  }).catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error)
+    exitAfterStandardStreamsFlush(1)
+  })
+}
+
 function isCliEntrypoint() {
   if (!process.argv[1]) return false
   try {
@@ -225,10 +244,5 @@ function isCliEntrypoint() {
 }
 
 if (isCliEntrypoint()) {
-  runViteHubCli().then((exitCode) => {
-    process.exitCode = exitCode
-  }).catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  })
+  runViteHubCliEntrypoint()
 }
