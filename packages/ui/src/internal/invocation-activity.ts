@@ -89,8 +89,12 @@ function activityBody(attributes: Record<string, unknown>): string | undefined {
     const value = attributes[key];
     if (value === undefined || value === "undefined") continue;
     if (typeof value === "string" && value) return value;
-    const json = JSON.stringify(value, null, 2);
-    if (json) return json;
+    try {
+      const json = JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? `${item}n` : item, 2);
+      if (json) return json;
+    } catch (error) {
+      return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+    }
   }
 }
 
