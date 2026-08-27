@@ -30,6 +30,7 @@ export default defineNuxtModule({
     const docsRoot = nuxt.options.rootDir;
     const outputDir = resolve(docsRoot, ".generated");
     const agentErrorHandler = resolve(docsRoot, "server/error-handler.ts");
+    const llmsRawLinksPlugin = resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-raw-links.ts");
 
     const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, outputDir });
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
@@ -43,6 +44,14 @@ export default defineNuxtModule({
         ? Array.isArray(config.errorHandler) ? config.errorHandler : [config.errorHandler]
         : [];
       config.errorHandler = [agentErrorHandler, ...configuredHandlers];
+      config.publicAssets ||= [];
+      config.publicAssets.push({
+        baseURL: "/raw",
+        dir: resolve(outputDir, "raw"),
+        maxAge: 300,
+      });
+      config.plugins ||= [];
+      config.plugins.push(llmsRawLinksPlugin);
     });
 
     // Remove Docus catch-all page; ViteHub owns the docs route shell.

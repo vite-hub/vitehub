@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
 import { docsLanes, parseDocsLanes } from "./docs-lanes";
+import { toRawMarkdown } from "./artifacts/raw-markdown";
 
 type DocsArtifactOptions = {
   docsRoot: string;
@@ -9,6 +10,36 @@ type DocsArtifactOptions = {
 };
 
 const docsManifestVersion = 1;
+
+function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) {
+  const segments = relative(contentRoot, absolutePath)
+    .replace(/\\/g, "/")
+    .replace(/\.md$/, "")
+    .split("/")
+    .map(segment => segment.replace(/^\d+\./, ""));
+  if (segments.at(-1) === "index") segments.pop();
+  const route = [prefix, ...segments].filter(Boolean).join("/") || "index";
+  return `${route}.md`;
+}
+
+function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
+  const rawOutputDir = resolve(outputDir, "raw");
+  const expectedPaths = new Set<string>();
+
+  for (const [directory, prefix] of [["docs", "docs"], ["blog", "blog"], ["trust", ""]] as const) {
+    const contentRoot = resolve(docsRoot, "content", directory);
+    for (const absolutePath of listFiles(contentRoot, ".md")) {
+      const destination = resolve(rawOutputDir, rawPagePath(contentRoot, absolutePath, prefix));
+      expectedPaths.add(destination);
+      mkdirSync(resolve(destination, ".."), { recursive: true });
+      writeFileSync(destination, toRawMarkdown(readFileSync(absolutePath, "utf8")));
+    }
+  }
+
+  for (const existingPath of listFiles(rawOutputDir, ".md")) {
+    if (!expectedPaths.has(existingPath)) unlinkSync(existingPath);
+  }
+}
 
 function parseFrontmatter(source: string) {
   if (!source.startsWith("---\n")) {
@@ -184,6 +215,8 @@ export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions)
     rootPage,
     sections,
   };
+
+  writeRawMarkdownArtifacts(docsRoot, outputDir);
 
   mkdirSync(outputDir, { recursive: true });
 

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -62,6 +62,7 @@ describe("writeDocsArtifacts", () => {
         "",
         "Hidden content.",
       ].join("\n"));
+      writeText(resolve(outputDir, "raw/docs/removed.md"), "stale\n");
 
       const manifest = writeDocsArtifacts({ docsRoot, outputDir });
 
@@ -81,6 +82,59 @@ describe("writeDocsArtifacts", () => {
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.group).toBe("Storage");
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.lanes).toEqual(["agents", "server-primitives"]);
       expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")?.navigation).toBe(false);
+      expect(readFileSync(resolve(outputDir, "raw/docs.md"), "utf8")).toBe("# ViteHub docs\n\nStart here.\n");
+      expect(readFileSync(resolve(outputDir, "raw/docs/server-primitives.md"), "utf8")).toBe("# Overview\n\nServer content.\n");
+      expect(existsSync(resolve(outputDir, "raw/docs/removed.md"))).toBe(false);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("publishes source-backed Markdown without presentation component serialization", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-raw-"));
+    const docsRoot = resolve(rootDir, "docs");
+    const outputDir = resolve(rootDir, ".generated");
+
+    try {
+      writeText(resolve(docsRoot, "content/docs/index.md"), [
+        "---",
+        "title: ViteHub docs",
+        "---",
+        "",
+        "::u-page-grid",
+        "  :::u-page-card",
+        "  ---",
+        "  title: Get started",
+        "  description: Run one local result.",
+        "  to: /docs/getting-started",
+        "  ---",
+        "  :::",
+        "::",
+        "",
+        "| Choice | Result |",
+        "| --- | --- |",
+        "| Local | Works |",
+        "",
+        "::warning",
+        "Keep secrets out of examples.",
+        "::",
+        "",
+        "```md",
+        "::warning",
+        "This is example source.",
+        "::",
+        "```",
+      ].join("\n"));
+
+      writeDocsArtifacts({ docsRoot, outputDir });
+      const raw = readFileSync(resolve(outputDir, "raw/docs.md"), "utf8");
+
+      expect(raw).toContain("# ViteHub docs");
+      expect(raw).toContain("- [Get started](https://vitehub.dev/docs/getting-started) — Run one local result.");
+      expect(raw).toContain("| Choice | Result |");
+      expect(raw).toContain("> **Warning**");
+      expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
+      expect(raw).not.toMatch(/<u-|<table|::u-page-grid/);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }
