@@ -1,8 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { fileURLToPath } from "node:url"
 
-import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
@@ -14,9 +12,11 @@ import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
+import { discoverConsoleBuildCatalog, generatedConsolePlugin, writeConsoleNitroPlugin } from "./console/build.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
+import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, consoleInvocationRootPlugin } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
@@ -164,48 +164,6 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   }
 }
 
-function renderConsoleNitroPlugin(
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly { handler: string; name: string }[],
-  kvStores: readonly string[],
-): string {
-  const agentsEnabled = sections.includes("agents")
-  const kvEnabled = sections.includes("kv")
-  return [
-    `import { ${["installConsoleSections", ...(agentsEnabled ? ["installConsoleAgentDefinitions", "installConsoleInvocations"] : []), ...(kvEnabled ? ["installConsoleKV"] : [])].join(
-      ", ",
-    )} } from "vite-hub/console/server"`,
-    ...(kvEnabled ? [`import { kv as vitehubConsoleKV } from "vite-hub/kv"`] : []),
-    ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
-    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
-    ...(agentsEnabled
-      ? [
-          `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
-          `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
-        ]
-      : []),
-    ...(kvEnabled
-      ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
-      : []),
-    "export default function viteHubConsolePlugin() {}",
-    "",
-  ].join("\n")
-}
-
-async function writeConsoleNitroPlugin(
-  file: string,
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly { handler: string; name: string }[],
-  kvStores: readonly string[],
-): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores)
-  if ((await readFile(file, "utf8").catch(() => undefined)) === contents) return
-  await mkdir(resolve(file, ".."), { recursive: true })
-  await writeFile(file, contents, "utf8")
-}
-
 async function installConsole(
   nuxt: NuxtLike,
   projectRoot: string,
@@ -261,6 +219,13 @@ async function installConsole(
             },
           ]
         : []),
+      ...(sections.includes("workflows")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/workflows.vue"),
+            name: "vitehub-console-workflows",
+            path: "/_vitehub/workflows",
+          }]
+        : []),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)
@@ -277,6 +242,12 @@ async function installConsole(
       handler: join(consoleRuntimeRoot, "server/sections.get.js"),
       route: "/api/_vitehub/console/sections",
     },
+    ...(consoleDefinitionSectionIds.some(section => sections.includes(section))
+      ? [{
+          handler: join(consoleRuntimeRoot, "server/definitions.get.js"),
+          route: "/api/_vitehub/console/definitions",
+        }]
+      : []),
     ...(sections.includes("agents")
       ? [
           {
@@ -308,17 +279,22 @@ async function installConsole(
     if (!handlers.some((candidate) => candidate.route === handler.route)) handlers.push(handler)
   }
   const plugins = (nitro.plugins ??= [])
-  const plugin = join(projectRoot, ".vitehub/nitro/console/plugin.mjs")
-  const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
-    await writeConsoleNitroPlugin(plugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(discoveryRoot, serverDirs) : [], kvStores)
+  const plugin = join(projectRoot, generatedConsolePlugin)
+  const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
+    await writeConsoleNitroPlugin(plugin, {
+      catalog: discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections, serverDirs }),
+      kvStores,
+      projectRoot,
+      sections,
+    })
   })
   // Nitro runs in another runtime realm, so install a second journal instance over the same project SQLite file.
-  await refreshAgentDefinitions()
+  await refreshConsoleCatalog()
   if (nuxt.options.dev) {
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
     // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
     const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: () => Promise<void>) => void) | undefined
-    hookBuilderWatch?.("builder:watch", refreshAgentDefinitions)
+    hookBuilderWatch?.("builder:watch", refreshConsoleCatalog)
   }
   if (!plugins.includes(plugin)) plugins.push(plugin)
 }

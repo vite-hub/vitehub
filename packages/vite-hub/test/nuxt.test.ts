@@ -431,6 +431,42 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).toContain(`installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`)
   })
 
+  it("installs only discovered Workflow metadata for a Workflow-only Console", async () => {
+    const definition = "/tmp/vitehub-nuxt/custom-server/workflows/release.ts"
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    await writeFile(
+      definition,
+      `throw new Error("The Console must not evaluate Workflow Definitions during discovery.")\n`,
+    )
+    try {
+      const development = createNuxt(true)
+
+      await viteHubNuxtModule({ console: true, preset: "node", workflow: true }, development.nuxt)
+      const pages: Array<{ file: string; name: string; path: string }> = []
+      development.runPagesHook(pages)
+
+      expect(pages).toEqual([
+        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-workflows", path: "/_vitehub/workflows" }),
+      ])
+      expect(development.nuxt.options.nitro).toMatchObject({
+        handlers: [
+          { route: "/api/_vitehub/console/sections" },
+          { route: "/api/_vitehub/console/definitions" },
+        ],
+      })
+      expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["workflows"])`)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"workflows":[{"fields":[],"file":"custom-server/workflows/release.ts","name":"release","source":"server-workflows"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(definition, { force: true })
+    }
+  })
+
   it("rejects non-Node production console storage while preserving development", async () => {
     const development = createNuxt(true)
     await expect(viteHubNuxtModule({ agent: true, console: true, preset: "cloudflare" }, development.nuxt)).resolves.toBeUndefined()

@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { fileURLToPath } from "node:url"
 
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -10,7 +9,9 @@ import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { Plugin } from "vite"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
+import { discoverConsoleBuildCatalog, generatedConsolePlugin, writeConsoleNitroPlugin } from "./build.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
+import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -23,16 +24,12 @@ function resolveConsoleRuntimeRoot(): string {
 }
 const consoleRuntimeRoot = resolveConsoleRuntimeRoot()
 const consolePublicRoot = join(consoleRuntimeRoot, "public/console")
-const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
-
 type ConsoleNitroConfig = {
   handlers?: Array<{ handler: string, route: string }>
   plugins?: string[]
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean }>
   [key: string]: unknown
 }
-
-type ConsoleAgentEntry = { handler: string, name: string }
 
 export type ConsoleOptions =
   | { access: "auth", exposure?: never }
@@ -87,48 +84,6 @@ export function assertConsoleProductionAccess(
   }
 }
 
-function renderConsoleNitroPlugin(
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  kvStores: readonly string[],
-): string {
-  const agentsEnabled = sections.includes("agents")
-  const kvEnabled = sections.includes("kv")
-  return [
-    `import { ${["installConsoleSections", ...(agentsEnabled ? ["installConsoleAgentDefinitions", "installConsoleInvocations"] : []), ...(kvEnabled ? ["installConsoleKV"] : [])].join(
-      ", ",
-    )} } from "vite-hub/console/server"`,
-    ...(kvEnabled ? [`import { kv as vitehubConsoleKV } from "vite-hub/kv"`] : []),
-    ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
-    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
-    ...(agentsEnabled
-      ? [
-          `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
-          `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
-        ]
-      : []),
-    ...(kvEnabled
-      ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
-      : []),
-    "export default function viteHubConsolePlugin() {}",
-    "",
-  ].join("\n")
-}
-
-async function writeConsoleNitroPlugin(
-  file: string,
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly ConsoleAgentEntry[],
-  kvStores: readonly string[],
-): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores)
-  if ((await readFile(file, "utf8").catch(() => undefined)) === contents) return
-  await mkdir(resolve(file, ".."), { recursive: true })
-  await writeFile(file, contents, "utf8")
-}
-
 export function discoverConsoleAgentNames(
   root: string,
   serverDirs: string[] = [join(root, "server")],
@@ -148,9 +103,14 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let root: string | undefined
   let serverDirs: string[] | undefined
 
-  const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
+  const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(root, serverDirs) : [], kvStores)
+    await writeConsoleNitroPlugin(generatedPlugin, {
+      catalog: discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs }),
+      kvStores,
+      projectRoot,
+      sections,
+    })
   })
 
   return {
@@ -173,7 +133,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       })
       projectRoot = resolveViteHubProjectRoot(root)
       generatedPlugin = resolve(root, generatedConsolePlugin)
-      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(root) : [], kvStores)
+      await writeConsoleNitroPlugin(generatedPlugin, {
+        catalog: discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections }),
+        kvStores,
+        projectRoot,
+        sections,
+      })
 
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
       const consoleConfig = viteConfig as typeof viteConfig & { nitro?: ConsoleNitroConfig }
@@ -182,6 +147,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
+                join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
                 join(consoleRuntimeRoot, "server/invocations.get.js"),
                 join(consoleRuntimeRoot, "server/kv.get.js"),
@@ -197,6 +163,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           handler: join(consoleRuntimeRoot, "server/sections.get.js"),
           route: "/api/_vitehub/console/sections",
         },
+        ...(consoleDefinitionSectionIds.some(section => sections.includes(section))
+          ? [{
+              handler: join(consoleRuntimeRoot, "server/definitions.get.js"),
+              route: "/api/_vitehub/console/definitions",
+            }]
+          : []),
         ...(sections.includes("agents")
           ? [
               {
@@ -243,10 +215,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      await refreshAgentDefinitions()
+      await refreshConsoleCatalog()
     },
     configureServer(server) {
-      const refresh = async () => await refreshAgentDefinitions()
+      const refresh = async () => await refreshConsoleCatalog()
       server.watcher.on("add", refresh)
       server.watcher.on("change", refresh)
       server.watcher.on("unlink", refresh)

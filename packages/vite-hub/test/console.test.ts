@@ -188,6 +188,48 @@ describe("ViteHub Console", () => {
     }
   })
 
+  it("serializes discovered Workflow Definition metadata without loading handlers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-workflow-host-"))
+    try {
+      await mkdir(join(root, "server/workflows/release"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/workflows/release/01.prepare.ts"),
+        `throw new Error("The Console must not evaluate Workflow Definitions during discovery.")\n`,
+      )
+      await writeFile(join(root, "server/workflows/release/02.publish.ts"), "export default null\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["workflows"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/api/_vitehub/console/definitions",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workflows"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workflows":[{"fields":[{"label":"Steps","value":"server/workflows/release/01.prepare.ts, server/workflows/release/02.publish.ts"}],"file":"server/workflows/release","name":"release","source":"server-workflows"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects production console builds without durable local storage", async () => {
     const plugin = consoleVitePlugin({ preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config

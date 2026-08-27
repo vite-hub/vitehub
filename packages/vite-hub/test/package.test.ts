@@ -297,6 +297,10 @@ describe("framework package contract", () => {
     expect(consoleIndexRoute).toContain(":sections-base=")
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/definitions.js`)).toBe(true)
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/definitions")
     const consoleProvider = readFileSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`, "utf8")
     expect(consoleProvider).toContain("injectTooltipProviderContext(null)")
     expect(consoleProvider).toContain('<slot v-if="hasAppProvider" />')
@@ -310,6 +314,7 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("ViteHub")
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation")
     expect(consoleClient).toContain("/kv")
+    expect(consoleClient).toContain("/workflows")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8")).toContain("vitehub-console")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
@@ -324,6 +329,7 @@ describe("framework package contract", () => {
           console: { exposure: "host-managed" },
           kv: true,
           preset: "node",
+          workflow: true,
         })
         .find((candidate) => Reflect.get(Object(candidate), "name") === "vite-hub/console")
       if (!plugin) throw new TypeError("Expected the distributed Console plugin.")
@@ -340,7 +346,7 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.")
       }
-      expect(handlers).toHaveLength(8)
+      expect(handlers).toHaveLength(9)
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler")
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.")

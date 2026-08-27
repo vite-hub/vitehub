@@ -1,7 +1,11 @@
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { KVStorage } from "@vite-hub/kv"
+import type { ConsoleDefinitionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
+export const consoleDefinitionsKey: unique symbol = Symbol.for("vitehub.console.definitions")
+export const consoleDefinitionsRegistryKey: unique symbol = Symbol.for("vitehub.console.definitions.registry")
+export const consoleDefinitionsRootKey: unique symbol = Symbol.for("vitehub.console.definitions.root")
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
 export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
@@ -16,6 +20,12 @@ export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.con
 type ConsoleInvocationsByRoot = {
   get(key: string): AgentInvocations | undefined
   set(key: string, value: AgentInvocations): unknown
+  readonly size: number
+}
+
+type ConsoleDefinitionsByRoot = {
+  get(key: string): ConsoleDefinitionCatalog | undefined
+  set(key: string, value: ConsoleDefinitionCatalog): unknown
   readonly size: number
 }
 
@@ -39,6 +49,8 @@ type ConsoleSectionsByRoot = {
 type ConsoleRuntimeRegistry = Record<
   symbol,
   | AgentInvocations
+  | ConsoleDefinitionCatalog
+  | ConsoleDefinitionsByRoot
   | ConsoleInvocationsByRoot
   | ConsoleKVByRoot
   | ConsoleKVInspection
@@ -50,6 +62,9 @@ type ConsoleRuntimeRegistry = Record<
 
 export type ConsoleInvocationScope = {
   process?: unknown
+  [consoleDefinitionsKey]?: ConsoleDefinitionCatalog
+  [consoleDefinitionsRegistryKey]?: ConsoleDefinitionsByRoot
+  [consoleDefinitionsRootKey]?: string
   [consoleInvocationsKey]?: AgentInvocations
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
   [consoleKVKey]?: ConsoleKVInspection
@@ -77,6 +92,17 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
     && Number.isInteger(registry.size)
     // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
     ? registry as ConsoleInvocationsByRoot
+    : undefined
+}
+
+function definitionsByRoot(value: unknown): ConsoleDefinitionsByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleDefinitionsByRoot member before use.
+  const registry = value as Partial<ConsoleDefinitionsByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
+    ? registry as ConsoleDefinitionsByRoot
     : undefined
 }
 
@@ -136,6 +162,35 @@ export function installConsoleInvocationFallback(
     registry[consoleInvocationsRegistryKey] = journals
     registry[consoleInvocationsKey] = invocations
   }
+}
+
+export function installConsoleDefinitionScope(
+  projectRoot: string,
+  catalog: ConsoleDefinitionCatalog,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleDefinitionCatalog {
+  scope[consoleDefinitionsRootKey] = projectRoot
+  scope[consoleDefinitionsKey] = catalog
+  const registry = processRegistry(scope)
+  if (registry) {
+    const catalogs = definitionsByRoot(registry[consoleDefinitionsRegistryKey]) ?? new Map<string, ConsoleDefinitionCatalog>()
+    catalogs.set(projectRoot, catalog)
+    registry[consoleDefinitionsRegistryKey] = catalogs
+    registry[consoleDefinitionsKey] = catalog
+  }
+  return catalog
+}
+
+export function resolveConsoleDefinitions(
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleDefinitionCatalog | undefined {
+  const root = scope[consoleDefinitionsRootKey]
+  const registered = definitionsByRoot(processRegistry(scope)?.[consoleDefinitionsRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleDefinitionsKey]
+  if (registered && registered.size > 1) return scope[consoleDefinitionsKey]
+  // SAFETY: installConsoleDefinitionScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleDefinitionsKey] as ConsoleDefinitionCatalog | undefined)
+    ?? scope[consoleDefinitionsKey]
 }
 
 export function installConsoleKVScope(

@@ -9,6 +9,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import ConsoleApp from "../components/console-app.vue";
 import ConsoleHome from "../components/console-home.vue";
 import ConsoleKv from "../components/console-kv.vue";
+import ConsoleDefinitions from "../components/console-definitions.vue";
 import { isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { requestConsole } from "./request";
@@ -75,6 +76,19 @@ const router = createRouter({
         agentsBase: "/api/_vitehub/console/agents",
         kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
+      name: "vitehub-console-workflows",
+      path: "/workflows",
+      meta: { consoleSection: "workflows", title: "Workflows · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        searchBase: "/api/_vitehub/console/search",
+        section: "workflows",
         sectionsBase,
       },
     },

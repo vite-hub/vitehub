@@ -15,6 +15,8 @@ import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin, ResolvedConfig } from "vite"
 
+export { discoverWorkflowDefinitions } from "./discovery.ts"
+
 interface WorkflowNitroConfigOptions {
   nitro: Record<string, unknown>
   projectRoot: string
