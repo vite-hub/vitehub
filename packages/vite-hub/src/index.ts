@@ -60,7 +60,7 @@ type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dep
 function resolveServerConditions(config: ResolvedConfig): string[] {
   const customConditions = config.resolve.conditions.filter(condition => !defaultClientConditions.includes(condition))
   const conditions = config.environments.ssr?.resolve.conditions ?? [...defaultServerConditions, ...customConditions]
-  return conditions.map(condition => condition === "development|production" ? config.mode : condition)
+  return conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition)
 }
 
 const generatedOwnerPackageAccess = {

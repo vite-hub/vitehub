@@ -125,6 +125,8 @@ while (ready) /require\("after-condition"\)/.test(value)
 try {} finally {} /import\("after-finally"\)/.test(value)
 function done() {} /import\("after-function"\)/.test(value)
 class Ready {} /require\("after-class"\)/.test(value)
+export default function() {} /import\("after-anonymous-function"\)/.test(value)
+export default class {} /require\("after-anonymous-class"\)/.test(value)
 import "real"
 `)).toEqual(["real"])
   })

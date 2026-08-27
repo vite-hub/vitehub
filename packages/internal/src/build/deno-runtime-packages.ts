@@ -353,7 +353,7 @@ function endsWithDeclaration(source: string): boolean {
   }
   if (depth !== 0) return false
   const header = source.slice(0, bodyStart).trimEnd()
-  return /(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^;]*\)|class\s+[\w$]+(?:\s+extends\s+[^;{}]+)?)\s*$/.test(header)
+  return /(?:^|[;{}])\s*(?:(?:export\s+(?:default\s+)?)?(?:(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^;]*\)|class\s+[\w$]+(?:\s+extends\s+[^;{}]+)?)|export\s+default\s+(?:(?:async\s+)?function(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^;]*\)|class(?:\s+[\w$]+)?(?:\s+extends\s+[^;{}]+)?))\s*$/.test(header)
 }
 
 function packageImportPlugin(): Plugin {

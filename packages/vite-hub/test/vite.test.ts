@@ -976,7 +976,7 @@ describe("vitehub", () => {
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
     const resolvedConfig = await resolveConfig({
       resolve: { conditions: ["launch"] },
-    }, "build", "production")
+    }, "build", "staging")
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
     const nitro = {
