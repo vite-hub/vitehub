@@ -882,16 +882,17 @@ describe("lazy sources", () => {
     const materializing = new Promise<void>((resolve) => {
       started = resolve
     })
+    const getItems = vi.fn(async () => {
+      started()
+      await blocked
+      return [{ key: "a.md", content: "# A\n" }]
+    })
     const definition = {
       name: "lazy-queued-cancel",
       sources: {
         docs: custom({
           materialize: "lazy" as const,
-          async getItems() {
-            started()
-            await blocked
-            return [{ key: "a.md", content: "# A\n" }]
-          },
+          getItems,
           async getItem(key) {
             return { key, content: "# A\n" }
           },
@@ -912,8 +913,15 @@ describe("lazy sources", () => {
     abort.abort(new DOMException("Canceled", "AbortError"))
     await expect(queued).rejects.toThrow("Canceled")
 
+    const third = createWorkspaceSourceView(definition, store)
+    const later = third.materializeSources({ sources: ["docs"] })
+    await Promise.resolve()
+    expect(getItems).toHaveBeenCalledOnce()
+
     release()
     await active
+    await later
+    expect(getItems).toHaveBeenCalledTimes(2)
   })
 
   it("does not share pending materialization across Workspace Definitions", async () => {
@@ -1371,6 +1379,28 @@ describe("lazy sources", () => {
     await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["status"] })
     await expect(createWorkspaceSourceView(definition, store).readFile("status/status.txt")).resolves.toBe("version 1\n")
     expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("bypasses provider preparation for completed startup snapshots", async () => {
+    const prepare = vi.fn(async () => {})
+    const source = custom({
+      materialize: "startup",
+      prepare,
+      async getKeys() {
+        return ["ready.md"]
+      },
+      async getItem(key) {
+        return { key, content: "# Ready\n" }
+      },
+    })
+    const definition = { name: "startup-prepared-snapshot", sources: { docs: source } }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["docs"] })
+    prepare.mockRejectedValue(new Error("provider unavailable"))
+
+    await expect(createWorkspaceSourceView(definition, store).readFile("docs/ready.md")).resolves.toBe("# Ready\n")
+    expect(prepare).toHaveBeenCalledOnce()
   })
 
   it("refreshes uncached lazy Sources across Workspace views", async () => {

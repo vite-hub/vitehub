@@ -50,6 +50,7 @@ export interface WorkspaceSourceView {
 interface PendingMaterialization {
   fullSource: boolean
   promise: Promise<WorkspaceMaterializeSourcesResult>
+  tail: Promise<void>
 }
 
 interface MaterializationState {
@@ -59,7 +60,7 @@ interface MaterializationState {
 
 const materializationByStore = new WeakMap<WorkspaceStore, WeakMap<WorkspaceDefinition, MaterializationState>>()
 
-async function waitForMaterialization(pending: Promise<WorkspaceMaterializeSourcesResult>, signal?: AbortSignal) {
+async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await pending
   signal.throwIfAborted()
   let removeAbortListener = () => {}
@@ -179,6 +180,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensurePrepared(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
+    if (source.materialize === "startup" && completedSources.has(sourceKey)) return
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
       pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)
@@ -193,10 +195,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}) {
     const sourceKeys = options.sources?.length ? options.sources : sources.map(source => source.key)
-    const previous = Promise.all(sourceKeys.flatMap((sourceKey) => {
+    const predecessors = sourceKeys.flatMap((sourceKey) => {
       const pending = pendingBySource.get(sourceKey)
-      return pending ? [waitForMaterialization(pending.promise, options.abortSignal)] : []
-    }))
+      return pending ? [pending.tail] : []
+    })
+    const previous = waitForMaterialization(Promise.all(predecessors), options.abortSignal)
     const current = (async () => {
       await previous
       const result = await materializeWorkspaceSources(definition, store, options)
@@ -209,7 +212,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       return result
     })()
-    const entry = { fullSource: !options.path, promise: current }
+    // Keep a cancelled waiter registered until its predecessor settles. Otherwise
+    // a later operation can overtake the still-active predecessor and mutate the
+    // same Store concurrently.
+    const tail = current.then(
+      () => undefined,
+      async () => { await Promise.allSettled(predecessors) },
+    )
+    const entry = { fullSource: !options.path, promise: current, tail }
     for (const sourceKey of sourceKeys) pendingBySource.set(sourceKey, entry)
     try {
       return await current

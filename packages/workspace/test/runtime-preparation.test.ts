@@ -60,6 +60,43 @@ describe("Workspace runtime preparation", () => {
     resetWorkspaceRegistry()
   })
 
+  it("restarts with fresh definition synchronization after cancellation", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let attempts = 0
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => { loading = resolve })
+    registerWorkspace(name, {
+      loaders: [{
+        name: "blocking-loader",
+        async load() {
+          attempts++
+          if (attempts === 1) {
+            loading()
+            await new Promise(() => {})
+          }
+        },
+      }],
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getItems() { return [{ content: "# Ready", key: "ready.md" }] },
+          async getItem(key) { return { content: "# Ready", key } },
+          async getKeys() { return ["ready.md"] },
+        }),
+      },
+      store: { provider: "memory" },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await loaderStarted
+    await preparation.stop()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
   it("keeps startup Sources available as lazy read fallbacks", async () => {
     const name = registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }])
     const workspace = useWorkspace(name)

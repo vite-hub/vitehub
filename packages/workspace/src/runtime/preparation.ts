@@ -85,7 +85,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
   const sources = options.sources === undefined
     ? undefined
     : [...new Set(options.sources.map(source => source.trim()))]
-  const workspace = useWorkspace(workspaceName, { mode: "write" })
+  let workspace = useWorkspace(workspaceName, { mode: "write" })
   let state: WorkspacePreparationState = Object.freeze({
     stoppedAt: new Date().toISOString(),
     status: "stopped",
@@ -151,6 +151,11 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         })
       }
       catch (error) {
+        if (controller.signal.aborted) {
+          // Definition synchronization is owned by the facade. Discard a facade
+          // whose synchronization was abandoned so a restart gets a fresh attempt.
+          workspace = useWorkspace(workspaceName, { mode: "write" })
+        }
         if (stopped || attemptLifecycle !== lifecycle) return state
         const finishedAtMs = Date.now()
         const next = publish({
