@@ -39,7 +39,7 @@ export function createConsoleInvocationsIdentity(projectRoot: string, fixture?: 
 
 export function resolveConsoleInvocationsRevision(
   identity: string,
-  scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+  scope: ConsoleInvocationScope = globalThis,
 ): string | undefined {
   const registry = processRegistry(scope)
   // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.

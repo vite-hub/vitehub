@@ -415,9 +415,10 @@ describe("Agent invocation console", () => {
       let refresh: (() => Promise<void>) | undefined
       const configureServerHook = plugin.configureServer
       if (!configureServerHook) throw new TypeError("Expected a configureServer hook.")
-      const configureServer = typeof configureServerHook === "function" ? configureServerHook : configureServerHook.handler
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This focused watcher fixture implements the only configureServer member the Console plugin reads.
-      await Reflect.apply(configureServer, {}, [{ watcher: { on: (_event: string, callback: () => Promise<void>) => { refresh = callback } } } as never])
+      const configureServer = "handler" in configureServerHook
+        ? configureServerHook.handler
+        : configureServerHook
+      await Reflect.apply(configureServer, {}, [{ watcher: { on: (_event: string, callback: () => Promise<void>) => { refresh = callback } } }])
       await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
       await refresh?.()
       const refreshed = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")

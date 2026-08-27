@@ -268,6 +268,22 @@ describe("Console fixture CLI", () => {
     })).toThrow("invocations[0] contains duplicate observation sequence 0")
   })
 
+  it("rejects non-boolean fixture truncation metadata", () => {
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        agentName: "support",
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id: "fixture-invocation",
+        observations: [],
+        observationsTruncated: "true",
+        status: "completed",
+        traceId: "fixture-trace",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+      }],
+      version: 1,
+    })).toThrow("invocations[0].observationsTruncated must be a boolean")
+  })
+
   it.each([
     [{}, "invocations[0].error.message must be a non-empty string"],
     [{ message: 42 }, "invocations[0].error.message must be a non-empty string"],

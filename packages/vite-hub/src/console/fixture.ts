@@ -174,6 +174,14 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   if (!Array.isArray(input.observations)) {
     throw new TypeError(`[vitehub] Console fixture ${path}.observations must be an array.`)
   }
+  if (
+    input.observationsTruncated !== undefined
+    && !v.safeParse(booleanSchema, input.observationsTruncated).success
+  ) {
+    throw new TypeError(
+      `[vitehub] Console fixture ${path}.observationsTruncated must be a boolean.`,
+    )
+  }
   if (input.annotations !== undefined) {
     const annotations = record(input.annotations)
     if (!annotations) {
