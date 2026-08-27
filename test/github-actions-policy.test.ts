@@ -183,6 +183,21 @@ jobs:
     ])
   })
 
+  it("allows a pinned aliased step with a version comment", async () => {
+    const reference = pinnedCheckout.split(" #")[0]
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `step: &checkout
+  uses: ${reference}
+jobs:
+  test:
+    steps:
+      - *checkout # v6.1.0
+`,
+    })
+
+    await expect(checkGitHubActionPins(root)).resolves.toEqual([])
+  })
+
   it("inspects action references through aliased workflow jobs", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `job: &unpinned-job

@@ -90,8 +90,9 @@ export function inspectGitHubActionReferences(path, source) {
     if (isAlias(steps)) steps = steps.resolve(document)
     if (!isSeq(steps)) return
     for (let step of steps.items) {
+      const aliasComment = step?.comment ?? ""
       if (isAlias(step)) step = step.resolve(document)
-      if (isMap(step)) inspectUses(findPair(step, "uses"), step.comment ?? "")
+      if (isMap(step)) inspectUses(findPair(step, "uses"), aliasComment || step.comment || "")
     }
   }
 
