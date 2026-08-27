@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { describe, expect, it } from "vitest"
 
+import { filesSdkDriverPeers, getFilesSdkPeerInstall } from "../src/internal/files-sdk-peers.ts"
 import { importOptionalPeer } from "../src/internal/optional-peer.ts"
 
 async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<string[]> {
@@ -19,6 +20,22 @@ describe("optional peer imports", () => {
     const missingPeer = Object.assign(new Error("missing"), { code: "ERR_MODULE_NOT_FOUND" })
     await expect(importOptionalPeer(() => Promise.reject(missingPeer), "__vitehub_missing_peer__", "s3", "files-sdk"))
       .rejects.toThrow("The \"s3\" blob driver requires files-sdk. Install it with: pnpm add files-sdk")
+  })
+
+  it("names the provider peers required by bundled Files SDK adapters", async () => {
+    expect(getFilesSdkPeerInstall("azure")).toBe("@azure/storage-blob")
+    expect(getFilesSdkPeerInstall("google-drive")).toBe("@googleapis/drive google-auth-library")
+    expect(getFilesSdkPeerInstall("cloudflare-r2")).toContain("@aws-sdk/client-s3")
+
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      peerDependencies: Record<string, string>
+      peerDependenciesMeta: Record<string, { optional?: boolean }>
+    }
+    const providerPeers = new Set(Object.values(filesSdkDriverPeers).flat())
+    for (const peer of providerPeers) {
+      expect(manifest.peerDependencies).toHaveProperty(peer)
+      expect(manifest.peerDependenciesMeta[peer]?.optional).toBe(true)
+    }
   })
 
   it("uses caller-owned imports so package builds can bundle each selected peer", async () => {

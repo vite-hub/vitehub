@@ -137,6 +137,16 @@
     "@aws-sdk/lib-storage": "^3.700.0",
     "@aws-sdk/s3-presigned-post": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@microsoft/microsoft-graph-client": "catalog:storage",
+    "@supabase/storage-js": "catalog:storage",
+    "box-typescript-sdk-gen": "catalog:storage",
+    "dropbox": "catalog:storage",
+    "google-auth-library": "catalog:storage",
+    "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -150,6 +160,36 @@
       "optional": true
     },
     "@aws-sdk/s3-request-presigner": {
+      "optional": true
+    },
+    "@azure/identity": {
+      "optional": true
+    },
+    "@azure/storage-blob": {
+      "optional": true
+    },
+    "@google-cloud/storage": {
+      "optional": true
+    },
+    "@googleapis/drive": {
+      "optional": true
+    },
+    "@microsoft/microsoft-graph-client": {
+      "optional": true
+    },
+    "@supabase/storage-js": {
+      "optional": true
+    },
+    "box-typescript-sdk-gen": {
+      "optional": true
+    },
+    "dropbox": {
+      "optional": true
+    },
+    "google-auth-library": {
+      "optional": true
+    },
+    "uploadthing": {
       "optional": true
     },
     "vite": {
