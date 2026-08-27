@@ -50,9 +50,12 @@ describe("ViteHub CLI", () => {
     const callbacks: Array<() => void> = []
     const createStream = () => ({
       output: "",
-      write(chunk: string | Uint8Array, callback?: () => void) {
+      flush() {
+        return new Promise<void>(resolve => callbacks.push(resolve))
+      },
+      write(chunk: string | Uint8Array, callback: () => void = () => {}) {
         this.output += String(chunk)
-        if (callback) callbacks.push(callback)
+        callback()
         return true
       },
     })
@@ -120,12 +123,9 @@ describe("ViteHub CLI", () => {
       stderr,
       stdout,
     })
-    await vi.waitFor(() => expect(flushes).toHaveLength(2))
+    await vi.waitFor(() => expect(flushes).toHaveLength(1))
 
     expect(stdout.output).toContain("Usage: vitehub")
-    expect(exit).not.toHaveBeenCalled()
-    flushes.shift()!()
-    await Promise.resolve()
     expect(exit).not.toHaveBeenCalled()
     flushes.shift()!()
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))

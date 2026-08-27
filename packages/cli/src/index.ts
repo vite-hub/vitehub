@@ -31,8 +31,13 @@ type ViteHubCliSpawn = (
 ) => Promise<ViteHubCliSpawnResult>
 
 interface ViteHubCliStreams {
-  stderr: { write: (chunk: string | Uint8Array, callback?: () => void) => unknown }
-  stdout: { write: (chunk: string | Uint8Array, callback?: () => void) => unknown }
+  stderr: ViteHubCliStream
+  stdout: ViteHubCliStream
+}
+
+interface ViteHubCliStream {
+  flush?: () => unknown
+  write: (chunk: string | Uint8Array, callback?: () => void) => unknown
 }
 
 interface ViteHubCliLoadedConfig {
@@ -214,33 +219,46 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   return result ?? 0
 }
 
-function exitAfterStreamsFlush(exitCode: number, streams: ViteHubCliStreams): void {
-  let pending = 2
-  const flushed = () => {
-    pending--
-    if (pending === 0) process.exit(exitCode)
-  }
-  for (const stream of [streams.stdout, streams.stderr]) {
-    if (stream.write.length < 2) {
-      Promise.resolve(stream.write("")).then(flushed, flushed)
-    }
-    else {
-      stream.write("", flushed)
-    }
+function trackStream(stream: ViteHubCliStream) {
+  const writes = new Set<Promise<unknown>>()
+  return {
+    stream: {
+      write(chunk: string | Uint8Array) {
+        const result = stream.write(chunk)
+        if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+          const write = Promise.resolve(result).then(() => {}, () => {}).finally(() => writes.delete(write))
+          writes.add(write)
+        }
+        return result
+      },
+    },
+    async flush() {
+      await Promise.allSettled(writes)
+      if (stream.flush) {
+        await stream.flush()
+      }
+      else if (stream === process.stdout || stream === process.stderr) {
+        await new Promise<void>(resolveFlush => stream.write("", resolveFlush))
+      }
+    },
   }
 }
 
 export function runViteHubCliEntrypoint(options: RunViteHubCliOptions = {}): void {
-  const streams = {
-    stderr: options.stderr || process.stderr,
-    stdout: options.stdout || process.stdout,
-  }
-  runViteHubCli(options).then((exitCode) => {
-    exitAfterStreamsFlush(exitCode, streams)
-  }).catch((error: unknown) => {
-    streams.stderr.write(`${error instanceof Error ? error.message : error}\n`)
-    exitAfterStreamsFlush(1, streams)
-  })
+  const stderr = trackStream(options.stderr || process.stderr)
+  const stdout = trackStream(options.stdout || process.stdout)
+  void (async () => {
+    let exitCode: number
+    try {
+      exitCode = await runViteHubCli({ ...options, stderr: stderr.stream, stdout: stdout.stream })
+    }
+    catch (error: unknown) {
+      stderr.stream.write(`${error instanceof Error ? error.message : error}\n`)
+      exitCode = 1
+    }
+    await Promise.allSettled([stdout.flush(), stderr.flush()])
+    process.exit(exitCode)
+  })()
 }
 
 function isCliEntrypoint() {
