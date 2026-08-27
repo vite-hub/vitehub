@@ -375,84 +375,95 @@ export async function writeVercelScheduleFunctions(options: {
   }
 
   options.signal?.throwIfAborted()
+  const configFile = resolve(outputRoot, "config.json")
+  let installedFunctionRoot = false
   rmSync(backupFunctionRoot, { force: true, recursive: true })
   try {
-    renameSync(functionRoot, backupFunctionRoot)
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-  }
-  try {
-    if (definitions.length) {
-      mkdirSync(dirname(functionRoot), { recursive: true })
-      renameSync(stagedFunctionRoot, functionRoot)
+    try {
+      renameSync(functionRoot, backupFunctionRoot)
     }
-    rmSync(backupFunctionRoot, { force: true, recursive: true })
-  }
-  catch (error) {
-    if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
-    throw error
-  }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    try {
+      if (definitions.length) {
+        mkdirSync(dirname(functionRoot), { recursive: true })
+        renameSync(stagedFunctionRoot, functionRoot)
+        installedFunctionRoot = true
+      }
+    }
+    catch (error) {
+      if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+      throw error
+    }
 
-  const configFile = resolve(outputRoot, "config.json")
-  let vercelConfig: ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
-  try {
-    vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
-    options.signal?.throwIfAborted()
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    let vercelConfig: ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
+    try {
+      vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
+      options.signal?.throwIfAborted()
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      if (!definitions.length) {
+        await removeEmptyDirectories(functionRoot, options.rootDir)
+        options.signal?.throwIfAborted()
+        return
+      }
+      vercelConfig = createVercelConfigJson()
+    }
+    const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
+    const previousCrons = vercelConfig.crons ?? []
+    const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
+    if (!definitions.length && existingCrons.length === previousCrons.length) {
+      await removeEmptyDirectories(functionRoot, options.rootDir)
+      options.signal?.throwIfAborted()
+      if (previousCrons.length === 0) {
+        delete vercelConfig.crons
+        if (isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
+          const outputFiles = await readdir(outputRoot)
+          options.signal?.throwIfAborted()
+          if (outputFiles.length === 1 && outputFiles[0] === "config.json") {
+            await rm(configFile, { force: true })
+            options.signal?.throwIfAborted()
+            await removeEmptyDirectories(outputRoot, options.rootDir)
+          }
+        }
+      }
+      return
+    }
+    const nextCrons = [...existingCrons, ...definitions.map(definition => ({
+      path: getVercelSchedulePath(definition.name),
+      schedule: crons.get(definition.name)!,
+    }))]
+    if (nextCrons.length) {
+      vercelConfig.crons = nextCrons
+    }
+    else {
+      delete vercelConfig.crons
+    }
     if (!definitions.length) {
       await removeEmptyDirectories(functionRoot, options.rootDir)
       options.signal?.throwIfAborted()
-      return
-    }
-    vercelConfig = createVercelConfigJson()
-  }
-  const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
-  const previousCrons = vercelConfig.crons ?? []
-  const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
-  if (!definitions.length && existingCrons.length === previousCrons.length) {
-    await removeEmptyDirectories(functionRoot, options.rootDir)
-    options.signal?.throwIfAborted()
-    if (previousCrons.length === 0) {
-      delete vercelConfig.crons
-      if (isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
-        const outputFiles = await readdir(outputRoot)
+      const outputFiles = await readdir(outputRoot)
+      options.signal?.throwIfAborted()
+      if (outputFiles.length === 1 && outputFiles[0] === "config.json" && isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
+        await rm(configFile, { force: true })
         options.signal?.throwIfAborted()
-        if (outputFiles.length === 1 && outputFiles[0] === "config.json") {
-          await rm(configFile, { force: true })
-          options.signal?.throwIfAborted()
-          await removeEmptyDirectories(outputRoot, options.rootDir)
-        }
+        await removeEmptyDirectories(outputRoot, options.rootDir)
+        return
       }
     }
-    return
-  }
-  const nextCrons = [...existingCrons, ...definitions.map(definition => ({
-    path: getVercelSchedulePath(definition.name),
-    schedule: crons.get(definition.name)!,
-  }))]
-  if (nextCrons.length) {
-    vercelConfig.crons = nextCrons
-  }
-  else {
-    delete vercelConfig.crons
-  }
-  if (!definitions.length) {
-    await removeEmptyDirectories(functionRoot, options.rootDir)
     options.signal?.throwIfAborted()
-    const outputFiles = await readdir(outputRoot)
-    options.signal?.throwIfAborted()
-    if (outputFiles.length === 1 && outputFiles[0] === "config.json" && isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
-      await rm(configFile, { force: true })
-      options.signal?.throwIfAborted()
-      await removeEmptyDirectories(outputRoot, options.rootDir)
-      return
-    }
+    await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
   }
-  options.signal?.throwIfAborted()
-  await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
+  catch (error) {
+    if (installedFunctionRoot) rmSync(functionRoot, { force: true, recursive: true })
+    if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+    throw error
+  }
+  finally {
+    rmSync(backupFunctionRoot, { force: true, recursive: true })
+  }
 }
 
 export async function createNetlifyScheduleFunctionOutputs(options: {

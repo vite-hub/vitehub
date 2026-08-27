@@ -1404,7 +1404,8 @@ async function generateProviderOutputsWithinLock(
         cleanup: {
           cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
         },
-        afterWrite: async () => {
+        afterWrite: async (signal) => {
+          signal?.throwIfAborted()
           if (vercelOutput) {
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
               ...options.providerImportAliases,
@@ -1414,7 +1415,9 @@ async function generateProviderOutputsWithinLock(
           else {
             await cleanVercelNativeWorkflowOutput(options.rootDir)
           }
+          signal?.throwIfAborted()
           await updateVercelWorkflowFunctionOwnership(options.rootDir, vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined, Boolean(vercelOutput && !options.serverFunctionName))
+          signal?.throwIfAborted()
         },
         rootDir: options.rootDir,
         ...(vercelOutput ? { vercel: vercelOutput } : {}),

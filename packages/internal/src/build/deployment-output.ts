@@ -99,7 +99,7 @@ interface NetlifyProviderDeploymentCleanup {
 }
 
 export interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
-  afterWrite?: () => Promise<void>
+  afterWrite?: (signal?: AbortSignal) => Promise<void>
   cloudflare?: CloudflareProviderDeploymentOutput
   cleanup?: {
     cloudflare?: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)
@@ -335,21 +335,47 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     signal?.throwIfAborted()
 
     rmSync(previousOutputRoot, { force: true, recursive: true })
-    if (existsSync(outputRoot)) renameSync(outputRoot, previousOutputRoot)
-    renameSync(stagedOutputRoot, outputRoot)
-    replacedOutput = true
+    if (existsSync(outputRoot)) {
+      renameSync(outputRoot, previousOutputRoot)
+      replacedOutput = true
+    }
+    try {
+      renameSync(stagedOutputRoot, outputRoot)
+    }
+    catch (error) {
+      if (replacedOutput && existsSync(previousOutputRoot)) renameSync(previousOutputRoot, outputRoot)
+      replacedOutput = false
+      throw error
+    }
     signal?.throwIfAborted()
 
     if (externalStaticNeedsCommit) {
       rmSync(previousStaticOutputDir, { force: true, recursive: true })
-      if (existsSync(staticOutputDir)) renameSync(staticOutputDir, previousStaticOutputDir)
-      renameSync(stagedStaticOutputDir, staticOutputDir)
-      replacedExternalStatic = true
+      if (existsSync(staticOutputDir)) {
+        renameSync(staticOutputDir, previousStaticOutputDir)
+        replacedExternalStatic = true
+      }
+      try {
+        renameSync(stagedStaticOutputDir, staticOutputDir)
+      }
+      catch (error) {
+        if (replacedExternalStatic && existsSync(previousStaticOutputDir)) renameSync(previousStaticOutputDir, staticOutputDir)
+        replacedExternalStatic = false
+        throw error
+      }
       signal?.throwIfAborted()
     }
 
-    rmSync(previousOutputRoot, { force: true, recursive: true })
-    if (replacedExternalStatic) rmSync(previousStaticOutputDir, { force: true, recursive: true })
+    try {
+      rmSync(previousOutputRoot, { force: true, recursive: true })
+    }
+    catch {}
+    if (replacedExternalStatic) {
+      try {
+        rmSync(previousStaticOutputDir, { force: true, recursive: true })
+      }
+      catch {}
+    }
   }
   catch (error) {
     await rm(stagedOutputRoot, { force: true, recursive: true })
@@ -474,7 +500,7 @@ async function writeProviderDeploymentOutputsNow(
   }
   await settleWrites(writes)
   signal?.throwIfAborted()
-  await options.afterWrite?.()
+  await options.afterWrite?.(signal)
   signal?.throwIfAborted()
 
   const cleanups: Array<Promise<void>> = []
