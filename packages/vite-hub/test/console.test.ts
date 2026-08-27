@@ -396,8 +396,9 @@ describe("Agent invocation console", () => {
 
   it("generates a fixture-backed journal only for development servers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-host-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-data-"))
     try {
-      const fixture = join(root, "console.fixture.json")
+      const fixture = join(fixtureRoot, "console.fixture.json")
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(fixture, JSON.stringify({ invocations: [], version: 1 }))
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
@@ -414,12 +415,14 @@ describe("Agent invocation console", () => {
 
       const listeners = new Map<string, () => Promise<void>>()
       const logger = { error: vi.fn() }
+      const add = vi.fn()
       const configureServerHook = plugin.configureServer
       if (!configureServerHook) throw new TypeError("Expected a configureServer hook.")
       const configureServer = "handler" in configureServerHook
         ? configureServerHook.handler
         : configureServerHook
-      await Reflect.apply(configureServer, {}, [{ config: { logger }, watcher: { on: (event: string, callback: () => Promise<void>) => listeners.set(event, callback) } }])
+      await Reflect.apply(configureServer, {}, [{ config: { logger }, watcher: { add, on: (event: string, callback: () => Promise<void>) => listeners.set(event, callback) } }])
+      expect(add).toHaveBeenCalledWith(fixture)
       await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
       await listeners.get("change")?.()
       const refreshed = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
@@ -439,6 +442,7 @@ describe("Agent invocation console", () => {
     }
     finally {
       await rm(root, { force: true, recursive: true })
+      await rm(fixtureRoot, { force: true, recursive: true })
     }
   })
 

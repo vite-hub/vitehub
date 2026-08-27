@@ -400,7 +400,16 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `)
       await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
       await development.runBuilderWatchHook()
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toBe(generated)
+      const refreshed = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(refreshed).not.toBe(generated)
+
+      await rm(fixture)
+      await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshed)
+
+      await writeFile(fixture, JSON.stringify({ invocations: [], marker: "restored", version: 1 }))
+      await development.runBuilderWatchHook()
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toBe(refreshed)
 
       const production = createNuxt(false)
       await expect(viteHubNuxtModule({ console: { exposure: "host-managed" }, preset: "node" }, production.nuxt))

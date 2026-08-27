@@ -221,6 +221,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       await refreshAgentDefinitions()
     },
     configureServer(server) {
+      if (fixture) server.watcher.add(fixture)
       const refresh = async () => {
         try {
           await refreshAgentDefinitions()
