@@ -124,6 +124,26 @@ describe("Workspace runtime preparation", () => {
     resetWorkspaceRegistry()
   })
 
+  it("shares a concurrent registry definition load", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const load = vi.fn(async () => {
+      await blocked
+      return { default: { rootDir: "shared" } }
+    })
+    setWorkspaceRegistry({ [name]: load })
+
+    const first = resolveRegisteredWorkspaceDefinition(name)
+    const second = resolveRegisteredWorkspaceDefinition(name)
+    release()
+
+    const [firstDefinition, secondDefinition] = await Promise.all([first, second])
+    expect(load).toHaveBeenCalledOnce()
+    expect(secondDefinition).toBe(firstDefinition)
+    resetWorkspaceRegistry()
+  })
+
   it("restarts with fresh definition synchronization after cancellation", async () => {
     const name = `workspace-preparation-${crypto.randomUUID()}`
     let attempts = 0

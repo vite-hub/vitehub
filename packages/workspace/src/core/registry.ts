@@ -12,6 +12,12 @@ export type WorkspaceRegistry = Record<string, () => Promise<WorkspaceRegistryMo
 const workspaceRegistryStateKey = Symbol.for("vitehub.workspace.registryState")
 
 interface WorkspaceRegistryState {
+  loadingDefinitions: Map<string, {
+    consumers: number
+    generation: number
+    load: WorkspaceRegistry[string]
+    promise: Promise<WorkspaceDefinition>
+  }>
   loadGenerations: Map<string, number>
   loadedDefinitions: Map<string, WorkspaceDefinition>
   loaders: WorkspaceRegistry
@@ -23,11 +29,13 @@ type WorkspaceRegistryGlobal = typeof globalThis & Record<symbol, WorkspaceRegis
 function workspaceRegistryState(): WorkspaceRegistryState {
   const scope = globalThis as WorkspaceRegistryGlobal
   scope[workspaceRegistryStateKey] ??= {
+    loadingDefinitions: new Map(),
     loadGenerations: new Map<string, number>(),
     loadedDefinitions: new Map<string, WorkspaceDefinition>(),
     loaders: runtimeRegistry,
     registeredDefinitions: new Map<string, WorkspaceDefinition>(),
   }
+  scope[workspaceRegistryStateKey].loadingDefinitions ??= new Map()
   scope[workspaceRegistryStateKey].loadGenerations ??= new Map<string, number>()
   return scope[workspaceRegistryStateKey]
 }
@@ -91,35 +99,81 @@ export function registerWorkspace(name: string, definition: WorkspaceDefinitionI
 
 export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {
   const state = workspaceRegistryState()
+  invalidateWorkspaceLoads(state)
   state.loaders = registry
   state.loadedDefinitions.clear()
 }
 
 export function resetWorkspaceRegistry(): void {
   const state = workspaceRegistryState()
+  invalidateWorkspaceLoads(state)
   state.loaders = runtimeRegistry
   state.loadedDefinitions.clear()
 }
 
-async function resolveWorkspaceDefinition(name: string): Promise<WorkspaceDefinition> {
+function invalidateWorkspaceLoads(state: WorkspaceRegistryState): void {
+  for (const [name, loading] of state.loadingDefinitions) {
+    if (state.loadGenerations.get(name) === loading.generation) {
+      state.loadGenerations.set(name, loading.generation + 1)
+    }
+  }
+  state.loadingDefinitions.clear()
+}
+
+async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {
   const state = workspaceRegistryState()
   const existing = state.registeredDefinitions.get(name) || state.loadedDefinitions.get(name)
   if (existing) return existing
 
   const load = state.loaders[name]
   if (!load) throw workspaceNotFoundError(name)
-  const generation = (state.loadGenerations.get(name) ?? 0) + 1
-  state.loadGenerations.set(name, generation)
-  const mod = await load()
-  const definition = normalizeWorkspaceDefinition(name, mod.default)
-  if (state.loadGenerations.get(name) === generation && state.loaders[name] === load) {
-    state.loadedDefinitions.set(name, definition)
+
+  let loading = state.loadingDefinitions.get(name)
+  if (!loading || loading.load !== load) {
+    const generation = (state.loadGenerations.get(name) ?? 0) + 1
+    state.loadGenerations.set(name, generation)
+    const promise = load().then((mod) => {
+      const definition = normalizeWorkspaceDefinition(name, mod.default)
+      if (state.loadGenerations.get(name) === generation && state.loaders[name] === load) {
+        state.loadedDefinitions.set(name, definition)
+      }
+      return definition
+    })
+    loading = { consumers: 0, generation, load, promise }
+    state.loadingDefinitions.set(name, loading)
+    void promise.finally(() => {
+      if (state.loadingDefinitions.get(name) === loading) state.loadingDefinitions.delete(name)
+    }).catch(() => {})
   }
-  return definition
+
+  loading.consumers++
+  let aborted = false
+  let rejectAbort!: (reason?: unknown) => void
+  const abort = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
+  const onAbort = () => {
+    aborted = true
+    rejectAbort(abortSignal?.reason)
+  }
+  if (abortSignal?.aborted) onAbort()
+  else abortSignal?.addEventListener("abort", onAbort, { once: true })
+  try {
+    if (!abortSignal) return await loading.promise
+    return await Promise.race([loading.promise, abort])
+  }
+  finally {
+    abortSignal?.removeEventListener("abort", onAbort)
+    loading.consumers--
+    if (aborted && loading.consumers === 0 && state.loadingDefinitions.get(name) === loading) {
+      state.loadingDefinitions.delete(name)
+      if (state.loadGenerations.get(name) === loading.generation) {
+        state.loadGenerations.set(name, loading.generation + 1)
+      }
+    }
+  }
 }
 
-export async function resolveRegisteredWorkspaceDefinition(name: string): Promise<WorkspaceDefinition> {
-  return resolveWorkspaceDefinition(name)
+export async function resolveRegisteredWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {
+  return resolveWorkspaceDefinition(name, abortSignal)
 }
 
 export async function useRegisteredWorkspace(name: string): Promise<Workspace> {
