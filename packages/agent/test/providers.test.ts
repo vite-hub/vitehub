@@ -8193,16 +8193,17 @@ describe("server helpers", () => {
     const run = vi.fn(async (context: { run?: { runId?: string } }) => {
       const runIndex = startedRuns++
       runStarted[runIndex]?.resolve(undefined)
-      const controlId = agentInvocationControlId(context)
-      if (!controlId) throw new Error("Expected an Agent Invocation control identity.")
-      const unregister = registerAgentInvocationInputHandler(controlId, {
-        sendInput(input) {
-          steeredInputs.push(String(input.prompt))
-          return "accepted"
-        },
-        support: { steer: true },
-      })
+      let unregister = () => undefined
       try {
+        const controlId = agentInvocationControlId(context)
+        if (!controlId) throw new Error("Expected an Agent Invocation control identity.")
+        unregister = registerAgentInvocationInputHandler(controlId, {
+          sendInput(input) {
+            steeredInputs.push(String(input.prompt))
+            return "accepted"
+          },
+          support: { steer: true },
+        })
         await new Promise<void>((resolve) => releases.push(resolve))
         return "accepted"
       } finally {
