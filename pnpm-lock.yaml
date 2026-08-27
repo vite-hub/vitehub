@@ -303,6 +303,9 @@ catalogs:
     vue-tsc:
       specifier: ^3.3.7
       version: 3.3.7
+    yaml:
+      specifier: ^2.9.0
+      version: 2.9.0
   ui:
     '@iconify-json/lucide':
       specifier: ^1.2.117
@@ -428,6 +431,10 @@ patchedDependencies:
 importers:
 
   .:
+    dependencies:
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.0
     devDependencies:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
@@ -543,7 +550,6 @@ importers:
       vitest:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(happy-dom@20.11.6)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
-
   docs:
     dependencies:
       '@nuxt/content':
@@ -756,6 +762,28 @@ importers:
       '@ai-sdk/vue':
         specifier: catalog:ai
         version: 4.0.38(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)
+
+  packages/agent/examples/vite:
+    dependencies:
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../..
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22))
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
+        version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
+      '@vite-hub/cli':
+        specifier: workspace:*
+        version: link:../../../cli
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.1.24(5d15fef75f428e841044fb19409e0e71)
 
   packages/auth:
     dependencies:

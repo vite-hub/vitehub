@@ -121,6 +121,7 @@ catalogs:
     vite-plus: ^0.1.24
     vitest: ^4.1.4
     vue-tsc: ^3.3.7
+    yaml: ^2.9.0
   ui:
     "@iconify-json/lucide": ^1.2.117
     "@iconify-json/ph": ^1.2.2
