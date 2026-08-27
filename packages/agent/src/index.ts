@@ -3815,11 +3815,16 @@ async function resultWithStreamedTextAndUsage(
         // Keep normalizing readable usage fields when a provider exposes an unreadable then getter.
       }
       if (hasRuntimeType(then, "function")) {
+        const pendingUsage = Symbol("pending usage")
         try {
-          resolvedUsage = await resolvedUsage
+          resolvedUsage = await Promise.race([
+            Promise.resolve(resolvedUsage).catch(() => undefined),
+            Promise.resolve(pendingUsage),
+          ])
+          if (resolvedUsage === pendingUsage) resolvedUsage = undefined
         }
         catch {
-          // Ignore provider usage promises that reject during finalization.
+          // Ignore provider thenables that reject while being observed during finalization.
           resolvedUsage = undefined
         }
       }
