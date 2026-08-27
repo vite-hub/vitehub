@@ -7,13 +7,17 @@ import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
 import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
 
 const parsedAgentMessageMetaContextKey = "vitehub.agent.messageMetaParsed"
-const parsedAgentMessageMetaReceipts = new WeakMap<object, WeakMap<object, Map<string | undefined, object>>>()
+interface ParsedAgentMessageMetaReceipt {
+  id: string
+}
+
+const parsedAgentMessageMetaReceipts = new WeakMap<object, WeakMap<object, Map<string | undefined, ParsedAgentMessageMetaReceipt>>>()
 
 function parsedAgentMessageMetaReceipt<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   invocationContext: AgentInvocationContextStore,
   run?: AgentRunMetadata,
-): object | undefined {
+): ParsedAgentMessageMetaReceipt | undefined {
   const { channelId, schema } = activeMessageSettings(definition, invocationContext, run)
   if (!definition || !schema || !isRuntimeObject(schema)) return
   let definitionReceipts = parsedAgentMessageMetaReceipts.get(definition)
@@ -28,7 +32,7 @@ function parsedAgentMessageMetaReceipt<TRuntimeConfig extends AgentRuntimeConfig
   }
   let receipt = schemaReceipts.get(channelId)
   if (!receipt) {
-    receipt = Object.freeze({})
+    receipt = Object.freeze({ id: crypto.randomUUID() })
     schemaReceipts.set(channelId, receipt)
   }
   return receipt
@@ -43,13 +47,24 @@ export function hasParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeCon
   return input.context?.[parsedAgentMessageMetaContextKey] === parsedAgentMessageMetaReceipt(definition, invocationContext, run)
 }
 
+export function parsedAgentMessageMetaReceiptId<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  input: AgentRunInput<CALL_OPTIONS>,
+  run?: AgentRunMetadata,
+): string | undefined {
+  const invocationContext = createAgentInvocationContextStore(input.context)
+  const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
+  return input.context?.[parsedAgentMessageMetaContextKey] === receipt ? receipt?.id : undefined
+}
+
 export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
+  receiptId?: string,
 ): AgentRunInput<CALL_OPTIONS> {
   const receipt = parsedAgentMessageMetaReceipt(definition, createAgentInvocationContextStore(input.context), run)
-  if (!receipt) return input
+  if (!receipt || receipt.id !== receiptId) return input
   return {
     ...input,
     context: { ...input.context, [parsedAgentMessageMetaContextKey]: receipt },

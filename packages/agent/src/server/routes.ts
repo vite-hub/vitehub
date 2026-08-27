@@ -52,7 +52,7 @@ import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
-import { hasParsedAgentMessageMeta, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
+import { parsedAgentMessageMetaReceiptId, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import {
   isRuntimeBigInt,
   isRuntimeBoolean,
@@ -2713,7 +2713,12 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               }
               let recoveredWorkflowInput = recoveredInput
               if (restored.message.parsedMessageMeta) {
-                recoveredWorkflowInput = restoreParsedAgentMessageMeta(agent, recoveredWorkflowInput, run)
+                recoveredWorkflowInput = restoreParsedAgentMessageMeta(
+                  agent as AgentDefinition | undefined,
+                  recoveredWorkflowInput,
+                  restored.message.run,
+                  restored.message.parsedMessageMeta,
+                )
               }
               if (restored.message.resolvedInvoker) {
                 const recoveredInvoker = resolveInputAgentInvoker(recoveredWorkflowInput.context)
@@ -2952,7 +2957,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         pendingQueue = durableSteerPendingQueue(queue)
         successorClaimId = crypto.randomUUID()
         let queuedInput = queued.message.input
-        if (queued.message.parsedMessageMeta) queuedInput = restoreParsedAgentMessageMeta(agent, queuedInput, queued.message.run)
+        if (queued.message.parsedMessageMeta) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
         if (queued.message.resolvedInvoker) {
           const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
           if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
@@ -3007,7 +3012,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         if (ownerReleased) return
         if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error) && successorInput && queued?.message) {
           let retryInput = successorInput
-          if (queued.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent, retryInput, queued.message.run)
+          if (queued.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
           if (queued.message.resolvedInvoker) {
             const retryInvoker = resolveInputAgentInvoker(retryInput.context)
             if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
@@ -3073,7 +3078,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             )
           } catch (settlementError) {
             let retryInput = successorPending.message.input
-            if (successorPending.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent, retryInput, successorPending.message.run)
+            if (successorPending.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
             if (successorPending.message.resolvedInvoker) {
               const retryInvoker = resolveInputAgentInvoker(retryInput.context)
               if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
@@ -3114,7 +3119,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           await restoreDurableSteerQueue(resolved.state, queue, queued.message)
         }
         let retryInput = claimedPending.message.input
-        if (claimedPending.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent, retryInput, claimedPending.message.run)
+        if (claimedPending.message.parsedMessageMeta) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
         if (claimedPending.message.resolvedInvoker) {
           const retryInvoker = resolveInputAgentInvoker(retryInput.context)
           if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
@@ -3217,7 +3222,7 @@ interface DurableSteerQueueMessage {
   input?: AgentRunInput
   invokerKey?: string
   ownerToken?: string
-  parsedMessageMeta?: boolean
+  parsedMessageMeta?: string
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: AgentRunMetadata
@@ -4665,7 +4670,7 @@ async function handleChatSdkMessage(
         },
         invoker,
       ) as AgentRunInput
-      let workflowInputHasParsedMessageMeta = hasParsedAgentMessageMeta(agent, workflowInput, run)
+      let workflowInputHasParsedMessageMeta = parsedAgentMessageMetaReceiptId(agent, workflowInput, run)
       let workflowInputHasResolvedInvoker = hasResolvedAgentInvokerInput(workflowInput)
       let workflowInvokerKey = JSON.stringify(resolveInputAgentInvoker(workflowInput.context) ?? null)
       let workflowCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
@@ -4808,7 +4813,7 @@ async function handleChatSdkMessage(
             // The persisted entry remains the CAS expectation below. Rebinding
             // steer ownership must not mutate that expected value in place.
             workflowInput = structuredClone(previous.message.input)
-            workflowInputHasParsedMessageMeta = previous.message.parsedMessageMeta === true
+            workflowInputHasParsedMessageMeta = previous.message.parsedMessageMeta
             workflowInputHasResolvedInvoker = previous.message.resolvedInvoker === true
             workflowInvokerKey = durableSteerInvokerKey(previous.message)
             workflowCapabilities = previous.message.capabilities
@@ -4905,7 +4910,7 @@ async function handleChatSdkMessage(
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
         }
         const workflowStartInput = workflowInputHasParsedMessageMeta
-          ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun)
+          ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
           : workflowInput
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         await runAgent(agent as never, workflowRunContext as never, workflowStartInput as never)
@@ -5016,7 +5021,7 @@ async function handleChatSdkMessage(
                       recoveryStartAttempts++
                       // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
                       const recoveryStartInput = workflowInputHasParsedMessageMeta
-                        ? restoreParsedAgentMessageMeta(agent, recoveryInput, workflowRun)
+                        ? restoreParsedAgentMessageMeta(agent, recoveryInput, workflowRun, workflowInputHasParsedMessageMeta)
                         : recoveryInput
                       await runAgent(agent as never, workflowRunContext as never, recoveryStartInput as never)
                       return
@@ -5055,7 +5060,7 @@ async function handleChatSdkMessage(
               // depend on another webhook arriving.
               // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
               const recoveredWorkflowInput = workflowInputHasParsedMessageMeta
-                ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun)
+                ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
                 : workflowInput
               await runAgent(agent as never, workflowRunContext as never, recoveredWorkflowInput as never)
               durableHandoff = true
@@ -5126,7 +5131,7 @@ async function handleChatSdkMessage(
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                   const settlementRetryInput = workflowInputHasParsedMessageMeta
-                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun)
+                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
                     : workflowInput
                   await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
@@ -5155,7 +5160,7 @@ async function handleChatSdkMessage(
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                   const settlementRetryInput = workflowInputHasParsedMessageMeta
-                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun)
+                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
                     : workflowInput
                   await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {

@@ -5,6 +5,7 @@ import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import {
   hasParsedAgentMessageMeta,
+  parsedAgentMessageMetaReceiptId,
   parseAgentMessageMeta,
   restoreParsedAgentMessageMeta,
   withParsedAgentMessageMeta,
@@ -174,12 +175,38 @@ describe("Agent message metadata", () => {
     const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
 
     expect(hasParsedAgentMessageMeta(agent, prepared)).toBe(true)
+    const receiptId = parsedAgentMessageMetaReceiptId(agent, prepared)
     const portable = await portableAgentWorkflowInput(prepared)
-    const restored = restoreParsedAgentMessageMeta(agent, portable)
+    const restored = restoreParsedAgentMessageMeta(agent, portable, undefined, receiptId)
     await parseAgentMessageMeta(agent, createAgentInvocationContextStore(restored.context))
 
     expect(parses).toBe(1)
     expect(restored.context?.channel).toEqual({ meta: { parse: 1 } })
+  })
+
+  it("revalidates durable metadata when the schema receipt is no longer current", async () => {
+    const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
+    const prepared = await withParsedAgentMessageMeta(previousAgent, { context: { channel: { meta: { audience: "TECHNICAL" } } } })
+    const previousReceiptId = parsedAgentMessageMetaReceiptId(previousAgent, prepared)
+    const portable = await portableAgentWorkflowInput(prepared)
+    const currentAgent = defineAgent({
+      driver: { run: () => "ok" },
+      messages: {
+        meta: {
+          "~standard": {
+            validate: () => ({ value: { audience: "current" } }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+    })
+    const restored = restoreParsedAgentMessageMeta(currentAgent, portable, undefined, previousReceiptId)
+    const context = createAgentInvocationContextStore(restored.context)
+
+    await parseAgentMessageMeta(currentAgent, context)
+
+    expect(context.get("channel")).toEqual({ meta: { audience: "current" } })
   })
 
   it("transforms nonportable metadata before a durable handoff", async () => {
