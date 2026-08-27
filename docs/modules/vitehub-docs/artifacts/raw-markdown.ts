@@ -57,6 +57,36 @@ function cardList(source: string) {
   });
 }
 
+function cardListsOutsideFences(source: string) {
+  const output: string[] = [];
+  let outsideFence = "";
+  let fence: string | null = null;
+
+  for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
+    if (!lineWithEnding) continue;
+    const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
+    const fenceMatch = line.match(/^\s*(```+|~~~+)/);
+
+    if (!fence && fenceMatch) {
+      output.push(cardList(outsideFence), lineWithEnding);
+      outsideFence = "";
+      fence = fenceMatch[1]![0]!;
+      continue;
+    }
+
+    if (fence) {
+      output.push(lineWithEnding);
+      if (fenceMatch?.[1]?.[0] === fence) fence = null;
+      continue;
+    }
+
+    outsideFence += lineWithEnding;
+  }
+
+  output.push(cardList(outsideFence));
+  return output.join("");
+}
+
 function directiveLabel(name: string, attributes: string | undefined) {
   if (["note", "tip", "warning", "important"].includes(name)) {
     return `> **${name[0]!.toUpperCase()}${name.slice(1)}**`;
@@ -77,15 +107,17 @@ function directiveLabel(name: string, attributes: string | undefined) {
 function stripPresentationDirectives(source: string) {
   const output: string[] = [];
   let depth = 0;
-  let fence: string | null = null;
+  let fence: { indent: number, marker: string } | null = null;
 
   for (const originalLine of source.split("\n")) {
-    const deindented = originalLine.slice(Math.min(originalLine.match(/^ */)?.[0].length || 0, depth * 2));
+    const leadingSpaces = originalLine.match(/^ */)?.[0].length || 0;
+    const structuralIndent = fence?.indent ?? Math.min(leadingSpaces, depth * 2);
+    const deindented = originalLine.slice(Math.min(leadingSpaces, structuralIndent));
     const fenceMatch = deindented.match(/^\s*(```+|~~~+)/);
     if (fenceMatch) {
       const marker = fenceMatch[1]![0]!;
-      if (!fence) fence = marker;
-      else if (fence === marker) fence = null;
+      if (!fence) fence = { indent: structuralIndent, marker };
+      else if (fence.marker === marker) fence = null;
       output.push(rewriteLinks(deindented));
       continue;
     }
@@ -117,7 +149,7 @@ function stripPresentationDirectives(source: string) {
 export function toRawMarkdown(source: string) {
   const { body, frontmatter } = splitFrontmatter(source);
   const title = frontmatter.title;
-  const content = stripPresentationDirectives(cardList(body)).trim();
+  const content = stripPresentationDirectives(cardListsOutsideFences(body)).trim();
   const document = title && !content.startsWith("# ") ? `# ${title}\n\n${content}` : content;
   return `${document}\n`;
 }

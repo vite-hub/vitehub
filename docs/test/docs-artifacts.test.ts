@@ -124,6 +124,23 @@ describe("writeDocsArtifacts", () => {
         "This is example source.",
         "::",
         "```",
+        "",
+        "::steps",
+        "  ::tabs",
+        "    :::tabs-item{label=\"Example\"}",
+        "      ```md",
+        "      ::u-page-grid",
+        "        :::u-page-card",
+        "        ---",
+        "        title: Literal card",
+        "        ---",
+        "        :::",
+        "      ::",
+        "        nested: value",
+        "      ```",
+        "    :::",
+        "  ::",
+        "::",
       ].join("\n"));
 
       writeDocsArtifacts({ docsRoot, outputDir });
@@ -134,7 +151,21 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("| Choice | Result |");
       expect(raw).toContain("> **Warning**");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
-      expect(raw).not.toMatch(/<u-|<table|::u-page-grid/);
+      expect(raw).toContain([
+        "### Example",
+        "",
+        "```md",
+        "::u-page-grid",
+        "  :::u-page-card",
+        "  ---",
+        "  title: Literal card",
+        "  ---",
+        "  :::",
+        "::",
+        "  nested: value",
+        "```",
+      ].join("\n"));
+      expect(raw).not.toMatch(/<u-|<table/);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }
