@@ -86,6 +86,14 @@ export default defineChannel({
 });
 ```
 
+Include the generated declarations in the application's TypeScript configuration:
+
+```json
+{
+  "include": [".vitehub/types/**/*.d.ts", "server/**/*.ts"]
+}
+```
+
 Server code can then send through the discovered definition:
 
 ```ts
@@ -105,7 +113,7 @@ Channels is an outbound delivery interface. It does not include Slack, Telegram,
 
 `send()` waits for the selected connector and returns its result. Connector failures reject the call unchanged. Channels does not persist messages, retry delivery, impose a timeout, deduplicate sends, or recover work after the process exits. Add those behaviors before `send()` or inside the connector when the delivery contract requires them.
 
-Every send writes `started`, `completed`, or `failed` JSON metadata under the `vitehub.channel.send` scope. ViteHub omits message text and connector options from those events. Failed events include up to 2,000 characters of the thrown error message, so connectors must not put credentials or message content in errors. Connector code can still read, transmit, or log every value it receives; keep credentials in server-only configuration and redact provider failures before throwing them.
+Every send writes `outbound.started`, `outbound.completed`, or `outbound.failed` JSON metadata under the `vitehub.channel.send` scope. ViteHub omits message text and connector options from those events. Failed events include up to 2,000 characters of the thrown error message, so connectors must not put credentials or message content in errors. Connector code can still read, transmit, or log every value it receives; keep credentials in server-only configuration and redact provider failures before throwing them.
 
 This package is separate from Agent Channels. `@vite-hub/channels` sends ordinary application messages. [`@vite-hub/agent/channels`](https://vitehub.dev/docs/agents/channels) describes where Agent Invocations come from, inbound delivery, threads, and Agent reply policy.
 
