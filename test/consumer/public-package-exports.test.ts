@@ -237,6 +237,21 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
   ].join("\n")
   await writeFile(join(runnerDir, "exports.ts"), `${source}\n`, "utf8")
   const sourcePath = join(runnerDir, "exports.ts")
+  const rootNames = [sourcePath]
+  if (packageName === "@vite-hub/agent") {
+    const hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
+    await writeFile(hostTypesPath, [
+      "declare module \"cloudflare:workers\" {",
+      "  export class DurableObject<Env = unknown> {",
+      "    protected ctx: unknown",
+      "    protected env: Env",
+      "    constructor(ctx: unknown, env: Env)",
+      "  }",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+    rootNames.push(hostTypesPath)
+  }
   const options: ts.CompilerOptions = {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
@@ -245,7 +260,7 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
     strict: true,
     target: ts.ScriptTarget.ESNext,
   }
-  const program = ts.createProgram([sourcePath], options)
+  const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
     diagnostic.file
     && (diagnostic.file.fileName === sourcePath || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)),
