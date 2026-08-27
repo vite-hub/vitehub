@@ -407,6 +407,30 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(log.entries())).not.toContain("must not leak")
   })
 
+  it("removes spoofed activity attributes from untyped producers", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      attributes: {
+        "vitehub.activity.owner": "agent",
+        "vitehub.activity.phase": "execution",
+      },
+      name: "custom.event",
+      type: "lifecycle",
+    })
+    await log.append({
+      // SAFETY: The fixture proves runtime normalization for JavaScript and untyped producers.
+      activity: { owner: "custom", phase: "unknown" } as never,
+      attributes: {
+        "vitehub.activity.owner": "agent",
+        "vitehub.activity.phase": "execution",
+      },
+      name: "custom.invalid-activity",
+      type: "lifecycle",
+    })
+
+    expect(log.entries().map(event => event.attributes)).toEqual([undefined, undefined])
+  })
+
   it("falls back to private without invoking hostile payload descriptors", async () => {
     const log = createTraceEventLog()
     const accessorPayload = Object.defineProperty({}, "visibility", {

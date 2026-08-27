@@ -441,6 +441,8 @@ function traceEventAttributes(
 ): Record<string, unknown> | undefined {
   const attributes = content === "metadata" ? metadataAttributes(event.attributes) : event.attributes
   const next: Record<string, unknown> = { ...attributes }
+  delete next["vitehub.activity.owner"]
+  delete next["vitehub.activity.phase"]
   if (event.activity) {
     next["vitehub.activity.owner"] = event.activity.owner
     next["vitehub.activity.phase"] = event.activity.phase
