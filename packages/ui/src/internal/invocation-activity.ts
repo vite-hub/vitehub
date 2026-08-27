@@ -336,7 +336,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"));
       const approvalDenied = attributes["approval.approved"] === false;
-      const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|finish|recorded)$/.test(item.name));
+      const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|failed|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
       const role = explicitRole ?? (attributes["result.text"]
         ? "assistant"

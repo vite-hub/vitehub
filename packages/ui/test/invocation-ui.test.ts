@@ -612,6 +612,29 @@ describe("Agent Invocation UI", () => {
     },
   );
 
+  it("bounds failed tasks by their observed failure", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const failedAt = "2026-08-22T00:00:01.000Z";
+    const invocation = {
+      completedAt: "2026-08-22T00:00:03.000Z",
+      createdAt: timestamp,
+      id: "failed-task",
+      observations: [
+        { attributes: { "step.id": "task" }, name: "agent.task.started", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "error.message": "Task failed", "step.id": "task" }, name: "agent.task.failed", sequence: 2, timestamp: failedAt, type: "error" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]).toMatchObject({
+      durationMs: 1_000,
+      endedAt: failedAt,
+      status: "failed",
+    });
+  });
+
   it.each([
     ["cancelled", "completed"],
     ["failed", "failed"],
