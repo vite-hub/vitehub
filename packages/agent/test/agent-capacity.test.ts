@@ -884,11 +884,11 @@ describe("Agent Driver capacity", () => {
       const prospectiveInvocation = runAgentInline(agent, runtime(), {})
       await sampleStarted.promise
       const pendingInvocation = runAgentInline(agent, runtime(), {})
-      expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+      await vi.waitFor(() => expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
         active: 0,
         effectiveConcurrency: 0,
         pending: 1,
-      })
+      }))
       await expect(runAgentInline(agent, runtime(), {})).rejects.toMatchObject({
         code: "AGENT_CAPACITY_QUEUE_FULL",
         message: "[vitehub] Agent driver capacity is full (0 active, 1 queued).",
