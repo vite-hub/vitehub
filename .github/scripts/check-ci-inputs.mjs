@@ -9,23 +9,24 @@ const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
 const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const variablePackagePattern = /^((?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+))@(?:\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*))$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
-const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`|\{|\})$/
+const shellOperatorPattern = /^(?:&&|\|\||[;&|]|\$\(|\(|\)|`|\{|\})$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
 const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
 const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "until", "while"])
-const envValueOptions = new Set(["--chdir", "--split-string", "--unset", "-C", "-S", "-u"])
+const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
+const envSplitStringOptions = new Set(["--split-string", "-S"])
 
 function shellTokens(line) {
   const tokens = []
   let previousEnd = -1
   let wordIndex
-  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`{}])|([^\s;&|()`{}"']+)/g)) {
+  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(\$\{[^}]*\})|(\$\(|&&|\|\||[;&|()`{}])|([^\s;&|()`{}"']+)/g)) {
     if (token.index !== previousEnd) wordIndex = undefined
     previousEnd = token.index + token[0].length
-    if (token[4]?.startsWith("#")
+    if (token[5]?.startsWith("#")
       && (token.index === 0 || /[\s;&|()`]/.test(line[token.index - 1]))) break
-    const value = token[1] ?? token[2] ?? token[3] ?? token[4]
-    if (token[3] !== undefined) {
+    const value = token[1] ?? token[2] ?? token[3] ?? token[4] ?? token[5]
+    if (token[4] !== undefined) {
       tokens.push(value)
       wordIndex = undefined
     }
@@ -38,7 +39,7 @@ function shellTokens(line) {
     }
     if (token[1] === undefined) continue
     for (const substitution of token[1].matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
-      tokens.push("(", ...shellTokens(substitution[1] ?? substitution[2]), ")")
+      tokens.push("$(", ...shellTokens(substitution[1] ?? substitution[2]), ")")
     }
   }
   return tokens
@@ -46,11 +47,28 @@ function shellTokens(line) {
 
 function commandIndexes(tokens) {
   const indexes = []
+  const delegatedCommands = []
   let commandStart = true
   let commandOptions = false
+  const groups = []
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]
-    if (shellOperatorPattern.test(token)) {
+    if (token === "$(") {
+      groups.push({ restore: commandStart, substitution: true })
+      commandStart = true
+      commandOptions = false
+    }
+    else if (token === "(" || token === "{") {
+      groups.push({ restore: false, substitution: false })
+      commandStart = true
+      commandOptions = false
+    }
+    else if (token === ")" || token === "}") {
+      const group = groups.pop()
+      commandStart = group?.substitution ? group.restore : group ? false : true
+      commandOptions = false
+    }
+    else if (shellOperatorPattern.test(token)) {
       commandStart = true
       commandOptions = false
     }
@@ -75,6 +93,18 @@ function commandIndexes(tokens) {
             break
           }
           if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(argument)) executableIndex++
+          else if (envSplitStringOptions.has(argument)) {
+            delegatedCommands.push(tokens[executableIndex + 1] ?? "")
+            executableIndex += 2
+          }
+          else if (argument.startsWith("--split-string=")) {
+            delegatedCommands.push(argument.slice("--split-string=".length))
+            executableIndex++
+          }
+          else if (/^-S.+/.test(argument)) {
+            delegatedCommands.push(argument.slice(2))
+            executableIndex++
+          }
           else if (envValueOptions.has(argument)) executableIndex += 2
           else if (argument.startsWith("-")) executableIndex++
           else break
@@ -87,7 +117,7 @@ function commandIndexes(tokens) {
       commandOptions = false
     }
   }
-  return indexes
+  return { delegatedCommands, indexes }
 }
 
 function executableName(token) {
@@ -121,7 +151,10 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     if (line.trimStart().startsWith("#")) continue
 
     const tokens = shellTokens(line)
-    const executableIndexes = commandIndexes(tokens)
+    const { delegatedCommands, indexes: executableIndexes } = commandIndexes(tokens)
+    for (const delegatedCommand of delegatedCommands) {
+      specs.push(...findExecutablePackageSpecs(delegatedCommand, environment))
+    }
     const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
     if (hereDocument && !executableIndexes.some(index => isShellCommand(tokens[index]))) {
       dataHereDocument = { delimiter: hereDocument[2], expand: hereDocument[1] === "" }
@@ -130,6 +163,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       let argumentsStart
       let acceptsPackageOptions = false
       const token = tokens[index]
+      const executable = executableName(token)
 
       if (isShellCommand(token)) {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
@@ -141,13 +175,13 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         continue
       }
 
-      if (token === "npx") {
+      if (executable === "npx") {
         argumentsStart = index + 1
         acceptsPackageOptions = true
       }
-      else if (token === "bunx" || token === "pnpx") argumentsStart = index + 1
-      else if (token === "bun" && tokens[index + 1] === "x") argumentsStart = index + 2
-      else if (token === "npm") {
+      else if (executable === "bunx" || executable === "pnpx") argumentsStart = index + 1
+      else if (executable === "bun" && tokens[index + 1] === "x") argumentsStart = index + 2
+      else if (executable === "npm") {
         let subcommand = index + 1
         while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
           const option = tokens[subcommand++]
@@ -161,7 +195,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         argumentsStart = subcommand + 1
         acceptsPackageOptions = true
       }
-      else if (token === "vp" || token === "pnpm" || token === "yarn") {
+      else if (executable === "vp" || executable === "pnpm" || executable === "yarn") {
         let subcommand = index + 1
         while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
           const option = tokens[subcommand++]
