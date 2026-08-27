@@ -161,7 +161,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.reasoningEffort !== undefined && (!isRuntimeString(value.reasoningEffort) || !value.reasoningEffort.trim())) {
     throw new TypeError("[vitehub] defineAgent({ driver.reasoningEffort }) must be a non-empty string.")
   }
-  if (value.reasoningSummary !== undefined && !["auto", "concise", "detailed", "none"].includes(String(value.reasoningSummary))) {
+  if (value.reasoningSummary !== undefined
+    && (!isRuntimeString(value.reasoningSummary) || !["auto", "concise", "detailed", "none"].includes(value.reasoningSummary))) {
     throw new TypeError('[vitehub] defineAgent({ driver.reasoningSummary }) must be "auto", "concise", "detailed", or "none".')
   }
   if ((value.reasoningEffort !== undefined || value.reasoningSummary !== undefined) && value.model === undefined) {

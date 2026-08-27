@@ -173,6 +173,7 @@ describe("built-in Agent Driver selection", () => {
     [{ kind: "codex", credentials: "{}", providerSettings: { shadowHomePath: "/tmp/codex" } }, "owns the Codex shadow home"],
     [{ kind: "codex", reasoningEffort: "high" }, "requires driver.model"],
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: "verbose" }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
+    [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: { toString: (): string => "auto" } }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
     [{ kind: "codex", providerSettings: [] }, "driver.providerSettings }) must be an object"],
   ])("rejects invalid provider options %#", (driver, message) => {
     // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
