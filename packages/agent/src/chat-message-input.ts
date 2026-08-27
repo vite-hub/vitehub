@@ -63,11 +63,7 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
 }
 
 export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
-  const userMeta: Record<string, unknown> = {}
-  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
-    const value = firstString(triggerInput?.user?.[key])?.trim()
-    if (value) userMeta[key] = value
-  }
+  const userMeta = chatTriggerUserMeta(triggerInput?.user)
   const meta = Object.keys(userMeta).length || triggerInput?.meta
     ? { ...userMeta, ...triggerInput?.meta }
     : undefined
@@ -81,6 +77,15 @@ export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerI
           ...(meta ? { meta } : {}),
         }, "chat.message input.user")
       : undefined
+}
+
+export function chatTriggerUserMeta(user: Record<string, unknown> | undefined): Record<string, unknown> {
+  const userMeta: Record<string, unknown> = {}
+  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
+    const value = firstString(user?.[key])?.trim()
+    if (value) userMeta[key] = value
+  }
+  return userMeta
 }
 
 function uiToolName(part: Record<string, unknown>): string {

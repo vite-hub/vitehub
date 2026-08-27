@@ -4,6 +4,7 @@ import { defineAgent, portableAgentWorkflowInput, runAgentInline } from "../src/
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
+import { hasResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 import {
   hasParsedAgentMessageMeta,
   parsedAgentMessageMetaReceiptId,
@@ -148,6 +149,22 @@ describe("Agent message metadata", () => {
 
     expect(parses).toBe(1)
     expect(prepared.context?.channel).toEqual({ meta: { parse: 1 } })
+  })
+
+  it("preserves resolved Invoker custody while parsing metadata", async () => {
+    const resolve = vi.fn(() => ({ id: "chat:replacement", kind: "chat" }))
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      invoker: { resolve },
+      messages: metaSettings,
+    })
+    const prepared = await withParsedAgentMessageMeta(agent, withResolvedAgentInvokerInput({
+      context: { channel: { meta: { audience: "technical" } } },
+    }, { id: "chat:user-1", kind: "chat", meta: { audience: "technical" } }))
+
+    expect(hasResolvedAgentInvokerInput(prepared)).toBe(true)
+    await runAgentInline(agent, runtime(), prepared)
+    expect(resolve).not.toHaveBeenCalled()
   })
 
   it("does not reuse another Agent Definition's metadata receipt", async () => {
@@ -325,6 +342,38 @@ describe("Agent message metadata", () => {
       id: "chat:user-1",
       kind: "chat",
       meta: { audience: "technical" },
+    })
+    expect(context.get("actor")).toEqual(context.get("invoker"))
+  })
+
+  it("retains user identity metadata when the schema strips the matching raw field", async () => {
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
+    const context = createAgentInvocationContextStore({
+      actor: {
+        email: { address: "user@example.com", domain: "example.com" },
+        id: "chat:user@example.com",
+        kind: "chat",
+        meta: { audience: "technical", email: "user@example.com" },
+      },
+      channel: {
+        meta: { audience: "technical", email: "user@example.com" },
+        user: { email: "user@example.com" },
+      },
+      invoker: {
+        email: { address: "user@example.com", domain: "example.com" },
+        id: "chat:user@example.com",
+        kind: "chat",
+        meta: { audience: "technical", email: "user@example.com" },
+      },
+    })
+
+    await parseAgentMessageMeta(agent, context)
+
+    expect(context.get("invoker")).toEqual({
+      email: { address: "user@example.com", domain: "example.com" },
+      id: "chat:user@example.com",
+      kind: "chat",
+      meta: { audience: "technical", email: "user@example.com" },
     })
     expect(context.get("actor")).toEqual(context.get("invoker"))
   })

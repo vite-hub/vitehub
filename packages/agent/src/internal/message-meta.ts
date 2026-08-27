@@ -1,8 +1,9 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
+import { chatTriggerUserMeta } from "../chat-message-input.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvoker } from "../invoker.ts"
-import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
+import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
 
@@ -71,7 +72,7 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
   }
 }
 
-function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>): unknown {
+function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>, user: unknown): unknown {
   if (!isRuntimeObject(invoker)) return invoker
   // SAFETY: isRuntimeObject established the mutable string-keyed record representation.
   const record = invoker as Record<string, unknown>
@@ -82,7 +83,7 @@ function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string,
   }
   const normalizedInvoker: Record<string, unknown> = {
     ...record,
-    meta: { ...invokerMeta, ...meta },
+    meta: { ...invokerMeta, ...chatTriggerUserMeta(isRuntimeRecord(user) ? user : undefined), ...meta },
   }
   if (isRuntimeObject(rawMeta) && Object.hasOwn(rawMeta, "email")) normalizedInvoker.email = undefined
   return normalizeAgentInvoker(normalizedInvoker)
@@ -129,7 +130,8 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   if (isRuntimeObject(channel)) invocationContext.set("channel", { ...channel, meta }, { overwrite: true })
   if (isRuntimeObject(chat)) invocationContext.set("chat", { ...chat, meta }, { overwrite: true })
   // SAFETY: the object-output check above establishes a metadata record.
-  const invoker = withParsedMeta(invocationContext.get("invoker"), rawMeta, meta as Record<string, unknown>)
+  const user = isRuntimeObject(channel) ? channel.user : isRuntimeObject(chat) ? chat.user : undefined
+  const invoker = withParsedMeta(invocationContext.get("invoker"), rawMeta, meta as Record<string, unknown>, user)
   if (invoker !== invocationContext.get("invoker")) {
     invocationContext.set("actor", invoker, { overwrite: true })
     invocationContext.set("invoker", invoker, { overwrite: true })
@@ -144,5 +146,5 @@ export async function withParsedAgentMessageMeta<TRuntimeConfig extends AgentRun
 ): Promise<AgentRunInput<CALL_OPTIONS>> {
   const invocationContext = createAgentInvocationContextStore(input.context)
   await parseAgentMessageMeta(definition, invocationContext, run)
-  return { ...input, context: invocationContext.toJSON() }
+  return { ...input, context: { ...input.context, ...invocationContext.toJSON() } }
 }
