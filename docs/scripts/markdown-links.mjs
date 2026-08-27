@@ -335,7 +335,16 @@ function typescriptLinks(source, { exportNames, propertyNames, scopedProperties 
       if (ts.isVariableStatement(statement)) {
         for (const declaration of statement.declarationList.declarations) {
           if (ts.isIdentifier(declaration.name) && exportNames.has(declaration.name.text) && declaration.initializer) {
+            const originalProperties = new Set(linkProperties);
+            if (scopedProperties.size) {
+              linkProperties.clear();
+              for (const [property, roots] of scopedProperties) {
+                if (roots.has(declaration.name.text)) linkProperties.add(property);
+              }
+            }
             collect(declaration.initializer);
+            linkProperties.clear();
+            for (const property of originalProperties) linkProperties.add(property);
           }
         }
       }
@@ -400,19 +409,45 @@ function vueLinkProperties(source) {
   const templateSource = withoutHtmlComments(source)
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
-  for (const tag of htmlTags(templateSource)) {
+  const scopes = [];
+  const tags = templateSource.match(/<\/?[a-z][^'">]*(?:"[^"]*"|'[^']*'|[^'">]*)*>/gi) ?? [];
+  for (const tag of tags) {
+    if (tag.startsWith("</")) {
+      scopes.pop();
+      continue;
+    }
+    const scope = new Map(scopes.at(-1) ?? []);
+    const loop = htmlAttribute(tag, "v-for")?.match(/^\s*(.*?)\s+(?:in|of)\s+([A-Za-z_$][\w$]*)(?:\(\))?\s*$/);
+    if (loop) {
+      const sourceName = loop[2];
+      const bindings = loop[1].replace(/^\(|\)$/g, "").trim();
+      const destructured = bindings.match(/^\{([\s\S]*)\}$/);
+      if (destructured) {
+        for (const field of destructured[1].split(",")) {
+          const [property, alias = property] = field.split(":").map(value => value.trim());
+          if (/^[A-Za-z_$][\w$]*$/.test(property) && /^[A-Za-z_$][\w$]*$/.test(alias)) {
+            scope.set(alias, { property, sourceName });
+          }
+        }
+      }
+      else {
+        const alias = bindings.split(",", 1)[0].replace(/^\[/, "").trim();
+        if (/^[A-Za-z_$][\w$]*$/.test(alias)) scope.set(alias, { sourceName });
+      }
+    }
     for (const attribute of ["to", "href", "src", "poster", "srcset"]) {
       const binding = htmlAttribute(tag, `:${attribute}`);
-      const expression = binding && !staticBinding(binding)
-        ? binding.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*$/)
-        : undefined;
-      if (!expression) continue;
-      const [, alias, property] = expression;
-      const sourceName = templateSource.match(new RegExp(`\\bv-for=["'][^"']*\\b${alias}\\s+in\\s+([A-Za-z_$][\\w$]*)`))?.[1];
-      if (!sourceName) continue;
+      if (!binding || staticBinding(binding)) continue;
+      const member = binding.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*$/);
+      const local = binding.match(/^([A-Za-z_$][\w$]*)\s*$/);
+      const selected = scope.get(member?.[1] ?? local?.[1]);
+      const property = member?.[2] ?? selected?.property;
+      const sourceName = selected?.sourceName;
+      if (!property || !sourceName) continue;
       if (!properties.has(property)) properties.set(property, new Set());
       properties.get(property).add(sourceName);
     }
+    if (!tag.endsWith("/>")) scopes.push(scope);
   }
   return properties;
 }
@@ -513,9 +548,8 @@ function applicationInventory(docsRoot) {
           if (new RegExp(`<(?:${name}|${kebabName})(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
         }
       }
-      const linkProperties = extname(file) === ".vue"
-        ? new Set(vueLinkProperties(source).keys())
-        : importedProperties.get(file) ?? new Set();
+      const scopedLinkProperties = extname(file) === ".vue" ? vueLinkProperties(source) : undefined;
+      const linkProperties = importedProperties.get(file) ?? new Map();
       for (const applicationImport of applicationImports(source, extname(file))) {
         const { specifier } = applicationImport;
         const selectedNames = importedNames.get(file);
@@ -530,9 +564,26 @@ function applicationInventory(docsRoot) {
         if (importedPath) {
           importedFiles.add(importedPath);
           if (!importedNames.has(importedPath)) importedNames.set(importedPath, new Set());
-          if (!importedProperties.has(importedPath)) importedProperties.set(importedPath, new Set());
+          if (!importedProperties.has(importedPath)) importedProperties.set(importedPath, new Map());
           for (const { imported } of names) importedNames.get(importedPath).add(imported);
-          for (const property of linkProperties) importedProperties.get(importedPath).add(property);
+          if (scopedLinkProperties) {
+            for (const { imported, local } of names) {
+              for (const [property, sources] of scopedLinkProperties) {
+                if (!sources.has(local)) continue;
+                if (!importedProperties.get(importedPath).has(property)) importedProperties.get(importedPath).set(property, new Set());
+                importedProperties.get(importedPath).get(property).add(imported);
+              }
+            }
+          }
+          else {
+            for (const { imported, local } of names) {
+              for (const [property, sources] of linkProperties) {
+                if (!sources.has("*") && !sources.has(local)) continue;
+                if (!importedProperties.get(importedPath).has(property)) importedProperties.get(importedPath).set(property, new Set());
+                importedProperties.get(importedPath).get(property).add(imported);
+              }
+            }
+          }
           pending.push(importedPath);
         }
       }
@@ -543,7 +594,12 @@ function applicationInventory(docsRoot) {
     const route = relative(join(docsRoot, "server/routes"), path).split(sep).join("/").replace(/\.ts$/, "");
     if (isStaticApplicationRoute(route)) routeAnchors.set(normalizeRoute(`/${route}`), new Set());
   }
-  for (const route of ["/llms.txt", "/llms-full.txt", "/mcp"]) routeAnchors.set(route, new Set());
+  for (const route of [
+    "/.well-known/skills/vitehub/SKILL.md",
+    "/llms.txt",
+    "/llms-full.txt",
+    "/mcp",
+  ]) routeAnchors.set(route, new Set());
   const matrixAnchors = supportMatrixAnchors(docsRoot);
   if (matrixAnchors) routeAnchors.set("/docs/frameworks-hosts/support-matrix", matrixAnchors);
   return { importedFiles, importedNames, importedProperties, routeAnchors, sourceRoutes };
@@ -603,7 +659,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
         ? vueLinks(readFileSync(sourcePath, "utf8"))
         : typescriptLinks(readFileSync(sourcePath, "utf8"), {
             exportNames: application.importedNames.get(sourcePath),
-            propertyNames: application.importedProperties.get(sourcePath),
+            propertyNames: new Set(application.importedProperties.get(sourcePath)?.keys()),
+            scopedProperties: application.importedProperties.get(sourcePath),
           }),
       renderer: "vue",
       renderedRoutes: [...(application.sourceRoutes.get(sourcePath) ?? [])],

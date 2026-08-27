@@ -255,6 +255,42 @@ mutableTarget = dynamicTarget
     ]);
   });
 
+  it("scopes tuple and reused loop aliases to their rendered collections", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><LoopLinks /></template>",
+      "docs/app/components/LoopLinks.vue": `<script setup>
+import { firstLinks, secondLinks, tupleLinks } from "./links"
+</script><template>
+<NuxtLink v-for="(item, index) in tupleLinks" :key="index" :to="item.destination" />
+<div v-for="item in firstLinks"><NuxtLink :to="item.destination" /></div>
+<div v-for="item in secondLinks"><NuxtLink :to="item.target" /></div>
+</template>`,
+      "docs/app/components/links.ts": `
+export const tupleLinks = [{ destination: "/missing-tuple" }]
+export const firstLinks = [{ destination: "/missing-first" }]
+export const secondLinks = [{ target: "/missing-second", destination: "/unused-reused-alias" }]
+`,
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-tuple" does not exist'),
+      expect.stringContaining('route "/missing-first" does not exist'),
+      expect.stringContaining('route "/missing-second" does not exist'),
+    ]);
+  });
+
+  it("validates destructured Vue loop destinations", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template><LoopLinks /></template>",
+      "docs/app/components/LoopLinks.vue": '<script setup>import { links } from "./links"</script><template><NuxtLink v-for="{ tutorialPath: destination } in links" :to="destination" /></template>',
+      "docs/app/components/links.ts": 'export const links = [{ tutorialPath: "/missing-destructured" }]',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-destructured" does not exist'),
+    ]);
+  });
+
   it("validates aliased link fields declared in the rendering Vue file", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": '<script setup>const items = [{ destination: "/docs/missing-local" }]; const unused = [{ destination: "/docs/missing-unused" }]</script><template><NuxtLink v-for="item in items" :to="item.destination" /></template>',

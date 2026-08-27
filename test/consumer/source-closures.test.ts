@@ -5,17 +5,29 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
+import * as v from "valibot"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
+const packageManifestSchema = v.object({ name: v.string(), version: v.string() })
+const workerMetadataSchema = v.object({
+  inputs: v.record(v.string(), v.unknown()),
+  outputs: v.record(v.string(), v.object({
+    imports: v.optional(v.array(v.object({
+      external: v.optional(v.boolean()),
+      path: v.string(),
+    }))),
+  })),
+})
 
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
+    // SAFETY: Node exposes child-process failures as Error objects with optional captured output.
     const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
     throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
   }
@@ -24,7 +36,7 @@ async function run(command: string, args: string[], cwd: string) {
 async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
   for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
-    const manifest = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as { name: string, version: string }
+    const manifest = v.parse(packageManifestSchema, JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")))
     await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
     const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
     overrides[manifest.name] = `file:${join(packDir, tarball)}`
@@ -40,8 +52,6 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  esbuild: true",
     "overrides:",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
-    "  \"@nestjs/common\": \"11.2.3\"",
-    "  \"@nestjs/core\": \"11.2.3\"",
     ...Object.entries(overrides)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
@@ -69,10 +79,7 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  return JSON.parse(await readFile(meta, "utf8")) as {
-    inputs: Record<string, unknown>
-    outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>
-  }
+  return v.parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
 }
 
 describe("packed Source capability closures", () => {
