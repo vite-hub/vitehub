@@ -86,16 +86,16 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
     if (node.type !== "heading") return;
     const rawBase = rawMarkdownSlug(nodeText(node));
     if (!rawBase) return;
-    let rawAnchor = rawBase;
-    while (occurrences.has(rawAnchor)) {
-      const count = (occurrences.get(rawBase) ?? 0) + 1;
-      occurrences.set(rawBase, count);
-      rawAnchor = `${rawBase}-${count}`;
+    const base = renderer === "github" ? rawBase : markdownSlug(rawBase);
+    if (!base) return;
+    let anchor = base;
+    while (occurrences.has(anchor)) {
+      const count = (occurrences.get(base) ?? 0) + 1;
+      occurrences.set(base, count);
+      anchor = `${base}-${count}`;
     }
-    const anchor = renderer === "github" ? rawAnchor : markdownSlug(rawAnchor);
-    if (!anchor) return;
     anchors.add(anchor);
-    occurrences.set(rawAnchor, 0);
+    occurrences.set(anchor, 0);
   });
   return anchors;
 }
@@ -146,10 +146,11 @@ function normalizeRoute(route) {
 }
 
 function publicReadmes(repoRoot) {
-  return walk(join(repoRoot, "packages"), (path) => path.endsWith(`${sep}package.json`))
+  const packageReadmes = walk(join(repoRoot, "packages"), (path) => path.endsWith(`${sep}package.json`))
     .filter((packageJson) => !JSON.parse(readFileSync(packageJson, "utf8")).private)
     .map((packageJson) => join(dirname(packageJson), "README.md"))
     .filter(existsSync);
+  return [join(repoRoot, "README.md"), ...packageReadmes].filter(existsSync);
 }
 
 function staticHtmlAnchors(source) {

@@ -111,6 +111,7 @@ https://vitehub.dev/docs/bare-autolink
       "trim",
       "a-b",
     ]);
+    expect([...markdownAnchors("# A--B\n\n# A-B")]).toEqual(["a-b", "a-b-1"]);
     expect([...markdownAnchors("Install\n---")]).toEqual(["install"]);
   });
 
@@ -279,6 +280,18 @@ to: /docs/missing-card
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs/missing" does not exist'),
     ]);
+  });
+
+  it("validates same-site links in the repository README", () => {
+    const repoRoot = fixture({
+      "README.md": "# ViteHub\n\n[Missing](https://vitehub.dev/docs/missing)",
+      "docs/app/pages/index.vue": "<template />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({
+      errors: [expect.stringContaining('route "/docs/missing" does not exist')],
+      files: 1,
+    });
   });
 
   it("reports rendered .md routes that the browser cannot resolve", () => {
