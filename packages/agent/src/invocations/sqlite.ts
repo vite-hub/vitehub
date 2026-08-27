@@ -309,40 +309,42 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async create(input: AgentInvocationStoreCreateInput) {
       return write(async () => {
         await initialize()
-        const transaction = await retrySqliteBusy(() => client.transaction("write"))
-        try {
-          await prune(transaction)
-          const result = await transaction.execute({
-            args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
-            sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
-          })
-          const selected = await transaction.execute({
-            args: [input.id],
-            sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
-          })
-          const selectedRow = selected.rows[0]
-          const selectedRecord = selectedRow ? deserialize(selectedRow.record, selectedRow.sequence) : undefined
-          if (!selectedRecord) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
-          if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
+        return await retrySqliteBusy(async () => {
+          const transaction = await client.transaction("write")
+          try {
             await prune(transaction)
+            const result = await transaction.execute({
+              args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
+              sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
+            })
+            const selected = await transaction.execute({
+              args: [input.id],
+              sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+            })
+            const selectedRow = selected.rows[0]
+            const selectedRecord = selectedRow ? deserialize(selectedRow.record, selectedRow.sequence) : undefined
+            if (!selectedRecord) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
+            if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
+              await prune(transaction)
+            }
+            const current = await transaction.execute({
+              args: [input.id],
+              sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+            })
+            const row = current.rows[0]
+            const record = row ? deserialize(row.record, row.sequence) : undefined
+            if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
+            await transaction.commit()
+            return { created: result.rowsAffected > 0, record }
           }
-          const current = await transaction.execute({
-            args: [input.id],
-            sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
-          })
-          const row = current.rows[0]
-          const record = row ? deserialize(row.record, row.sequence) : undefined
-          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
-          await transaction.commit()
-          return { created: result.rowsAffected > 0, record }
-        }
-        catch (error) {
-          await transaction.rollback()
-          throw error
-        }
-        finally {
-          await transaction.close()
-        }
+          catch (error) {
+            await transaction.rollback().catch(() => undefined)
+            throw error
+          }
+          finally {
+            await transaction.close()
+          }
+        })
       })
     },
     get: read,

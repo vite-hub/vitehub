@@ -888,11 +888,41 @@ describe("Agent invocation console", () => {
       const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-progress-summary")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
-          "content.omitted": expect.arrayContaining(["tool.output", "vitehub.activity.body", "vitehub.activity.title"]),
+          "content.omitted": expect.not.arrayContaining(["tool.output"]),
+          "tool.output": expect.anything(),
           "vitehub.activity.progress": "Checking Airtable for assigned tasks.",
         }),
         name: "agent.tool.finish",
       }))
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves failed tool payloads in the console journal", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-tool-error-"))
+    try {
+      installConsoleInvocations(projectRoot)
+      const agent = defineAgent({
+        driver: { run: () => (async function* () {
+            yield { id: "tool-1", input: { query: "missing" }, name: "lookup", type: "tool-call" }
+            yield { error: "Lookup failed", id: "tool-1", name: "lookup", type: "tool-result" }
+            yield { type: "finish" }
+          })() },
+        runtime: false,
+      })
+      const result = await runAgent(agent, runtime("console-tool-error"), {})
+      // SAFETY: This Driver fixture always returns the async generator defined above.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+
+      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-tool-error")
+      const observation = invocation?.observations.find(item => item.name === "agent.tool.error")
+      expect(observation).toEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "tool.error": "Lookup failed" }),
+        name: "agent.tool.error",
+      }))
+      expect(observation?.attributes?.["content.omitted"] ?? []).not.toContain("tool.error")
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
