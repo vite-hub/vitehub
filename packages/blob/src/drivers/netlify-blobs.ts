@@ -17,8 +17,28 @@ type StoredMetadata = {
 type FoldedCursor = {
   directoriesConsumed: boolean
   index: number
-  page: number
+  page?: number
+  providerCursor?: string
 }
+
+type NetlifyListPage = {
+  blobs?: Array<{ etag: string, key: string }>
+  directories?: string[]
+  next_cursor?: string
+}
+
+type NetlifyStoreInternals = {
+  client: {
+    makeRequest(options: {
+      method: "get"
+      parameters: Record<string, string>
+      storeName: string
+    }): Promise<Response>
+  }
+  name: string
+}
+
+const METADATA_CONCURRENCY = 16
 
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0, page: 0 }
@@ -27,12 +47,37 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
     return {
       directoriesConsumed: parsed.directoriesConsumed === true,
       index: typeof parsed.index === "number" && parsed.index >= 0 ? parsed.index : 0,
-      page: typeof parsed.page === "number" && parsed.page >= 0 ? parsed.page : 0,
+      page: typeof parsed.page === "number" && parsed.page >= 0 ? parsed.page : undefined,
+      providerCursor: typeof parsed.providerCursor === "string" ? parsed.providerCursor : undefined,
     }
   }
   catch {
     return { directoriesConsumed: false, index: Number.parseInt(cursor) || 0, page: 0 }
   }
+}
+
+async function listPage(store: object, options: { cursor?: string, directories?: boolean, prefix?: string }) {
+  const { client, name } = store as NetlifyStoreInternals
+  const parameters: Record<string, string> = {}
+  if (options.cursor) parameters.cursor = options.cursor
+  if (options.directories) parameters.directories = "true"
+  if (options.prefix) parameters.prefix = options.prefix
+  const response = await client.makeRequest({ method: "get", parameters, storeName: name })
+  if (response.status === 204 || response.status === 404) return { blobs: [], directories: [] } satisfies NetlifyListPage
+  if (response.status !== 200) throw new Error(`Netlify Blobs list failed with status ${response.status}.`)
+  return await response.json() as NetlifyListPage
+}
+
+async function mapWithConcurrency<T, U>(values: readonly T[], visit: (value: T) => Promise<U>): Promise<U[]> {
+  const results = new Array<U>(values.length)
+  let nextIndex = 0
+  await Promise.all(Array.from({ length: Math.min(METADATA_CONCURRENCY, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++
+      results[index] = await visit(values[index]!)
+    }
+  }))
+  return results
 }
 
 function encodeCursor(cursor: FoldedCursor) {
@@ -97,54 +142,53 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       return result ? toBlobObject(pathname, result.etag, result.metadata as StoredMetadata) : null
     },
     async list(listOptions = {}) {
-      const pages = store.list({
-        directories: listOptions.folded,
-        paginate: true,
-        prefix: listOptions.prefix,
-      })
       const cursor = decodeCursor(listOptions.cursor)
       const limit = listOptions.limit ?? 1000
       const selected: Array<{ etag: string, key: string }> = []
       const folders = new Set<string>()
       let hasMore = false
       let nextCursor: FoldedCursor | undefined
-      let pageIndex = 0
-      for await (const page of pages) {
-        if (pageIndex < cursor.page) {
-          pageIndex++
+      let providerCursor = cursor.providerCursor
+      let legacyPagesToSkip = cursor.page ?? 0
+      let startIndex = cursor.index
+      let directoriesConsumed = cursor.directoriesConsumed
+      while (true) {
+        const pageCursor = providerCursor
+        const page = await listPage(store, {
+          cursor: pageCursor,
+          directories: listOptions.folded,
+          prefix: listOptions.prefix,
+        })
+        const blobs = page.blobs ?? []
+        if (legacyPagesToSkip > 0) {
+          legacyPagesToSkip--
+          if (!page.next_cursor) break
+          providerCursor = page.next_cursor
           continue
         }
-        const startIndex = pageIndex === cursor.page ? cursor.index : 0
-        const includeDirectories = pageIndex !== cursor.page || !cursor.directoriesConsumed
-        if (page.blobs.length === 0) {
-          if (includeDirectories) {
-            for (const directory of page.directories) folders.add(directory)
-          }
-          pageIndex++
-          continue
-        }
-        const consumeDirectories = includeDirectories && selected.length < limit && startIndex < page.blobs.length
-        const directoriesConsumed = pageIndex === cursor.page
-          ? cursor.directoriesConsumed || consumeDirectories
-          : consumeDirectories
+        const consumeDirectories = !directoriesConsumed && (blobs.length === 0 || selected.length < limit)
         if (consumeDirectories) {
-          for (const directory of page.directories) folders.add(directory)
+          for (const directory of page.directories ?? []) folders.add(directory)
+          directoriesConsumed = true
         }
-        for (let blobIndex = startIndex; blobIndex < page.blobs.length; blobIndex++) {
+        for (let blobIndex = startIndex; blobIndex < blobs.length; blobIndex++) {
           if (selected.length === limit) {
             hasMore = true
-            nextCursor = { directoriesConsumed, index: blobIndex, page: pageIndex }
+            nextCursor = { directoriesConsumed, index: blobIndex, providerCursor: pageCursor }
             break
           }
-          selected.push(page.blobs[blobIndex]!)
+          selected.push(blobs[blobIndex]!)
         }
         if (hasMore) break
-        pageIndex++
+        if (!page.next_cursor) break
+        providerCursor = page.next_cursor
+        startIndex = 0
+        directoriesConsumed = false
       }
-      const blobs = await Promise.all(selected.map(async ({ etag, key }) => {
+      const blobs = await mapWithConcurrency(selected, async ({ etag, key }) => {
         const metadata = await store.getMetadata(key, { consistency: options.consistency })
         return toBlobObject(key, etag, metadata?.metadata as StoredMetadata | undefined)
-      }))
+      })
       return {
         blobs,
         cursor: hasMore && nextCursor ? encodeCursor(nextCursor) : undefined,

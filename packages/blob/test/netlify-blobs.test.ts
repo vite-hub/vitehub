@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const store = vi.hoisted(() => ({
+  client: { makeRequest: vi.fn() },
   delete: vi.fn(),
   getMetadata: vi.fn(),
   getWithMetadata: vi.fn(),
   list: vi.fn(),
   set: vi.fn(),
+  name: "vitehub-blob",
 }))
 
 vi.mock("@vite-hub/internal/arrays", () => ({
@@ -22,6 +24,13 @@ const options = { driver: "netlify-blobs", name: "vitehub-blob" } as const
 
 beforeEach(() => vi.clearAllMocks())
 
+function mockListPages(pages: Record<string, { blobs: Array<{ etag: string, key: string }>, directories: string[], next_cursor?: string }>) {
+  store.client.makeRequest.mockImplementation(({ parameters }: { parameters: { cursor?: string } }) => {
+    const page = pages[parameters.cursor ?? "first"]
+    return Promise.resolve(new Response(JSON.stringify(page), { status: 200 }))
+  })
+}
+
 describe("Netlify Blobs driver", () => {
   it("buffers streams and records their actual byte length", async () => {
     store.set.mockResolvedValue({ etag: "etag" })
@@ -37,12 +46,10 @@ describe("Netlify Blobs driver", () => {
   })
 
   it("advances folder-only pages across folded cursors", async () => {
-    store.list.mockReturnValue({
-      async *[Symbol.asyncIterator]() {
-        yield { blobs: [{ etag: "skip", key: "skip.txt" }], directories: ["skipped/"] }
-        yield { blobs: [], directories: ["folder-only/"] }
-        yield { blobs: [{ etag: "keep", key: "keep.txt" }], directories: ["selected/"] }
-      },
+    mockListPages({
+      first: { blobs: [{ etag: "skip", key: "skip.txt" }], directories: ["skipped/"], next_cursor: "page-2" },
+      "page-2": { blobs: [], directories: ["folder-only/"], next_cursor: "page-3" },
+      "page-3": { blobs: [{ etag: "keep", key: "keep.txt" }], directories: ["selected/"] },
     })
     store.getMetadata.mockResolvedValue({ metadata: {} })
 
@@ -54,19 +61,20 @@ describe("Netlify Blobs driver", () => {
     expect(first.folders).toEqual(["skipped/", "folder-only/"])
     expect(second.blobs.map(blob => blob.pathname)).toEqual(["keep.txt"])
     expect(second.folders).toEqual(["selected/"])
+    expect(store.client.makeRequest).toHaveBeenLastCalledWith(expect.objectContaining({
+      parameters: expect.objectContaining({ cursor: "page-3" }),
+    }))
   })
 
   it("does not repeat folded directories across repeated page resumes", async () => {
-    store.list.mockReturnValue({
-      async *[Symbol.asyncIterator]() {
-        yield {
-          blobs: [
-            { etag: "one", key: "one.txt" },
-            { etag: "two", key: "two.txt" },
-            { etag: "three", key: "three.txt" },
-          ],
-          directories: ["nested/"],
-        }
+    mockListPages({
+      first: {
+        blobs: [
+          { etag: "one", key: "one.txt" },
+          { etag: "two", key: "two.txt" },
+          { etag: "three", key: "three.txt" },
+        ],
+        directories: ["nested/"],
       },
     })
     store.getMetadata.mockResolvedValue({ metadata: {} })
@@ -80,5 +88,24 @@ describe("Netlify Blobs driver", () => {
     expect(second.folders).toEqual([])
     expect(third.folders).toEqual([])
     expect(third.blobs.map(blob => blob.pathname)).toEqual(["three.txt"])
+  })
+
+  it("bounds concurrent metadata lookups and preserves listing order", async () => {
+    const blobs = Array.from({ length: 40 }, (_, index) => ({ etag: `etag-${index}`, key: `${index}.txt` }))
+    mockListPages({ first: { blobs, directories: [] } })
+    let active = 0
+    let maximumActive = 0
+    store.getMetadata.mockImplementation(async () => {
+      active++
+      maximumActive = Math.max(maximumActive, active)
+      await Promise.resolve()
+      active--
+      return { metadata: {} }
+    })
+
+    const result = await createDriver(options).list()
+
+    expect(maximumActive).toBe(16)
+    expect(result.blobs.map(blob => blob.pathname)).toEqual(blobs.map(blob => blob.key))
   })
 })
