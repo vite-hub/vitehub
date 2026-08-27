@@ -206,6 +206,29 @@ https://vitehub.dev/docs/bare-autolink
     expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [], files: 3 });
   });
 
+  it("uses content anchors when a docs application route renders Markdown", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/docs/index.vue": "<template><ContentRenderer /></template>",
+      "docs/content/docs/index.md": "# Docs\n\n[Find](/docs#find-what-you-need)\n\n## Find what you need",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
+  it("validates GitHub anchors when a README links to a package directory", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "packages/example/package.json": JSON.stringify({ name: "example" }),
+      "packages/example/README.md": "# Example\n\n[Usage](../other#usage)\n[Missing](../other#missing)",
+      "packages/other/package.json": JSON.stringify({ name: "other" }),
+      "packages/other/README.md": "# Other\n\n## Usage",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining("anchor #missing does not exist in packages/other/README.md"),
+    ]);
+  });
+
   it("preserves ordered filenames in docs routes", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",

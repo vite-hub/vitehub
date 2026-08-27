@@ -375,10 +375,16 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       }
 
       if (fragment && targetFile) {
+        if (statSync(targetFile).isDirectory()) {
+          const readme = join(targetFile, "README.md");
+          if (existsSync(readme)) targetFile = readme;
+        }
         const targetRenderer = sourceRoute === undefined && !isSiteLink ? "github" : "mdc";
-        const targetAnchors = targetRoute && applicationRoutes.has(targetRoute)
+        const targetAnchors = targetRoute === "/docs/frameworks-hosts/support-matrix"
           ? applicationRoutes.get(targetRoute)
-          : extname(targetFile) === ".md" ? anchorsFor(targetFile, targetRenderer) : undefined;
+          : extname(targetFile) === ".md"
+            ? anchorsFor(targetFile, targetRenderer)
+            : targetRoute ? applicationRoutes.get(targetRoute) : undefined;
         if (targetAnchors && !targetAnchors.has(fragment)) {
           errors.push(`${relative(repoRoot, sourcePath)}: anchor #${fragment} does not exist in ${relative(repoRoot, targetFile)}`);
         }
