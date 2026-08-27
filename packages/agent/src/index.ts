@@ -3574,8 +3574,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
     if (hasRuntimeType(current, "string") && current) return result
-    const prototype = Object.getPrototypeOf(result)
-    if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) {
+    if (!Object.isExtensible(result)) {
       return { raw: result, text }
     }
     return resultWithPreservedProperties(result, {
@@ -3599,51 +3598,24 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
       usageRecord,
     }
   }
-  const prototype = Object.getPrototypeOf(result)
-  if (prototype !== Object.prototype && prototype !== null) {
-    if (Object.isExtensible(result)) {
-      try {
-        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        const record = result as { usage?: unknown, usageRecord?: unknown }
-        record.usageRecord ??= usageRecord
-        record.usage ??= usageRecord.usage
-        return result
-      }
-      catch {
-        // Fall through to a wrapper when an existing property cannot be assigned.
-      }
+  if (Object.isExtensible(result)) {
+    try {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+      const record = result as { usage?: unknown, usageRecord?: unknown }
+      record.usageRecord ??= usageRecord
+      record.usage ??= usageRecord.usage
+      return result
     }
-    return {
-      ...toAgentRunResult(result),
-      raw: result,
-      usage: usageRecord.usage,
-      usageRecord,
+    catch {
+      // Fall through to a wrapper when an existing property cannot be assigned.
     }
   }
-  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  const record = result as { usage?: unknown, usageRecord?: unknown }
-  return cloneWithPropertyDescriptors(result, {
-    ...(record.usage == null
-      ? {
-          usage: {
-            configurable: true,
-            enumerable: true,
-            value: usageRecord.usage,
-            writable: true,
-          },
-        }
-      : {}),
-    ...(record.usageRecord == null
-      ? {
-          usageRecord: {
-            configurable: true,
-            enumerable: true,
-            value: usageRecord,
-            writable: true,
-          },
-        }
-      : {}),
-  })
+  return {
+    ...toAgentRunResult(result),
+    raw: result,
+    usage: usageRecord.usage,
+    usageRecord,
+  }
 }
 
 function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {

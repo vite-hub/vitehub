@@ -297,6 +297,57 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(raw).not.toHaveProperty("usageRecord")
   })
 
+  it("preserves immutable plain raw streams in the finish result", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.freeze({
+      async *[Symbol.asyncIterator]() {
+        yield { text: "answer", type: "text-delta" }
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
+      },
+    })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        raw,
+        text: "answer",
+        usage: { totalTokens: 2 },
+      },
+    })
+  })
+
+  it("adds streamed usage to preserved plain stream results", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const result = {
+      fullStream: (async function* () {
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
+      })(),
+    }
+    const agent = defineAgent({
+      driver: { run: () => result },
+      hooks: { "agent:finish": vi.fn() },
+    })
+
+    const preserved = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof result & {
+      usage?: unknown
+      usageRecord?: unknown
+    }
+    for await (const _event of preserved.fullStream) {}
+
+    expect(preserved).not.toBe(result)
+    expect(preserved).toMatchObject({
+      usage: { totalTokens: 2 },
+      usageRecord: { usage: { totalTokens: 2 } },
+    })
+  })
+
   it.each([
     { form: "stream", kind: "run" },
     { form: "run", kind: "model" },
