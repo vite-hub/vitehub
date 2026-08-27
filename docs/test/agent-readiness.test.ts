@@ -31,6 +31,22 @@ describe("agent-ready HTTP contracts", () => {
     expect(config).not.toContain("run_worker_first");
   });
 
+  it("pins the patched Nuxt toolchain and disables DevTools", () => {
+    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
+    const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
+    const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
+
+    expect(workspace).toContain("nuxt: ^4.5.2");
+    expect(lockfile).toContain("nuxt@4.5.2:");
+    expect(lockfile).toContain("'@nuxt/devtools@3.4.2':");
+    expect(lockfile).not.toContain("nuxt@4.4.8:");
+    expect(lockfile).not.toContain("'@nuxt/devtools@3.2.4':");
+    expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
+    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt");
+    expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
+  });
+
   it("adds Accept to Vary once and gives missing routes recovery links", () => {
     expect(withVary(undefined, "Accept")).toBe("Accept");
     expect(withVary("Accept-Encoding", "Accept")).toBe("Accept-Encoding, Accept");

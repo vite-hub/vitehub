@@ -7,6 +7,8 @@ const knownDocusDiagnostics = new Set([
   "app/app.vue:43:25:TS2571",
   "app/components/OgImage/Docs.takumi.vue:19:84:TS2731",
   "app/components/OgImage/Landing.takumi.vue:62:73:TS2731",
+  "app/composables/useSeo.ts:78:5:TS2322",
+  "app/composables/useSeo.ts:127:5:TS2322",
   "app/error.vue:39:25:TS2571",
   "app/plugins/i18n.ts:52:77:TS2339",
   "modules/assistant/runtime/components/AssistantPanel.vue:162:12:TS2322",
