@@ -39,7 +39,7 @@ async function runtimeBinding(name: string): Promise<unknown> {
 }
 
 export function createCloudflareBrowser(
-  options: CloudflareBrowserOptions = {},
+  options: CloudflareBrowserOptions,
   loadCloudflarePlaywright: LoadCloudflarePlaywright,
 ): BrowserProvider<CloudflareBrowserBindingConnection> {
   const bindingOption = options.binding ?? "BROWSER"
