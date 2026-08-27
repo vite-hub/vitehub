@@ -467,6 +467,39 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(log.entries())).not.toContain("bytes")
   })
 
+  it("falls back to private when a public payload contains shared WebAssembly memory", async () => {
+    const log = createTraceEventLog()
+    const WebAssemblyMemory = (globalThis as typeof globalThis & {
+      WebAssembly: {
+        Memory: new (descriptor: { initial: number, maximum: number, shared: boolean }) => { buffer: ArrayBufferLike }
+      }
+    }).WebAssembly.Memory
+    const memory = new WebAssemblyMemory({ initial: 1, maximum: 1, shared: true })
+    const bytes = new Uint8Array(memory.buffer)
+    bytes[0] = 1
+    await log.append({
+      name: "custom.event",
+      payload: { value: memory, visibility: "public" },
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "run-1" },
+      type: "lifecycle",
+    })
+
+    bytes[0] = 2
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(traceEventsToOpenTelemetryLogRecords(log.entries())[0]?.attributes).toMatchObject({
+      "vitehub.payload.visibility": "private",
+    })
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.attributes).toMatchObject({
+      "vitehub.payload.visibility": "private",
+    })
+    expect(JSON.stringify(log.entries())).not.toContain("memory")
+  })
+
   it("removes spoofed activity attributes from untyped producers", async () => {
     const log = createTraceEventLog()
     await log.append({
