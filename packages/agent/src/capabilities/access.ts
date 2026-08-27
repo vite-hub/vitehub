@@ -839,6 +839,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     async search(query) {
       const scopedQuery = scopedSearchQuery(scope, query)
       if (!scopedQuery) return []
+      assertModelWorkspaceSearchQuery(scopedQuery, workspaceRuntime)
       return filterHits(scope, await workspace.fs.search(scopedQuery))
     },
     async materializeSources(options = {}) {

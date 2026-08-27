@@ -342,6 +342,23 @@ describe("access capability", () => {
       exclude: Array.from({ length: 17 }, (_, index) => `literal-{${index}}`),
       recursive: true,
     })).resolves.toHaveLength(3)
+
+    const resolvedWithExpansiveScope = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "expansive",
+            scopes: {
+              expansive: { paths: ["{a,b}".repeat(11)] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    await expect(resolvedWithExpansiveScope.workspace!.fs.search({ pattern: "orders" })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
   })
 
   it("can select Workspace Scope from an explicit trusted resolver", async () => {
