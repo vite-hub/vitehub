@@ -1,6 +1,6 @@
 import type { ConsoleSectionId } from "./sections.ts"
 
-export const consoleDefinitionSectionIds = ["databases", "workflows", "queues", "schedules"] as const satisfies readonly ConsoleSectionId[]
+export const consoleDefinitionSectionIds = ["databases", "rate-limits", "workflows", "queues", "schedules"] as const satisfies readonly ConsoleSectionId[]
 
 export type ConsoleDefinitionSectionId = (typeof consoleDefinitionSectionIds)[number]
 

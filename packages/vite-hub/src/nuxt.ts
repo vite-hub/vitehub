@@ -242,6 +242,13 @@ async function installConsole(
             path: "/_vitehub/workflows",
           }]
         : []),
+      ...(sections.includes("rate-limits")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/rate-limits.vue"),
+            name: "vitehub-console-rate-limits",
+            path: "/_vitehub/rate-limits",
+          }]
+        : []),
       ...(sections.includes("queues")
         ? [{
             file: join(consoleRuntimeRoot, "pages/queues.vue"),

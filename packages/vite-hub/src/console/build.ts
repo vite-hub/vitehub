@@ -5,11 +5,13 @@ import { pathToFileURL } from "node:url"
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { discoverDatabaseDefinitions } from "@vite-hub/database/config"
 import { discoverQueueDefinitions } from "@vite-hub/queue/vite"
+import { discoverRateLimitDeclarations } from "@vite-hub/rate-limit/vite"
 import { discoverScheduleDefinitions, readScheduleDefinitionCrons } from "@vite-hub/schedule/vite"
 import { discoverWorkflowDefinitions } from "@vite-hub/workflow/vite"
 
 import type { DiscoveredDatabaseDefinition } from "@vite-hub/database"
 import type { DiscoveredQueueDefinition } from "@vite-hub/queue"
+import type { RateLimitDeclaration } from "@vite-hub/rate-limit"
 import type { DiscoveredScheduleDefinition } from "@vite-hub/schedule"
 import type { DiscoveredWorkflowDefinition } from "@vite-hub/workflow"
 import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
@@ -69,6 +71,24 @@ function queueDefinition(
     file: relativeDefinitionFile(projectRoot, definition.handler),
     name: definition.name,
     source: definition.source || "queue",
+  }
+}
+
+function rateLimitDefinition(
+  projectRoot: string,
+  declaration: RateLimitDeclaration,
+): ConsoleDefinitionSummary {
+  return {
+    fields: [
+      { label: "Limit", value: String(declaration.policy.limit) },
+      { label: "Window", value: declaration.policy.window },
+      { label: "Enforcement", value: declaration.policy.enforcement === "strict" ? "Strict" : "Best effort" },
+      { label: "Provider failure", value: declaration.policy.failure === "allow" ? "Allow" : "Deny" },
+      { label: "Source location", value: `${declaration.source.line}:${declaration.source.column}` },
+    ],
+    file: relativeDefinitionFile(projectRoot, declaration.source.file),
+    name: declaration.name,
+    source: "require-rate-limit",
   }
 }
 
@@ -135,6 +155,12 @@ export async function discoverConsoleBuildCatalog(options: {
         .filter(definition => definition.source !== "agent-workflow-recovery")
         .map(definition => workflowDefinition(options.projectRoot, definition))
     : []
+  const rateLimits = options.sections.includes("rate-limits")
+    ? discoverRateLimitDeclarations({
+        rootDir: options.discoveryRoot,
+        scanDirs: options.serverDirs,
+      }).map(declaration => rateLimitDefinition(options.projectRoot, declaration))
+    : []
   const queues = options.sections.includes("queues")
     ? discoverQueueDefinitions({
         rootDir: options.discoveryRoot,
@@ -154,6 +180,7 @@ export async function discoverConsoleBuildCatalog(options: {
     .map(definition => scheduleDefinition(options.projectRoot, definition, scheduleCrons))
   const definitions: ConsoleDefinitionCatalog = {}
   if (options.sections.includes("databases")) definitions.databases = databases
+  if (options.sections.includes("rate-limits")) definitions["rate-limits"] = rateLimits
   if (options.sections.includes("workflows")) definitions.workflows = workflows
   if (options.sections.includes("queues")) definitions.queues = queues
   if (options.sections.includes("schedules")) definitions.schedules = schedules

@@ -543,6 +543,46 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("installs only discovered Rate Limit policies for a Rate-Limit-only Console", async () => {
+    const definition = "/tmp/vitehub-nuxt/custom-server/api/upload.post.ts"
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    await writeFile(
+      definition,
+      [
+        'import { requireRateLimit } from "vite-hub/rate-limit"',
+        'requireRateLimit(event, "uploads", { enforcement: "strict", failure: "allow", limit: 25, window: "10s" })',
+        'throw new Error("The Console must not evaluate Rate Limit modules during discovery.")',
+        "",
+      ].join("\n"),
+    )
+    try {
+      const development = createNuxt(true)
+
+      await viteHubNuxtModule({ console: true, preset: "node", rateLimit: true }, development.nuxt)
+      const pages: Array<{ file: string; name: string; path: string }> = []
+      development.runPagesHook(pages)
+
+      expect(pages).toEqual([
+        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-rate-limits", path: "/_vitehub/rate-limits" }),
+      ])
+      expect(development.nuxt.options.nitro).toMatchObject({
+        handlers: [
+          { route: "/api/_vitehub/console/sections" },
+          { route: "/api/_vitehub/console/definitions" },
+        ],
+      })
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["rate-limits"])`)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"rate-limits":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"custom-server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(definition, { force: true })
+    }
+  })
+
   it("installs discovered Schedule timing metadata for a Schedule-only Console", async () => {
     const definition = "/tmp/vitehub-nuxt/custom-server/schedules/daily.ts"
     await mkdir(resolve(definition, ".."), { recursive: true })

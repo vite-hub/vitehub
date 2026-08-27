@@ -120,6 +120,19 @@ const router = createRouter({
     },
     {
       component: ConsoleDefinitions,
+      name: "vitehub-console-rate-limits",
+      path: "/rate-limits",
+      meta: { consoleSection: "rate-limits", title: "Rate Limits · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        searchBase: "/api/_vitehub/console/search",
+        section: "rate-limits",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
       name: "vitehub-console-queues",
       path: "/queues",
       meta: { consoleSection: "queues", title: "Queues · ViteHub Console" },

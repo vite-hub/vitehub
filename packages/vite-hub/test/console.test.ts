@@ -325,6 +325,52 @@ describe("ViteHub Console", () => {
     }
   })
 
+  it("serializes discovered Rate Limit policies without loading application modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-rate-limit-host-"))
+    try {
+      await mkdir(join(root, "server/api"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/api/upload.post.ts"),
+        [
+          'import { requireRateLimit } from "vite-hub/rate-limit"',
+          'requireRateLimit(event, "uploads", { enforcement: "strict", failure: "allow", limit: 25, window: "10s" })',
+          'throw new Error("The Console must not evaluate Rate Limit modules during discovery.")',
+          "",
+        ].join("\n"),
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["rate-limits"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/api/_vitehub/console/definitions",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("serializes discovered Schedule timing metadata without loading handlers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-schedule-host-"))
     try {

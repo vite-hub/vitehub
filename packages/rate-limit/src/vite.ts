@@ -18,8 +18,10 @@ import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { createCloudflareRateLimitBindings, resolveRateLimitNamespace, writeRateLimitProviderOutput } from "./internal/provider-output.ts"
 
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
+
+export { discoverRateLimitDeclarations } from "./discovery.ts"
 
 const packageName = "@vite-hub/rate-limit"
 const pluginName = "@vite-hub/rate-limit/vite"
@@ -33,13 +35,14 @@ interface InternalRateLimitModuleOptions extends RateLimitModuleOptions {
 
 export type RateLimitVitePluginOptions = RateLimitModuleOptions
 export type RateLimitVitePlugin = Plugin
+type RateLimitConfig = UserConfig | ResolvedConfig
 
 function cloneNitroConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
 function mergeNitroConfig(
-  config: object,
+  config: RateLimitConfig,
   value: unknown,
   declarations: RateLimitDeclaration[],
   namespace: string | undefined,
