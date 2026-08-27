@@ -95,7 +95,7 @@ export function installConsoleInvocationFallback(
   }
 }
 
-export function installConsoleSections(
+export function installConsoleSectionScope(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
@@ -118,7 +118,7 @@ export function resolveConsoleSections(scope: ConsoleInvocationScope = globalThi
   const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
   if (root) return registered?.get(root) ?? scope[consoleSectionsKey] ?? []
   if (registered && registered.size > 1) return scope[consoleSectionsKey] ?? []
-  // SAFETY: installConsoleSections is the only writer for this process registry key.
+  // SAFETY: installConsoleSectionScope is the only writer for this process registry key.
   return (processRegistry(scope)?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
 }
 
