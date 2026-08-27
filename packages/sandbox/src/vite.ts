@@ -10,6 +10,9 @@ import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxDefinition } from './discovery'
 import type { AgentSandboxConfig } from './module-types'
 
+export { discoverSandboxDefinitions } from './discovery'
+export type { DiscoveredSandboxDefinition } from './discovery'
+
 export type SandboxPublicOptions = AgentSandboxConfig | false
 export type SandboxVitePlugin = Plugin & {
   nitro: {

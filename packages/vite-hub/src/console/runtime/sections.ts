@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "blob", "databases", "kv", "rate-limits", "workspaces", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["agents", "blob", "databases", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -32,6 +32,12 @@ export const consoleSectionDetails = {
     icon: "i-lucide-gauge",
     label: "Rate Limits",
     routeName: "vitehub-console-rate-limits",
+  },
+  sandboxes: {
+    description: "Inspect discovered Sandbox Definitions without starting runtime resources.",
+    icon: "i-lucide-container",
+    label: "Sandboxes",
+    routeName: "vitehub-console-sandboxes",
   },
   workspaces: {
     description: "Inspect discovered Workspace Definitions and their source roots.",
@@ -75,13 +81,14 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; queue?: unknown; rateLimit?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; queue?: unknown; rateLimit?: unknown; sandbox?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
   return [
     ...(options.agent ? ["agents" as const] : []),
     ...(options.blob ? ["blob" as const] : []),
     ...(options.database ? ["databases" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
     ...(options.rateLimit ? ["rate-limits" as const] : []),
+    ...(options.sandbox ? ["sandboxes" as const] : []),
     ...(options.workspace ? ["workspaces" as const] : []),
     ...(options.workflow ? ["workflows" as const] : []),
     ...(options.queue ? ["queues" as const] : []),

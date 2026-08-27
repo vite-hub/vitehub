@@ -448,6 +448,29 @@ describe("ViteHub Console", () => {
     }
   })
 
+  it("serializes discovered Sandbox Definition metadata without starting a Sandbox", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-sandbox-host-"))
+    try {
+      await mkdir(join(root, "src"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "src/preview.sandbox.ts"), `export default defineSandbox({ run: async () => { throw new Error("must not run") } })\n`)
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "cloudflare", sections: ["sandboxes"] })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { handlers: Array<{ route: string }>; plugins: string[] }; root: string } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandboxes":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox.ts","name":"preview","source":"vite-suffix"}]})`)
+      expect(generated).not.toContain("must not run")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects production console builds without durable local storage", async () => {
     const plugin = consoleVitePlugin({ preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config

@@ -249,6 +249,13 @@ async function installConsole(
             path: "/_vitehub/workspaces",
           }]
         : []),
+      ...(sections.includes("sandboxes")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/sandboxes.vue"),
+            name: "vitehub-console-sandboxes",
+            path: "/_vitehub/sandboxes",
+          }]
+        : []),
       ...(sections.includes("rate-limits")
         ? [{
             file: join(consoleRuntimeRoot, "pages/rate-limits.vue"),
@@ -572,7 +579,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const consoleBlobStores = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
-  const consoleSections = resolveConsoleSectionIds({ ...options, blob: consoleBlobEnabled })
+  const consoleSections = resolveConsoleSectionIds({
+    ...options,
+    blob: consoleBlobEnabled,
+    sandbox: options.sandbox === true && plan.services.sandbox.supported,
+  })
   const configuredConsoleKV = options.kv && options.kv !== true ? options.kv : undefined
   const resolvedConsoleKV = options.kv
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv

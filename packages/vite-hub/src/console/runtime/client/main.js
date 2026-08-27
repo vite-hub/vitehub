@@ -133,6 +133,19 @@ const router = createRouter({
     },
     {
       component: ConsoleDefinitions,
+      name: "vitehub-console-sandboxes",
+      path: "/sandboxes",
+      meta: { consoleSection: "sandboxes", title: "Sandboxes · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        searchBase: "/api/_vitehub/console/search",
+        section: "sandboxes",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
       name: "vitehub-console-rate-limits",
       path: "/rate-limits",
       meta: { consoleSection: "rate-limits", title: "Rate Limits · ViteHub Console" },

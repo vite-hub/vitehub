@@ -64,6 +64,12 @@ function catalog(name: string): ConsoleDefinitionCatalog {
       name,
       source: "server-schedules",
     }],
+    sandboxes: [{
+      fields: [{ label: "Kind", value: "Definition" }],
+      file: `src/${name}.sandbox.ts`,
+      name,
+      source: "vite-suffix",
+    }],
     workflows: [{
       fields: [{ label: "Steps", value: "prepare, publish" }],
       file: `server/workflows/${name}.workflow.ts`,
@@ -163,6 +169,15 @@ describe("Console definition inspection", () => {
         source: "server-schedules",
       }],
       section: "schedules",
+    })
+    expect(definitionsHandler(event("?section=sandboxes"))).toEqual({
+      definitions: [{
+        fields: [{ label: "Kind", value: "Definition" }],
+        file: "src/release.sandbox.ts",
+        name: "release",
+        source: "vite-suffix",
+      }],
+      section: "sandboxes",
     })
   })
 

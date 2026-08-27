@@ -7,6 +7,7 @@ import { discoverDatabaseDefinitions } from "@vite-hub/database/config"
 import { discoverQueueDefinitions } from "@vite-hub/queue/vite"
 import { discoverRateLimitDeclarations } from "@vite-hub/rate-limit/vite"
 import { discoverScheduleDefinitions, readScheduleDefinitionCrons } from "@vite-hub/schedule/vite"
+import { discoverSandboxDefinitions } from "@vite-hub/sandbox/vite"
 import { discoverWorkflowDefinitions } from "@vite-hub/workflow/vite"
 import { discoverViteWorkspaceDefinitions } from "@vite-hub/workspace/vite"
 
@@ -14,6 +15,7 @@ import type { DiscoveredDatabaseDefinition } from "@vite-hub/database"
 import type { DiscoveredQueueDefinition } from "@vite-hub/queue"
 import type { RateLimitDeclaration } from "@vite-hub/rate-limit"
 import type { DiscoveredScheduleDefinition } from "@vite-hub/schedule"
+import type { DiscoveredSandboxDefinition } from "@vite-hub/sandbox/vite"
 import type { DiscoveredWorkflowDefinition } from "@vite-hub/workflow"
 import type { DiscoveredWorkspaceDefinition } from "@vite-hub/workspace/vite"
 import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
@@ -111,6 +113,15 @@ function workspaceDefinition(
   }
 }
 
+function sandboxDefinition(projectRoot: string, definition: DiscoveredSandboxDefinition): ConsoleDefinitionSummary {
+  return {
+    fields: [{ label: "Kind", value: definition.kind === "package-entry" ? "Package entry" : "Definition" }],
+    file: relativeDefinitionFile(projectRoot, definition.handler),
+    name: definition.name,
+    source: definition.source,
+  }
+}
+
 function databaseDefinition(
   projectRoot: string,
   definition: DiscoveredDatabaseDefinition,
@@ -180,6 +191,10 @@ export async function discoverConsoleBuildCatalog(options: {
         serverRootDir: options.projectRoot,
       }).map(definition => workspaceDefinition(options.projectRoot, definition))
     : []
+  const sandboxes = options.sections.includes("sandboxes")
+    ? discoverSandboxDefinitions({ rootDir: options.discoveryRoot, scanDirs: options.serverDirs })
+        .map(definition => sandboxDefinition(options.projectRoot, definition))
+    : []
   const rateLimits = options.sections.includes("rate-limits")
     ? discoverRateLimitDeclarations({
         rootDir: options.discoveryRoot,
@@ -206,6 +221,7 @@ export async function discoverConsoleBuildCatalog(options: {
   const definitions: ConsoleDefinitionCatalog = {}
   if (options.sections.includes("databases")) definitions.databases = databases
   if (options.sections.includes("rate-limits")) definitions["rate-limits"] = rateLimits
+  if (options.sections.includes("sandboxes")) definitions.sandboxes = sandboxes
   if (options.sections.includes("workspaces")) definitions.workspaces = workspaces
   if (options.sections.includes("workflows")) definitions.workflows = workflows
   if (options.sections.includes("queues")) definitions.queues = queues
