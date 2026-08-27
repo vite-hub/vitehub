@@ -16,6 +16,12 @@ describe("writeDocsArtifacts", () => {
     expect(toRawMarkdown("    first\n    second\n")).toBe("    first\n    second\n");
   });
 
+  it("parses YAML block scalar titles", () => {
+    expect(toRawMarkdown("---\ntitle: >\n  Source-backed raw Markdown\n---\nBody")).toBe(
+      "# Source-backed raw Markdown\n\nBody\n",
+    );
+  });
+
   it("builds a docs manifest from the unified content tree only", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const docsRoot = resolve(rootDir, "docs");

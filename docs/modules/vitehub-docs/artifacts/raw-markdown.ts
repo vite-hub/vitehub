@@ -1,7 +1,10 @@
+import { parse } from "yaml";
+
 const frontmatterBoundary = "---";
 const siteOrigin = "https://vitehub.dev";
 
-type Frontmatter = Record<string, string>;
+type Frontmatter = Record<string, unknown>;
+type CardFields = Record<string, string>;
 
 type Fence = {
   length: number;
@@ -63,13 +66,10 @@ function splitFrontmatter(source: string): { body: string, frontmatter: Frontmat
     return { body: normalized, frontmatter: {} };
   }
 
-  const frontmatter: Frontmatter = {};
-  for (const line of normalized.slice(frontmatterBoundary.length + 1, end).split("\n")) {
-    const match = line.match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
-    if (!match) continue;
-    const [, key = "", rawValue = ""] = match;
-    frontmatter[key] = rawValue.trim().replace(/^['"]|['"]$/g, "");
-  }
+  const parsed: unknown = parse(normalized.slice(frontmatterBoundary.length + 1, end));
+  const frontmatter: Frontmatter = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Frontmatter
+    : {};
 
   return {
     body: normalized.slice(end + `\n${frontmatterBoundary}\n`.length),
@@ -264,7 +264,7 @@ function cardList(source: string) {
     const items: string[] = [];
     const cardPattern = /^\s*:::u-page-card[^\n]*\n\s*---\n([\s\S]*?)\n\s*---\n\s*:::\s*$/gm;
     for (const match of cards.matchAll(cardPattern)) {
-      const fields: Frontmatter = {};
+      const fields: CardFields = {};
       for (const line of (match[1] || "").split("\n")) {
         const field = line.trim().match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
         if (!field) continue;
@@ -463,7 +463,7 @@ function stripPresentationDirectives(source: string) {
 
 export function toRawMarkdown(source: string) {
   const { body, frontmatter } = splitFrontmatter(source);
-  const title = frontmatter.title;
+  const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : undefined;
   const content = stripPresentationDirectives(cardListsOutsideFences(body)).replace(/^\n+|\n+$/g, "");
   const document = title && !content.startsWith("# ") ? `# ${title}\n\n${content}` : content;
   return `${document}\n`;
