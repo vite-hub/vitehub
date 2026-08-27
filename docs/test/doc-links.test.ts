@@ -312,6 +312,31 @@ description: |
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
   });
 
+  it("excludes application anchors and components inside HTML comments", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<template><!-- <section id="retired" /><Retired /> --><section id="current" /></template>',
+      "docs/app/components/Retired.vue": '<template><section id="nested-retired" /></template>',
+      "docs/content/docs/index.md": "# Docs\n\n[Retired](/#retired)\n[Nested retired](/#nested-retired)\n[Current](/#current)",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining("anchor #retired does not exist"),
+      expect.stringContaining("anchor #nested-retired does not exist"),
+    ]);
+  });
+
+  it("preserves repeated slashes in rendered route destinations", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Broken](/docs//guide)",
+      "docs/content/docs/guide.md": "# Guide",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs//guide" does not exist'),
+    ]);
+  });
+
   it("does not treat dynamic application page patterns as concrete routes", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",

@@ -174,6 +174,10 @@ function normalizeRoute(route) {
   return normalized.length > 1 ? normalized.replace(/\/$/, "") : normalized;
 }
 
+function normalizeRenderedRoute(route) {
+  return route.length > 1 ? route.replace(/\/$/, "") : route;
+}
+
 function publicReadmes(repoRoot) {
   const packageReadmes = walk(join(repoRoot, "packages"), (path) => path.endsWith(`${sep}package.json`))
     .filter((packageJson) => !JSON.parse(readFileSync(packageJson, "utf8")).private)
@@ -183,7 +187,7 @@ function publicReadmes(repoRoot) {
 }
 
 function staticHtmlAnchors(source) {
-  return new Set([...source.matchAll(/\sid\s*=\s*["']([^"']+)["']/g)].map((match) => match[1]));
+  return new Set([...withoutHtmlComments(source).matchAll(/\sid\s*=\s*["']([^"']+)["']/g)].map((match) => match[1]));
 }
 
 function isStaticApplicationRoute(route) {
@@ -212,8 +216,9 @@ function appRoutes(docsRoot) {
       visited.add(file);
       const source = readFileSync(file, "utf8");
       for (const anchor of staticHtmlAnchors(source)) anchors.add(anchor);
+      const renderedSource = withoutHtmlComments(source);
       for (const [name, componentPath] of components) {
-        if (new RegExp(`<${name}(?:\\s|/|>)`).test(source)) pending.push(componentPath);
+        if (new RegExp(`<${name}(?:\\s|/|>)`).test(renderedSource)) pending.push(componentPath);
       }
     }
     return [[normalizeRoute(`/${route}`), anchors]];
@@ -299,8 +304,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
         targetFile = sourcePath;
       } else if (sourceRoute !== undefined || isSiteLink) {
         targetRoute = path.startsWith("/")
-          ? normalizeRoute(path)
-          : normalizeRoute(new URL(path, `${siteOrigin}${sourceRoute ?? "/"}`).pathname);
+          ? normalizeRenderedRoute(path)
+          : normalizeRenderedRoute(new URL(path, `${siteOrigin}${sourceRoute ?? "/"}`).pathname);
         targetFile = routeFiles.get(targetRoute);
         if (!targetFile) {
           const publicFile = resolve(publicRoot, `.${targetRoute}`);
