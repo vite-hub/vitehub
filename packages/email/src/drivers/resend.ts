@@ -79,6 +79,9 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       if (message.template !== undefined) {
         return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support template payloads.") }
       }
+      if (message.react !== undefined || message.jsx !== undefined || message.mjml !== undefined || message.handlebars !== undefined || message.handlebarsVars !== undefined || message.liquid !== undefined || message.liquidVars !== undefined) {
+        return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support renderer payloads.") }
+      }
       let body: string
       let idempotencyKey: string | undefined
       try {
@@ -135,7 +138,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
           status: response.status,
         }) }
       }
-      return typeof responseBody.id === "string"
+      return typeof responseBody.id === "string" && responseBody.id.trim() !== ""
         ? { data: { at: new Date(), driver: "resend", id: responseBody.id, provider: responseBody }, error: null }
         : { data: null, error: emailProviderError("resend", "PROVIDER", "Resend returned no message id.") }
     },

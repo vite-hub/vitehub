@@ -130,6 +130,24 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { react: {} },
+    { jsx: {} },
+    { mjml: "<mjml />" },
+    { handlebars: "Hello {{name}}" },
+    { handlebarsVars: { name: "Maxi" } },
+    { liquid: "Hello {{ name }}" },
+    { liquidVars: { name: "Maxi" } },
+  ])("rejects unsupported renderer payloads before fetch", async (renderer) => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, ...renderer }, context)).resolves.toMatchObject({
+      error: { code: "UNSUPPORTED", driver: "resend" },
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it("rejects unsupported personalizations before fetch", async () => {
     const request = vi.fn()
     const driver = resend({ apiKey: "re_secret", fetch: request })
@@ -184,6 +202,11 @@ describe("Resend Email driver", () => {
 
   it.each([200, 400])("handles a JSON null response with HTTP %s", async (status) => {
     const driver = resend({ apiKey: "re_secret", fetch: async () => new Response("null", { status }) })
+    await expect(driver.send(message, context)).resolves.toMatchObject({ data: null, error: { code: "PROVIDER", driver: "resend" } })
+  })
+
+  it.each(["", "   "])("rejects an empty message id in a successful response", async (id) => {
+    const driver = resend({ apiKey: "re_secret", fetch: async () => new Response(JSON.stringify({ id }), { status: 200 }) })
     await expect(driver.send(message, context)).resolves.toMatchObject({ data: null, error: { code: "PROVIDER", driver: "resend" } })
   })
 })
@@ -331,6 +354,13 @@ describe("Cloudflare Email driver", () => {
     ["idempotency keys", { idempotencyKey: "send-1" }],
     ["sandbox delivery", { sandbox: true }],
     ["template payloads", { template: { id: "welcome" } }],
+    ["React renderer payloads", { react: {} }],
+    ["JSX renderer payloads", { jsx: {} }],
+    ["MJML renderer payloads", { mjml: "<mjml />" }],
+    ["Handlebars renderer payloads", { handlebars: "Hello {{name}}" }],
+    ["Handlebars variables", { handlebarsVars: { name: "Maxi" } }],
+    ["Liquid renderer payloads", { liquid: "Hello {{ name }}" }],
+    ["Liquid variables", { liquidVars: { name: "Maxi" } }],
   ])("rejects unsupported %s before sending", async (_name, unsupported) => {
     const send = vi.fn()
     const Constructor = vi.fn()

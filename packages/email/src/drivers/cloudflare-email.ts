@@ -146,6 +146,9 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         if (message.template !== undefined) {
           return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support template payloads.") }
         }
+        if (message.react !== undefined || message.jsx !== undefined || message.mjml !== undefined || message.handlebars !== undefined || message.handlebarsVars !== undefined || message.liquid !== undefined || message.liquidVars !== undefined) {
+          return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", "Cloudflare Email does not support renderer payloads.") }
+        }
         message = applyPersonalization("cloudflare-email", message)
         const from = addresses(message.from)[0]
         const recipients = [
