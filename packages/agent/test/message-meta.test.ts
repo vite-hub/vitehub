@@ -285,7 +285,11 @@ describe("Agent message metadata", () => {
     await parseAgentMessageMeta(currentAgent, context)
 
     expect(state).toEqual({ derivedInvoker: true, revision: "test-v1" })
-    expect(context.get("channel")).toEqual({ meta: { audience: "current" }, user: { id: "chat:user-1" } })
+    expect(context.get("channel")).toEqual({
+      message: { parts: [{ text: "hello", type: "text" }], role: "user" },
+      meta: { audience: "current" },
+      user: { id: "chat:user-1" },
+    })
     expect(context.get("invoker")).toEqual({
       id: "chat:user-1",
       kind: "chat",
@@ -446,6 +450,7 @@ describe("Agent message metadata", () => {
     })
     const run = vi.fn(({ invoker }) => {
       expect(invoker).toEqual({
+        email: { address: "user@example.com", domain: "example.com" },
         id: "chat:user-1",
         kind: "chat",
         meta: { audience: "technical", email: "user@example.com", ignored: true },

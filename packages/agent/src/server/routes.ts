@@ -21,6 +21,8 @@ import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCa
 import {
   chatTriggerHistoryLimit,
   createChatMessageTriggerInput,
+  hasDerivedChatTriggerInvoker,
+  markDerivedChatTriggerInvoker,
   resolveChatSessionBaseId,
   resolveChatSessionId,
   resolveChatTriggerHistory,
@@ -4453,7 +4455,7 @@ function withChatFinishExtension<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS
   return {
     ...input,
     context: {
-      ...(input.context || {}),
+      ...input.context,
       [CHAT_FINISH_EXTENSION_CONTEXT_KEY]: chat,
     },
   }
@@ -4490,6 +4492,7 @@ async function isChatMessageAuthorized(
   messageContext?: MessageContext,
 ): Promise<AgentInvoker | undefined> {
   const invocationContext = createAgentInvocationContextStore(input.context)
+  const derivedInvoker = hasDerivedChatTriggerInvoker(invocationContext.get("invoker"))
   const invoker = await resolveAgentInvoker(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -4498,6 +4501,7 @@ async function isChatMessageAuthorized(
     input,
     run,
   )
+  if (derivedInvoker) markDerivedChatTriggerInvoker(invoker)
   for (const accessOptions of getAccessCapabilityOptions(getAgentCapabilities(agent))) {
     if (!accessOptions.chat) continue
     const result = await accessOptions.chat.resolve({
@@ -4587,6 +4591,24 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
+    const authorizationInput = await withParsedAgentMessageMeta(
+      // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
+      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+      createChatMessageTriggerInput(options || {}, input).input,
+      input.run,
+    )
+    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
+    if (!invoker) {
+      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+      return
+    }
+    const parsedChannelContext = authorizationInput.context?.channel
+    input = withAgentInvokerRunAnnotation({
+      ...input,
+      context: authorizationInput.context,
+      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
+    }, invoker)
+
     const messages = scopeCurrentChatUiMessage(
       await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
       message.id,
@@ -4616,23 +4638,6 @@ async function handleChatSdkMessage(
         return
       }
     }
-    const authorizationInput = await withParsedAgentMessageMeta(
-      // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
-      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
-      createChatMessageTriggerInput(options || {}, input).input,
-      input.run,
-    )
-    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
-    if (!invoker) {
-      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
-      return
-    }
-    const parsedChannelContext = authorizationInput.context?.channel
-    input = withAgentInvokerRunAnnotation({
-      ...input,
-      context: authorizationInput.context,
-      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
-    }, invoker)
 
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
