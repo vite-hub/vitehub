@@ -702,6 +702,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let observationWrite: Promise<void> | undefined
       let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
+      const terminalRetryObservations: TraceEventLogEntry[] = []
       const persistedObservationSequences = new Set<number>()
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
@@ -883,7 +884,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           registerAgentInvocationRecovery(context, persistLateObservation(observation))
           return
         }
-        if (finishing) return
+        if (finishing) {
+          terminalRetryObservations.push(observation)
+          return
+        }
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
         const priority = outcomeObservationPriority(observation)
         const queuedObservation = priority !== undefined && (atCapacity || observationsTruncated)
@@ -965,6 +969,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
             ownsRecord = false
+            const observations = terminalRetryObservations.splice(0)
+            if (observations.length > 0) {
+              registerAgentInvocationRecovery(context, Promise.all(observations.map(persistLateObservation)).then(() => undefined))
+            }
             return true
           }
           if (await finishOnce() || terminalRetry) return
@@ -986,6 +994,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (!finished && terminalRetry === retry) {
               terminalRetry = undefined
               finishing = false
+              pendingObservations.push(...terminalRetryObservations.splice(0))
+              writeNextObservation()
             }
           })
           terminalRetry = retry

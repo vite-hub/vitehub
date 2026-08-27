@@ -126,6 +126,46 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("persists delivery observations emitted while terminal finalization retries", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let terminalAttempts = 0
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            if (input.status === "completed" && terminalAttempts++ === 0) return undefined
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("retrying-terminal-delivery"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.finish("completed")
+
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Reply delivered during retry" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await vi.waitFor(async () => {
+        const record = await invocations.getByRunId("retrying-terminal-delivery")
+        expect(record).toMatchObject({ status: "completed" })
+        expect(record?.observations).toContainEqual(expect.objectContaining({
+          attributes: { "channel.effect.content": "Reply delivered during retry" },
+          name: "agent.channel.delivery.effect",
+        }))
+      })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("retains late delivery outcomes when a completed journal is at capacity", async () => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("late-delivery-at-capacity"))
