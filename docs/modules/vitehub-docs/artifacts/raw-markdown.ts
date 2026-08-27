@@ -46,10 +46,57 @@ function absoluteUrl(value: string) {
   return value.startsWith("/") && !value.startsWith("//") ? `${siteOrigin}${value}` : value;
 }
 
-function rewriteLinks(line: string) {
+function rewriteMarkdownLinks(line: string) {
   return line.replace(/(!?\[[^\]]*\]\()([^\s)]+)([^)]*\))/g, (_match, opening: string, target: string, closing: string) => {
     return `${opening}${absoluteUrl(target)}${closing}`;
   });
+}
+
+function rewriteLinks(line: string) {
+  let output = "";
+  let offset = 0;
+
+  for (const opening of line.matchAll(/`+/g)) {
+    const openingIndex = opening.index;
+    if (openingIndex < offset) continue;
+
+    const marker = opening[0];
+    const closingPattern = new RegExp(`(?<!\`)${marker}(?!\`)`, "g");
+    closingPattern.lastIndex = openingIndex + marker.length;
+    const closing = closingPattern.exec(line);
+    if (!closing) break;
+
+    output += rewriteMarkdownLinks(line.slice(offset, openingIndex));
+    output += line.slice(openingIndex, closing.index + marker.length);
+    offset = closing.index + marker.length;
+  }
+
+  return output + rewriteMarkdownLinks(line.slice(offset));
+}
+
+function indentationColumns(line: string) {
+  let columns = 0;
+  for (const character of line) {
+    if (character === " ") columns += 1;
+    else if (character === "\t") columns += 4 - (columns % 4);
+    else break;
+  }
+  return columns;
+}
+
+function removeIndentation(line: string, columns: number) {
+  let index = 0;
+  let removed = 0;
+
+  while (index < line.length && removed < columns) {
+    const character = line[index];
+    const width = character === " " ? 1 : character === "\t" ? 4 - (removed % 4) : 0;
+    if (width === 0 || removed + width > columns) break;
+    removed += width;
+    index += 1;
+  }
+
+  return line.slice(index);
 }
 
 function cardList(source: string) {
@@ -124,11 +171,11 @@ function stripPresentationDirectives(source: string) {
   let fence: (Fence & { indent: number }) | null = null;
 
   for (const originalLine of source.split("\n")) {
-    const leadingSpaces = originalLine.match(/^ */)?.[0].length || 0;
-    const structuralIndent: number = fence?.indent ?? Math.min(leadingSpaces, depth * 2);
-    const deindented = originalLine.slice(Math.min(leadingSpaces, structuralIndent));
+    const leadingColumns = indentationColumns(originalLine);
+    const structuralIndent: number = fence?.indent ?? Math.min(leadingColumns, depth * 2);
+    const deindented = removeIndentation(originalLine, structuralIndent);
 
-    if (!fence && leadingSpaces >= depth * 2 + 4) {
+    if (!fence && leadingColumns >= depth * 2 + 4) {
       output.push(deindented);
       continue;
     }

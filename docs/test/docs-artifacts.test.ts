@@ -133,11 +133,20 @@ describe("writeDocsArtifacts", () => {
         "    This indented code block remains literal.",
         "    ::",
         "",
+        "\t::tip",
+        "\tThis tab-indented code block remains literal.",
+        "\t::",
+        "",
         "::steps",
         "      ::warning",
         "      This nested indented code block remains literal.",
         "      ::",
+        "  \t  ::important",
+        "  \t  This mixed-indentation code block remains literal.",
+        "  \t  ::",
         "::",
+        "",
+        "[Rendered link](/docs/rendered) and `[literal link](/docs/literal)`.",
         "",
         "```md",
         "::warning",
@@ -195,7 +204,10 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("| Choice | Result |");
       expect(raw).toContain("> **Warning**");
       expect(raw).toContain("    ::warning\n    This indented code block remains literal.\n    ::");
+      expect(raw).toContain("\t::tip\n\tThis tab-indented code block remains literal.\n\t::");
       expect(raw).toContain("    ::warning\n    This nested indented code block remains literal.\n    ::");
+      expect(raw).toContain("\t  ::important\n\t  This mixed-indentation code block remains literal.\n\t  ::");
+      expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
       expect(raw).toContain([
         "````md",
