@@ -40,6 +40,7 @@ describe("documentation link validation", () => {
 ![Image](/images/diagram.png)
 <img data-src="/images/metadata.png" src="/images/html-diagram.png" alt="HTML diagram">
 <img data-note=" src=&quot;/images/decoy.png&quot;" src="/images/actual.png">
+<picture><source srcset="/images/dark.png 1x, /images/dark@2x.png 2x"><img src="/images/fallback.png"></picture>
 :u-button[Guide]{to="/docs/inline"}
 :u-avatar[]{src="/images/avatar.png"}
 ::card
@@ -88,6 +89,9 @@ https://vitehub.dev/docs/bare-autolink
       "/images/diagram.png",
       "/images/html-diagram.png",
       "/images/actual.png",
+      "/images/dark.png",
+      "/images/dark@2x.png",
+      "/images/fallback.png",
       "/docs/inline",
       "/images/avatar.png",
       "/docs/card",
@@ -430,6 +434,29 @@ to: /docs/missing-card
       errors: [expect.stringContaining('route "/docs/missing" does not exist')],
       files: 1,
     });
+  });
+
+  it("does not resolve README root-relative links as repository files", () => {
+    const repoRoot = fixture({
+      "README.md": "# ViteHub\n\n[Rendered host path](/packages/example)",
+      "docs/app/pages/index.vue": "<template />",
+      "packages/example/package.json": JSON.stringify({ name: "example", private: true }),
+    });
+
+    expect(validateDocumentationLinks({ repoRoot })).toMatchObject({ errors: [], checked: 0 });
+  });
+
+  it("validates source-set assets in public READMEs", () => {
+    const repoRoot = fixture({
+      "README.md": '<picture><source srcset="./dark.svg 1x, ./dark@2x.svg 2x"><img src="./fallback.svg"></picture>',
+      "docs/app/pages/index.vue": "<template />",
+      "fallback.svg": "<svg />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('file "./dark.svg" does not exist'),
+      expect.stringContaining('file "./dark@2x.svg" does not exist'),
+    ]);
   });
 
   it("reports rendered .md routes that the browser cannot resolve", () => {

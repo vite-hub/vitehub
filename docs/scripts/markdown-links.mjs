@@ -71,6 +71,11 @@ function withoutHtmlComments(value) {
   return value.replace(/<!--[\s\S]*?-->/g, "");
 }
 
+function sourceSetLinks(value) {
+  if (/^\s*data:/i.test(value)) return [value.trim()];
+  return value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0]).filter(Boolean);
+}
+
 function frontmatterLinks(frontmatter) {
   const value = parseYaml(frontmatter);
   if (value?.constructor !== Object) return [];
@@ -148,9 +153,12 @@ export function markdownLinks(markdown, { renderer = "mdc" } = {}) {
       }
     }
     if (node.type === "html") {
-      for (const match of withoutHtmlComments(node.value).matchAll(/<(a|img)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
-        const destination = htmlAttribute(match[0], match[1].toLowerCase() === "a" ? "href" : "src");
+      for (const match of withoutHtmlComments(node.value).matchAll(/<(a|img|source)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi)) {
+        const tag = match[1].toLowerCase();
+        const destination = htmlAttribute(match[0], tag === "a" ? "href" : "src");
         if (destination) links.push(destination);
+        const sourceSet = tag === "a" ? undefined : htmlAttribute(match[0], "srcset");
+        if (sourceSet) links.push(...sourceSetLinks(sourceSet));
       }
     }
   });
@@ -285,6 +293,7 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       renderer: sourceRoute === undefined ? "github" : "mdc",
     })) {
       if (/^(?:mailto:|tel:|data:|javascript:)/i.test(destination)) continue;
+      if (sourceRoute === undefined && /^\/(?!\/)/.test(destination)) continue;
       let local = destination;
       let isSiteLink = false;
       if (/^(?:https?:)?\/\//i.test(destination)) {
