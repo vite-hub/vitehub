@@ -113,6 +113,37 @@ describe("Resend Email driver", () => {
     vi.useRealTimers()
   })
 
+  it("applies one deadline to the complete response body", async () => {
+    vi.useFakeTimers()
+    const response = new Response(new ReadableStream({
+      async pull(controller) {
+        await new Promise(resolve => setTimeout(resolve, 20_000))
+        controller.enqueue(new Uint8Array([1]))
+      },
+    }))
+    const driver = resend({ apiKey: "re_secret", fetch: async () => response })
+
+    const delivery = driver.send(message, context)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    vi.useRealTimers()
+  })
+
+  it.each(["rejecting", "pending"])("does not wait for %s response cancellation", async (behavior) => {
+    vi.useFakeTimers()
+    const cancel = vi.fn(() => behavior === "rejecting" ? Promise.reject(new Error("cancel failed")) : new Promise<void>(() => {}))
+    const response = new Response(new ReadableStream({ cancel }))
+    const driver = resend({ apiKey: "re_secret", fetch: async () => response })
+
+    const delivery = driver.send(message, context)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    expect(cancel).toHaveBeenCalledOnce()
+    vi.useRealTimers()
+  })
+
   it("aborts and times out a stalled request", async () => {
     vi.useFakeTimers()
     const request = vi.fn((_input: Parameters<typeof fetch>[0], init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -142,16 +173,27 @@ describe("Resend Email driver", () => {
     expect(cancel).toHaveBeenCalledOnce()
   })
 
-  it("forwards cancellation to fetch and classifies aborts", async () => {
+  it("does not dispatch a pre-aborted send", async () => {
     const controller = new AbortController()
     controller.abort()
-    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-      expect(init?.signal).toBe(controller.signal)
-      throw new DOMException("aborted", "AbortError")
-    })
+    const request = vi.fn()
     const driver = resend({ apiKey: "re_secret", fetch: request })
 
     await expect(driver.send(message, { ...context, signal: controller.signal })).resolves.toMatchObject({
+      error: { code: "CANCELLED", driver: "resend", retryable: false },
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it("keeps caller cancellation connected through the response body", async () => {
+    const controller = new AbortController()
+    const response = new Response(new ReadableStream())
+    const driver = resend({ apiKey: "re_secret", fetch: async () => response })
+
+    const delivery = driver.send(message, { ...context, signal: controller.signal })
+    controller.abort()
+
+    await expect(delivery).resolves.toMatchObject({
       error: { code: "CANCELLED", driver: "resend", retryable: false },
     })
   })

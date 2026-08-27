@@ -25,38 +25,47 @@ function isString(value: unknown): value is string {
   return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
 }
 
-async function readResponseText(response: Response): Promise<string> {
+async function readResponseText(response: Response, signal: AbortSignal): Promise<string> {
   if (!response.body) return ""
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let bytes = 0
   let text = ""
-  while (true) {
-    let timeout: ReturnType<typeof setTimeout> | undefined
-    let result: { done: false, value: Uint8Array } | { done: true, value?: undefined }
-    try {
-      result = await Promise.race([
-        reader.read(),
-        new Promise<never>((_resolve, reject) => {
-          timeout = setTimeout(() => reject(emailProviderError("resend", "TIMEOUT", "Resend response timed out.", { retryable: true })), RESPONSE_READ_TIMEOUT_MS)
-        }),
-      ])
+  let rejectDeadline: (cause: unknown) => void = () => {}
+  const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject })
+  const cancelRead = (cause: unknown) => {
+    rejectDeadline(cause)
+    void reader.cancel().catch(() => {})
+  }
+  const abortRead = () => cancelRead(signal.reason ?? new DOMException("aborted", "AbortError"))
+  signal.addEventListener("abort", abortRead, { once: true })
+  if (signal.aborted) {
+    signal.removeEventListener("abort", abortRead)
+    void reader.cancel().catch(() => {})
+    throw signal.reason ?? new DOMException("aborted", "AbortError")
+  }
+  const timeout = setTimeout(() => {
+    cancelRead(emailProviderError("resend", "TIMEOUT", "Resend response timed out.", { retryable: true }))
+  }, RESPONSE_READ_TIMEOUT_MS)
+  try {
+    while (true) {
+      const { done, value } = await Promise.race([reader.read(), deadline])
+      if (done) return text + decoder.decode()
+      bytes += value.byteLength
+      if (bytes > MAX_RESPONSE_BYTES) {
+        void reader.cancel().catch(() => {})
+        throw emailProviderError("resend", "PROVIDER", `Resend response exceeded ${MAX_RESPONSE_BYTES} bytes.`)
+      }
+      text += decoder.decode(value, { stream: true })
     }
-    catch (cause) {
-      await reader.cancel().catch(() => {})
-      throw cause
-    }
-    finally {
-      if (timeout !== undefined) clearTimeout(timeout)
-    }
-    const { done, value } = result
-    if (done) return text + decoder.decode()
-    bytes += value.byteLength
-    if (bytes > MAX_RESPONSE_BYTES) {
-      await reader.cancel()
-      throw emailProviderError("resend", "PROVIDER", `Resend response exceeded ${MAX_RESPONSE_BYTES} bytes.`)
-    }
-    text += decoder.decode(value, { stream: true })
+  }
+  catch (cause) {
+    void reader.cancel().catch(() => {})
+    throw cause
+  }
+  finally {
+    clearTimeout(timeout)
+    signal.removeEventListener("abort", abortRead)
   }
 }
 
@@ -162,6 +171,9 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         return { data: null, error: emailProviderError("resend", "INVALID_OPTIONS", "Resend payload is invalid.", { cause }) }
       }
       let response: Response
+      if (context.signal?.aborted) {
+        return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", { cause: context.signal.reason, retryable: false }) }
+      }
       const requestController = new AbortController()
       const abortRequest = () => requestController.abort(context.signal?.reason)
       context.signal?.addEventListener("abort", abortRequest, { once: true })
@@ -183,23 +195,25 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         })
       }
       catch (cause) {
+        clearTimeout(requestTimeout)
+        context.signal?.removeEventListener("abort", abortRequest)
         if (isEmailProviderError(cause)) return { data: null, error: cause }
         if (requestTimedOut) return { data: null, error: emailProviderError("resend", "TIMEOUT", "Resend request timed out.", { cause, retryable: true }) }
         if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", { cause, retryable: false }) }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend request failed.", { cause, retryable: true }) }
       }
-      finally {
-        clearTimeout(requestTimeout)
-        context.signal?.removeEventListener("abort", abortRequest)
-      }
+      clearTimeout(requestTimeout)
       let text: string
       try {
-        text = await readResponseText(response)
+        text = await readResponseText(response, requestController.signal)
       }
       catch (cause) {
         if (isEmailProviderError(cause)) return { data: null, error: cause }
         if (cancelled(context.signal, cause)) return { data: null, error: emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", { cause, retryable: false }) }
         return { data: null, error: emailProviderError("resend", "NETWORK", "Resend response failed.", { cause, retryable: true }) }
+      }
+      finally {
+        context.signal?.removeEventListener("abort", abortRequest)
       }
       let responseBody: Record<string, unknown> = {}
       try {
