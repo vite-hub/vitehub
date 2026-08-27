@@ -18,6 +18,7 @@ export type PullRequest = {
   headRefOid: string
   headRepository: { nameWithOwner: string } | null
   isDraft: boolean
+  labels?: unknown
   mergeStateStatus: string
   number: number
   reviewDecision: string | null
@@ -64,6 +65,7 @@ export async function selectPullRequestJobs(
       const pullRequests = await listPullRequests(repository)
       return pullRequests
         .filter(pullRequest => !hasOpenStackParent(pullRequest, pullRequests))
+        .filter(pullRequest => !hasWorkingReservation(pullRequest))
         .map(pullRequest => ({ pullRequest, repository }))
     }
     catch (error) {
@@ -89,6 +91,12 @@ export async function selectPullRequestJobs(
   }))
 
   return jobs.filter((job): job is PullRequestJob => job !== undefined)
+}
+
+function hasWorkingReservation(pullRequest: PullRequest) {
+  return Array.isArray(pullRequest.labels) && pullRequest.labels.some((label) => {
+    return label && typeof label === 'object' && (label as Record<string, unknown>).name === 'Agent: Working'
+  })
 }
 
 function hasOpenStackParent(pullRequest: PullRequest, pullRequests: PullRequest[]) {

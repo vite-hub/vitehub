@@ -579,6 +579,19 @@ test('keeps healthy repositories when one listing fails', async (t) => {
   assert.deepEqual(jobs.map(job => job.repository), ['vite-hub/brief'])
 })
 
+test('does not overlap a pull request reserved by another owner', async () => {
+  const reserved = { ...pullRequest(1), labels: [{ name: 'Agent: Working' }] }
+  const available = { ...pullRequest(2), labels: [{ name: 'Agent: Queued' }] }
+  const jobs = await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [reserved, available],
+    async () => null,
+    policyFingerprint,
+  )
+
+  assert.deepEqual(jobs.map(job => job.pullRequest.number), [2])
+})
+
 test('keeps the backlog available beyond the active owner count', async () => {
   const jobs = await selectPullRequestJobs(
     ['vite-hub/vitehub'],

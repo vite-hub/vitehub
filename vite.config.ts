@@ -39,10 +39,7 @@ export default defineConfig({
       blob: false,
       database: false,
       kv: { driver: 'fs-lite' },
-      schedule: {
-        providerOutput: false,
-        runtime: { driver: 'process', intervalMs: 1_000 },
-      },
+      schedule: false,
       workflow: false,
       workspace: false,
     }),

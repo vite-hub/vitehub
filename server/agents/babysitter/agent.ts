@@ -1,15 +1,32 @@
 import github from '@github-tools/eve-extension'
+import { createProcessAgentCapacity } from '@vite-hub/agent/runtime/process'
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { diagnostics, otlp, title } from 'vite-hub/agent/capabilities'
 import { nodeRuntimeResources } from '@vite-hub/runtime/node'
 import { reportOperationalDiagnostic } from '../../babysitter.operations.ts'
 import { createCheckoutGitEnvironment } from '../../babysitter.checkout.ts'
 import { createProviderResourceEnvironment } from '../../babysitter.provider.ts'
+import { defaultMaxOwners, resolveMaxOwners } from '../../babysitter.queue.ts'
 import { consoleClient } from '../../console.ts'
 import { githubAgentEnvironment, githubToken } from '../../github.ts'
 import { invocations } from '../../invocations.ts'
 
 const capabilityToken = await githubToken({ fallback: true })
+const maxOwners = resolveMaxOwners(process.env.BABYSITTER_MAX_OWNERS || defaultMaxOwners)
+export const ownerCapacity = createProcessAgentCapacity({
+  concurrency: maxOwners,
+  cpu: { pausePressure: 0.25, resumePressure: 0.10 },
+  fallbackConcurrency: 1,
+  intervalMs: 5_000,
+  memory: {
+    pausePressure: 0.05,
+    perInvocationBytes: 1024 ** 3,
+    reserveBytes: 1024 ** 3,
+    resumePressure: 0.01,
+  },
+  queue: { maxPending: 100 },
+  rampUp: 1,
+})
 const capabilities = [diagnostics({
   reporter: reportOperationalDiagnostic,
   resources: nodeRuntimeResources(),
@@ -38,6 +55,7 @@ const capabilities = [diagnostics({
     })]
   : [])] as const
 const createDriver = (token: string, checkout?: string) => codexDriver({
+  capacity: ownerCapacity,
   env: {
     ...createProviderResourceEnvironment(),
     ...githubAgentEnvironment(token),
