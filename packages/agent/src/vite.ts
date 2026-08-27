@@ -2920,6 +2920,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
 
       return {
+        build: mergeBuildExternal(config as BuildWithRolldownOptions, []),
         resolve: {
           noExternal: mergeNoExternal(config.resolve?.noExternal),
         },

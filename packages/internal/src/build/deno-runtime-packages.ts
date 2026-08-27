@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { access, cp, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -17,6 +17,7 @@ const denoRuntimeTargets = [
 interface FinalizeDenoDeploymentOutputOptions {
   alias?: ViteAlias[]
   deploymentName?: string
+  hasCustomAliasResolver?: boolean
   hasScheduleIntegration?: boolean
   outputDir?: string
   rootDir: string
@@ -96,7 +97,7 @@ function maskInertImportText(source: string): string {
     }
     if (character === '"' || character === "'" || character === "`") {
       const prefix = output.slice(Math.max(0, output.length - 120))
-      const keep = character !== "`" && /(?:\b(?:from|import|export)|\b(?:import|require)\s*\()\s*$/.test(prefix)
+      const keep = character !== "`" && /(?:\b(?:from|import|export)|\b(?:import|require)\s*\(|\bnew\s+URL\s*\()\s*$/.test(prefix)
       let end = index + 1
       while (end < source.length) {
         if (source[end] === "\\") end += 2
@@ -310,13 +311,14 @@ async function readRuntimePackages(runtimeDirs: string[], rootDir: string): Prom
 }
 
 function assertSupportedApplicationEntryImports(source: string): void {
-  for (const match of source.matchAll(/new URL\(\s*["'](\.[^"']*)["']\s*,\s*import\.meta\.url\s*\)/g)) {
+  const executableSource = maskInertImportText(source)
+  for (const match of executableSource.matchAll(/new URL\(\s*["'](\.[^"']*)["']\s*,\s*import\.meta\.url\s*\)/g)) {
     const specifier = match[1]!
     if (specifier === "./schedule/deno-cron.mjs" || specifier === "./server/index.mjs") continue
     throw new Error(`Deno application entrypoint contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
   }
-  const remaining = source.replaceAll(/import\s*\(\s*new URL\(\s*["']\.\/(?:schedule\/deno-cron\.mjs|server\/index\.mjs)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, "")
-  if (/\bimport\s*\(\s*[^"'\s]/.test(maskInertImportText(remaining))) {
+  const remaining = executableSource.replaceAll(/import\s*\(\s*new URL\(\s*["']\.\/(?:schedule\/deno-cron\.mjs|server\/index\.mjs)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, "")
+  if (/\bimport\s*\(\s*[^"'\s]/.test(remaining)) {
     throw new Error("Deno application entrypoint contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.")
   }
 }
@@ -420,6 +422,9 @@ export async function finalizeDenoDeploymentOutput(
     }
     hasSchedule = true
     await access(applicationEntrySource)
+    if (options.hasCustomAliasResolver) {
+      throw new Error("[vitehub] Deno Schedule output cannot stage Vite aliases with customResolver. Use a string or RegExp alias with a string replacement.")
+    }
     await mkdir(join(outputDir, "schedule"), { recursive: true })
     await bundleEsmEntry(scheduleSource, join(outputDir, "schedule", "deno-cron.mjs"), {
       external: [...builtinModuleNames],
@@ -430,16 +435,24 @@ export async function finalizeDenoDeploymentOutput(
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
-    assertSupportedApplicationEntryImports(await readFile(applicationEntrySource, "utf8"))
-    await bundleEsmEntry(applicationEntrySource, join(outputDir, "main.ts"), {
-      external: [...builtinModuleNames, "./schedule/*", "./server/*"],
-      alias: options.alias,
-      format: "esm",
-      packages: "external",
-      platform: "neutral",
-      rootDir: options.rootDir,
-      workingDir: options.rootDir,
-    })
+    const applicationOutput = join(outputDir, "main.ts")
+    const temporaryApplicationOutput = `${applicationOutput}.vitehub-tmp`
+    try {
+      await bundleEsmEntry(applicationEntrySource, temporaryApplicationOutput, {
+        external: [...builtinModuleNames, "./schedule/*", "./server/*"],
+        alias: options.alias,
+        format: "esm",
+        packages: "external",
+        platform: "neutral",
+        rootDir: options.rootDir,
+        workingDir: options.rootDir,
+      })
+      assertSupportedApplicationEntryImports(await readFile(temporaryApplicationOutput, "utf8"))
+      await rename(temporaryApplicationOutput, applicationOutput)
+    }
+    finally {
+      await rm(temporaryApplicationOutput, { force: true })
+    }
     entrypoint = "main.ts"
   }
   catch (error) {

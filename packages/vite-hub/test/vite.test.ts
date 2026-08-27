@@ -944,7 +944,7 @@ describe("vitehub", () => {
     })
   })
 
-  it("rejects Vite custom alias resolvers for Deno staging", () => {
+  it("allows custom alias resolvers until Deno Schedule output is staged", () => {
     const plugin = dependencyPluginByName(vitehub({ preset: "deno" }), "vite-hub/deployment-output")
     const customResolver = { resolveId: vi.fn() }
 
@@ -953,7 +953,7 @@ describe("vitehub", () => {
       nitro: { preset: "deno-server" },
       plugins: [],
       resolve: { alias: [{ customResolver, find: "#app", replacement: "/app/index.ts" }] },
-    }])).toThrow("cannot stage Vite aliases with customResolver")
+    }])).not.toThrow()
   })
 
   it("composes deployment output through a Nitro module", async () => {

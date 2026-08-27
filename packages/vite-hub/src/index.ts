@@ -354,7 +354,7 @@ function deploymentNitroModule(
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
-  resolvedBuildConfig: () => { alias: ViteAlias[], hasScheduleIntegration: boolean },
+  resolvedBuildConfig: () => { alias: ViteAlias[], hasCustomAliasResolver: boolean, hasScheduleIntegration: boolean },
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
@@ -388,7 +388,7 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  let resolvedBuildConfig = { alias: [] as ViteAlias[], hasScheduleIntegration: false }
+  let resolvedBuildConfig = { alias: [] as ViteAlias[], hasCustomAliasResolver: false, hasScheduleIntegration: false }
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
@@ -562,18 +562,13 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
-        if (plan.output.packaging === "deno-node-modules") {
-          const customAlias = config.resolve.alias.find(alias => alias.customResolver !== undefined)
-          if (customAlias) {
-            throw new Error("[vitehub] The Deno deployment preset cannot stage Vite aliases with customResolver. Use a string or RegExp alias with a string replacement.")
-          }
-        }
         resolvedBuildConfig = {
           alias: config.resolve.alias.flatMap(alias =>
             (typeof alias.find === "string" || alias.find instanceof RegExp) && typeof alias.replacement === "string"
               ? [{ find: alias.find, replacement: alias.replacement }]
               : [],
           ),
+          hasCustomAliasResolver: config.resolve.alias.some(alias => alias.customResolver !== undefined),
           hasScheduleIntegration: config.plugins.some(plugin => plugin.name === "@vite-hub/schedule/vite"),
         }
         if (plan.preset === "cloudflare") {

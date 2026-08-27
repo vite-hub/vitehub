@@ -112,6 +112,47 @@ import "real"
     )
   })
 
+  it("rejects computed imports retained from bundled application helpers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-helper-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "helper.ts"), 'const base = import.meta.url\nawait import(new URL("./child.ts", base).href)\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'import "./helper.ts"\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+      "unsupported computed import",
+    )
+    expect(existsSync(join(root, ".output/main.ts"))).toBe(false)
+  })
+
+  it("ignores inert computed-import text in Deno application entrypoints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-inert-import-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'const example = `import(new URL("./example.ts", import.meta.url).href)`\n// import(new URL("./comment.ts", import.meta.url).href)\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
+  })
+
+  it("rejects custom alias resolvers only when staging Deno Schedule output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-custom-alias-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasCustomAliasResolver: true, rootDir: root })).resolves.toBeUndefined()
+
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), "void 0\n", "utf8")
+    await expect(finalizeDenoDeploymentOutput({ hasCustomAliasResolver: true, hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+      "cannot stage Vite aliases with customResolver",
+    )
+  })
+
   it("stages external Schedule packages and their native optional dependencies", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-package-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
