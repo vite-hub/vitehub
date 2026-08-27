@@ -21,7 +21,6 @@ import { forwardWorkspaceMetadataTarget, workspaceMetadataTarget, type Workspace
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
 import type { Tool, ToolSet } from "ai"
-import type { History } from "@vite-hub/history"
 import type {
   DiffOptions,
   GlobOptions,
@@ -117,6 +116,20 @@ export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
 }
 
 export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = WorkspaceAssets<WorkspaceAssetPath<Name>>
+
+export interface HistoryCheckpoint {
+  createdAt: string
+  id: string
+  name?: string
+}
+
+export interface HistoryCheckpointOptions {
+  message?: string
+}
+
+export interface History<TCheckpoint extends HistoryCheckpoint = HistoryCheckpoint> {
+  checkpoint(options?: HistoryCheckpointOptions): Promise<TCheckpoint>
+}
 
 export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName> {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: WorkspaceWritablePath<Name>, options?: TOptions): Promise<ReadFileResult<TOptions>>

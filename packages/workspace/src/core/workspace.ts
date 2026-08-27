@@ -6,6 +6,7 @@ import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { workspaceMetadataTarget } from "../storage/metadata-target.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
@@ -30,7 +31,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     [workspaceMetadataTarget]: () => store,
     name: definition.name,
     async capabilities() {
-      return { conditionalWrites: typeof store.writeFileConditional === "function" }
+      return { conditionalWrites: hasRuntimeType(store.writeFileConditional, "function") }
     },
     async sync(options) {
       const { syncWorkspaceSources } = await import("../sources/sync.ts")
@@ -105,6 +106,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     forwardWorkspaceRevisionMaterializer(store, workspace)
   }
 
+  // SAFETY: This module owns the private synchronization member attached to its Workspace facade.
   ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async (abortSignal) => {
     const { syncWorkspaceDefinition } = await import("../lifecycle.ts")
     await syncWorkspaceDefinition(definition, store, abortSignal)

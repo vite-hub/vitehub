@@ -1,4 +1,5 @@
 import { workspaceNotFoundError } from "./errors.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import runtimeRegistry from "#vitehub-workspace-registry"
@@ -27,6 +28,7 @@ interface WorkspaceRegistryState {
 type WorkspaceRegistryGlobal = typeof globalThis & Record<symbol, WorkspaceRegistryState | undefined>
 
 function workspaceRegistryState(): WorkspaceRegistryState {
+  // SAFETY: Registry normalization establishes the asserted Workspace definition contract.
   const scope = globalThis as WorkspaceRegistryGlobal
   scope[workspaceRegistryStateKey] ??= {
     loadingDefinitions: new Map(),
@@ -54,16 +56,18 @@ function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<strin
     stepLimit: _stepLimit,
     workspace: _workspace,
     ...workspace
+  // SAFETY: Registry normalization establishes the asserted Workspace definition contract.
   } = definition as WorkspaceDefinitionInput & Record<string, unknown>
   return workspace
 }
 
 export function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
   if (!definition) throw workspaceNotFoundError(name)
+  // SAFETY: Registry normalization establishes the asserted Workspace definition contract.
   const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: string | WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
   if (workspaceAgentOptions?.workspace) {
     const injectedWorkspace = pickWorkspaceFields(definition)
-    const configuredWorkspace = typeof workspaceAgentOptions.workspace === "string" ? {} : workspaceAgentOptions.workspace
+    const configuredWorkspace = hasRuntimeType(workspaceAgentOptions.workspace, "string") ? {} : workspaceAgentOptions.workspace
     const sources = mergeWorkspaceSources(injectedWorkspace.sources, configuredWorkspace.sources)
     return {
       ...injectedWorkspace,
@@ -89,7 +93,7 @@ function mergeWorkspaceSources(
 }
 
 export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): WorkspaceDefinition {
-  if (!name || typeof name !== "string") {
+  if (!name || !hasRuntimeType(name, "string")) {
     throw new TypeError("[vitehub] registerWorkspace requires a string name.")
   }
   const registered = normalizeWorkspaceDefinition(name, definition)

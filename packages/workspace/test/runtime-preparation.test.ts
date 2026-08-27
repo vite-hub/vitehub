@@ -80,11 +80,22 @@ describe("Workspace runtime preparation", () => {
   it("preserves absent optional Store mutation methods", async () => {
     const base = createMemoryWorkspaceStore()
     const store = new Proxy(base, {
-      get(target, property, receiver) {
+      get(target, property) {
         if (property === "setMeta") return undefined
-        return Reflect.get(target, property, receiver)
+        const value = Reflect.get(target, property, target)
+        return value instanceof Function ? value.bind(target) : value
       },
     })
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }], store),
+    })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await preparation.stop()
+  })
+
+  it("prepares with a non-extensible custom Store", async () => {
+    const store = Object.preventExtensions(createMemoryWorkspaceStore())
     const preparation = createWorkspacePreparation({
       workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }], store),
     })
@@ -418,9 +429,10 @@ describe("Workspace runtime preparation", () => {
     const writing = new Promise<void>((resolve) => { writeStarted = resolve })
     let writes = 0
     const store: WorkspaceStore = new Proxy(base, {
-      get(target, property, receiver) {
+      get(target, property) {
         if (property !== "writeFileStream") {
-          return Reflect.get(target, property, receiver)
+          const value = Reflect.get(target, property, target)
+          return value instanceof Function ? value.bind(target) : value
         }
         return async (path: string, file: WorkspaceStreamFile) => {
           writes++

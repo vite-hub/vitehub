@@ -62,15 +62,19 @@ interface MaterializationState {
 }
 
 const materializationByStore = new WeakMap<WorkspaceStore, WeakMap<WorkspaceDefinition, MaterializationState>>()
-const invalidateMaterialization = Symbol.for("vitehub.workspace.invalidateSourceMaterialization")
-
-type InvalidatableWorkspaceStore = WorkspaceStore & {
-  [invalidateMaterialization]?: (definition: WorkspaceDefinition, sourceKeys: Iterable<string>) => Promise<void>
-}
 
 export async function invalidateWorkspaceSourceMaterialization(definition: WorkspaceDefinition, store: WorkspaceStore, sourceKeys: Iterable<string>): Promise<void> {
-  // SAFETY: This optional symbol hook is installed only on Workspace Stores created by this module.
-  await (store as InvalidatableWorkspaceStore)[invalidateMaterialization]?.(definition, sourceKeys)
+  const state = materializationByStore.get(store)?.get(definition)
+  if (!state) return
+  const pending = new Set<Promise<void>>()
+  for (const sourceKey of sourceKeys) {
+    state.completedSources.delete(sourceKey)
+    state.materializedSources.delete(sourceKey)
+    state.generationBySource.set(sourceKey, (state.generationBySource.get(sourceKey) ?? 0) + 1)
+    const operation = state.pendingBySource.get(sourceKey)
+    if (operation) pending.add(operation.tail)
+  }
+  await Promise.all(pending)
 }
 
 async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -104,20 +108,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   if (!materializationByDefinition) {
     materializationByDefinition = new WeakMap()
     materializationByStore.set(store, materializationByDefinition)
-    // SAFETY: The symbol adds private coordination state without changing the public Store contract.
-    ;(store as InvalidatableWorkspaceStore)[invalidateMaterialization] = async (targetDefinition, sourceKeys) => {
-      const state = materializationByStore.get(store)?.get(targetDefinition)
-      if (!state) return
-      const pending = new Set<Promise<void>>()
-      for (const sourceKey of sourceKeys) {
-        state.completedSources.delete(sourceKey)
-        state.materializedSources.delete(sourceKey)
-        state.generationBySource.set(sourceKey, (state.generationBySource.get(sourceKey) ?? 0) + 1)
-        const operation = state.pendingBySource.get(sourceKey)
-        if (operation) pending.add(operation.tail)
-      }
-      await Promise.all(pending)
-    }
   }
   const materializationState = materializationByDefinition.get(definition) ?? {
     completedSources: new Set<string>(),

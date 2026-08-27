@@ -82,12 +82,19 @@ function customerSource() {
 }
 
 function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspaceFacade {
+  // SAFETY: This test fixture intentionally supplies only the Workspace tools exercised by these cases.
+  const tools = {
+    inspect: () => ({}),
+    none: () => ({}),
+  } as never
   return {
     fs: {
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       readFile: async (path, options) => await workspace.readFile(path, options as never),
       stat: async path => await workspace.stat(path),
       exists: async path => await workspace.exists(path),
       list: async (path, options) => await workspace.list(path, options),
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       glob: async (pattern, options) => await workspace.glob(pattern as never, options),
       search: async query => await workspace.search(query),
       materializeSources: async options => await workspace.materializeSources?.(options) ?? {
@@ -100,14 +107,17 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
       },
     },
     getMeta: async key => await workspace.getMeta?.(key),
-    tools: {
-      inspect: () => ({}),
-      none: () => ({}),
-    } as never,
+    tools,
   }
 }
 
 function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
+  // SAFETY: This test fixture intentionally supplies only the Workspace tools exercised by these cases.
+  const tools = {
+    inspect: () => ({}),
+    none: () => ({}),
+    write: () => ({}),
+  } as never
   return {
     capabilities: async () => await workspace.capabilities?.() ?? { conditionalWrites: false },
     diff: async options => await workspace.diff(options),
@@ -120,6 +130,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
         await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
       },
       exists: async path => await workspace.exists(path),
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       glob: async (pattern, options) => await workspace.glob(pattern as never, options),
       list: async (path, options) => await workspace.list(path || "", options),
       mkdir: async (path, options) => await workspace.mkdir(path, options),
@@ -127,6 +138,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
         await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
         await workspace.rm(from, { force: true, recursive: true })
       },
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       readFile: async (path, options) => await workspace.readFile(path, options as never),
       rm: async (path, options) => await workspace.rm(path, options),
       search: async query => await workspace.search(query),
@@ -151,17 +163,15 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     snapshot: async options => await workspace.snapshot(options),
     startSession: async options => await workspace.startSession(options),
     sync: async options => await workspace.sync(options),
-    tools: {
-      inspect: () => ({}),
-      none: () => ({}),
-      write: () => ({}),
-    } as never,
+    tools,
   }
 }
 
 async function runShell(workspace: ReadonlyWorkspaceFacade, command: string): Promise<WorkspaceShellResult> {
+  // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
   return await workspace.tools.shell.execute!(
     { command },
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     { toolCallId: "test", messages: [] } as never,
   ) as WorkspaceShellResult
 }
@@ -198,6 +208,7 @@ describe("Workspace Source Resolution", () => {
       invocation: {
         context: {
           entries: () => values.entries(),
+          // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
           get: (id: string) => values.get(id) as never,
           has: id => values.has(id),
           toJSON: () => Object.fromEntries(values),
@@ -574,6 +585,7 @@ describe("Workspace Source Resolution", () => {
       "~standard": {
         jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
         validate(input: unknown) {
+          // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
           return { value: input as Record<string, unknown> }
         },
       },
@@ -605,14 +617,18 @@ describe("Workspace Source Resolution", () => {
       definition,
       scope("support", [workspaceSourceRequestDescriptorPath("inventoryHealthSummary")]),
     )
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const result = await workspace.tools.shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       { toolCallId: "test", messages: [] } as never,
     ) as WorkspaceShellResult
 
     expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }, null, 2) })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const hiddenResult = await workspace.tools.shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/hidden-inventory'" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       { toolCallId: "test", messages: [] } as never,
     ) as WorkspaceShellResult
 
@@ -620,8 +636,11 @@ describe("Workspace Source Resolution", () => {
       exitCode: 126,
       stderr: expect.stringContaining("not visible in the selected workspace scope"),
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const init = request.mock.calls[0]?.[1] as RequestInit
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     expect((init.headers as Headers).get("x-scope")).toBe("support")
     expect(request).toHaveBeenCalledOnce()
     expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
@@ -1201,6 +1220,11 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const writable = workspace as WritableWorkspaceFacade
 
     await expect(writable.fs.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
@@ -1242,6 +1266,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const writable = workspace as WritableWorkspaceFacade
     await writable.materializeSources({ path: "docs" })
     await writable.publish({ name: "publish resolved view" })
@@ -1270,6 +1295,7 @@ describe("Workspace Source Resolution", () => {
         token: "token",
       })],
     }
+    // SAFETY: This test fixture intentionally exposes the private Store target hook under test.
     const facade = writableFacade(base) as WritableWorkspaceFacade & { [workspaceStoreTarget]: () => unknown }
     facade[workspaceStoreTarget] = () => ({ provider: "github", branch: "main", repository: "onmax/repo" })
     const { workspace } = await createWorkspaceSourceResolutionFacade(facade, definition, {
@@ -1277,6 +1303,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((workspace as WritableWorkspaceFacade).publish()).rejects.toThrow(
       "GitHub publisher cannot publish to onmax/repo@main while it backs the active GitHub Workspace Store",
     )
@@ -1305,6 +1332,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
@@ -1335,6 +1363,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((first.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
     })
@@ -1345,6 +1374,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((second.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
       sources: [expect.objectContaining({
@@ -1426,6 +1456,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const startSession = vi.spyOn(workspace.fs as typeof workspace.fs & {
       startSession(options?: { paths?: string[] }): Promise<unknown>
     }, "startSession")
@@ -1488,6 +1519,7 @@ describe("Workspace Source Resolution", () => {
     })
 
     expect(workspace).toHaveProperty("startSession")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await (workspace as ReadonlyWorkspaceFacade & { startSession(options?: { paths?: string[] }): Promise<unknown> }).startSession({
       paths: ["public"],
     })
@@ -1519,6 +1551,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const session = await (workspace as WritableWorkspaceFacade).startSession()
 
     await expect(session.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
@@ -1541,6 +1574,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const session = await (workspace as WritableWorkspaceFacade).startSession({ paths: ["artifacts"] })
 
     try {

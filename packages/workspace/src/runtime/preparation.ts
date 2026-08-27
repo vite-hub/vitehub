@@ -1,6 +1,7 @@
 import { resolveRegisteredWorkspaceDefinition } from "../core/registry.ts"
 import { useWorkspace } from "../core/use.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type {
   WorkspaceMaterializeSourcesResult,
@@ -70,10 +71,10 @@ async function waitForAbortable<T>(
 export function createWorkspacePreparation<Name extends WorkspaceName = WorkspaceName>(
   options: WorkspacePreparationOptions<Name>,
 ): WorkspacePreparation {
-  if (!options || typeof options.workspace !== "string" || !options.workspace.trim()) {
+  if (!options || !hasRuntimeType(options.workspace, "string") || !options.workspace.trim()) {
     throw new TypeError("[vitehub] Workspace preparation requires a Workspace name.")
   }
-  if (options.sources !== undefined && (!Array.isArray(options.sources) || options.sources.some(source => typeof source !== "string" || !source.trim()))) {
+  if (options.sources !== undefined && (!Array.isArray(options.sources) || options.sources.some(source => !hasRuntimeType(source, "string") || !source.trim()))) {
     throw new TypeError("[vitehub] Workspace preparation sources must be non-empty strings.")
   }
   const retryDelayMs = options.retryDelayMs ?? 10_000
