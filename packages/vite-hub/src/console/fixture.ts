@@ -68,6 +68,8 @@ function observation(value: unknown, path: string): TraceEventLogEntry {
       `[vitehub] Console fixture ${path}.sequence must be a non-negative safe integer.`,
     )
   }
+  requiredString(input.name, `${path}.name`)
+  timestamp(input.timestamp, `${path}.timestamp`)
   if (input.attributes !== undefined && !record(input.attributes)) {
     throw new TypeError(`[vitehub] Console fixture ${path}.attributes must be an object.`)
   }

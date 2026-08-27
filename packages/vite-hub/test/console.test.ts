@@ -119,6 +119,28 @@ describe("Agent invocation console", () => {
       })),
       version: 1,
     })).toThrow("duplicate invocation id")
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id: "missing-observation-fields",
+        observations: [{ sequence: 0, type: "run" }],
+        status: "completed",
+        traceId: "trace",
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      }],
+      version: 1,
+    })).toThrow("observations[0].name must be a non-empty string")
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id: "missing-observation-timestamp",
+        observations: [{ name: "agent.message", sequence: 0, type: "run" }],
+        status: "completed",
+        traceId: "trace",
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      }],
+      version: 1,
+    })).toThrow("observations[0].timestamp must be a non-empty string")
   })
 
   it("serializes generated Agent registry refreshes", async () => {

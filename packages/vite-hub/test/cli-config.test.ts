@@ -46,6 +46,7 @@ describe("ViteHub CLI config loading", () => {
       configFile: false,
       root,
     }), "serve", "development")
+    expect(loadNuxt).toHaveBeenCalledWith({ cwd: root, dev: true, ready: true })
     expect(close).toHaveBeenCalledOnce()
   })
 

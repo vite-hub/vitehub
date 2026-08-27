@@ -19,7 +19,7 @@ type ResolveViteConfig = (
 
 type LoadNuxt = (options: {
   cwd: string
-  dev: false
+  dev: true
   ready: true
 }) => Promise<{
   close?: () => Promise<void> | void
@@ -60,7 +60,7 @@ export async function loadViteHubCliConfig(
   }
 
   const loadNuxt = dependencies.loadNuxt ?? await resolveNuxtLoader(rootDir)
-  const nuxt = await loadNuxt({ cwd: rootDir, dev: false, ready: true })
+  const nuxt = await loadNuxt({ cwd: rootDir, dev: true, ready: true })
   try {
     return {
       ...await resolveViteConfig({
