@@ -2,10 +2,12 @@
 
 This example defines one Agent, discovers it through Vite, and invokes it without a model API key. Its custom `driver.run` returns a fixed-format greeting, so the same input always produces the same output.
 
-You need Node.js 24.15 or newer and pnpm. From the repository root, install the workspace dependencies, then enter this example:
+You need Node.js 24.15 or newer and pnpm. From the repository root, install the workspace dependencies, build the Agent and CLI packages used by the example, then enter its directory:
 
 ```sh
 corepack pnpm install
+corepack pnpm exec vp run -t @vite-hub/agent#build
+corepack pnpm exec vp run -t @vite-hub/cli#build
 cd packages/agent/examples/vite
 ```
 
