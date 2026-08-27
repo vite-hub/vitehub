@@ -14,12 +14,19 @@ import type { Client } from "@libsql/client"
 export interface LibsqlAgentInvocationStoreOptions {
   authToken?: string
   client?: Client
+  /** Maximum age of terminal invocation records. Defaults to 30 days. Set to false to disable age-based retention. */
+  maxAgeMs?: false | number
+  /** Maximum number of terminal invocation records. Defaults to 10,000. Set to false to disable count-based retention. */
+  maxRecords?: false | number
   tablePrefix?: string
   url?: string
 }
 
+const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
+const defaultMaxRecords = 10_000
 const searchBackfillPageSize = 100
 const searchVersion = 2
+const terminalStatuses = ["completed", "failed", "cancelled"] as const
 
 function tableName(prefix = "vitehub_agent_"): string {
   const name = `${prefix}invocations`
@@ -94,6 +101,15 @@ function searchValue(search: string | undefined): string | undefined {
   return value || undefined
 }
 
+function retentionValue(value: false | number | undefined, fallback: number, name: string): false | number {
+  if (value === false) return false
+  if (value === undefined) return fallback
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new TypeError(`[vitehub] SQLite Agent Invocation ${name} must be a positive safe integer or false.`)
+  }
+  return value
+}
+
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): AgentInvocationStore {
   if (!options.client && !options.url) {
     throw new TypeError("[vitehub] SQLite Agent Invocations require url or client.")
@@ -103,6 +119,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     url: options.url!,
   })
   const table = tableName(options.tablePrefix)
+  const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs")
+  const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
   let writes = Promise.resolve()
   const write = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -217,6 +235,30 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const row = result.rows[0]
     return row ? deserialize(row.record, row.sequence) : undefined
   }
+  const prune = async () => {
+    const filters: string[] = []
+    const args: Array<number | string> = []
+    const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
+    if (maxAgeMs !== false) {
+      filters.push("json_extract(record, '$.updatedAt') < ?")
+      args.push(new Date(Date.now() - maxAgeMs).toISOString())
+    }
+    if (maxRecords !== false) {
+      filters.push(`sequence NOT IN (
+        SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
+      )`)
+      args.push(...terminalStatuses, maxRecords)
+    }
+    if (!filters.length) return
+    await client.batch([
+      {
+        args: [...terminalStatuses, ...args],
+        sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
+      },
+      `DELETE FROM ${table}_claims
+        WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`,
+    ], "write")
+  }
   return {
     async claim(id, claimId, leaseMs, force) {
       return write(async () => {
@@ -241,6 +283,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         const record = await read(input.id)
         if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
+        await prune()
         return { created: result.rowsAffected > 0, record }
       })
     },
@@ -306,6 +349,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         const transaction = await client.transaction("write")
+        let updated: AgentInvocationRecord | undefined
         try {
           const result = await transaction.execute({
             args: claimId ? [id, id, claimId] : [id],
@@ -319,7 +363,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             await transaction.commit()
             return
           }
-          const updated = applyAgentInvocationStoreUpdate(record, input)
+          updated = applyAgentInvocationStoreUpdate(record, input)
           const stored = storedRecord(updated)
           await transaction.execute({
             args: [id],
@@ -330,7 +374,6 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
           })
           await transaction.commit()
-          return updated
         }
         catch (error) {
           await transaction.rollback()
@@ -339,6 +382,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         finally {
           await transaction.close()
         }
+        if (updated && (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled")) {
+          await prune()
+        }
+        return updated
       })
     },
   }
