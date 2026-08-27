@@ -452,8 +452,6 @@ function overridePrototypeMethods<T extends object>(target: T, overrides: Partia
     get(_wrapper, property) {
       if (Object.hasOwn(overrides, property)) return Reflect.get(overrides, property, overrides)
       const value = Reflect.get(target, property, target)
-      const ownDescriptor = Reflect.getOwnPropertyDescriptor(target, property)
-      if (ownDescriptor && "value" in ownDescriptor) return value
       return typeof value === "function" ? value.bind(target) : value
     },
     has(_wrapper, property) {
