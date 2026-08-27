@@ -1,3 +1,4 @@
+import { constants } from "node:os"
 import { resolve } from "node:path"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -94,8 +95,9 @@ export async function runConsoleDevCli(
       },
     })
     if (result.exitCode !== null) return result.exitCode
+    if (result.signal) return 128 + constants.signals[result.signal]
     context.stderr.write(
-      `Console development command exited without a status${result.signal ? ` (${result.signal})` : ""}.\n`,
+      "Console development command exited without a status.\n",
     )
     return 1
   } catch (error) {

@@ -109,7 +109,7 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   }
   return {
     ...input,
-    agentName: optionalString(input.agentName, `${path}.agentName`),
+    agentName: requiredString(input.agentName, `${path}.agentName`),
     cancelledAt: optionalTimestamp(input.cancelledAt, `${path}.cancelledAt`),
     channelId: optionalString(input.channelId, `${path}.channelId`),
     completedAt: optionalTimestamp(input.completedAt, `${path}.completedAt`),

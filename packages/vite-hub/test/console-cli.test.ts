@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -97,6 +97,32 @@ describe("Console fixture CLI", () => {
 
     expect(spawn).not.toHaveBeenCalled()
     expect(stderr.output()).toContain("Console fixture version must be 1")
+  })
+
+  it("rejects fixture invocations without an Agent name", async () => {
+    const { fixture, root } = await fixtureRoot()
+    const fixtureValue = JSON.parse(await readFile(fixture, "utf8"))
+    delete fixtureValue.invocations[0].agentName
+    await writeFile(fixture, JSON.stringify(fixtureValue))
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const stderr = stream()
+    const cli = context(root, { spawn, stderr })
+
+    await expect(runConsoleDevCli(["--fixture", fixture, "--", "pnpm", "dev"], cli)).resolves.toBe(1)
+
+    expect(spawn).not.toHaveBeenCalled()
+    expect(stderr.output()).toContain("invocations[0].agentName must be a non-empty string")
+  })
+
+  it("translates child termination signals to shell exit statuses", async () => {
+    const { root } = await fixtureRoot()
+    const cli = context(root, { spawn: vi.fn(async () => ({ exitCode: null, signal: "SIGTERM" as const })) })
+
+    await expect(
+      runConsoleDevCli(["--fixture", "console.fixture.json", "--", "pnpm", "dev"], cli),
+    ).resolves.toBe(143)
+
+    expect((cli.stderr as ReturnType<typeof stream>).output()).toBe("")
   })
 
   it("requires both a fixture and an explicit development command", async () => {

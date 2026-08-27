@@ -110,7 +110,7 @@ Fixture paths resolve from the Vite project root. Put records in oldest-to-newes
 }
 ```
 
-The wrapper preserves the child command's exit status. Invalid arguments, unreadable files, malformed JSON, unsupported fixture versions, duplicate invocation ids, and invalid records print a diagnostic to stderr and return status `1` without starting the development command. Fixture mode is development-only, and a production build rejects the fixture environment before it generates server output.
+The wrapper preserves the child command's exit status, translating signal termination to the conventional `128 + signal number` status. Invalid arguments, unreadable files, malformed JSON, unsupported fixture versions, duplicate invocation ids, and invalid records print a diagnostic to stderr and return status `1` without starting the development command. Fixture mode is development-only, and a production build rejects the fixture environment before it generates server output.
 
 Fixtures often contain prompts and model output. Use synthetic or scrubbed records before committing them.
 
