@@ -1000,7 +1000,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
           const failure = errorDetails(error)
           for (const observation of pendingOutcomes.slice(0, -1)) {
-            await update({ observation, timestamp: observation.timestamp })
+            const persisted = await update({ observation, timestamp: observation.timestamp })
+            if (!persisted && deliveryOutcomeObservation(observation)) {
+              terminalRetryObservations.push(observation)
+            }
           }
           const terminalOutcome = pendingOutcomes.at(-1)
           const finishInput: AgentInvocationStoreUpdateInput = {
@@ -1011,13 +1014,20 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
           const finishOnce = async () => {
             if (finished) return false
-            const updated = await update(finishInput, bindOptions.terminalTakeover)
-              || terminalOutcome !== undefined && await update({
+            let updated = await update(finishInput, bindOptions.terminalTakeover)
+            let terminalOutcomePersisted = updated || terminalOutcome === undefined
+            if (!updated && terminalOutcome !== undefined) {
+              updated = await update({
                 ...(failure ? { error: failure } : {}),
                 status,
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
+              terminalOutcomePersisted = false
+            }
             if (!updated) return false
+            if (!terminalOutcomePersisted && terminalOutcome && deliveryOutcomeObservation(terminalOutcome)) {
+              terminalRetryObservations.push(terminalOutcome)
+            }
             if (discardedObservationKeys.some(key => !persistedObservations.has(key))) {
               await markTruncated(bindOptions.terminalTakeover)
             }

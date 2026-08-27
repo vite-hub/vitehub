@@ -814,6 +814,7 @@ describe("Agent Invocations", () => {
       const memory = createMemoryAgentInvocationStore()
       let reportActiveStarted!: () => void
       let deliveryAttempts = 0
+      const recoveryTasks: Array<Promise<unknown>> = []
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const invocations = defineAgentInvocations({
         content: "content",
@@ -831,7 +832,10 @@ describe("Agent Invocations", () => {
           },
         },
       })
-      const journal = await bindAgentInvocations(invocations, runtime("finish-deadline-delivery"))
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("finish-deadline-delivery"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
       if (!journal) throw new Error("Expected the invocation journal to be configured.")
       await journal.running()
       await journal.context.traceLog?.append({ name: "active", type: "run" })
@@ -845,6 +849,7 @@ describe("Agent Invocations", () => {
       const finishing = journal.finish("completed")
       await vi.advanceTimersByTimeAsync(3_000)
       await finishing
+      await Promise.all(recoveryTasks)
 
       const record = await invocations.getByRunId("finish-deadline-delivery")
       expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
@@ -852,7 +857,76 @@ describe("Agent Invocations", () => {
         attributes: expect.objectContaining({ "channel.effect.content": "Reply before finalization" }),
         name: "agent.channel.delivery.effect",
       }))
-      expect(deliveryAttempts).toBe(2)
+      expect(deliveryAttempts).toBe(3)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("retries every queued delivery that misses terminal finalization", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      let firstDeliveryAttempts = 0
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const recoveryTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            if (input.observation?.attributes?.["channel.effect.content"] === "First reply") {
+              const attempt = firstDeliveryAttempts++
+              if (attempt === 0) return await new Promise(() => {})
+              if (attempt === 1) return undefined
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("finish-deadline-deliveries"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "First reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Second reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+      await Promise.all(recoveryTasks)
+
+      const record = await invocations.getByRunId("finish-deadline-deliveries")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "channel.effect.content": "First reply" }),
+          name: "agent.channel.delivery.effect",
+        }),
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "channel.effect.content": "Second reply" }),
+          name: "agent.channel.delivery.effect",
+        }),
+      ]))
+      expect(firstDeliveryAttempts).toBe(3)
     }
     finally {
       vi.useRealTimers()
