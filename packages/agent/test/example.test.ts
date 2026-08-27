@@ -30,7 +30,7 @@ async function availablePort() {
   await once(server, "listening")
 
   const address = server.address()
-  if (!address || typeof address === "string") throw new Error("Could not allocate an Agent example test port")
+  if (!address || !("port" in address)) throw new Error("Could not allocate an Agent example test port")
 
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
   return address.port
@@ -60,6 +60,7 @@ describe("offline Agent Vite example", () => {
 
   it("builds a request route from public package imports", async () => {
     const moduleUrl = pathToFileURL(join(exampleRoot, "dist/server.js")).href
+    // SAFETY: the example build emits its default H3 app from src/server.ts.
     const { default: app } = await import(moduleUrl) as { default: { request: (path: string, init?: RequestInit) => Promise<Response> } }
     const response = await app.request("/greet", {
       body: JSON.stringify({ name: "Ada" }),

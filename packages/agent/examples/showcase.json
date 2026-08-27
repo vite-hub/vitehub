@@ -15,7 +15,8 @@
           },
           "supplementalFiles": [
             "README.md",
-            "package.json"
+            "package.json",
+            "vitehub.mjs"
           ]
         },
         "build": {
@@ -26,7 +27,8 @@
           },
           "supplementalFiles": [
             "README.md",
-            "package.json"
+            "package.json",
+            "vitehub.mjs"
           ]
         }
       }

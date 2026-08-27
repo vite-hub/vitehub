@@ -8,6 +8,7 @@ function createMemo() {
 
   return <T>(key: string, create: () => T): T => {
     if (!values.has(key)) values.set(key, create())
+    // SAFETY: values for each memo key are created and read through this generic callback contract.
     return values.get(key) as T
   }
 }
