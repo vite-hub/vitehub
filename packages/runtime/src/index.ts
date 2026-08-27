@@ -443,6 +443,8 @@ function traceEventAttributes(
   event: Pick<TraceEvent, "activity" | "attributes" | "payload">,
   content: TraceEventContentPolicy,
 ): Record<string, unknown> | undefined {
+  const activity = normalizedTraceActivity(event.activity)
+  const payload = normalizedTracePayload(event.payload)
   const source = { ...event.attributes }
   delete source["vitehub.activity.owner"]
   delete source["vitehub.activity.phase"]
@@ -451,14 +453,14 @@ function traceEventAttributes(
   delete source["vitehub.payload.visibility"]
   const attributes = content === "metadata" ? metadataAttributes(source) : source
   const next: Record<string, unknown> = { ...attributes }
-  if (event.activity) {
-    next["vitehub.activity.owner"] = event.activity.owner
-    next["vitehub.activity.phase"] = event.activity.phase
+  if (activity) {
+    next["vitehub.activity.owner"] = activity.owner
+    next["vitehub.activity.phase"] = activity.phase
   }
-  if (event.payload) {
-    next["vitehub.payload.visibility"] = event.payload.visibility
-    if (event.payload.visibility === "public") next["vitehub.payload.value"] = event.payload.value
-    if (event.payload.visibility === "summary") next["vitehub.payload.summary"] = event.payload.summary
+  if (payload) {
+    next["vitehub.payload.visibility"] = payload.visibility
+    if (payload.visibility === "public") next["vitehub.payload.value"] = payload.value
+    if (payload.visibility === "summary") next["vitehub.payload.summary"] = payload.summary
   }
   return Object.keys(next).length ? next : undefined
 }

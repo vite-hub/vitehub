@@ -493,6 +493,40 @@ describe("@vite-hub/runtime", () => {
     expect(spans[0]?.events?.[0]?.attributes?.["content.omitted"]).toBeUndefined()
   })
 
+  it("normalizes untyped payloads at the OpenTelemetry export boundary", () => {
+    const revokedPayload = Proxy.revocable({}, {})
+    revokedPayload.revoke()
+    const events = [
+      {
+        attributes: { "vitehub.payload.value": "must not leak" },
+        name: "custom.invalid-payload",
+        // SAFETY: The fixture proves export normalization for a deserialized untyped entry.
+        payload: { value: "must not leak", visibility: "unknown" } as never,
+        sequence: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        trace: { id: "run-1" },
+        type: "lifecycle" as const,
+      },
+      {
+        name: "custom.hostile-payload",
+        // SAFETY: The fixture proves export normalization for a revoked untyped proxy.
+        payload: revokedPayload.proxy as never,
+        sequence: 2,
+        timestamp: "2026-01-01T00:00:00.010Z",
+        trace: { id: "run-1" },
+        type: "lifecycle" as const,
+      },
+    ]
+
+    const records = traceEventsToOpenTelemetryLogRecords(events)
+    expect(records.map(record => record.attributes?.["vitehub.payload.visibility"])).toEqual(["private", "private"])
+    expect(JSON.stringify(records)).not.toContain("must not leak")
+
+    const spans = traceEventsToOpenTelemetrySpans(events)
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.payload.visibility"])).toEqual(["private", "private"])
+    expect(JSON.stringify(spans)).not.toContain("must not leak")
+  })
+
   it("falls back to private without invoking hostile payload descriptors", async () => {
     const log = createTraceEventLog()
     const accessorPayload = Object.defineProperty({}, "visibility", {
