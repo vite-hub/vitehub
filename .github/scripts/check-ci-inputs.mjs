@@ -14,9 +14,25 @@ const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C",
 
 function shellTokens(line) {
   const tokens = []
-  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`])|([^\s;&|()`]+)/g)) {
+  let previousEnd = -1
+  let wordIndex
+  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`])|([^\s;&|()`"']+)/g)) {
+    if (token.index !== previousEnd) wordIndex = undefined
+    previousEnd = token.index + token[0].length
+    if (token[4]?.startsWith("#")
+      && (token.index === 0 || /[\s;&|()`]/.test(line[token.index - 1]))) break
     const value = token[1] ?? token[2] ?? token[3] ?? token[4]
-    tokens.push(value)
+    if (token[3] !== undefined) {
+      tokens.push(value)
+      wordIndex = undefined
+    }
+    else if (wordIndex === undefined) {
+      wordIndex = tokens.length
+      tokens.push(value)
+    }
+    else {
+      tokens[wordIndex] += value
+    }
     if (token[1] === undefined) continue
     for (const substitution of token[1].matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
       tokens.push("(", ...shellTokens(substitution[1] ?? substitution[2]), ")")
@@ -48,6 +64,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         acceptsPackageOptions = true
       }
       else if (token === "bunx" || token === "pnpx") argumentsStart = index + 1
+      else if (token === "bun" && tokens[index + 1] === "x") argumentsStart = index + 2
       else if (token === "npm") {
         let subcommand = index + 1
         while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
@@ -270,7 +287,8 @@ export function inspectGitHubCIInputs(path, source) {
   const isDirectWorkflow = /^\.github\/workflows\/[^/]+\.ya?ml$/.test(normalizedPath)
   const isActionManifest = /(?:^|\/)action\.ya?ml$/.test(normalizedPath) && !isDirectWorkflow
   if (!isActionManifest && normalizedPath.startsWith(".github/workflows/")) {
-    const jobs = findPair(root, "jobs")?.value
+    let jobs = findPair(root, "jobs")?.value
+    if (isAlias(jobs)) jobs = jobs.resolve(document)
     if (!isMap(jobs)) return failures
     const enclosingJobsComment = jobs.items.length === 1 ? jobs.comment ?? "" : ""
     for (const jobPair of jobs.items) {

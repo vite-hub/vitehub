@@ -77,8 +77,11 @@ describe("GitHub CI input policy", () => {
         "      - run: npm --silent exec --package=tool@1.2.3 -- tool --package unpinned",
         "      - run: npx --package=tool@1.2.3 -- tool --package unpinned",
         "      - run: pnpx tool@1.2.3 --help",
+        "      - run: bun x tool@1.2.3 --help",
+        "      - run: npm exec --package=runner@1.2.3 --call=\"npx nested@2.3.4\"",
         "      - run: npx \"tool@$TOOL_VERSION\" --help",
         "      - run: echo '$(npx unpinned)'",
+        "      - run: echo ok # npx unpinned",
         "      - run: echo pinned shell",
         "        shell: npx --package=shell@1.2.3 -- bash {0}",
         "  scalar:",
@@ -361,6 +364,7 @@ jobs:
     "npx tool --help",
     "npx --package=tool -- tool",
     "bunx tool --help",
+    "bun x tool --help",
     "pnpx tool --help",
     "npm exec -- tool --help",
     "vp dlx tool@latest --help",
@@ -373,6 +377,7 @@ jobs:
     "npm --user-agent custom exec unpinned",
     "npm exec --package=safe@1.2.3 --package=unpinned -- cmd",
     "npm exec --package=runner@1.2.3 -c 'npx unpinned'",
+    "npm exec --package=runner@1.2.3 --call=\"npx unpinned\"",
     "version=$(npx unpinned --version)",
     "echo \"$(npx unpinned --version)\"",
     'echo "`npx unpinned --version`"',
@@ -386,6 +391,22 @@ jobs:
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("must use an exact version") }),
+    ])
+  })
+
+  it("inspects workflows whose complete jobs map is aliased", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "shared-jobs: &shared-jobs",
+        "  test:",
+        "    steps:",
+        "      - run: npx unpinned",
+        "jobs: *shared-jobs",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
   })
 
