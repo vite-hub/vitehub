@@ -8,7 +8,7 @@ import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 import ts from "typescript"
-import { array, object, optional, parse, record, string } from "valibot"
+import { array, boolean, object, optional, parse, record, string } from "valibot"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
 import { packageInfos } from "../utils/repo"
@@ -28,6 +28,7 @@ const packageManifestSchema = object({
   name: optional(string()),
   optionalDependencies: optional(stringRecord),
   peerDependencies: optional(stringRecord),
+  peerDependenciesMeta: optional(record(string(), object({ optional: optional(boolean()) }))),
   version: optional(string()),
 })
 
@@ -35,6 +36,8 @@ function isPackageDiagnostic(diagnostic: ts.Diagnostic, sourcePath: string, pack
   return !diagnostic.file
     || diagnostic.file.fileName === sourcePath
     || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)
+    || (!diagnostic.file.hasNoDefaultLib
+      && !diagnostic.file.fileName.includes(`${sep}node_modules${sep}@types${sep}`))
 }
 
 async function run(command: string, args: string[], cwd: string) {
@@ -139,7 +142,7 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[]) {
   await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
 }
 
-async function importPackagesWithoutRootFallback(appDir: string) {
+async function importPackagesWithoutRootFallback(appDir: string, includeOptionalPeers: boolean) {
   const packageRoots = new Map(await Promise.all(packageInfos.map(async info => [
     info.packageName,
     await realpath(join(appDir, "node_modules", ...info.packageName.split("/"))),
@@ -149,10 +152,14 @@ async function importPackagesWithoutRootFallback(appDir: string) {
     const packageRoot = packageRoots.get(info.packageName)
     if (!packageRoot) throw new Error(`Missing installed package root for ${info.packageName}`)
     const manifest = await readManifest(join(packageRoot, "package.json"))
+    const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
+      !manifest.peerDependenciesMeta?.[name]?.optional,
+    )
     await withoutRootDependencies(appDir, new Set([
       info.packageName,
       "@types/node",
-      ...Object.keys(manifest.peerDependencies || {}),
+      ...requiredPeers,
+      ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
     ]), async () => {
       const runnerDir = join(appDir, ".isolated", info.name)
       const packageNameParts = info.packageName.split("/")
@@ -162,9 +169,12 @@ async function importPackagesWithoutRootFallback(appDir: string) {
       if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
       await symlink(packageRoot, join(linkDir, packageDirName), "dir")
       await importSpecifiers(runnerDir, publicPackageExportContracts
-        .filter(contract => contract.packageName === info.packageName && isJavaScriptModule(contract.target) && contract.kind !== "type-only")
+        .filter(contract => contract.packageName === info.packageName
+          && isJavaScriptModule(contract.target)
+          && contract.kind !== "type-only"
+          && (includeOptionalPeers || contract.optionalPeers.length === 0))
         .map(contract => contract.specifier))
-      await typecheckPackageExports(info.packageName, packageRoot, runnerDir)
+      if (includeOptionalPeers) await typecheckPackageExports(info.packageName, packageRoot, runnerDir)
     })
   }
 }
@@ -307,6 +317,24 @@ describe("published declaration diagnostics", () => {
 
     expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
   })
+
+  it("keeps diagnostics from imported dependency declarations", () => {
+    const file = ts.createSourceFile(
+      "/consumer/node_modules/.pnpm/dependency/index.d.ts",
+      "export type Broken = Missing",
+      ts.ScriptTarget.ESNext,
+    )
+    const diagnostic: ts.Diagnostic = {
+      category: ts.DiagnosticCategory.Error,
+      code: 2304,
+      file,
+      length: 7,
+      messageText: "Cannot find name 'Missing'.",
+      start: 21,
+    }
+
+    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
+  })
 })
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package exports from tarballs", () => {
@@ -346,13 +374,14 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       await importSpecifiers(appDir, publicPackageExportContracts
         .filter(contract => contract.packageName !== "@vite-hub/ui" && isJavaScriptModule(contract.target) && contract.kind !== "type-only" && contract.optionalPeers.length === 0)
         .map(contract => contract.specifier))
+      await importPackagesWithoutRootFallback(appDir, false)
 
       expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
       await importSpecifiers(appDir, publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target) && contract.kind !== "type-only")
         .map(contract => contract.specifier))
-      await importPackagesWithoutRootFallback(appDir)
+      await importPackagesWithoutRootFallback(appDir, true)
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
       const typeOnlyContracts = publicPackageExportContracts.filter(contract => contract.kind === "type-only")
       const resolved = await resolveSpecifiers(appDir, [...staticContracts, ...typeOnlyContracts].map(contract => contract.specifier))
