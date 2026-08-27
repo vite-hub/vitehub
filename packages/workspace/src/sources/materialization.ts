@@ -296,6 +296,7 @@ export async function materializeWorkspaceSources(
   definition: WorkspaceDefinition,
   store: WorkspaceStore,
   options: WorkspaceMaterializeSourcesOptions = {},
+  control: { isCurrent: () => boolean } = { isCurrent: () => true },
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const started = Date.now()
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => shouldMaterializeSource(source, options))
@@ -466,7 +467,7 @@ export async function materializeWorkspaceSources(
             ? { ...existing, items: checkpointItems(itemMetadata) }
             : undefined
         : failed
-      if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint)
+      if (checkpoint && control.isCurrent()) await writeSourceSnapshotMetadata(store, checkpoint)
       resultSources.push(failed)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,

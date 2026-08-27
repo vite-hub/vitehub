@@ -56,6 +56,7 @@ interface PendingMaterialization {
 
 interface MaterializationState {
   completedSources: Set<string>
+  generationBySource: Map<string, number>
   pendingBySource: Map<string, PendingMaterialization>
 }
 
@@ -96,10 +97,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
   const materializationState = materializationByDefinition.get(definition) ?? {
     completedSources: new Set<string>(),
+    generationBySource: new Map<string, number>(),
     pendingBySource: new Map<string, PendingMaterialization>(),
   }
   if (!materializationByDefinition.has(definition)) materializationByDefinition.set(definition, materializationState)
-  const { completedSources, pendingBySource } = materializationState
+  const { completedSources, generationBySource, pendingBySource } = materializationState
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)
@@ -211,12 +213,22 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const previous = waitForMaterialization(Promise.all(predecessors), options.abortSignal)
     const current = (async () => {
       await previous
+      const generations = new Map(selectedSources.map((source) => {
+        const generation = (generationBySource.get(source.key) ?? 0) + 1
+        generationBySource.set(source.key, generation)
+        return [source.key, generation] as const
+      }))
       for (const source of selectedSources) {
         if (!materializesCompleteSource(source, options)) continue
         materializedSources.delete(source.key)
         if (source.materialize === "startup") completedSources.delete(source.key)
       }
-      const result = await materializeWorkspaceSources(definition, store, options)
+      const result = await waitForMaterialization(
+        materializeWorkspaceSources(definition, store, options, {
+          isCurrent: () => selectedSources.every(source => generationBySource.get(source.key) === generations.get(source.key)),
+        }),
+        options.abortSignal,
+      )
       for (const sourceResult of result.sources) {
         const source = sources.find(item => item.key === sourceResult.source)
         if (sourceResult.status === "ready" && source && materializesCompleteSource(source, options)) {
