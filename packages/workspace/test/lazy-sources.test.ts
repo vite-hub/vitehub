@@ -591,6 +591,51 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledOnce()
   })
 
+  it("honors cancellation while resolving a cached source snapshot", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-cache-cancellation",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return ["cached.md"]
+          },
+          async getItem(key) {
+            return { key, content: "# Cached\n" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    const getMeta = store.getMeta!.bind(store)
+    let releaseSnapshot!: () => void
+    let observeSnapshot!: () => void
+    const snapshotPending = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve
+    })
+    const snapshotObserved = new Promise<void>((resolve) => {
+      observeSnapshot = resolve
+    })
+    store.getMeta = async (key) => {
+      const value = await getMeta(key)
+      if (key === "source:docs:snapshot") {
+        observeSnapshot()
+        await snapshotPending
+      }
+      return value
+    }
+    const abort = new AbortController()
+    const materialization = view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })
+    await snapshotObserved
+    abort.abort(new Error("cancel cached materialization"))
+    releaseSnapshot()
+
+    await expect(materialization).rejects.toThrow("cancel cached materialization")
+  })
+
   it("prepares a live Source after a cache hit in a fresh view", async () => {
     const store = createMemoryWorkspaceStore()
     const client = {
@@ -639,7 +684,7 @@ describe("lazy sources", () => {
       sources: [{ revision, status: "ready" }],
     })
     await expect(view.readFile("docs/guide.md")).resolves.toBe("commit-123")
-    expect(resolveRevision).toHaveBeenCalledTimes(2)
+    expect(resolveRevision).toHaveBeenCalledOnce()
   })
 
   it("preserves the resolved revision in persistent non-live Source contexts", async () => {
@@ -688,7 +733,37 @@ describe("lazy sources", () => {
       sources: [{ status: "ready" }],
     })
     await expect(view.exists("docs/missing.md")).resolves.toBe(false)
-    expect(prepare).toHaveBeenCalledTimes(2)
+    expect(prepare).toHaveBeenCalledOnce()
+  })
+
+  it("retries persistent Source preparation after materialization fails", async () => {
+    const clients = new WeakMap<object, { keys: string[] }>()
+    let attempts = 0
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      async prepare(context: SourceContext) {
+        attempts++
+        if (attempts === 1) throw new Error("temporary preparation failure")
+        clients.set(context, { keys: ["current.md"] })
+      },
+      async getKeys(context: SourceContext) {
+        return clients.get(context)?.keys || []
+      },
+      async getItem(key: string) {
+        return { key, path: key, content: "# Current\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({ name: "materialization-preparation-retry", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ error: "temporary preparation failure", status: "error" }],
+    })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ status: "ready" }],
+    })
+    await expect(view.readFile("docs/current.md", { encoding: "utf8" })).resolves.toBe("# Current\n")
+    expect(attempts).toBe(2)
   })
 
   it("keeps full cache-hit aggregates after scoped materialization", async () => {

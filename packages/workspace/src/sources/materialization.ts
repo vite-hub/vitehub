@@ -353,6 +353,7 @@ export async function materializeWorkspaceSources(
   definition: WorkspaceDefinition,
   store: WorkspaceStore,
   options: WorkspaceMaterializeSourcesOptions = {},
+  getSourceContext?: (source: ResolvedWorkspaceSource) => SourceContext,
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const started = Date.now()
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => shouldMaterializeSource(source, options))
@@ -395,6 +396,7 @@ export async function materializeWorkspaceSources(
     const completeSource = materializesCompleteSource(source, options)
     const cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
+    throwIfAborted(options.abortSignal)
     if (cacheHit) {
       const durationMs = Date.now() - sourceStarted
       const cachedPaths = Object.keys(existing?.items || {})
@@ -441,7 +443,9 @@ export async function materializeWorkspaceSources(
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
-    const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
+    const ctx = getSourceContext?.(source) || createSourceContext(definition, source, store)
+    const previousAbortSignal = ctx.abortSignal
+    ctx.abortSignal = options.abortSignal
     try {
       if (completeSource) {
         await writeSourceSnapshotMetadata(store, {
@@ -636,6 +640,9 @@ export async function materializeWorkspaceSources(
         status: "failed",
       })
       if (options.abortSignal?.aborted) throw error
+    }
+    finally {
+      ctx.abortSignal = previousAbortSignal
     }
   }
 
