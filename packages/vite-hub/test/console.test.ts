@@ -428,6 +428,11 @@ describe("Agent invocation console", () => {
       const refreshed = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
       expect(refreshed).not.toBe(generated)
 
+      await writeFile(fixture, "not json")
+      await expect(listeners.get("change")?.()).resolves.toBeUndefined()
+      await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.toBe(refreshed)
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
+
       await rm(fixture)
       await expect(listeners.get("unlink")?.()).resolves.toBeUndefined()
       await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.toBe(refreshed)
@@ -463,6 +468,10 @@ describe("Agent invocation console", () => {
         { root, vitehubCliDiscovery: true },
         { command: "serve", mode: "development" },
       ])).resolves.toBeUndefined()
+      const configResolvedHook = plugin.configResolved
+      if (!configResolvedHook) throw new TypeError("Expected a configResolved hook.")
+      const configResolvedHandler = "handler" in configResolvedHook ? configResolvedHook.handler : configResolvedHook
+      await Reflect.apply(configResolvedHandler, {}, [{ root }])
       await expect(readFile(generatedPlugin, "utf8")).resolves.toBe("// active fixture plugin\n")
     }
     finally {

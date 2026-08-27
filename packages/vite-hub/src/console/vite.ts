@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -90,7 +90,7 @@ export function assertConsoleProductionAccess(
 
 function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[], fixture?: string): string {
   const fixtureRevision = fixture
-    ? createHash("sha256").update(readFileSync(fixture)).digest("hex")
+    ? createHash("sha256").update(JSON.stringify(readConsoleFixture(fixture))).digest("hex")
     : undefined
   return [
     `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
@@ -133,6 +133,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let root: string | undefined
   let serverDirs: string[] | undefined
   let fixture: string | undefined
+  let cliDiscovery = false
 
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
@@ -155,6 +156,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         auth?: AuthModuleOptions
         vitehubCliDiscovery?: true
       }
+      cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
         auth: configured !== true && configured.access === "auth"
           ? options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS], viteConfig.auth)
@@ -175,7 +177,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         readConsoleFixture(fixture)
       }
       generatedPlugin = resolve(root, generatedConsolePlugin)
-      if (!viteConfig.vitehubCliDiscovery) {
+      if (!cliDiscovery) {
         await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root), fixture)
       }
 
@@ -218,7 +220,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      await refreshAgentDefinitions()
+      if (!cliDiscovery) await refreshAgentDefinitions()
     },
     configureServer(server) {
       if (fixture) server.watcher.add(fixture)

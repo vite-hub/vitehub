@@ -90,13 +90,13 @@ import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
-  const builderWatchHooks: Array<() => Promise<void>> = []
+  const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
   const nuxt = {
     hook(name: "builder:watch" | "nitro:config" | "pages:extend", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
       if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
-      else if (name === "builder:watch") builderWatchHooks.push(callback as () => Promise<void>)
+      else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
       else pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
     },
     options: {
@@ -116,14 +116,15 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       srcDir: "/tmp/vitehub-nuxt/app",
       vite: { plugins },
       vitehubCliDiscovery: undefined as true | undefined,
+      watch: undefined as string[] | undefined,
     },
   }
   return {
     nitroConfigHooks,
     pageHooks,
     nuxt,
-    async runBuilderWatchHook() {
-      for (const hook of builderWatchHooks) await hook()
+    async runBuilderWatchHook(path = "/tmp/vitehub-nuxt/console.fixture.json", event = "change") {
+      for (const hook of builderWatchHooks) await hook(event, path)
     },
     async runNitroConfigHook(config: Record<string, unknown>) {
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
@@ -398,10 +399,15 @@ describe("ViteHub Nuxt integration", () => {
 
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `)
+      expect(development.nuxt.options.watch).toContain(fixture)
       await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
       await development.runBuilderWatchHook()
       const refreshed = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(refreshed).not.toBe(generated)
+
+      await writeFile(fixture, "not json")
+      await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshed)
 
       await rm(fixture)
       await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
