@@ -86,6 +86,7 @@ function rewriteLinks(source: string) {
   let outsideFence = "";
   let fence: Fence | null = null;
   let listIndent: number | null = null;
+  let listQuotePrefix = "";
   const protectedLines: string[] = [];
   const rewriteOutside = () => rewriteInlineLinks(outsideFence).replace(
     /\0INDENT(\d+)\0/g,
@@ -110,12 +111,22 @@ function rewriteLinks(source: string) {
       continue;
     }
 
-    const listItem = line.match(/^(\s*)(?:[-+*]|\d+[.)])\s+/);
-    if (listItem) listIndent = listItem[0].length;
-    else if (line.trim() && (listIndent === null || indentationColumns(line) < listIndent)) listIndent = null;
+    const quotePrefix = line.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] || "";
+    const content = line.slice(quotePrefix.length);
+    const contentIndent = indentationColumns(content);
+    const listItem = content.match(/^(\s*)(?:[-+*]|\d+[.)])\s+/);
+    if (listItem) {
+      listIndent = listItem[0].length;
+      listQuotePrefix = quotePrefix;
+    } else if (
+      content.trim()
+      && (listIndent === null || quotePrefix !== listQuotePrefix || contentIndent < listIndent)
+    ) {
+      listIndent = null;
+    }
 
-    const isListContinuation = listIndent !== null && indentationColumns(line) >= listIndent;
-    if (indentationColumns(line) >= 4 && !isListContinuation) {
+    const codeIndent = listIndent !== null && quotePrefix === listQuotePrefix ? listIndent + 4 : 4;
+    if (contentIndent >= codeIndent) {
       const index = protectedLines.push(lineWithEnding) - 1;
       outsideFence += `\0INDENT${index}\0`;
       continue;

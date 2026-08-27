@@ -156,12 +156,17 @@ describe("writeDocsArtifacts", () => {
         "Escaped \\` delimiter and [rendered link](/docs/escaped) \\` stay outside code.",
         "`multiline literal",
         "[link](/docs/multiline)` and [rendered link](/docs/after-code).",
-        "Unmatched ` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](/docs/outside-span).",
+        "Unmatched ````` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](/docs/outside-span).",
         "",
         "    [indented literal link](/docs/indented)",
         "\t[tab-indented literal link](/docs/tab-indented)",
         "- item",
         "    [list child](/docs/list-child)",
+        "",
+        ">     [blockquote code](/docs/blockquote-code)",
+        "- item",
+        "",
+        "      [list code](/docs/list-code)",
         "`multiline code",
         "    indented continuation",
         "[multiline indented literal](/docs/multiline-indented)`",
@@ -242,10 +247,12 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
       expect(raw).toContain("Escaped \\` delimiter and [rendered link](https://vitehub.dev/docs/escaped) \\` stay outside code.");
       expect(raw).toContain("`multiline literal\n[link](/docs/multiline)` and [rendered link](https://vitehub.dev/docs/after-code).");
-      expect(raw).toContain("Unmatched ` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](https://vitehub.dev/docs/outside-span).");
+      expect(raw).toContain("Unmatched ````` run, then ``[literal link](/docs/after-unmatched)`` and [rendered link](https://vitehub.dev/docs/outside-span).");
       expect(raw).toContain("    [indented literal link](/docs/indented)");
       expect(raw).toContain("\t[tab-indented literal link](/docs/tab-indented)");
       expect(raw).toContain("- item\n    [list child](https://vitehub.dev/docs/list-child)");
+      expect(raw).toContain(">     [blockquote code](/docs/blockquote-code)");
+      expect(raw).toContain("- item\n\n      [list code](/docs/list-code)");
       expect(raw).toContain("`multiline code\n    indented continuation\n[multiline indented literal](/docs/multiline-indented)`");
       expect(raw).toContain("::video{src=\"/demo.mp4\"}\nKeep this semantic directive.\n::");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
