@@ -79,8 +79,10 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain("**Package-specific**");
     expect(matrix).toContain("**Local-only**");
     expect(matrix).toContain("**Not provided**");
-    expect(matrix).toContain("**Contract-tested**");
-    expect(matrix).toContain("**Live proof not published**");
+    expect(matrix).toContain("[Evidence]");
+    expect(matrix).toContain("30-day freshness window");
+    expect(matrix).not.toContain("✓ Current");
+    expect(matrix).toContain("**Not published**");
     for (const primitive of [
       "Browser",
       "Blob",

@@ -1,9 +1,22 @@
 <script setup lang="ts">
-type MatrixStatus = "available" | "package" | "local" | "none";
+import {
+  supportHosts,
+  supportProofFor,
+  supportProofLedger,
+  supportProofPresentation,
+  type SupportProofState,
+  type SupportProofTier,
+} from "../data/support-proof";
+
+type MatrixStatus = "available" | "package" | "local" | "none" | SupportProofState;
 
 type MatrixCell = {
   detail: string;
   display?: string;
+  evidence?: {
+    observedAt: string;
+    url: string;
+  };
   status: MatrixStatus;
 };
 
@@ -25,6 +38,7 @@ type MatrixRow = {
 const route = useRoute();
 const navigationOpen = ref(false);
 const openDetails = reactive<Record<string, boolean>>({});
+const proofObservedAt = useState("support-proof-observed-at", () => new Date().toISOString());
 
 watch(
   () => route.path,
@@ -94,7 +108,24 @@ const cell = (status: MatrixStatus, detail: string, display?: string): MatrixCel
   status,
 });
 
-const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
+const proofValues = (tier: SupportProofTier): Record<string, MatrixCell> =>
+  Object.fromEntries(
+    supportHosts.map((host) => {
+      const presentation = supportProofPresentation(
+        supportProofFor(tier, host),
+        new Date(proofObservedAt.value),
+      );
+      return [
+        host,
+        {
+          ...cell(presentation.state, presentation.detail, presentation.display),
+          evidence: presentation.evidence,
+        },
+      ];
+    }),
+  );
+
+const sections = reactive<{ anchor?: string; label: string; rows: MatrixRow[] }[]>([
   {
     label: "Runtime",
     rows: [
@@ -565,33 +596,7 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
         id: "provider-output",
         label: "Provider output",
         description: "Generated deployment files",
-        values: {
-          local: cell(
-            "none",
-            "Local Vite is not a generated deployment target. A local build can still generate output for an explicit or inferred hosted provider.",
-          ),
-          cloudflare: cell(
-            "package",
-            "Enabled integrations compose a Worker, wrangler.json, bindings, callbacks, and runtime modules.",
-          ),
-          vercel: cell(
-            "package",
-            "Enabled integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules.",
-          ),
-          netlify: cell(
-            "package",
-            "Agent and Schedule write functions under .netlify/v1/functions.",
-          ),
-          deno: cell(
-            "package",
-            "Agent and Schedule write Deno entrypoints. ViteHub does not generate one general Deno bundle.",
-          ),
-          nitro: cell(
-            "package",
-            "Package integrations generate Nitro handlers, plugins, or configuration only where documented.",
-          ),
-          node: cell("none", "ViteHub does not emit one unified Node deployment bundle."),
-        },
+        values: proofValues("generated-output"),
       },
       {
         id: "provisioning",
@@ -622,81 +627,78 @@ const sections: { anchor?: string; label: string; rows: MatrixRow[] }[] = [
         id: "contract-tests",
         label: "Contract tests",
         description: "Source and generated-output assertions",
-        values: {
-          local: cell(
-            "available",
-            "Package and documentation CI assert local Runtime Helper contracts.",
-          ),
-          cloudflare: cell(
-            "available",
-            "Owning packages assert Cloudflare runtime and generated-output contracts.",
-          ),
-          vercel: cell(
-            "available",
-            "Owning packages assert Vercel runtime and generated-output contracts.",
-          ),
-          netlify: cell(
-            "available",
-            "Agent, Schedule, and the Netlify fixture have contract coverage.",
-          ),
-          deno: cell("available", "Agent and Schedule package tests assert Deno output."),
-          nitro: cell("available", "Owning packages test their Nitro integration boundaries."),
-          node: cell(
-            "available",
-            "Owning packages test their Node-compatible drivers and handlers.",
-          ),
-        },
+        values: proofValues("contract"),
       },
       {
         id: "local-run",
         label: "Local provider run",
         description: "Built output exercised in CI",
-        values: {
-          local: cell("none", "The Local Vite row makes no hosted-provider proof claim."),
-          cloudflare: cell(
-            "available",
-            "Pull requests run the shared primitive playground against local Cloudflare output.",
-          ),
-          vercel: cell(
-            "available",
-            "Pull requests run the shared primitive playground against local Vercel adapters.",
-          ),
-          netlify: cell("available", "CI runs a real-project fixture through Netlify CLI."),
-          deno: cell("none", "ViteHub does not publish one shared local Deno provider run."),
-          nitro: cell("none", "ViteHub does not publish one unified local Nitro matrix run."),
-          node: cell("none", "ViteHub does not publish one self-hosted deployment suite."),
-        },
+        values: proofValues("local-provider-run"),
       },
       {
         id: "live-smoke",
         label: "Live smoke",
         description: "Shared playground deployed nightly",
-        values: {
-          local: cell("none", "Local Vite is not a hosted deployment target."),
-          cloudflare: cell(
-            "available",
-            "The nightly Live Smoke deploys nine primitives, including Rate Limit. Browser and Agent routes are outside this run.",
-          ),
-          vercel: cell(
-            "available",
-            "The nightly Live Smoke deploys eight primitives. ViteHub has no native Vercel Rate Limit driver, and Agent routes are outside this run.",
-          ),
-          netlify: cell("none", "Live proof is not published for Netlify."),
-          deno: cell("none", "Live proof is not published for Deno."),
-          nitro: cell("none", "Live proof is not published as one unified Nitro matrix."),
-          node: cell("none", "Live proof is not published as one self-hosted deployment suite."),
-        },
+        values: proofValues("deployed-runtime"),
       },
     ],
   },
-];
+]);
 
 const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
   available: { label: "Available", mark: "✓" },
   package: { label: "Package-specific", mark: "●" },
   local: { label: "Local-only", mark: "◐" },
   none: { label: "Not provided", mark: "—" },
+  current: { label: "Current proof", mark: "✓" },
+  stale: { label: "Stale proof", mark: "◷" },
+  incomplete: { label: "Stage-incomplete proof", mark: "!" },
+  failed: { label: "Failed proof", mark: "!" },
+  unpublished: { label: "Proof not published", mark: "—" },
+  "not-applicable": { label: "Not applicable", mark: "—" },
 };
+
+let proofRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+function refreshProofRows(): void {
+  proofObservedAt.value = new Date().toISOString();
+  for (const [rowId, tier] of [
+    ["provider-output", "generated-output"],
+    ["contract-tests", "contract"],
+    ["local-run", "local-provider-run"],
+    ["live-smoke", "deployed-runtime"],
+  ] as const) {
+    const row = sections.flatMap((section) => section.rows).find((item) => item.id === rowId);
+    if (row) row.values = proofValues(tier);
+  }
+}
+
+function scheduleProofRefresh(): void {
+  const now = Date.now();
+  const nextExpiry = supportProofLedger
+    .flatMap((claim) => {
+      const observedAt = Date.parse(claim.evidence.observedAt ?? "");
+      const maxAgeDays = claim.freshness.maxAgeDays;
+      return Number.isFinite(observedAt) && maxAgeDays !== null
+        ? [observedAt + maxAgeDays * 86_400_000]
+        : [];
+    })
+    .filter((expiresAt) => expiresAt >= now)
+    .sort((left, right) => left - right)[0];
+  if (nextExpiry === undefined) return;
+
+  const delay = Math.min(nextExpiry - now + 1, 2_147_000_000);
+  proofRefreshTimer = setTimeout(() => {
+    refreshProofRows();
+    scheduleProofRefresh();
+  }, delay);
+}
+
+onMounted(() => {
+  refreshProofRows();
+  scheduleProofRefresh();
+});
+onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 </script>
 
 <template>
@@ -816,6 +818,9 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
                   :content="{ side: 'top', sideOffset: 8, collisionPadding: 12 }"
                   :ui="{ content: 'support-matrix-tooltip' }"
                 >
+                  <template #content>
+                    <p>{{ row.values[column.id]!.detail }}</p>
+                  </template>
                   <button
                     type="button"
                     class="support-matrix-status"
@@ -833,6 +838,16 @@ const statusMeta: Record<MatrixStatus, { label: string; mark: string }> = {
                     }}</span>
                   </button>
                 </UTooltip>
+                <a
+                  v-if="row.values[column.id]!.evidence"
+                  :href="row.values[column.id]!.evidence?.url"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="support-matrix-evidence-link"
+                >
+                  Evidence from {{ row.values[column.id]!.evidence?.observedAt }}
+                  <UIcon name="i-ph-arrow-square-out" aria-hidden="true" />
+                </a>
               </td>
             </tr>
           </tbody>
@@ -1261,6 +1276,20 @@ a.support-matrix-host-link:hover {
   line-height: 1.45;
   text-align: left;
   box-shadow: 0 12px 32px color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
+}
+
+.support-matrix-tooltip p {
+  margin: 0;
+}
+
+.support-matrix-evidence-link {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  margin-top: 0.4rem;
+  color: var(--ui-primary);
+  text-decoration: underline;
+  text-underline-offset: 0.15rem;
 }
 
 .support-matrix-qualifications {

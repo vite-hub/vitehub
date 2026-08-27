@@ -1509,6 +1509,140 @@ describe("workspace host sessions", () => {
     expect(maximum).toBeLessThanOrEqual(16)
   })
 
+  it("honors the host inspection concurrency across concurrent operations", async () => {
+    const docs = workspace()
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 1 })
+    const exec = host.exec.bind(host)
+    const exists = host.files.exists.bind(host.files)
+    const list = host.files.list.bind(host.files)
+    const read = host.files.read.bind(host.files)
+    let active = 0
+    let maximum = 0
+    const inspect = async <T>(operation: () => Promise<T>) => {
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      try {
+        return await operation()
+      }
+      finally {
+        active--
+      }
+    }
+    host.exec = async (command, args, options) => command === "test"
+      ? await inspect(async () => await exec(command, args, options))
+      : await exec(command, args, options)
+    host.files.exists = async (path, options) => await inspect(async () => await exists(path, options))
+    host.files.list = async (path, options) => await inspect(async () => await list(path, options))
+    host.files.read = async (path, options) => await inspect(async () => await read(path, options))
+    for (let index = 0; index < 8; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+
+    const session = await docs.startSession({ host })
+    maximum = 0
+    await Promise.all([
+      session.diff(),
+      session.list("", { recursive: true }),
+      session.readFile("files/0.txt"),
+      session.search({ pattern: "0" }),
+    ])
+    await session.close()
+
+    expect(maximum).toBe(1)
+  })
+
+  it("settles active inspections and skips pending work after a batch fails", async () => {
+    const docs = workspace()
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 3 })
+    for (let index = 0; index < 3; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+    const session = await docs.startSession({ host })
+    const exists = host.files.exists.bind(host.files)
+    const read = host.files.read.bind(host.files)
+    let batchReads = 0
+    let releaseIndependent!: () => void
+    const independentBlocked = new Promise<void>((resolve) => { releaseIndependent = resolve })
+    let releaseBatch!: () => void
+    const batchBlocked = new Promise<void>((resolve) => { releaseBatch = resolve })
+    let independentStarted = false
+    host.files.exists = async (path, options) => {
+      if (path.endsWith("missing.txt")) {
+        independentStarted = true
+        await independentBlocked
+      }
+      return await exists(path, options)
+    }
+    host.files.read = async (path, options) => {
+      batchReads++
+      if (path.endsWith("files/0.txt")) await batchBlocked
+      if (path.endsWith("files/1.txt")) throw new Error("inspection failed")
+      return await read(path, options)
+    }
+
+    const independent = session.readFile("missing.txt")
+    void independent.catch(() => {})
+    await vi.waitFor(() => expect(independentStarted).toBe(true))
+    const diff = session.diff()
+    void diff.catch(() => {})
+    await vi.waitFor(() => expect(batchReads).toBe(2))
+    let settled = false
+    void diff.finally(() => { settled = true }).catch(() => {})
+    await new Promise(resolve => setTimeout(resolve, 1))
+    expect(settled).toBe(false)
+    releaseBatch()
+    await expect(diff).rejects.toThrow("inspection failed")
+    expect(batchReads).toBe(2)
+    releaseIndependent()
+    await expect(independent).rejects.toThrow("Workspace file does not exist: missing.txt")
+  })
+
+  it("settles an aborted inspection while it waits for a host slot", async () => {
+    const docs = workspace()
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 1 })
+    await docs.writeFile("README.md", "docs")
+    await docs.snapshot({ name: "baseline" })
+    const session = await docs.startSession({ host })
+    const read = host.files.read.bind(host.files)
+    const list = host.files.list.bind(host.files)
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let reads = 0
+    let lists = 0
+    host.files.list = async (path, options) => {
+      lists++
+      return await list(path, options)
+    }
+    host.files.read = async (path, options) => {
+      reads++
+      if (reads === 1) await blocked
+      return await read(path, options)
+    }
+
+    const first = session.diff()
+    await vi.waitFor(() => expect(reads).toBe(1))
+    const abort = new AbortController()
+    const reason = new Error("inspection expired")
+    const second = session.diff({ abortSignal: abort.signal })
+    abort.abort(reason)
+
+    await expect(second).rejects.toBe(reason)
+    expect({ lists, reads }).toEqual({ lists: 1, reads: 1 })
+    release()
+    await first
+    await session.close()
+  })
+
+  it("rejects invalid host inspection concurrency", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "docs")
+    await docs.snapshot({ name: "baseline" })
+    const host = Object.assign(memoryHost(), { inspectionConcurrency: 0 })
+
+    await expect(docs.startSession({ host })).rejects.toThrow(
+      "Workspace host inspectionConcurrency must be a positive integer",
+    )
+  })
+
   it("uses host-reported executable modes without spawning probes", async () => {
     const docs = workspace()
     const host = memoryHost()

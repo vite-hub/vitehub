@@ -9,6 +9,7 @@ import { env } from "vite-hub/env"
 import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
+import type { History, HistoryCheckpoint, HistoryCheckpointOptions } from "vite-hub/workspace"
 
 import { defineCollection, table } from "vite-hub/source"
 import type { CollectionItem, CollectionQuery, CollectionRequestQuery } from "vite-hub/source"
@@ -46,6 +47,10 @@ expectTypeOf(env).toBeFunction()
 expectTypeOf(requireRateLimit).toBeFunction()
 expectTypeOf(defineWorkspace).toBeFunction()
 expectTypeOf(defineWorkflow).toBeFunction()
+
+declare const history: History<HistoryCheckpoint>
+const checkpointOptions: HistoryCheckpointOptions = { message: "save draft" }
+expectTypeOf(history.checkpoint(checkpointOptions)).toEqualTypeOf<Promise<HistoryCheckpoint>>()
 
 const { db, schema } = useDatabase("typed")
 const meals = defineCollection({

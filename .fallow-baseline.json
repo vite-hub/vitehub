@@ -11,9 +11,7 @@
   "unused_exports": [],
   "unused_types": [],
   "private_type_leaks": [],
-  "unused_dependencies": [
-    "packages/realtime/package.json:@vite-hub/history"
-  ],
+  "unused_dependencies": [],
   "unused_dev_dependencies": [],
   "circular_dependencies": [],
   "re_export_cycles": [],

@@ -1,6 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 
+import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { resolveWorkspaceEnv } from "../env.ts"
@@ -12,8 +13,10 @@ type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
 const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
 
-export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, WorkspaceSourceRuntimeOptions {
+export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth" | "ignore">, WorkspaceSourceRuntimeOptions {
   auth?: GitHubAuth
+  /** Adds to the default Source ignores. Set to false to include every matched path. */
+  ignore?: false | string | readonly string[]
 }
 
 export type GitHubSourceResolver = (
@@ -28,7 +31,10 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   if (typeof input === "function") return resolvableGitHubSource(input)
 
   const options = input
-  const resolvedOptions = { ...options }
+  const resolvedOptions = {
+    ...options,
+    ignore: resolveGitHubIgnore(options.ignore),
+  }
   const baseSource = createGitHubSource({
     ...resolvedOptions,
     auth: createGitHubAuthResolver(resolvedOptions.auth),
@@ -51,7 +57,7 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   return withWorkspaceRuntimeOptions({
     ...baseSource,
     fingerprint: {
-      exclude: resolvedOptions.exclude,
+      ignore: resolvedOptions.ignore,
       include: resolvedOptions.include,
       ref: resolvedOptions.ref,
       repo: resolvedOptions.repo,

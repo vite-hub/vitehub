@@ -10,6 +10,7 @@ dynamicallyLoaded = [
   "test/local/build-playground.mjs",
   "test/preflight.mjs",
   "test/run-package-task.mjs",
+  "test/fixtures/package-task-workspace/task.mjs",
   "docs/content.config.ts",
   "docs/app/assets/main.css",
   "docs/app/shims/*.ts",

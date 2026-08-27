@@ -7,6 +7,7 @@ function collectPrerenderRoutes(manifest: NonNullable<ReturnType<typeof readDocs
 
   for (const section of manifest.sections) {
     for (const page of section.pages) {
+      if (page.path === "/docs/frameworks-hosts/support-matrix") continue;
       routes.push(page.path);
     }
   }
