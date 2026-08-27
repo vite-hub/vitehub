@@ -595,6 +595,49 @@ describe("lazy sources", () => {
     expect(progress.at(-1)).toMatchObject({ bytes: 8, files: 2, status: "completed" })
   })
 
+  it("composes concurrent scoped materialization snapshots", async () => {
+    const files = new Map([
+      ["a.md", "# A\n"],
+    ])
+    const view = createWorkspaceSourceView({
+      name: "materialization-concurrent-scoped-cache",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return [...files.keys()]
+          },
+          async getItem(key) {
+            return { key, path: key, content: files.get(key) || "" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    files.set("b.md", "# B\n")
+    files.set("c.md", "# CC\n")
+    await Promise.all([
+      view.materializeSources({ path: "docs/b.md", sources: ["docs"] }),
+      view.materializeSources({ path: "docs/c.md", sources: ["docs"] }),
+    ])
+
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 13,
+      files: 3,
+      sources: [{
+        bytes: 13,
+        files: 3,
+        paths: [
+          { path: "docs/a.md", status: "unchanged" },
+          { path: "docs/b.md", status: "unchanged" },
+          { path: "docs/c.md", status: "unchanged" },
+        ],
+      }],
+    })
+  })
+
   it("reports completed removals before a later cleanup failure", async () => {
     let files = ["a.md", "b.md", "c.md"]
     const progress: unknown[] = []

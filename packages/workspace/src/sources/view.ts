@@ -56,6 +56,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const prepareBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   const materializeBySource = new Map<string, Promise<void>>()
+  let materializationQueue = Promise.resolve()
+
+  async function materializeSources(options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions) {
+    const pending = materializationQueue.then(async () => await materializeWorkspaceSources(definition, store, options))
+    materializationQueue = pending.then(() => undefined, () => undefined)
+    return await pending
+  }
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)
@@ -449,7 +456,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return result
     },
     async materializeSources(options) {
-      return await materializeWorkspaceSources(definition, store, options)
+      return await materializeSources(options)
     },
     async exists(path) {
       if (descriptorStat(normalizeWorkspacePath(path))) return true
