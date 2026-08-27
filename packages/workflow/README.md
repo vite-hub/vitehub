@@ -23,7 +23,7 @@ Then install the dependency required by the selected provider:
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Cloudflare Workflows | None in application code                                           | Cloudflare owns run state.                                               |
 | Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
-| OpenWorkflow         | `openworkflow`                                                     | Requires explicit SQLite, Postgres, or ViteHub Named Database storage.   |
+| OpenWorkflow         | `openworkflow`                                                     | Requires explicit SQLite or Postgres storage.                            |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`.
 
@@ -58,7 +58,7 @@ export default defineConfig({
 
 Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
 
-OpenWorkflow accepts exactly one storage choice: `database`, `postgres.url`, or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
+OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 
 ## Start and inspect a run
 
