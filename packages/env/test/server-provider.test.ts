@@ -138,17 +138,28 @@ describe("Server Env providers", () => {
     await expect(loading).rejects.toBe(duringReason)
   })
 
-  it("preserves provider AbortError and ViteHubError identity", async () => {
+  it("redacts provider AbortError and ViteHubError failures", async () => {
     const registry = createRuntimeRegistry({ token: env({ source: env.provider("secrets", "token") }) })
-    const abort = Object.assign(new Error("provider cancelled"), { name: "AbortError" })
-    await expect(loadServerEnv(registry, undefined, {
-      providers: { secrets: defineEnvProvider({ read: async () => Promise.reject(abort) }) },
-    })).rejects.toBe(abort)
+    const failures = [
+      Object.assign(new Error("provider cancelled with private token"), { name: "AbortError" }),
+      // Deliberately bypass the public detail type to prove application errors cannot publish private fields.
+      new ViteHubError("ENV_SOURCE_FAILED", "Application provider exposed a private token.", {
+        details: { source: "provider", token: "private" } as never,
+      }),
+    ]
 
-    const existing = new ViteHubError("ENV_SOURCE_FAILED", "Application provider failure.", { details: { source: "provider" } })
-    await expect(loadServerEnv(registry, undefined, {
-      providers: { secrets: defineEnvProvider({ read: async () => Promise.reject(existing) }) },
-    })).rejects.toBe(existing)
+    for (const failure of failures) {
+      const error = await loadServerEnv(registry, undefined, {
+        providers: { secrets: defineEnvProvider({ read: async () => Promise.reject(failure) }) },
+      }).then(() => undefined, value => value)
+      expect(error).not.toBe(failure)
+      expect(error).toMatchObject({
+        code: "ENV_SOURCE_FAILED",
+        details: { source: "provider" },
+        message: "[vitehub] Env source resolution failed.",
+      })
+      expect(JSON.stringify(error)).not.toMatch(/private token|private/)
+    }
   })
 
   it("applies missing, default, invalid, and safe provider error contracts", async () => {

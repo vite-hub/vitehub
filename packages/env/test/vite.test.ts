@@ -379,7 +379,7 @@ describe("Vite plugin", () => {
     await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
-    expect(serverModule).toContain(`import envProvider0 from ${JSON.stringify(providerPath)}`)
+    expect(serverModule).toContain(`import envProvider0 from ${JSON.stringify(pathToFileURL(providerPath).href)}`)
     expect(serverModule).not.toContain("unused.mjs")
     expect(serverModule).toContain("export async function loadServerEnv")
     expect(serverModule).toContain("export async function inspectServerEnv")
@@ -440,6 +440,34 @@ describe("Vite plugin", () => {
       env: { server: { token: env({ source: env.provider("secrets", "token") }) } },
       root,
     }, { command: "build", mode: "production" })).rejects.toThrow("hubEnv({ providers })")
+  })
+
+  it("emits portable provider module specifiers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-package-"))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
+    const plugin = hubEnv({
+      providers: {
+        local: "./server/env/provider.mjs",
+        packaged: "@example/env-provider",
+      },
+    })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        server: {
+          localToken: env({ source: env.provider("local", "token") }),
+          packagedToken: env({ source: env.provider("packaged", "token") }),
+        },
+      },
+      root,
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
+
+    const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    expect(serverModule).toContain(`from ${JSON.stringify(pathToFileURL(join(root, "server", "env", "provider.mjs")).href)}`)
+    expect(serverModule).toContain(`from "@example/env-provider"`)
   })
 
   it("applies prefixes to inferred Vite env names", async () => {

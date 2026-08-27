@@ -45,6 +45,7 @@
     "packages/blob/test/optional-peer.test.ts:../dist/drivers/vercel-bundled.js",
     "packages/blob/test/optional-peer.test.ts:../dist/drivers/cloudflare-native.js",
     "packages/env/test/published-runtime.test.ts:../dist/index.js",
+    "packages/env/test/vite.test.ts:../dist/server.js",
     "packages/queue/test/published-runtime.test.ts:../dist/index.js",
     "packages/queue/test/published-runtime.test.ts:../dist/runtime/hosted.js",
     "packages/runtime/test/published-runtime.test.ts:../dist/index.js",

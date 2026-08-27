@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import {
@@ -234,7 +235,7 @@ function resolveProviderModules(providers: Record<string, string> | undefined, r
       throw new TypeError(`[vitehub] Env provider ${JSON.stringify(name)} requires a non-empty module specifier.`)
     }
     const normalized = specifier.trim()
-    output[name] = normalized.startsWith(".") ? resolve(root, normalized) : normalized
+    output[name] = normalized.startsWith(".") ? pathToFileURL(resolve(root, normalized)).href : normalized
   }
   return output
 }

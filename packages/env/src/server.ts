@@ -5,7 +5,6 @@ import {
   asyncServerEnvRequired,
   envSourceFailed,
   invalidRuntimeEnvValue,
-  isAbortError,
   missingRequiredEnv,
 } from "./core/errors.ts"
 import { SecretEnv } from "./secret.ts"
@@ -141,7 +140,9 @@ function providerFor(name: string, providers: EnvProviders | undefined): EnvProv
 }
 
 function abortReason(signal: AbortSignal): unknown {
-  return signal.reason ?? Object.assign(new Error("Server Env loading was aborted."), { name: "AbortError" })
+  return signal.reason === undefined
+    ? Object.assign(new Error("Server Env loading was aborted."), { name: "AbortError" })
+    : signal.reason
 }
 
 async function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
@@ -155,7 +156,21 @@ async function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined
 }
 
 function isCancellation(error: unknown, signal: AbortSignal | undefined): boolean {
-  return isAbortError(error) || Boolean(signal?.aborted && error === signal.reason)
+  return Boolean(signal?.aborted && error === abortReason(signal))
+}
+
+async function readProvider(
+  provider: EnvProvider,
+  input: Parameters<EnvProvider["read"]>[0],
+  signal: AbortSignal | undefined,
+): Promise<unknown> {
+  try {
+    return await withAbort(Promise.resolve().then(() => provider.read(input)), signal)
+  }
+  catch (cause) {
+    if (isCancellation(cause, signal)) throw cause
+    throw envSourceFailed("provider", cause)
+  }
 }
 
 function collectProviderKeys(value: unknown, requests = new Map<string, Set<string>>()): Map<string, Set<string>> {
@@ -207,10 +222,7 @@ function createProviderLoads(
     const keys = Object.freeze([...requested])
     const load = Promise.resolve()
       .then(() => providerFor(name, options.providers))
-      .then(provider => withAbort(
-        Promise.resolve().then(() => provider.read({ env: localEnv, keys, signal: options.signal })),
-        options.signal,
-      ))
+      .then(provider => readProvider(provider, { env: localEnv, keys, signal: options.signal }, options.signal))
       .then(value => normalizeProviderValues(value, keys))
       .catch((cause) => {
         if (isCancellation(cause, options.signal) || isViteHubError(cause)) throw cause
