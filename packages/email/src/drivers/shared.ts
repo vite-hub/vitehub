@@ -75,13 +75,17 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   const mailto = message.unsubscribe.mailto?.trim();
   const url = message.unsubscribe.url?.trim();
   const oneClickEnabled = oneClick ?? Boolean(url);
-  let normalizedUrl = url;
-  if (oneClickEnabled) {
-    let parsedUrl: URL | undefined;
+  let normalizedUrl: string | undefined;
+  if (url !== undefined) {
+    let parsedUrl: URL;
     try {
-      parsedUrl = url ? new URL(url) : undefined;
-    } catch {}
-    if (parsedUrl?.protocol !== "https:") {
+      parsedUrl = new URL(url);
+    } catch (cause) {
+      throw emailProviderError(driver, "INVALID_OPTIONS", "unsubscribe requires a valid URL.", {
+        cause,
+      });
+    }
+    if (oneClickEnabled && parsedUrl.protocol !== "https:") {
       throw emailProviderError(
         driver,
         "INVALID_OPTIONS",
@@ -89,6 +93,12 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
       );
     }
     normalizedUrl = parsedUrl.href;
+  } else if (oneClickEnabled) {
+    throw emailProviderError(
+      driver,
+      "INVALID_OPTIONS",
+      "one-click unsubscribe requires a valid HTTPS URL.",
+    );
   }
   const values = [
     normalizedUrl ? `<${normalizedUrl}>` : undefined,

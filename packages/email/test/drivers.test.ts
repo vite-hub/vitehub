@@ -395,6 +395,42 @@ describe("Resend Email driver", () => {
     },
   );
 
+  it.each(["   ", "not a URL"])(
+    "rejects an invalid non-one-click unsubscribe URL %j before dispatch",
+    async (url) => {
+      const request = vi.fn();
+      const driver = resend({ apiKey: "re_secret", fetch: request });
+
+      await expect(
+        driver.send({ ...message, unsubscribe: { oneClick: false, url } }, context),
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows non-HTTPS unsubscribe URLs when one-click is disabled", async () => {
+    const request = vi.fn(
+      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
+        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
+    );
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await driver.send(
+      {
+        ...message,
+        unsubscribe: { oneClick: false, url: "http://example.com/un subscribe" },
+      },
+      context,
+    );
+
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({
+      headers: { "List-Unsubscribe": "<http://example.com/un%20subscribe>" },
+    });
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body)).headers).not.toHaveProperty(
+      "List-Unsubscribe-Post",
+    );
+  });
+
   it("cancels and rejects an oversized response body", async () => {
     const cancel = vi.fn();
     const response = new Response(
@@ -769,6 +805,41 @@ describe("Cloudflare Email driver", () => {
       expect(send).not.toHaveBeenCalled();
     },
   );
+
+  it.each(["   ", "not a URL"])(
+    "rejects an invalid non-one-click unsubscribe URL %j before delivery",
+    async (url) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      await expect(
+        driver.send({ ...message, unsubscribe: { oneClick: false, url } }, context),
+      ).resolves.toMatchObject({
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      });
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows non-HTTPS unsubscribe URLs when one-click is disabled", async () => {
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor });
+
+    await driver.send(
+      {
+        ...message,
+        unsubscribe: { oneClick: false, url: "http://example.com/un subscribe" },
+      },
+      context,
+    );
+
+    expect(String(Constructor.mock.calls[0]?.[2])).toContain(
+      "List-Unsubscribe: <http://example.com/un%20subscribe>",
+    );
+    expect(String(Constructor.mock.calls[0]?.[2])).not.toContain("List-Unsubscribe-Post:");
+  });
 
   it("rejects stream selection before delivery", async () => {
     const send = vi.fn();
