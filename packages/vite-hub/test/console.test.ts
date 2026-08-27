@@ -754,9 +754,11 @@ describe("Agent invocation console", () => {
 
   it("preserves absolute Console database file URLs", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-file-url-project-"))
-    const databasePath = join(await mkdtemp(join(tmpdir(), "vitehub-console-file-url-data-")), "console.sqlite")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", pathToFileURL(databasePath).href)
+    const databasePath = join(await mkdtemp(join(tmpdir(), "vitehub-console-file-url-data-")), "console #1.sqlite")
+    const databaseUrl = pathToFileURL(databasePath).href
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
     try {
+      expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: databaseUrl })
       await createConsoleInvocations(projectRoot).list()
 
       expect(existsSync(databasePath)).toBe(true)

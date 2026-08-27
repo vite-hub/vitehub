@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
 import { defineAgentInvocations } from "@vite-hub/agent/server"
@@ -36,7 +36,7 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
     ? fileURLToPath(url)
     : resolve(projectRoot, url.slice("file:".length))
   mkdirSync(dirname(filePath), { recursive: true })
-  return { url: `file:${filePath}` }
+  return { url: pathToFileURL(filePath).href }
 }
 
 export function createConsoleInvocations(projectRoot: string): AgentInvocations {
