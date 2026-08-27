@@ -67,7 +67,9 @@ describe("Console fixture CLI", () => {
   it("validates the fixture before starting the caller's development command", async () => {
     const { root } = await fixtureRoot()
     const spawn = vi.fn(async () => ({ exitCode: 7 }))
-    const cli = context(root, { spawn })
+    const stderr = stream()
+    const stdout = stream()
+    const cli = context(root, { spawn, stderr, stdout })
 
     await expect(
       runConsoleDevCli(["--fixture", "console.fixture.json", "--", "pnpm", "dev", "--host"], cli),
@@ -80,8 +82,8 @@ describe("Console fixture CLI", () => {
         [consoleFixtureEnvironmentVariable]: join(root, "console.fixture.json"),
       },
     })
-    expect((cli.stdout as ReturnType<typeof stream>).output()).toContain("(1 invocation)")
-    expect((cli.stderr as ReturnType<typeof stream>).output()).toBe("")
+    expect(stdout.output()).toContain("(1 invocation)")
+    expect(stderr.output()).toBe("")
   })
 
   it("does not start a command for malformed fixture data", async () => {
@@ -133,15 +135,36 @@ describe("Console fixture CLI", () => {
     expect(fixture.invocations[0]?.agentName).toBe("support")
   })
 
+  it("rejects fixture Agent names that the Console API cannot select", () => {
+    expect(() => parseConsoleFixture({
+      invocations: [
+        {
+          agentName: "a".repeat(513),
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id: "fixture-invocation",
+          observations: [],
+          status: "completed",
+          traceId: "fixture-trace",
+          updatedAt: "2026-08-27T10:01:00.000Z",
+        },
+      ],
+      version: 1,
+    })).toThrow("invocations[0].agentName must be at most 512 characters")
+  })
+
   it("translates child termination signals to shell exit statuses", async () => {
     const { root } = await fixtureRoot()
-    const cli = context(root, { spawn: vi.fn(async () => ({ exitCode: null, signal: "SIGTERM" as const })) })
+    const stderr = stream()
+    const cli = context(root, {
+      spawn: vi.fn(async () => ({ exitCode: null, signal: "SIGTERM" as const })),
+      stderr,
+    })
 
     await expect(
       runConsoleDevCli(["--fixture", "console.fixture.json", "--", "pnpm", "dev"], cli),
     ).resolves.toBe(143)
 
-    expect((cli.stderr as ReturnType<typeof stream>).output()).toBe("")
+    expect(stderr.output()).toBe("")
   })
 
   it("requires both a fixture and an explicit development command", async () => {

@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs"
 
-import type { AgentInvocationRecord, AgentInvocationRecordStatus } from "@vite-hub/agent"
+import * as v from "valibot"
+
+import type { AgentInvocationRecord } from "@vite-hub/agent"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
 export const consoleFixtureEnvironmentVariable = "VITEHUB_CONSOLE_FIXTURE"
@@ -9,14 +11,15 @@ export interface ConsoleFixture {
   invocations: readonly AgentInvocationRecord[]
   version: 1
 }
-const invocationStatuses = new Set<AgentInvocationRecordStatus>([
+const maximumAgentNameLength = 512
+const invocationStatusSchema = v.picklist([
   "cancelled",
   "completed",
   "failed",
   "pending",
   "running",
 ])
-const observationTypes = new Set<TraceEventLogEntry["type"]>([
+const observationTypeSchema = v.picklist([
   "approval",
   "capability",
   "error",
@@ -24,18 +27,21 @@ const observationTypes = new Set<TraceEventLogEntry["type"]>([
   "policy",
   "run",
 ])
+const recordSchema = v.record(v.string(), v.unknown())
+const stringSchema = v.string()
+const booleanSchema = v.boolean()
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
+  const result = v.safeParse(recordSchema, value)
+  return result.success ? result.output : undefined
 }
 
 function requiredString(value: unknown, path: string): string {
-  if (typeof value !== "string" || !value.trim()) {
+  const result = v.safeParse(stringSchema, value)
+  if (!result.success || !result.output.trim()) {
     throw new TypeError(`[vitehub] Console fixture ${path} must be a non-empty string.`)
   }
-  return value
+  return result.output
 }
 
 function optionalString(value: unknown, path: string): string | undefined {
@@ -54,11 +60,21 @@ function optionalTimestamp(value: unknown, path: string): string | undefined {
   return value === undefined ? undefined : timestamp(value, path)
 }
 
+function agentName(value: unknown, path: string): string {
+  const resolved = requiredString(value, path).trim()
+  if (resolved.length > maximumAgentNameLength) {
+    throw new TypeError(
+      `[vitehub] Console fixture ${path} must be at most ${maximumAgentNameLength} characters.`,
+    )
+  }
+  return resolved
+}
+
 function observation(value: unknown, path: string): TraceEventLogEntry {
   const input = record(value)
   if (!input) throw new TypeError(`[vitehub] Console fixture ${path} must be an object.`)
-  const type = input.type
-  if (typeof type !== "string" || !observationTypes.has(type as TraceEventLogEntry["type"])) {
+  const type = v.safeParse(observationTypeSchema, input.type)
+  if (!type.success) {
     throw new TypeError(
       `[vitehub] Console fixture ${path}.type is not a supported trace event type.`,
     )
@@ -78,10 +94,11 @@ function observation(value: unknown, path: string): TraceEventLogEntry {
     if (!trace) throw new TypeError(`[vitehub] Console fixture ${path}.trace must be an object.`)
     requiredString(trace.id, `${path}.trace.id`)
     optionalString(trace.parentId, `${path}.trace.parentId`)
-    if (trace.sampled !== undefined && typeof trace.sampled !== "boolean") {
+    if (trace.sampled !== undefined && !v.safeParse(booleanSchema, trace.sampled).success) {
       throw new TypeError(`[vitehub] Console fixture ${path}.trace.sampled must be a boolean.`)
     }
   }
+  // SAFETY: Every TraceEventLogEntry field is validated above before the fixture value is returned.
   return value as TraceEventLogEntry
 }
 
@@ -89,11 +106,8 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   const path = `invocations[${index}]`
   const input = record(value)
   if (!input) throw new TypeError(`[vitehub] Console fixture ${path} must be an object.`)
-  const status = input.status
-  if (
-    typeof status !== "string" ||
-    !invocationStatuses.has(status as AgentInvocationRecordStatus)
-  ) {
+  const status = v.safeParse(invocationStatusSchema, input.status)
+  if (!status.success) {
     throw new TypeError(
       `[vitehub] Console fixture ${path}.status is not a supported Agent Invocation status.`,
     )
@@ -107,14 +121,16 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   if (input.error !== undefined && !record(input.error)) {
     throw new TypeError(`[vitehub] Console fixture ${path}.error must be an object.`)
   }
+  const cursor = v.safeParse(stringSchema, input.cursor)
+  // SAFETY: The parser validates every required AgentInvocationRecord field and preserves optional fixture metadata.
   return {
     ...input,
-    agentName: requiredString(input.agentName, `${path}.agentName`).trim(),
+    agentName: agentName(input.agentName, `${path}.agentName`),
     cancelledAt: optionalTimestamp(input.cancelledAt, `${path}.cancelledAt`),
     channelId: optionalString(input.channelId, `${path}.channelId`),
     completedAt: optionalTimestamp(input.completedAt, `${path}.completedAt`),
     createdAt: timestamp(input.createdAt, `${path}.createdAt`),
-    cursor: typeof input.cursor === "string" ? input.cursor : String(index + 1),
+    cursor: cursor.success ? cursor.output : String(index + 1),
     failedAt: optionalTimestamp(input.failedAt, `${path}.failedAt`),
     id: requiredString(input.id, `${path}.id`),
     observations: input.observations.map((entry, observationIndex) =>
@@ -122,7 +138,7 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     ),
     origin: optionalString(input.origin, `${path}.origin`),
     startedAt: optionalTimestamp(input.startedAt, `${path}.startedAt`),
-    status: status as AgentInvocationRecordStatus,
+    status: status.output,
     threadId: optionalString(input.threadId, `${path}.threadId`),
     traceId: requiredString(input.traceId, `${path}.traceId`),
     updatedAt: timestamp(input.updatedAt, `${path}.updatedAt`),

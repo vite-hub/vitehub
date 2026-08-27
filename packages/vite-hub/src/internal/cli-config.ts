@@ -31,6 +31,7 @@ type LoadNuxt = (options: {
 
 async function resolveNuxtLoader(rootDir: string): Promise<LoadNuxt> {
   const require = createRequire(join(rootDir, "package.json"))
+  // SAFETY: nuxt/kit owns this public loadNuxt export and require.resolve selects that installed module.
   const module = await import(pathToFileURL(require.resolve("nuxt/kit")).href) as { loadNuxt: LoadNuxt }
   return module.loadNuxt
 }
@@ -64,9 +65,9 @@ export async function loadViteHubCliConfig(
   try {
     return {
       ...await resolveViteConfig({
-      ...nuxt.options.vite,
-      configFile: false,
-      root: nuxt.options.rootDir || rootDir,
+        ...nuxt.options.vite,
+        configFile: false,
+        root: nuxt.options.rootDir || rootDir,
       }, "serve", "development"),
       vitehubConfigResolved: true,
     }
