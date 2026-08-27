@@ -79,11 +79,18 @@ function frontmatterLinks(frontmatter) {
   return links;
 }
 
+function splitFrontmatter(markdown) {
+  const match = markdown.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/);
+  return match
+    ? { body: markdown.slice(match[0].length), frontmatter: match[1] }
+    : { body: markdown, frontmatter: undefined };
+}
+
 export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const anchors = new Set();
   const occurrences = new Map();
-  const renderedMarkdown = markdown.replace(/^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/, "");
-  visit(parseMarkdown(renderedMarkdown), (node) => {
+  const { body } = splitFrontmatter(markdown);
+  visit(parseMarkdown(body), (node) => {
     if (node.type !== "heading") return;
     const rawBase = rawMarkdownSlug(nodeText(node));
     if (!rawBase) return;
@@ -102,7 +109,8 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
 }
 
 export function markdownLinks(markdown) {
-  const tree = parseMarkdown(markdown);
+  const { body, frontmatter } = splitFrontmatter(markdown);
+  const tree = parseMarkdown(body);
   const definitions = new Map();
   const links = [];
   visit(tree, (node) => {
@@ -125,7 +133,6 @@ export function markdownLinks(markdown) {
       }
     }
   });
-  const frontmatter = markdown.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/)?.[1];
   if (frontmatter) links.push(...frontmatterLinks(frontmatter));
   return links;
 }
