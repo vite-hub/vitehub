@@ -42,6 +42,29 @@ export interface WorkspacePreparation {
   stop(): Promise<void>
 }
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+async function waitForValidation(
+  validation: void | Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!validation) return
+
+  let removeAbortListener = () => {}
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    if (signal.aborted) return onAbort()
+    signal.addEventListener("abort", onAbort, { once: true })
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort)
+  })
+  try {
+    await Promise.race([validation, aborted])
+  }
+  finally {
+    removeAbortListener()
+  }
+}
+
 export function createWorkspacePreparation<Name extends WorkspaceName = WorkspaceName>(
   options: WorkspacePreparationOptions<Name>,
 ): WorkspacePreparation {
@@ -52,8 +75,8 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
     throw new TypeError("[vitehub] Workspace preparation sources must be non-empty strings.")
   }
   const retryDelayMs = options.retryDelayMs ?? 10_000
-  if (!Number.isFinite(retryDelayMs) || retryDelayMs < 0) {
-    throw new TypeError("[vitehub] Workspace preparation retryDelayMs must be a non-negative finite number.")
+  if (!Number.isFinite(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > MAX_TIMER_DELAY_MS) {
+    throw new TypeError(`[vitehub] Workspace preparation retryDelayMs must be between 0 and ${MAX_TIMER_DELAY_MS}.`)
   }
 
   const workspaceName = options.workspace.trim()
@@ -109,7 +132,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         if (failures.length) {
           throw new Error(`[vitehub] Workspace "${workspaceName}" sources failed to prepare: ${failures.join(", ")}.`)
         }
-        await options.validate?.(result)
+        await waitForValidation(options.validate?.(result), controller.signal)
 
         if (stopped || attemptLifecycle !== lifecycle) return state
         const finishedAtMs = Date.now()

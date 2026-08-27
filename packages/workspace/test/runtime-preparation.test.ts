@@ -131,9 +131,29 @@ describe("Workspace runtime preparation", () => {
     await preparation.stop()
   })
 
+  it("stops without waiting for a pending validator", async () => {
+    let validating!: () => void
+    const validationStarted = new Promise<void>((resolve) => {
+      validating = resolve
+    })
+    const preparation = createWorkspacePreparation({
+      validate: async () => {
+        validating()
+        await new Promise(() => {})
+      },
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }]),
+    })
+
+    const started = preparation.start()
+    await validationStarted
+    await expect(preparation.stop()).resolves.toBeUndefined()
+    await expect(started).resolves.toMatchObject({ status: "preparing" })
+  })
+
   it("validates preparation options at creation", () => {
     expect(() => createWorkspacePreparation({ workspace: "" })).toThrow("requires a Workspace name")
     expect(() => createWorkspacePreparation({ retryDelayMs: -1, workspace: "docs" })).toThrow("retryDelayMs")
+    expect(() => createWorkspacePreparation({ retryDelayMs: 2_147_483_648, workspace: "docs" })).toThrow("retryDelayMs")
     expect(() => createWorkspacePreparation({ sources: [""], workspace: "docs" })).toThrow("sources")
   })
 })
