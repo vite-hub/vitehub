@@ -103,7 +103,7 @@ describe("Agent Invocations", () => {
   }, 5_000)
 
   it("persists delivery observations emitted after terminal finalization", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("late-delivery-observation"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.finish("completed")
@@ -127,28 +127,35 @@ describe("Agent Invocations", () => {
   })
 
   it("retains late delivery outcomes when a completed journal is at capacity", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("late-delivery-at-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     for (let index = 0; index < 255; index++) {
       await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
     }
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
     await journal.finish("completed")
 
-    await journal.context.traceLog?.append({
-      attributes: { "channel.effect.content": "Streamed reply" },
-      name: "agent.channel.delivery.effect",
-      type: "run",
-    })
+    for (const content of ["First streamed reply", "Second streamed reply"]) {
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": content },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+    }
 
     await vi.waitFor(async () => {
       const record = await invocations.getByRunId("late-delivery-at-capacity")
       expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
       expect(record?.observations).toHaveLength(256)
-      expect(record?.observations.slice(-2)).toMatchObject([
+      expect(record?.observations.slice(-3)).toMatchObject([
         { name: "agent.invocation.finish" },
         {
-          attributes: { "channel.effect.content": "Streamed reply" },
+          attributes: { "channel.effect.content": "First streamed reply" },
+          name: "agent.channel.delivery.effect",
+        },
+        {
+          attributes: { "channel.effect.content": "Second streamed reply" },
           name: "agent.channel.delivery.effect",
         },
       ])

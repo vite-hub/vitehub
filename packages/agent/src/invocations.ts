@@ -439,11 +439,17 @@ export function applyAgentInvocationStoreUpdate(
           const terminal = terminalObservation(input.observation)
             ? input.observation
             : record.observations.findLast(terminalObservation)
-          const delivery = deliveryOutcomeObservation(input.observation)
-            ? input.observation
-            : record.observations.findLast(deliveryOutcomeObservation)
-          const outcomes = [failureEvidence, terminal, delivery]
+          const deliveries = [
+            ...record.observations.filter(deliveryOutcomeObservation),
+            ...(deliveryOutcomeObservation(input.observation) ? [input.observation] : []),
+          ]
+          const requiredOutcomes = [failureEvidence, terminal]
             .filter((observation, index, all): observation is TraceEventLogEntry => observation !== undefined && all.indexOf(observation) === index)
+          const deliveryLimit = Math.max(0, MAX_OBSERVATIONS - requiredOutcomes.length)
+          const outcomes = [
+            ...requiredOutcomes,
+            ...deliveries.slice(-deliveryLimit),
+          ].filter((observation, index, all) => all.indexOf(observation) === index)
           if (outcomes.length === 0) outcomes.push(record.observations.at(-1)!)
           const retained = record.observations.filter(observation => !outcomes.includes(observation))
           return [
@@ -456,7 +462,9 @@ export function applyAgentInvocationStoreUpdate(
     ...record,
     ...(input.error ? { error: input.error } : {}),
     observations,
-    ...(input.observationsTruncated ? { observationsTruncated: true } : {}),
+    ...(input.observationsTruncated || (input.observation && record.observations.length >= MAX_OBSERVATIONS)
+      ? { observationsTruncated: true }
+      : {}),
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
     ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
