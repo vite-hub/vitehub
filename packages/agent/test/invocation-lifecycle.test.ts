@@ -349,6 +349,34 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("merges nested usage on immutable raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {
+      yield {
+        type: "usage",
+        usageRecord: { model: "provider/model", usage: { outputTokens: 3, totalTokens: 5 } },
+      }
+    })(), { usageRecord: { usage: { inputTokens: 2 } } })
+    Object.preventExtensions(raw)
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        raw,
+        usage,
+        usageRecord: { model: "provider/model", usage },
+      },
+    })
+  })
+
   it("preserves immutable plain raw streams in the finish result", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

@@ -3728,15 +3728,29 @@ function resultWithStreamedTextAndUsage(
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
+    const normalizedUsage = normalized.usage && hasRuntimeType(normalized.usage, "object")
+      ? normalized.usage
+      : undefined
+    const mergedUsage = normalized.usageRecord?.usage || normalizedUsage || streamedUsageRecord?.usage
+      ? {
+          ...streamedUsageRecord?.usage,
+          ...normalized.usageRecord?.usage,
+          ...normalizedUsage,
+        }
+      : undefined
     const mergedUsageRecord = normalized.usageRecord || streamedUsageRecord
-      ? { ...streamedUsageRecord, ...normalized.usageRecord }
+      ? {
+          ...streamedUsageRecord,
+          ...normalized.usageRecord,
+          ...(mergedUsage ? { usage: mergedUsage } : {}),
+        }
       : undefined
     return {
       ...normalized,
       raw: result,
       ...(text ? { text } : {}),
-      ...(normalized.usage !== undefined || streamedUsageRecord?.usage !== undefined
-        ? { usage: normalized.usage ?? streamedUsageRecord?.usage }
+      ...(normalized.usage !== undefined || mergedUsage
+        ? { usage: normalizedUsage ? mergedUsage : normalized.usage ?? mergedUsage }
         : {}),
       ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }
