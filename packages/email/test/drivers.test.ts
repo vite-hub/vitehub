@@ -35,9 +35,9 @@ describe("Resend Email driver", () => {
     expect(() => resend({ apiKey: "re_secret", endpoint })).toThrow("endpoint must be a valid HTTP or HTTPS URL")
   })
 
-  it("normalizes a trailing slash in the endpoint", async () => {
+  it("normalizes trailing slashes in the endpoint", async () => {
     const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }))
-    const driver = resend({ apiKey: "re_secret", endpoint: "https://resend.example.test/", fetch: request })
+    const driver = resend({ apiKey: "re_secret", endpoint: "https://resend.example.test///", fetch: request })
 
     await driver.send(message, context)
 

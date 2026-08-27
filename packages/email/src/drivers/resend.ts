@@ -80,7 +80,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
     const url = new URL(options.endpoint ?? "https://api.resend.com")
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new TypeError("Unsupported protocol")
     if (url.search || url.hash) throw new TypeError("Unsupported URL components")
-    endpoint = url.href.replace(/\/$/, "")
+    endpoint = url.href.replace(/\/+$/, "")
   }
   catch (cause) {
     throw emailProviderError("resend", "INVALID_OPTIONS", "endpoint must be a valid HTTP or HTTPS URL.", { cause })
