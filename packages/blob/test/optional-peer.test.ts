@@ -45,6 +45,17 @@ describe("optional peer imports", () => {
     expect(source).not.toContain("node:module")
   })
 
+  it("routes runtime stores through provider-specific driver entries", async () => {
+    const source = await readFile(new URL("../src/runtime/storage.ts", import.meta.url), "utf8")
+
+    const dedicatedProviders = Object.keys(filesSdkDriverPeers)
+      .filter(provider => !["cloudflare-r2", "netlify-blobs", "vercel-blob"].includes(provider))
+    for (const provider of dedicatedProviders) {
+      expect(source).toMatch(new RegExp(`["']?${provider}["']?\\s*:\\s*["']${provider}["']`))
+    }
+    expect(source).not.toMatch(/:\s*["']files["']/)
+  })
+
   it("patches Vercel stream byte ownership and cancellation", async () => {
     const closure = (await readLocalClosure(new URL(import.meta.resolve("@vercel/blob")))).join("\n")
 

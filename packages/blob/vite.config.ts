@@ -107,9 +107,6 @@ export default defineConfig({
       dts: ".d.ts",
       js: ".js",
     }),
-    outputOptions: {
-      codeSplitting: false,
-    },
     publint: true,
   },
 });
