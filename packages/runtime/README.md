@@ -6,58 +6,142 @@
   <img alt="Runtime" src="https://img.shields.io/badge/Runtime-context%20%7C%20policy%20%7C%20trace-18181b?style=flat-square">
 </p>
 
-`@vite-hub/runtime` shares host context, capability handles, policy decisions, approvals, traces, and leases across packages.
+`@vite-hub/runtime` provides the shared Runtime Host Context, Runtime Capability,
+policy, approval, trace, error, lease, and execution-authority contracts used by
+ViteHub packages and custom host integrations.
 
-## Install
+## Choose an import
+
+| You are building                              | Install                   | Import                                              |
+| --------------------------------------------- | ------------------------- | --------------------------------------------------- |
+| A ViteHub application                         | `vite-hub`                | `vite-hub/runtime`                                  |
+| A reusable package or custom host integration | `@vite-hub/runtime`       | `@vite-hub/runtime`                                 |
+| Node resource diagnostics in either case      | The same selected package | `vite-hub/runtime/node` or `@vite-hub/runtime/node` |
+
+Use the `vite-hub` facade when it is already your application dependency. Install
+this owner package directly when the integration should depend only on Runtime's
+portable contracts. This package does not register Vite, Nuxt, routes, providers,
+or Agent Definitions.
+
+## Install the owner package
 
 ```sh
 pnpm add @vite-hub/runtime
 ```
 
-## Minimal API
+The package declares Node.js 24 or newer. Import the root entry for portable
+Runtime contracts. When inspected, the `/node` entry reads Node process
+information and, on Linux, `/proc` and cgroup v2 files.
+
+## Get a first result
+
+Create the host context explicitly, register one Runtime Capability, and look it
+up through the public package entry:
 
 ```ts
-// server/utils/runtime-context.ts
-import {
-  createExecutionContext,
-  defineCapability,
-  getCapability,
-  resolveCapabilityPolicy,
-} from "@vite-hub/runtime"
+import { createExecutionContext, defineCapability, getCapability } from "@vite-hub/runtime";
 
+const values = new Map<string, unknown>();
 const context = createExecutionContext({
-  runtime: "vite",
-  memo: (key, create) => create(),
-  waitUntil: task => task.catch(() => {}),
   capabilities: {
-    kv: defineCapability("kv", {
-      get: async (_key: string) => null,
-    }),
+    health: defineCapability("health", { status: "ready" }),
   },
-})
+  memo<T>(key: string, create: () => T): T {
+    if (!values.has(key)) values.set(key, create());
+    return values.get(key) as T;
+  },
+  runtime: "node",
+  waitUntil(task) {
+    void task.catch(console.error);
+  },
+});
 
-const kv = getCapability(context, "kv")
-
-const decision = await resolveCapabilityPolicy("require-approval", {
-  capability: kv.name,
-  operation: "write",
-})
+const health = getCapability(context, "health");
+console.log(`${context.runtime}:${health.kind}`);
 ```
 
-An omitted policy resolves to `allow`. Pass `require-approval` or `deny` when an operation needs an explicit gate.
+Running the file prints:
 
-## Execution authority
+```text
+node:health
+```
 
-`ExecutionAuthority` is the normalized, provider-independent description of what one resolved execution surface grants. It records filesystem access and scope, network egress, environment inheritance, credential access, process execution, and the isolation mechanism. Read it from the resolved owner, such as `box.plan.executionAuthority`, `WorkspaceSession.executionAuthority`, `SandboxRunner.executionAuthority`, or `AgentInspectionMetadata.config.driver.executionAuthority`.
+This proves context construction and capability lookup. The `waitUntil` fallback
+only observes rejected promises in a long-lived process. It does not keep a
+serverless request alive. A production host must delegate background work to its
+provider lifetime API.
 
-Each resolved descriptor is an immutable snapshot of the authority known at resolution time. `unknown` means the provider cannot prove or did not report that dimension; it never means `none`. `isolation` identifies a mechanism such as a container or microVM, but it is not a security rank and does not imply anything about filesystem, network, credentials, or processes. Providers must report every dimension explicitly instead of inheriting a permissive default.
+## Understand the boundaries
 
-Executable selection, fixed argument arrays, and executable allowlists are dispatch controls. They do not constrain what a selected process can read, reach, inherit, or spawn, so they are not represented as isolation.
+### Runtime Host Context
 
-`ViteHubError` clones and freezes its JSON-safe public details at construction, and `toJSON()` always returns that immutable snapshot. Put raw provider failures in `cause`; changing the original details or the error's public fields later cannot change serialized output. Accessors, cycles, `bigint`, non-finite numbers, and oversized detail trees are rejected with a fixed `TypeError`, so callers that previously passed mutable or non-JSON detail objects must normalize them first.
+`createExecutionContext()` normalizes an object supplied by the host. The host
+still owns `runtime`, `memo`, `waitUntil`, request or event data, provider
+bindings, and cleanup. Runtime does not discover framework globals, propagate an
+ambient context, or isolate concurrent requests.
 
-## Used by
+Treat every value on the context as available to code that receives it. Runtime
+does not clone, redact, encrypt, or restrict `request`, `event`, `cloudflare.env`,
+`runtimeConfig`, or Runtime Capability values. Pass only the bindings and secrets
+needed by that operation, and do not copy secrets into traces or approval input.
 
-Feature packages use Runtime Capability handles instead of passing every provider client through every API. Agent Capabilities consume these handles when they expose KV, Blob, DB, sandbox, shell, or workspace behavior.
+### Runtime Capabilities
 
-Learn more at [vitehub.dev](https://vitehub.dev).
+`defineCapability()` and `getCapability()` pass a named implementation between
+packages. A handle is not a permission boundary: code that receives its `value`
+can call that implementation. Keep authentication, tenant checks, input
+validation, rate limits, and provider credentials at the application or provider
+boundary that owns the operation.
+
+### Policy and approvals
+
+`resolveCapabilityPolicy()` evaluates a decision. An omitted policy resolves to
+`allow`; `deny` and `require-approval` have an effect only when the calling
+feature checks the decision before performing work. The approval interfaces are
+records, not a durable approval queue or trusted approver service. The host must
+authenticate the actor, persist and correlate decisions when required, prevent
+replay, and resume or reject the operation.
+
+### Traces
+
+`createTraceEventLog()` is an in-memory log. Its default `metadata` policy omits
+known content-bearing attribute keys such as `input`, `prompt`, `body`, and
+`output`, including nested keys. This is bounded omission by key, not general
+secret detection. Arbitrary names such as `token` or `authorization` are not
+automatically redacted, and `error.message` is retained. `{ content: "content" }`
+retains all supplied attributes.
+
+Own trace access, retention, size limits, redaction, and durable export in the
+host. `entries()` returns the current in-memory entries; it does not persist or
+stream them by itself.
+
+### Execution authority and public errors
+
+`ExecutionAuthority` describes the filesystem, network, environment,
+credentials, process, and isolation properties reported by a resolved execution
+surface. It does not enforce them. `unknown` means the provider did not prove a
+dimension; it never means `none`. An isolation label such as `container` or
+`microvm` is not a security rank.
+
+`ViteHubError` snapshots and freezes JSON-safe public `details` at construction.
+Those details are intended for serialization, so never put secrets in them. A
+`cause` is excluded from `toJSON()`, but remains available to code and loggers
+that inspect the Error instance.
+
+## Public entry points
+
+| Import                   | Provides                                                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, and execution-authority APIs |
+| `@vite-hub/runtime/node` | Node process observations plus Linux host and cgroup v2 observations when supported                  |
+
+Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
+
+## Go deeper
+
+- [Runtime Context](https://vitehub.dev/docs/concepts/runtime-context)
+- [Runtime policy, approvals, and traces](https://vitehub.dev/docs/concepts/runtime-policy-approvals-and-traces)
+- [Runtime events](https://vitehub.dev/docs/reference/runtime-events)
+- [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
+- [Node Runtime diagnostics](https://vitehub.dev/docs/capabilities/diagnostics)
+- [Report a Runtime issue](https://github.com/vite-hub/vitehub/issues/new)
