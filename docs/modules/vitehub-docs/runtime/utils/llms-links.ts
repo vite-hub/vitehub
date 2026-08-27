@@ -10,16 +10,20 @@ type LlmsOptions = {
 export function rawMarkdownUrl(href: string, domain: string) {
   const site = new URL(domain);
   const url = new URL(href, site);
-  if (url.origin !== site.origin || (url.pathname !== "/docs" && !url.pathname.startsWith("/docs/"))) {
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  const sourceBacked = pathname === "/docs"
+    || pathname.startsWith("/docs/")
+    || pathname.startsWith("/blog/")
+    || ["/about", "/contact", "/privacy"].includes(pathname);
+  if (url.origin !== site.origin || !sourceBacked) {
     return href;
   }
 
-  const pathname = url.pathname === "/docs/" ? "/docs" : url.pathname.replace(/\/+$/, "");
   url.pathname = `/raw${pathname}.md`;
   return url.toString();
 }
 
-export function rewriteLlmsDocsLinks(options: LlmsOptions) {
+export function rewriteLlmsRawLinks(options: LlmsOptions) {
   if (!options.domain) return;
 
   for (const section of options.sections || []) {

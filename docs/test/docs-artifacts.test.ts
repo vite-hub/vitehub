@@ -62,6 +62,8 @@ describe("writeDocsArtifacts", () => {
         "",
         "Hidden content.",
       ].join("\n"));
+      writeText(resolve(docsRoot, "content/blog/1.agents.md"), "# Agents blog\n");
+      writeText(resolve(docsRoot, "content/trust/about.md"), "# About ViteHub\n");
       writeText(resolve(outputDir, "raw/docs/removed.md"), "stale\n");
 
       const manifest = writeDocsArtifacts({ docsRoot, outputDir });
@@ -84,6 +86,8 @@ describe("writeDocsArtifacts", () => {
       expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")?.navigation).toBe(false);
       expect(readFileSync(resolve(outputDir, "raw/docs.md"), "utf8")).toBe("# ViteHub docs\n\nStart here.\n");
       expect(readFileSync(resolve(outputDir, "raw/docs/server-primitives.md"), "utf8")).toBe("# Overview\n\nServer content.\n");
+      expect(readFileSync(resolve(outputDir, "raw/blog/agents.md"), "utf8")).toBe("# Agents blog\n");
+      expect(readFileSync(resolve(outputDir, "raw/about.md"), "utf8")).toBe("# About ViteHub\n");
       expect(existsSync(resolve(outputDir, "raw/docs/removed.md"))).toBe(false);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
@@ -134,6 +138,21 @@ describe("writeDocsArtifacts", () => {
         "::u-page-grid",
         "````",
         "",
+        "```md",
+        "```js",
+        "::warning",
+        "This same-length marker with an info string remains literal.",
+        "::",
+        "::u-page-grid",
+        "```",
+        "",
+        "~~~md",
+        "~~~js",
+        "::warning",
+        "This tilde marker with an info string remains literal.",
+        "::",
+        "~~~",
+        "",
         "::steps",
         "  ::tabs",
         "    :::tabs-item{label=\"Example\"}",
@@ -169,6 +188,23 @@ describe("writeDocsArtifacts", () => {
         "```",
         "::u-page-grid",
         "````",
+      ].join("\n"));
+      expect(raw).toContain([
+        "```md",
+        "```js",
+        "::warning",
+        "This same-length marker with an info string remains literal.",
+        "::",
+        "::u-page-grid",
+        "```",
+      ].join("\n"));
+      expect(raw).toContain([
+        "~~~md",
+        "~~~js",
+        "::warning",
+        "This tilde marker with an info string remains literal.",
+        "::",
+        "~~~",
       ].join("\n"));
       expect(raw).toContain([
         "### Example",

@@ -3,6 +3,20 @@ const siteOrigin = "https://vitehub.dev";
 
 type Frontmatter = Record<string, string>;
 
+type Fence = {
+  length: number;
+  marker: string;
+};
+
+function fenceRun(line: string) {
+  return line.match(/^\s*(```+|~~~+)/)?.[1];
+}
+
+function closesFence(line: string, fence: Fence) {
+  const run = line.match(/^\s*(```+|~~~+)\s*$/)?.[1];
+  return run?.[0] === fence.marker && run.length >= fence.length;
+}
+
 function splitFrontmatter(source: string): { body: string, frontmatter: Frontmatter } {
   const normalized = source.replaceAll("\r\n", "\n");
   if (!normalized.startsWith(`${frontmatterBoundary}\n`)) {
@@ -60,23 +74,23 @@ function cardList(source: string) {
 function cardListsOutsideFences(source: string) {
   const output: string[] = [];
   let outsideFence = "";
-  let fence: { length: number, marker: string } | null = null;
+  let fence: Fence | null = null;
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
     const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
-    const fenceMatch = line.match(/^\s*(```+|~~~+)/);
+    const run = fenceRun(line);
 
-    if (!fence && fenceMatch) {
+    if (!fence && run) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
-      fence = { length: fenceMatch[1]!.length, marker: fenceMatch[1]![0]! };
+      fence = { length: run.length, marker: run[0]! };
       continue;
     }
 
     if (fence) {
       output.push(lineWithEnding);
-      if (fenceMatch?.[1]?.[0] === fence.marker && fenceMatch[1].length >= fence.length) fence = null;
+      if (closesFence(line, fence)) fence = null;
       continue;
     }
 
@@ -107,17 +121,16 @@ function directiveLabel(name: string, attributes: string | undefined) {
 function stripPresentationDirectives(source: string) {
   const output: string[] = [];
   let depth = 0;
-  let fence: { indent: number, length: number, marker: string } | null = null;
+  let fence: (Fence & { indent: number }) | null = null;
 
   for (const originalLine of source.split("\n")) {
     const leadingSpaces = originalLine.match(/^ */)?.[0].length || 0;
     const structuralIndent = fence?.indent ?? Math.min(leadingSpaces, depth * 2);
     const deindented = originalLine.slice(Math.min(leadingSpaces, structuralIndent));
-    const fenceMatch = deindented.match(/^\s*(```+|~~~+)/);
-    if (fenceMatch) {
-      const marker = fenceMatch[1]![0]!;
-      if (!fence) fence = { indent: structuralIndent, length: fenceMatch[1]!.length, marker };
-      else if (fence.marker === marker && fenceMatch[1]!.length >= fence.length) fence = null;
+    const run = fenceRun(deindented);
+    if (run) {
+      if (!fence) fence = { indent: structuralIndent, length: run.length, marker: run[0]! };
+      else if (closesFence(deindented, fence)) fence = null;
       output.push(rewriteLinks(deindented));
       continue;
     }
