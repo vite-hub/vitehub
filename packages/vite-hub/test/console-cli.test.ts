@@ -209,6 +209,28 @@ describe("Console fixture CLI", () => {
     ).toThrow("invocations[0].observations[0].trace must be an object")
   })
 
+  it("rejects duplicate observation sequence numbers within an invocation", () => {
+    const observation = {
+      name: "agent.start",
+      sequence: 0,
+      timestamp: "2026-08-27T10:00:00.000Z",
+      type: "run",
+    }
+
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        agentName: "support",
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id: "fixture-invocation",
+        observations: [observation, { ...observation, name: "agent.finish" }],
+        status: "completed",
+        traceId: "fixture-trace",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+      }],
+      version: 1,
+    })).toThrow("invocations[0] contains duplicate observation sequence 0")
+  })
+
   it.each([
     [{}, "invocations[0].error.message must be a non-empty string"],
     [{ message: 42 }, "invocations[0].error.message must be a non-empty string"],

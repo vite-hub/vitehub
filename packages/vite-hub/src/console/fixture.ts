@@ -172,6 +172,17 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   const error =
     input.error === undefined ? undefined : diagnosticError(input.error, `${path}.error`)
   const cursor = v.safeParse(stringSchema, input.cursor)
+  const observationSequences = new Set<number>()
+  const observations = input.observations.map((entry, observationIndex) => {
+    const parsed = observation(entry, `${path}.observations[${observationIndex}]`)
+    if (observationSequences.has(parsed.sequence)) {
+      throw new TypeError(
+        `[vitehub] Console fixture ${path} contains duplicate observation sequence ${parsed.sequence}.`,
+      )
+    }
+    observationSequences.add(parsed.sequence)
+    return parsed
+  })
   // SAFETY: The parser validates every required AgentInvocationRecord field and preserves optional fixture metadata.
   return {
     ...input,
@@ -184,9 +195,7 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     ...(error ? { error } : {}),
     failedAt: optionalTimestamp(input.failedAt, `${path}.failedAt`),
     id: requiredString(input.id, `${path}.id`),
-    observations: input.observations.map((entry, observationIndex) =>
-      observation(entry, `${path}.observations[${observationIndex}]`),
-    ),
+    observations,
     origin: optionalString(input.origin, `${path}.origin`),
     startedAt: optionalTimestamp(input.startedAt, `${path}.startedAt`),
     status: status.output,

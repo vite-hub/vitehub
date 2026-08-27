@@ -111,8 +111,24 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
         options.stderr || "inherit",
       ],
     })
-    child.on("error", reject)
-    child.on("close", (exitCode, signal) => resolveResult({ exitCode, signal }))
+    const forwardedSignals = ["SIGHUP", "SIGINT", "SIGTERM"] as const
+    const handlers = new Map<NodeJS.Signals, () => void>()
+    const cleanup = () => {
+      for (const [signal, handler] of handlers) process.off(signal, handler)
+    }
+    for (const signal of forwardedSignals) {
+      const handler = () => child.kill(signal)
+      handlers.set(signal, handler)
+      process.on(signal, handler)
+    }
+    child.on("error", (error) => {
+      cleanup()
+      reject(error)
+    })
+    child.on("close", (exitCode, signal) => {
+      cleanup()
+      resolveResult({ exitCode, signal })
+    })
   })
 }
 
