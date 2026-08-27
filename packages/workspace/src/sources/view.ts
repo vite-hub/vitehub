@@ -57,10 +57,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   const materializeBySource = new Map<string, Promise<void>>()
   const materializedPathsBySource = new Map<string, Set<string>>()
+  const retryOptionsBySource = new Map<string, import("../core/types.ts").WorkspaceMaterializeSourcesOptions>()
   let materializationQueue = Promise.resolve()
 
   async function materializeSources(options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions) {
+    let started = false
     const pending = materializationQueue.then(async () => {
+      started = true
       options?.abortSignal?.throwIfAborted()
       return await materializeWorkspaceSources(definition, store, options)
     })
@@ -68,7 +71,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const result = options?.abortSignal
       ? await new Promise<Awaited<typeof pending>>((resolve, reject) => {
           const signal = options.abortSignal!
-          const aborted = () => reject(signal.reason)
+          const aborted = () => {
+            if (!started) reject(signal.reason)
+          }
           if (signal.aborted) {
             aborted()
             return
@@ -88,7 +93,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       : await pending
     const path = normalizeWorkspacePath(options?.path || "")
     for (const source of result.sources) {
-      if (source.status !== "ready") continue
+      if (source.status !== "ready") {
+        retryOptionsBySource.set(source.source, options || {})
+        continue
+      }
+      retryOptionsBySource.delete(source.source)
       if (source.cacheStatus !== "hit") prepareBySource.set(source.source, Promise.resolve())
       let paths = materializedPathsBySource.get(source.source)
       if (!paths) {
@@ -196,7 +205,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
-      pending = materializeSources({ sources: [sourceKey] }).then(() => undefined)
+      pending = materializeSources({ ...retryOptionsBySource.get(sourceKey), sources: [sourceKey] }).then(() => undefined)
       materializeBySource.set(sourceKey, pending)
     }
     await pending

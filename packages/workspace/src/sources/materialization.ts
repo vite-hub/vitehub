@@ -435,18 +435,6 @@ export async function materializeWorkspaceSources(
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
       ? { ...existing.items }
       : {}
-    if (completeSource) {
-      await writeSourceSnapshotMetadata(store, {
-        configHash,
-        source: source.key,
-        mountPath: source.mountPath,
-        status: "updating",
-        revision,
-        items: checkpointItems(itemMetadata),
-        cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-      })
-    }
-
     let sourceFiles = 0
     let sourceBytes = 0
     let persistedBytesDelta = 0
@@ -455,6 +443,17 @@ export async function materializeWorkspaceSources(
     const paths: WorkspaceSourceMaterializationPathResult[] = []
     const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
     try {
+      if (completeSource) {
+        await writeSourceSnapshotMetadata(store, {
+          configHash,
+          source: source.key,
+          mountPath: source.mountPath,
+          status: "updating",
+          revision,
+          items: checkpointItems(itemMetadata),
+          cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+        })
+      }
       throwIfAborted(options.abortSignal)
       await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
@@ -614,7 +613,7 @@ export async function materializeWorkspaceSources(
             ? { ...existing, items: checkpointItems(itemMetadata) }
             : undefined
         : failed
-      if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint)
+      if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint).catch(() => undefined)
       const durationMs = Date.now() - sourceStarted
       const reportedPaths = materializationPaths(options, paths)
       const failedSource: WorkspaceSourceMaterializationStatus = {

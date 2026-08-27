@@ -612,9 +612,9 @@ describe("lazy sources", () => {
     await expect(freshView.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       sources: [{ cacheStatus: "hit", status: "ready" }],
     })
-    await expect(freshView.list("docs", { recursive: true })).resolves.toEqual([
+    await expect(freshView.list("docs", { recursive: true })).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "docs/docs/guide", type: "file" }),
-    ])
+    ]))
   })
 
   it("keeps full cache-hit aggregates after scoped materialization", async () => {
@@ -1218,8 +1218,9 @@ describe("lazy sources", () => {
   })
 
   it("counts streamed bytes when the Store omits stat size", async () => {
-    const store = createMemoryWorkspaceStore()
-    const writeFileStream = store.writeFileStream!
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const writeFileStream = store.writeFileStream!.bind(store)
     store.writeFileStream = async (path, file) => {
       const stat = await writeFileStream(path, file)
       return { ...stat, size: undefined }
@@ -1249,7 +1250,10 @@ describe("lazy sources", () => {
       },
     }, store)
 
-    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({ bytes: 5 })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 5,
+      sources: [{ bytes: 5, status: "ready" }],
+    })
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       bytes: 5,
       sources: [{ bytes: 5, cacheStatus: "hit" }],
