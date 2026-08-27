@@ -11,6 +11,7 @@ const variablePackagePattern = /^((?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+))@(?:\$\{([A-Z
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`)$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
+const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
 
 function shellTokens(line) {
   const tokens = []
@@ -50,10 +51,18 @@ function resolvePackageSpec(spec, environment) {
 function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   const specs = []
   const environment = new Map(inheritedEnvironment)
+  let ignoredHereDocument
   for (const line of command.split("\n")) {
+    if (ignoredHereDocument) {
+      if (line.trim() === ignoredHereDocument) ignoredHereDocument = undefined
+      continue
+    }
     if (line.trimStart().startsWith("#")) continue
 
     const tokens = shellTokens(line)
+    const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
+    const commandName = tokens.find(token => !token.includes("=") && !shellOperatorPattern.test(token))
+    if (hereDocument && !shellCommands.has(commandName)) ignoredHereDocument = hereDocument[2]
     for (let index = 0; index < tokens.length; index++) {
       let argumentsStart
       let acceptsPackageOptions = false
@@ -112,7 +121,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
           }
         }
       }
-      if (packageSpecs.length === 0) {
+      if (packageSpecs.length === 0 && callCommands.length === 0) {
         packageSpecs.push(invocation.find(candidate => candidate !== "--" && !candidate.startsWith("-")) ?? "(missing)")
       }
       specs.push(...packageSpecs.map(spec => resolvePackageSpec(spec, environment)))
@@ -130,6 +139,10 @@ function imageUsesLatest(reference) {
   const hasTag = lastSegment.includes(":")
   const tag = hasTag ? lastSegment.slice(lastSegment.lastIndexOf(":") + 1) : "latest"
   return tag === "latest" && (hasTag || !digest)
+}
+
+function imageIsMutable(reference) {
+  return reference.includes("${{") || imageUsesLatest(reference)
 }
 
 async function findYamlFiles(directory, filter, ignoredDirectories = new Set(), recursive = true) {
@@ -288,9 +301,10 @@ export function inspectGitHubCIInputs(path, source) {
   const isActionManifest = /(?:^|\/)action\.ya?ml$/.test(normalizedPath) && !isDirectWorkflow
   if (!isActionManifest && normalizedPath.startsWith(".github/workflows/")) {
     let jobs = findPair(root, "jobs")?.value
+    const jobsComment = jobs?.comment ?? ""
     if (isAlias(jobs)) jobs = jobs.resolve(document)
     if (!isMap(jobs)) return failures
-    const enclosingJobsComment = jobs.items.length === 1 ? jobs.comment ?? "" : ""
+    const enclosingJobsComment = jobs.items.length === 1 ? jobsComment || jobs.comment || "" : ""
     for (const jobPair of jobs.items) {
       const aliasComment = jobPair.value?.comment ?? ""
       const job = isAlias(jobPair.value) ? jobPair.value.resolve(document) : jobPair.value
@@ -310,8 +324,8 @@ export function inspectGitHubCIInputs(path, source) {
           if (typeof container.value !== "string") {
             failures.push({ line, message: "image must be a string", path })
           }
-          else if (imageUsesLatest(container.value)) {
-            failures.push({ line, message: `container image must not use latest, explicitly or implicitly: ${container.value}`, path })
+          else if (imageIsMutable(container.value)) {
+            failures.push({ line, message: `container image must not use latest or unresolved expressions: ${container.value}`, path })
           }
           continue
         }
@@ -324,8 +338,8 @@ export function inspectGitHubCIInputs(path, source) {
         if (!isScalar(image) || typeof image.value !== "string") {
           failures.push({ line, message: "image must be a string", path })
         }
-        else if (imageUsesLatest(image.value)) {
-          failures.push({ line, message: `container image must not use latest, explicitly or implicitly: ${image.value}`, path })
+        else if (imageIsMutable(image.value)) {
+          failures.push({ line, message: `container image must not use latest or unresolved expressions: ${image.value}`, path })
         }
       }
     }

@@ -79,6 +79,7 @@ describe("GitHub CI input policy", () => {
         "      - run: pnpx tool@1.2.3 --help",
         "      - run: bun x tool@1.2.3 --help",
         "      - run: npm exec --package=runner@1.2.3 --call=\"npx nested@2.3.4\"",
+        "      - run: npm exec -c 'echo ok'",
         "      - run: npx \"tool@$TOOL_VERSION\" --help",
         "      - run: echo '$(npx unpinned)'",
         "      - run: echo ok # npx unpinned",
@@ -410,6 +411,50 @@ jobs:
     ])
   })
 
+  it("preserves enclosing version comments on complete jobs aliases", async () => {
+    const reference = "owner/repo/.github/workflows/build.yml@1234567890abcdef1234567890abcdef12345678"
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "shared-jobs: &shared-jobs",
+        "  call:",
+        `    uses: ${reference}`,
+        "jobs: *shared-jobs # v1.2.3",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it("ignores here-document data but inspects bodies executed by a shell", async () => {
+    const dataRoot = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          cat <<'EOF'",
+        "          npx unpinned",
+        "          EOF",
+      ].join("\n"),
+    })
+    const shellRoot = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          bash <<'EOF'",
+        "          npx unpinned",
+        "          EOF",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(dataRoot)).resolves.toEqual([])
+    await expect(checkGitHubCIInputs(shellRoot)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+  })
+
   it("rejects mutable environment versions and custom shell executors", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": [
@@ -459,7 +504,12 @@ jobs:
     ])
   })
 
-  it.each(["example/database", "example/database:latest", `example/database:latest@sha256:${"a".repeat(64)}`])(
+  it.each([
+    "example/database",
+    "example/database:latest",
+    `example/database:latest@sha256:${"a".repeat(64)}`,
+    "node:${{ matrix.tag }}",
+  ])(
     "rejects a mutable container image: %s",
     async (image) => {
       const root = await createFixture({
