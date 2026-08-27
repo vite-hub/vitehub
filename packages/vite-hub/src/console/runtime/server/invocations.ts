@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
 import { defineAgentInvocations } from "@vite-hub/agent/server"
@@ -20,14 +21,22 @@ export function getConsoleInvocations(): AgentInvocations {
   return invocations
 }
 
-function consoleDatabaseUrl(projectRoot: string): string {
+interface ConsoleDatabaseOptions {
+  authToken?: string
+  url: string
+}
+
+export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatabaseOptions {
   const configuredUrl = process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
   const url = configuredUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
-  if (!url.startsWith("file:")) return url
+  const authToken = process.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
+  if (!url.startsWith("file:")) return { ...(authToken ? { authToken } : {}), url }
 
-  const filePath = resolve(projectRoot, url.slice("file:".length))
+  const filePath = url.startsWith("file://")
+    ? fileURLToPath(url)
+    : resolve(projectRoot, url.slice("file:".length))
   mkdirSync(dirname(filePath), { recursive: true })
-  return `file:${filePath}`
+  return { url: `file:${filePath}` }
 }
 
 export function createConsoleInvocations(projectRoot: string): AgentInvocations {
@@ -39,9 +48,7 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
       "result.text",
       "vitehub.activity.progress",
     ],
-    store: createLibsqlAgentInvocationStore({
-      url: consoleDatabaseUrl(projectRoot),
-    }),
+    store: createLibsqlAgentInvocationStore(resolveConsoleDatabaseOptions(projectRoot)),
   })
 }
 

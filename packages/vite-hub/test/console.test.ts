@@ -2,7 +2,8 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { H3 } from "h3"
@@ -14,7 +15,7 @@ import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocation
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
-import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { createConsoleInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -749,6 +750,32 @@ describe("Agent invocation console", () => {
       await rm(projectRoot, { force: true, recursive: true })
       await rm(unrelatedCwd, { force: true, recursive: true })
     }
+  })
+
+  it("preserves absolute Console database file URLs", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-file-url-project-"))
+    const databasePath = join(await mkdtemp(join(tmpdir(), "vitehub-console-file-url-data-")), "console.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", pathToFileURL(databasePath).href)
+    try {
+      await createConsoleInvocations(projectRoot).list()
+
+      expect(existsSync(databasePath)).toBe(true)
+      expect(existsSync(join(projectRoot, "console.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+      await rm(dirname(databasePath), { force: true, recursive: true })
+    }
+  })
+
+  it("configures the Console database authentication token", () => {
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "libsql://console.example.com")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN", "console-token")
+
+    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({
+      authToken: "console-token",
+      url: "libsql://console.example.com",
+    })
   })
 
   it("preserves progress summaries in the console journal", async () => {

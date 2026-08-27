@@ -130,6 +130,13 @@ Set `VITEHUB_CONSOLE_DATABASE_URL` when the journal belongs on another volume or
 VITEHUB_CONSOLE_DATABASE_URL=file:/var/lib/my-app/console.sqlite
 ```
 
+Authenticated libSQL endpoints also require `VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN`:
+
+```dotenv [.env]
+VITEHUB_CONSOLE_DATABASE_URL=libsql://my-database.turso.io
+VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN=secret-token
+```
+
 The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data.
 
 The fallback applies only when an Agent Definition does not configure `invocations`. An explicit `defineAgent({ invocations })` store remains authoritative, and its sessions are not copied into `console.sqlite` or read by the built-in Console.
