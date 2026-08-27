@@ -668,6 +668,32 @@ describe("hubSandbox", () => {
     })
   })
 
+  it("orders existing Cloudflare migrations before the sandbox migration", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: {
+          wrangler: {
+            migrations: [{ tag: "v2", new_sqlite_classes: ["AnalysisState"] }],
+          },
+        },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro.cloudflare.wrangler.migrations).toEqual([
+      { tag: "v1", new_sqlite_classes: ["Sandbox"] },
+      { tag: "v2", new_sqlite_classes: ["AnalysisState"] },
+    ])
+  })
+
   it("rejects Wrangler exports before adding legacy migrations", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")

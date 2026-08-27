@@ -10,6 +10,7 @@ import type {
   WranglerDurableObjectBinding,
   WranglerMigration,
 } from './internal/shared/cloudflare-target'
+import { finalizeCloudflareWranglerConfig } from './internal/shared/cloudflare-wrangler'
 
 export const defaultCloudflareSandboxBinding = 'SANDBOX'
 export const defaultCloudflareSandboxClassName = 'Sandbox'
@@ -231,5 +232,6 @@ export async function configureCloudflareSandboxNitro(
   target.rollupConfig ||= {}
   target.rollupConfig.external = mergeRollupExternal(target.rollupConfig.external, 'cloudflare:workers')
   installCloudflareSandboxEntrypoint(target, resolvedOptions)
+  finalizeCloudflareWranglerConfig(target)
   return target
 }
