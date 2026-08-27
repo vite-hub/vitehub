@@ -152,6 +152,94 @@ describe("Console fixture CLI", () => {
     })).toThrow("invocations[0].agentName must be at most 512 characters")
   })
 
+  it("rejects arrays for every record-shaped fixture field", () => {
+    const invocation = {
+      agentName: "support",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      id: "fixture-invocation",
+      observations: [],
+      status: "completed",
+      traceId: "fixture-trace",
+      updatedAt: "2026-08-27T10:01:00.000Z",
+    }
+    const fixture = (overrides: Record<string, unknown>) => ({
+      invocations: [{ ...invocation, ...overrides }],
+      version: 1,
+    })
+
+    expect(() => parseConsoleFixture([])).toThrow("Console fixture must be a JSON object")
+    expect(() => parseConsoleFixture({ invocations: [[]], version: 1 })).toThrow(
+      "invocations[0] must be an object",
+    )
+    expect(() => parseConsoleFixture(fixture({ annotations: [] }))).toThrow(
+      "invocations[0].annotations must be an object",
+    )
+    expect(() => parseConsoleFixture(fixture({ error: [] }))).toThrow(
+      "invocations[0].error must be an object",
+    )
+    expect(() =>
+      parseConsoleFixture(
+        fixture({
+          observations: [
+            {
+              attributes: [],
+              name: "agent.start",
+              sequence: 0,
+              timestamp: "2026-08-27T10:00:00.000Z",
+              type: "run",
+            },
+          ],
+        }),
+      ),
+    ).toThrow("invocations[0].observations[0].attributes must be an object")
+    expect(() =>
+      parseConsoleFixture(
+        fixture({
+          observations: [
+            {
+              name: "agent.start",
+              sequence: 0,
+              timestamp: "2026-08-27T10:00:00.000Z",
+              trace: [],
+              type: "run",
+            },
+          ],
+        }),
+      ),
+    ).toThrow("invocations[0].observations[0].trace must be an object")
+  })
+
+  it.each([
+    [{}, "invocations[0].error.message must be a non-empty string"],
+    [{ message: 42 }, "invocations[0].error.message must be a non-empty string"],
+    [
+      { cause: {}, message: "outer" },
+      "invocations[0].error.cause.message must be a non-empty string",
+    ],
+    [
+      { errors: [{}], message: "outer" },
+      "invocations[0].error.errors[0].message must be a non-empty string",
+    ],
+  ])("rejects malformed fixture diagnostic errors %#", (error, message) => {
+    expect(() =>
+      parseConsoleFixture({
+        invocations: [
+          {
+            agentName: "support",
+            createdAt: "2026-08-27T10:00:00.000Z",
+            error,
+            id: "fixture-invocation",
+            observations: [],
+            status: "failed",
+            traceId: "fixture-trace",
+            updatedAt: "2026-08-27T10:01:00.000Z",
+          },
+        ],
+        version: 1,
+      }),
+    ).toThrow(message)
+  })
+
   it("translates child termination signals to shell exit statuses", async () => {
     const { root } = await fixtureRoot()
     const stderr = stream()

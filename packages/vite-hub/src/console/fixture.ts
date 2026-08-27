@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import * as v from "valibot"
 
 import type { AgentInvocationRecord } from "@vite-hub/agent"
-import type { TraceEventLogEntry } from "@vite-hub/runtime"
+import type { RuntimeDiagnosticError, TraceEventLogEntry } from "@vite-hub/runtime"
 
 export const consoleFixtureEnvironmentVariable = "VITEHUB_CONSOLE_FIXTURE"
 
@@ -32,6 +32,7 @@ const stringSchema = v.string()
 const booleanSchema = v.boolean()
 
 function record(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
   const result = v.safeParse(recordSchema, value)
   return result.success ? result.output : undefined
 }
@@ -68,6 +69,56 @@ function agentName(value: unknown, path: string): string {
     )
   }
   return resolved
+}
+
+function diagnosticScalar(value: unknown, path: string): number | string | undefined {
+  if (value === undefined) return
+  if (typeof value === "string" || (typeof value === "number" && Number.isFinite(value)))
+    return value
+  throw new TypeError(`[vitehub] Console fixture ${path} must be a string or finite number.`)
+}
+
+function diagnosticString(value: unknown, path: string): string | undefined {
+  if (value === undefined) return
+  const result = v.safeParse(stringSchema, value)
+  if (result.success) return result.output
+  throw new TypeError(`[vitehub] Console fixture ${path} must be a string.`)
+}
+
+function diagnosticError(value: unknown, path: string): RuntimeDiagnosticError {
+  const input = record(value)
+  if (!input) throw new TypeError(`[vitehub] Console fixture ${path} must be an object.`)
+  const message = requiredString(input.message, `${path}.message`)
+  const cause =
+    input.cause === undefined ? undefined : diagnosticError(input.cause, `${path}.cause`)
+  let errors: RuntimeDiagnosticError[] | undefined
+  if (input.errors !== undefined) {
+    if (!Array.isArray(input.errors)) {
+      throw new TypeError(`[vitehub] Console fixture ${path}.errors must be an array.`)
+    }
+    errors = input.errors.map((error, index) => diagnosticError(error, `${path}.errors[${index}]`))
+  }
+  if (input.details !== undefined && !record(input.details)) {
+    throw new TypeError(`[vitehub] Console fixture ${path}.details must be an object.`)
+  }
+  const code = diagnosticScalar(input.code, `${path}.code`)
+  const name = diagnosticString(input.name, `${path}.name`)
+  const requestId = diagnosticString(input.requestId, `${path}.requestId`)
+  const stack = diagnosticString(input.stack, `${path}.stack`)
+  const status = diagnosticScalar(input.status, `${path}.status`)
+  const statusCode = diagnosticScalar(input.statusCode, `${path}.statusCode`)
+  return {
+    ...input,
+    ...(cause ? { cause } : {}),
+    ...(code !== undefined ? { code } : {}),
+    ...(errors ? { errors } : {}),
+    message,
+    ...(name !== undefined ? { name } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
+    ...(stack !== undefined ? { stack } : {}),
+    ...(status !== undefined ? { status } : {}),
+    ...(statusCode !== undefined ? { statusCode } : {}),
+  } as RuntimeDiagnosticError
 }
 
 function observation(value: unknown, path: string): TraceEventLogEntry {
@@ -118,9 +169,8 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   if (input.annotations !== undefined && !record(input.annotations)) {
     throw new TypeError(`[vitehub] Console fixture ${path}.annotations must be an object.`)
   }
-  if (input.error !== undefined && !record(input.error)) {
-    throw new TypeError(`[vitehub] Console fixture ${path}.error must be an object.`)
-  }
+  const error =
+    input.error === undefined ? undefined : diagnosticError(input.error, `${path}.error`)
   const cursor = v.safeParse(stringSchema, input.cursor)
   // SAFETY: The parser validates every required AgentInvocationRecord field and preserves optional fixture metadata.
   return {
@@ -131,6 +181,7 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     completedAt: optionalTimestamp(input.completedAt, `${path}.completedAt`),
     createdAt: timestamp(input.createdAt, `${path}.createdAt`),
     cursor: cursor.success ? cursor.output : String(index + 1),
+    ...(error ? { error } : {}),
     failedAt: optionalTimestamp(input.failedAt, `${path}.failedAt`),
     id: requiredString(input.id, `${path}.id`),
     observations: input.observations.map((entry, observationIndex) =>

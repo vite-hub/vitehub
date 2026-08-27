@@ -110,6 +110,7 @@ describe("Agent invocation console", () => {
     expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
     expect(() => parseConsoleFixture({
       invocations: [0, 1].map(() => ({
+        agentName: "support",
         createdAt: "2026-08-27T10:00:00.000Z",
         id: "duplicate",
         observations: [],
@@ -121,6 +122,7 @@ describe("Agent invocation console", () => {
     })).toThrow("duplicate invocation id")
     expect(() => parseConsoleFixture({
       invocations: [{
+        agentName: "support",
         createdAt: "2026-08-27T10:00:00.000Z",
         id: "missing-observation-fields",
         observations: [{ sequence: 0, type: "run" }],
@@ -132,6 +134,7 @@ describe("Agent invocation console", () => {
     })).toThrow("observations[0].name must be a non-empty string")
     expect(() => parseConsoleFixture({
       invocations: [{
+        agentName: "support",
         createdAt: "2026-08-27T10:00:00.000Z",
         id: "missing-observation-timestamp",
         observations: [{ name: "agent.message", sequence: 0, type: "run" }],
