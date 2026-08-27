@@ -13,7 +13,7 @@ const driverModules = {
   akamai: "files",
   azure: "files",
   box: "files",
-  "cloudflare-r2": "files",
+  "cloudflare-r2": "cloudflare",
   "digitalocean-spaces": "files",
   dropbox: "files",
   fs: "fs",
