@@ -243,6 +243,27 @@ describe("Agent Invocation Interface lifecycle", () => {
     probe.expectFinished(["driver", "stream:return", "close", "finish"])
   })
 
+  it("does not await pending raw-stream usage after early termination", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = new Promise<never>(() => {})
+    const raw = Object.assign((async function* () {
+      yield { text: "partial", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const iterator = stream[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await iterator.return?.()
+
+    expect(finish).toHaveBeenCalledOnce()
+  })
+
   it("finishes immutable raw streams with their consumed text and usage", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

@@ -4666,7 +4666,7 @@ async function finalizeAgentInvocationResult<
         const streamed = withStreamedResult(stream, result, undefined, context.toolResults, context.tools)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
-            const finishResult = await streamed.finishResult(result, !outcome.failed && !outcome.completed)
+            const finishResult = await streamed.finishResult(result, !outcome.failed && outcome.completed === true)
             const finishOutcome = finishOutcomeFromCleanup(outcome, finishResult)
             const usage = streamed.finishUsage()
             if (!outcome.failed && !outcome.completed) {
@@ -4689,7 +4689,7 @@ async function finalizeAgentInvocationResult<
             ? toReadableAsyncIterableStream(value)
             : value
         }
-        const value = withCapabilityCleanup(streamed.stream, async outcome => finishStreamAgentInvocation(context, lifecycle, await streamed.finishResult(result, !outcome.failed && !outcome.completed), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
+        const value = withCapabilityCleanup(streamed.stream, async outcome => finishStreamAgentInvocation(context, lifecycle, await streamed.finishResult(result, !outcome.failed && outcome.completed === true), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
@@ -5044,7 +5044,7 @@ async function executeAgentInvocationWithCapacityLease<
           const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             if (finishTask) return await finishTask
-            const finishResult = await resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord, !outcome.failed && !outcome.completed)
+            const finishResult = await resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord, !outcome.failed && outcome.completed === true)
             finishTask = (async () => {
               if (!outcome.failed && !outcome.completed) {
                 await lifecycle.finish({
@@ -5184,7 +5184,7 @@ async function executeAgentInvocationWithCapacityLease<
             finishing = true
             const finalOutcome = await cancelPreservedSources(outcome)
             if (finishTask) return await finishTask
-            const finishResult = await streamed.finishResult(preserved, !finalOutcome.failed && !finalOutcome.completed)
+            const finishResult = await streamed.finishResult(preserved, !finalOutcome.failed && finalOutcome.completed === true)
             finishTask = (async () => {
               if (!finalOutcome.failed && !finalOutcome.completed) {
                 await lifecycle.finish({
@@ -5327,7 +5327,7 @@ async function executeAgentInvocationWithCapacityLease<
                     finishing = true
                     const finalOutcome = await cancelPreservedSources(outcome)
                     if (finishTask) return await finishTask
-                    let finishResult = streamed ? await streamed.finishResult(preserved, !finalOutcome.failed && !finalOutcome.completed) : preserved
+                    let finishResult = streamed ? await streamed.finishResult(preserved, !finalOutcome.failed && finalOutcome.completed === true) : preserved
                     if (finishResult !== preserved && Object.isExtensible(preserved)) {
                       const collectedDescriptors: PropertyDescriptorMap = {}
                       for (const key of ["text", "usage", "usageRecord"]) {
@@ -5554,7 +5554,7 @@ async function executeAgentInvocationWithCapacityLease<
         const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
-        const finishResult = await resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord, !outcome.failed && !outcome.completed)
+        const finishResult = await resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord, !outcome.failed && outcome.completed === true)
         if (!outcome.failed && !outcome.completed) {
           await lifecycle.finish({
             result: finishResult,
@@ -5639,7 +5639,7 @@ async function executeAgentInvocationWithCapacityLease<
           const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
-          const finishResult = await streamed.finishResult(rendered, !outcome.failed && !outcome.completed)
+          const finishResult = await streamed.finishResult(rendered, !outcome.failed && outcome.completed === true)
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,
