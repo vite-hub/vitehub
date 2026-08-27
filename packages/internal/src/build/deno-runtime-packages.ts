@@ -11,6 +11,7 @@ const builtinModuleNames = new Set([
   ...builtinModules.map((name) => `node:${name}`),
 ])
 const runtimeExtensions = new Set([".cjs", ".js", ".mjs", ".ts"])
+const literalDynamicImportPattern = /\bimport\s*\(\s*["']([^"']+)["']\s*(?:,\s*\{(?:[^{}]|\{[^{}]*\})*\}\s*)?\)/g
 const denoRuntimeTargets = [
   { cpu: "arm64", libc: "glibc", os: "linux" },
   { cpu: "x64", libc: "glibc", os: "linux" },
@@ -66,7 +67,7 @@ function collectImportedPackageNames(source: string): Set<string> {
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+    literalDynamicImportPattern,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -203,7 +204,8 @@ function canStartRegexLiteral(output: string): boolean {
   if ("([{,:;=!?&|~%^<>*+-".includes(prefix.at(-1)!)) return true
   if (endsWithDeclaration(prefix)) return true
   if (/\b(?:catch|if|for|switch|while|with)\s*\([^;{}]*\)\s*(?:\{[^{}]*\})?$/.test(prefix)) return true
-  if (/\b(?:do|else|finally|try)\s*\{[^{}]*\}$/.test(prefix)) return true
+  if (/\b(?:catch|do|else|finally|try)\s*\{[^{}]*\}$/.test(prefix)) return true
+  if (/(?:^|[;\n{}])\s*[\w$]+\s*:\s*\{[^{}]*\}$/.test(prefix)) return true
   if (/(?:^|[;{}])\s*\{[^{}]*\}$/.test(prefix)) return true
   return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(prefix)
 }
@@ -479,7 +481,7 @@ function assertSupportedRelocatedImports(source: string, outputName: string, all
   }
   const remaining = executableSource
     .replaceAll(/import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, specifier: string) => allowedLocalImports.includes(specifier) ? "" : expression)
-    .replaceAll(/import\s*\(\s*["'][^"']*["']\s*\)/g, "")
+    .replaceAll(literalDynamicImportPattern, "")
   if (/\bimport\s*\(/.test(remaining)) {
     throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
   }
