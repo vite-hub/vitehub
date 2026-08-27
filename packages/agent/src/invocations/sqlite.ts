@@ -278,13 +278,21 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async create(input: AgentInvocationStoreCreateInput) {
       return write(async () => {
         await initialize()
-        const result = await client.execute({
+        let result = await client.execute({
           args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
           sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
         })
-        const record = await read(input.id)
+        let record = await read(input.id)
         if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
         await prune()
+        if (result.rowsAffected === 0 && !await read(input.id)) {
+          result = await client.execute({
+            args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
+            sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
+          })
+          record = await read(input.id)
+          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
+        }
         return { created: result.rowsAffected > 0, record }
       })
     },

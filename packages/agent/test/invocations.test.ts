@@ -1748,6 +1748,42 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("recreates a duplicate SQLite invocation when retention prunes the old record", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-duplicate-retention-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const expired = new Date(Date.now() - 2_000).toISOString()
+    const current = new Date().toISOString()
+    try {
+      await unboundedStore.create({
+        createdAt: expired,
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "old-trace",
+        updatedAt: expired,
+      })
+
+      await expect(store.create({
+        createdAt: current,
+        id: "retry",
+        observations: [],
+        status: "pending",
+        traceId: "new-trace",
+        updatedAt: current,
+      })).resolves.toMatchObject({
+        created: true,
+        record: { id: "retry", status: "pending", traceId: "new-trace" },
+      })
+      await expect(store.get("retry")).resolves.toMatchObject({ status: "pending", traceId: "new-trace" })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("validates and disables SQLite invocation retention limits", async () => {
     for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       // SAFETY: invalid retention options throw before the client is accessed.
