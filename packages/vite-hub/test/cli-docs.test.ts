@@ -60,6 +60,6 @@ describe("CLI documentation contract", () => {
       }
     }
 
-    expect(documentedCommands()).toEqual(expect.arrayContaining(commands.sort()));
+    expect(documentedCommands()).toEqual(commands.sort());
   });
 });
