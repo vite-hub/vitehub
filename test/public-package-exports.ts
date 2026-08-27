@@ -30,6 +30,7 @@ const typeOnlyExports = new Set([
 
 const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/agent/eval", ["evalite", "vitest"]],
+  ["@vite-hub/auth/nuxt", ["vite"]],
   ["@vite-hub/blob/drivers/netlify-blobs", ["files-sdk"]],
   ["@vite-hub/kv/runtime/upstash-driver", ["@upstash/redis"]],
   ["@vite-hub/source/client", ["vue"]],
@@ -39,10 +40,13 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/workspace/collections/client", ["vue"]],
   ["@vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
   ["@vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
+  ["vite-hub", ["vite"]],
   ["vite-hub/agent/eval", ["evalite", "vitest"]],
   ["vite-hub/source/client", ["vue"]],
   ["vite-hub/source/content", ["comark-content"]],
   ["vite-hub/source/content/client", ["comark-content"]],
+  ["vite-hub/ui", ["vue"]],
+  ["vite-hub/ui/headless", ["vue"]],
   ["vite-hub/ui/vite", ["@nuxt/ui"]],
   ["vite-hub/workspace/collections/client", ["vue"]],
   ["vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],

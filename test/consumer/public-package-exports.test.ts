@@ -229,13 +229,13 @@ async function addOptionalPeers(appDir: string) {
 }
 
 async function withRequiredVue(appDir: string, runWithVue: () => Promise<void>) {
-  const version = await installedVersion(join(repoRoot, "node_modules/vue/package.json"))
+  const version = await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json"))
   await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", `vue@${version}`], appDir)
   try {
     await runWithVue()
   }
   finally {
-    await run("corepack", ["pnpm", "remove", "--save-dev", "--ignore-scripts", "vue"], appDir)
+    await run("corepack", ["pnpm", "remove", "vue"], appDir)
   }
 }
 

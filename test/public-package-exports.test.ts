@@ -28,17 +28,21 @@ describe("public package export contracts", () => {
     ]))
   })
 
-  it("marks eager Vue client exports as optional-peer consumers", () => {
-    const vueClientSpecifiers = [
-      "@vite-hub/source/client",
-      "@vite-hub/workspace/collections/client",
-      "vite-hub/source/client",
-      "vite-hub/workspace/collections/client",
-    ]
+  it("marks eager framework exports as optional-peer consumers", () => {
+    const eagerPeerExports = new Map<string, string>([
+      ["@vite-hub/auth/nuxt", "vite"],
+      ["@vite-hub/source/client", "vue"],
+      ["@vite-hub/workspace/collections/client", "vue"],
+      ["vite-hub", "vite"],
+      ["vite-hub/source/client", "vue"],
+      ["vite-hub/ui", "vue"],
+      ["vite-hub/ui/headless", "vue"],
+      ["vite-hub/workspace/collections/client", "vue"],
+    ])
 
-    for (const specifier of vueClientSpecifiers) {
+    for (const [specifier, peer] of eagerPeerExports) {
       expect(publicPackageExportContracts.find(contract => contract.specifier === specifier)?.optionalPeers)
-        .toContain("vue")
+        .toContain(peer)
     }
   })
 
