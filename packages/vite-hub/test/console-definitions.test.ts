@@ -27,6 +27,15 @@ function event(query = "", method = "GET"): ConsoleRequestEvent {
 
 function catalog(name: string): ConsoleDefinitionCatalog {
   return {
+    databases: [{
+      fields: [
+        { label: "Mode", value: "Default" },
+        { label: "Tables", value: "users, sessions" },
+      ],
+      file: `server/databases/${name}.ts`,
+      name,
+      source: "server-database-default",
+    }],
     queues: [{
       fields: [],
       file: `server/queues/${name}.ts`,
@@ -72,6 +81,18 @@ describe("Console definition inspection", () => {
         source: "server-workflows",
       }],
       section: "workflows",
+    })
+    expect(definitionsHandler(event("?section=databases"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Mode", value: "Default" },
+          { label: "Tables", value: "users, sessions" },
+        ],
+        file: "server/databases/release.ts",
+        name: "release",
+        source: "server-database-default",
+      }],
+      section: "databases",
     })
     expect(definitionsHandler(event("?section=queues"))).toEqual({
       definitions: [{

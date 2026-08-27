@@ -3,10 +3,12 @@ import { relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
+import { discoverDatabaseDefinitions } from "@vite-hub/database/config"
 import { discoverQueueDefinitions } from "@vite-hub/queue/vite"
 import { discoverScheduleDefinitions, readScheduleDefinitionCrons } from "@vite-hub/schedule/vite"
 import { discoverWorkflowDefinitions } from "@vite-hub/workflow/vite"
 
+import type { DiscoveredDatabaseDefinition } from "@vite-hub/database"
 import type { DiscoveredQueueDefinition } from "@vite-hub/queue"
 import type { DiscoveredScheduleDefinition } from "@vite-hub/schedule"
 import type { DiscoveredWorkflowDefinition } from "@vite-hub/workflow"
@@ -70,6 +72,21 @@ function queueDefinition(
   }
 }
 
+function databaseDefinition(
+  projectRoot: string,
+  definition: DiscoveredDatabaseDefinition,
+): ConsoleDefinitionSummary {
+  return {
+    fields: [
+      { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
+      { label: "Tables", value: definition.tableNames.length ? definition.tableNames.join(", ") : "None discovered" },
+    ],
+    file: relativeDefinitionFile(projectRoot, definition.handler),
+    name: definition.name,
+    source: definition.source || "database",
+  }
+}
+
 function scheduleDefinition(
   projectRoot: string,
   definition: DiscoveredScheduleDefinition,
@@ -105,6 +122,11 @@ export async function discoverConsoleBuildCatalog(options: {
   const agents = options.sections.includes("agents")
     ? discoverAgentDefinitionEntries(options.discoveryRoot, options.serverDirs)
     : []
+  const databases = options.sections.includes("databases")
+    ? discoverDatabaseDefinitions(options.discoveryRoot, {
+        serverDirs: options.serverDirs,
+      }).map(definition => databaseDefinition(options.projectRoot, definition))
+    : []
   const workflows = options.sections.includes("workflows")
     ? discoverWorkflowDefinitions({
         rootDir: options.discoveryRoot,
@@ -131,6 +153,7 @@ export async function discoverConsoleBuildCatalog(options: {
   const schedules = discoveredSchedules
     .map(definition => scheduleDefinition(options.projectRoot, definition, scheduleCrons))
   const definitions: ConsoleDefinitionCatalog = {}
+  if (options.sections.includes("databases")) definitions.databases = databases
   if (options.sections.includes("workflows")) definitions.workflows = workflows
   if (options.sections.includes("queues")) definitions.queues = queues
   if (options.sections.includes("schedules")) definitions.schedules = schedules

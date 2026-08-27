@@ -94,6 +94,19 @@ const router = createRouter({
     },
     {
       component: ConsoleDefinitions,
+      name: "vitehub-console-databases",
+      path: "/databases",
+      meta: { consoleSection: "databases", title: "Databases · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        searchBase: "/api/_vitehub/console/search",
+        section: "databases",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
       name: "vitehub-console-workflows",
       path: "/workflows",
       meta: { consoleSection: "workflows", title: "Workflows · ViteHub Console" },

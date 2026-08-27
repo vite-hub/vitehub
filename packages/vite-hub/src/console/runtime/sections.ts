@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "blob", "kv", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["agents", "blob", "databases", "kv", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -14,6 +14,12 @@ export const consoleSectionDetails = {
     icon: "i-lucide-file-box",
     label: "Blob",
     routeName: "vitehub-console-blob",
+  },
+  databases: {
+    description: "Inspect discovered Database Definitions and static schema metadata.",
+    icon: "i-lucide-database",
+    label: "Databases",
+    routeName: "vitehub-console-databases",
   },
   kv: {
     description: "Inspect configured KV stores without changing data.",
@@ -57,10 +63,11 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; kv?: unknown; queue?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; queue?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
   return [
     ...(options.agent ? ["agents" as const] : []),
     ...(options.blob ? ["blob" as const] : []),
+    ...(options.database ? ["databases" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
     ...(options.workflow ? ["workflows" as const] : []),
     ...(options.queue ? ["queues" as const] : []),
