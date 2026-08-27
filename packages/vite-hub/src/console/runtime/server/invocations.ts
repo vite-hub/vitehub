@@ -33,9 +33,11 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
   if (!url.startsWith("file:")) return { ...(authToken ? { authToken } : {}), url }
   if (url.startsWith("file::memory:")) return { url }
 
-  const queryIndex = url.indexOf("?")
-  const fileUrl = queryIndex === -1 ? url : url.slice(0, queryIndex)
-  const query = queryIndex === -1 ? "" : url.slice(queryIndex)
+  const fragmentIndex = url.indexOf("#")
+  const urlWithoutFragment = fragmentIndex === -1 ? url : url.slice(0, fragmentIndex)
+  const queryIndex = urlWithoutFragment.indexOf("?")
+  const fileUrl = queryIndex === -1 ? urlWithoutFragment : urlWithoutFragment.slice(0, queryIndex)
+  const query = queryIndex === -1 ? "" : urlWithoutFragment.slice(queryIndex)
   const filePath = fileUrl.startsWith("file://")
     ? fileURLToPath(fileUrl)
     : resolve(projectRoot, decodeURIComponent(fileUrl.slice("file:".length)))

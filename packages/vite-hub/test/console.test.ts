@@ -796,6 +796,16 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("excludes fragments from configured relative Console database file paths", () => {
+    const projectRoot = join(tmpdir(), "vitehub-console-fragment-project")
+    const databasePath = join(projectRoot, "data/invocations.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc#journal")
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+      url: `${pathToFileURL(databasePath).href}?mode=rwc`,
+    })
+  })
+
   it("preserves configured in-memory Console database URLs", async () => {
     const databaseUrl = "file::memory:?cache=shared"
     vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
