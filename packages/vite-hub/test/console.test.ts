@@ -766,6 +766,36 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("preserves failed tool payloads in the console journal", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-tool-error-"))
+    try {
+      installConsoleInvocations(projectRoot)
+      const agent = defineAgent({
+        driver: { run: () => (async function* () {
+            yield { id: "tool-1", input: { query: "missing" }, name: "lookup", type: "tool-call" }
+            yield { error: "Lookup failed", id: "tool-1", name: "lookup", type: "tool-result" }
+            yield { type: "finish" }
+          })() },
+        runtime: false,
+      })
+      const result = await runAgent(agent, runtime("console-tool-error"), {})
+      // SAFETY: This Driver fixture always returns the async generator defined above.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+
+      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-tool-error")
+      expect(invocation?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "content.omitted": expect.not.arrayContaining(["tool.error"]),
+          "tool.error": "Lookup failed",
+        }),
+        name: "agent.tool.error",
+      }))
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("accepts public read-only requests", () => {
     expect(() => assertConsoleRequest(event("203.0.113.2"))).not.toThrow()
     expect(() => assertConsoleRequest(event(undefined))).not.toThrow()
