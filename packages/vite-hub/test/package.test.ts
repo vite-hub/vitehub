@@ -3,7 +3,7 @@ import { existsSync, globSync, readFileSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
@@ -345,17 +345,22 @@ describe("framework package contract", () => {
   it("runs the distributed CLI entrypoint with clean help streams", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"))
     try {
-      await writeFile(join(root, "vite.config.mjs"), `
+      const keepAlive = join(root, "keep-alive.mjs")
+      await Promise.all([
+        writeFile(join(root, "vite.config.mjs"), `
 const namespaces = Array.from({ length: 4096 }, (_, index) => ({
   description: "A package-contributed command whose help output must flush before exit.",
   features: [],
   name: \`namespace-\${String(index).padStart(4, "0")}\`,
 }))
 export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespaces } } }] }
-`)
+`),
+        writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
+      ])
       const { stderr, stdout } = await execFileAsync(process.execPath, [`${packageRoot}/${manifest.bin.vitehub}`, "--help"], {
         cwd: root,
-        env: { ...process.env, NO_COLOR: "1" },
+        env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(keepAlive).href}`, NO_COLOR: "1" },
+        timeout: 5_000,
       })
 
       expect(stdout).toContain("Usage: vitehub <namespace> <feature>")
