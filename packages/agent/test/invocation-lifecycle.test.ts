@@ -386,9 +386,27 @@ describe("Agent Invocation Interface lifecycle", () => {
     const raw = Object.assign((async function* () {
       yield {
         type: "usage",
-        usageRecord: { model: "provider/model", usage: { outputTokens: 3, totalTokens: 5 } },
+        usageRecord: {
+          model: "provider/model",
+          usage: {
+            details: { streamed: 4 },
+            inputTokenDetails: { cacheWriteTokens: 3 },
+            outputTokenDetails: { reasoningTokens: 2 },
+            outputTokens: 3,
+            totalTokens: 5,
+          },
+        },
       }
-    })(), { usageRecord: { usage: { inputTokens: 2 } } })
+    })(), {
+      usageRecord: {
+        usage: {
+          details: { existing: 1 },
+          inputTokenDetails: { cachedTokens: 2 },
+          inputTokens: 2,
+          outputTokenDetails: { textTokens: 1 },
+        },
+      },
+    })
     Object.preventExtensions(raw)
     const agent = defineAgent({
       driver: { run: () => raw },
@@ -399,7 +417,14 @@ describe("Agent Invocation Interface lifecycle", () => {
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
-    const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
+    const usage = {
+      details: { existing: 1, streamed: 4 },
+      inputTokenDetails: { cachedTokens: 2, cacheWriteTokens: 3 },
+      inputTokens: 2,
+      outputTokenDetails: { reasoningTokens: 2, textTokens: 1 },
+      outputTokens: 3,
+      totalTokens: 5,
+    }
     expect(finish.mock.calls[0]![0]).toMatchObject({
       result: {
         raw,
@@ -516,12 +541,14 @@ describe("Agent Invocation Interface lifecycle", () => {
 
   it("adds streamed usage to preserved plain stream results", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usage } = await import("../src/capabilities/usage.ts")
     const result = {
       fullStream: (async function* () {
         yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
       })(),
     }
     const agent = defineAgent({
+      capabilities: [usage()],
       driver: { run: () => result },
       hooks: { "agent:finish": vi.fn() },
     })

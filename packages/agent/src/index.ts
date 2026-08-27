@@ -180,6 +180,7 @@ import type {
   AgentTelemetryConfiguration,
   AgentToolSet,
   AgentToolStepItem,
+  AgentUsage,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -3733,13 +3734,40 @@ function resultWithStreamedTextAndUsage(
     const normalizedUsage = normalized.usage
       && hasRuntimeType(normalized.usage, "object")
       && !hasRuntimeType(Reflect.get(normalized.usage, "then"), "function")
-      ? normalized.usage
+      ? normalized.usage as AgentUsage
       : undefined
     const mergedUsage = normalized.usageRecord?.usage || normalizedUsage || streamedUsageRecord?.usage
       ? {
           ...streamedUsageRecord?.usage,
           ...normalized.usageRecord?.usage,
           ...normalizedUsage,
+          ...((streamedUsageRecord?.usage?.details || normalized.usageRecord?.usage?.details || normalizedUsage?.details)
+            ? {
+                details: {
+                  ...streamedUsageRecord?.usage?.details,
+                  ...normalized.usageRecord?.usage?.details,
+                  ...normalizedUsage?.details,
+                },
+              }
+            : {}),
+          ...((streamedUsageRecord?.usage?.inputTokenDetails || normalized.usageRecord?.usage?.inputTokenDetails || normalizedUsage?.inputTokenDetails)
+            ? {
+                inputTokenDetails: {
+                  ...streamedUsageRecord?.usage?.inputTokenDetails,
+                  ...normalized.usageRecord?.usage?.inputTokenDetails,
+                  ...normalizedUsage?.inputTokenDetails,
+                },
+              }
+            : {}),
+          ...((streamedUsageRecord?.usage?.outputTokenDetails || normalized.usageRecord?.usage?.outputTokenDetails || normalizedUsage?.outputTokenDetails)
+            ? {
+                outputTokenDetails: {
+                  ...streamedUsageRecord?.usage?.outputTokenDetails,
+                  ...normalized.usageRecord?.usage?.outputTokenDetails,
+                  ...normalizedUsage?.outputTokenDetails,
+                },
+              }
+            : {}),
         }
       : undefined
     const mergedUsageRecord = normalized.usageRecord || streamedUsageRecord
