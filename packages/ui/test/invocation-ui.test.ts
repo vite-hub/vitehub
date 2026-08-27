@@ -538,6 +538,31 @@ describe("Agent Invocation UI", () => {
     expect(rows[1]!.text()).toContain("+1s · 1s");
   });
 
+  it("keeps rounded and terminal trace timings inside their bounds", () => {
+    const invocation = {
+      completedAt: "2026-08-22T00:01:59.999Z",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "trace-boundaries",
+      observations: [{
+        attributes: { "tool.id": "terminal", "tool.name": "finish" },
+        name: "agent.tool.finish",
+        sequence: 1,
+        timestamp: "2026-08-22T00:01:59.999Z",
+        type: "run" as const,
+      }],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:01:59.999Z",
+    } satisfies AgentInvocationView;
+
+    const row = mount(AgentInvocationInspector, { props: { invocation } })
+      .get(".vh-invocation-timeline__row");
+    expect(row.text()).toContain("+2m 0s");
+    expect(row.get(".vh-invocation-timeline__track span").attributes("style"))
+      .toContain("left: 98.5%");
+  });
+
   it.each([
     ["direct output", "clean"],
     ["completed output", { output: "clean" }],

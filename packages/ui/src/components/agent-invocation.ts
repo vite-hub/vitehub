@@ -79,8 +79,8 @@ function formatTimelineDuration(value: number): string | undefined {
   if (value < 60_000) {
     return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value / 1_000)}s`;
   }
-  const minutes = Math.floor(value / 60_000);
-  return `${minutes}m ${Math.round((value % 60_000) / 1_000)}s`;
+  const seconds = Math.round(value / 1_000);
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function driverLabel(configuration: AgentInvocationConfiguration): string | undefined {
@@ -582,6 +582,8 @@ function traceTimeline(activities: readonly InvocationActivity[], invocation: Ag
       ].filter(Boolean).join(" · ");
       const title = invocationActivityTitle(activity);
       const detail = activityDetail(activity);
+      const width = Math.max(1.5, Math.min(100, (duration / span) * 100));
+      const left = Math.min(100 - width, Math.max(0, (offset / span) * 100));
       return h("li", {
         class: "vh-invocation-timeline__row",
         "data-owner": owner,
@@ -596,8 +598,8 @@ function traceTimeline(activities: readonly InvocationActivity[], invocation: Ag
         detail ? h("code", { class: "vh-invocation-timeline__detail" }, detail) : null,
         h("div", { class: "vh-invocation-timeline__track", "aria-hidden": "true" }, [
           h("span", { style: {
-            left: `${Math.min(100, (offset / span) * 100)}%`,
-            width: `${Math.max(1.5, Math.min(100, (duration / span) * 100))}%`,
+            left: `${left}%`,
+            width: `${width}%`,
           } }),
         ]),
       ]);
