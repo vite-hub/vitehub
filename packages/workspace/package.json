@@ -130,7 +130,6 @@
   },
   "dependencies": {
     "@vite-hub/box": "workspace:*",
-    "@vite-hub/history": "workspace:*",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
