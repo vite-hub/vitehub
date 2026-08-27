@@ -3,6 +3,7 @@ import type { AgentInvocations } from "@vite-hub/agent"
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
 export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
+export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 
 type ConsoleInvocationsByRoot = {
@@ -16,6 +17,7 @@ type ConsoleInvocationRegistry = Record<symbol, AgentInvocations | string | Cons
 export type ConsoleInvocationScope = {
   process?: unknown
   [consoleInvocationsKey]?: AgentInvocations
+  [consoleInvocationsIdentityKey]?: string
   [consoleInvocationsRootKey]?: string
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
 }
@@ -43,9 +45,10 @@ function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegist
 
 export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {
   const root = scope[consoleInvocationsRootKey]
+  const identity = scope[consoleInvocationsIdentityKey] ?? root
   const registered = invocationsByRoot(processRegistry(scope)?.[consoleInvocationsRegistryKey])
   if (root) {
-    return registered?.get(root) ?? scope[consoleInvocationsKey]
+    return registered?.get(identity ?? root) ?? scope[consoleInvocationsKey]
   }
   if (!root && registered && registered.size > 1) {
     return scope[consoleInvocationsKey]
@@ -59,14 +62,16 @@ export function installConsoleInvocationFallback(
   invocations: AgentInvocations,
   projectRoot: string,
   scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+  identity = projectRoot,
 ): void {
   scope[consoleInvocationsKey] = invocations
   scope[consoleInvocationsRootKey] = projectRoot
+  scope[consoleInvocationsIdentityKey] = identity
   const registry = processRegistry(scope)
   if (registry) {
     const journals = invocationsByRoot(registry[consoleInvocationsRegistryKey])
       ?? new Map<string, AgentInvocations>()
-    journals.set(projectRoot, invocations)
+    journals.set(identity, invocations)
     registry[consoleInvocationsRegistryKey] = journals
     registry[consoleInvocationsKey] = invocations
   }
@@ -74,4 +79,9 @@ export function installConsoleInvocationFallback(
 
 export function resolveConsoleInvocationsRoot(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {
   return scope[consoleInvocationsRootKey]
+}
+
+// doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default scope uses only the optional symbol properties declared by ConsoleInvocationScope.
+export function resolveConsoleInvocationsIdentity(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {
+  return scope[consoleInvocationsIdentityKey] ?? scope[consoleInvocationsRootKey]
 }

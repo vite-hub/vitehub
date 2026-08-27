@@ -8,7 +8,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import {
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
-  resolveConsoleInvocationsRoot,
+  resolveConsoleInvocationsIdentity,
 } from "../../internal.ts"
 import { readConsoleFixture } from "../../fixture.ts"
 
@@ -93,18 +93,21 @@ export function createConsoleFixtureInvocations(file: string): AgentInvocations 
 
 export function installConsoleInvocations(projectRoot: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
+  const identity = `sqlite:${resolvedRoot}`
   const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsRoot() === resolvedRoot) return installed
+  if (installed && resolveConsoleInvocationsIdentity() === identity) return installed
   const invocations = createConsoleInvocations(resolvedRoot)
-  installConsoleInvocationFallback(invocations, resolvedRoot)
+  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
   return invocations
 }
 
 export function installConsoleFixtureInvocations(projectRoot: string, file: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
+  const resolvedFile = resolve(file)
+  const identity = `fixture:${resolvedRoot}:${resolvedFile}`
   const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsRoot() === resolvedRoot) return installed
-  const invocations = createConsoleFixtureInvocations(file)
-  installConsoleInvocationFallback(invocations, resolvedRoot)
+  if (installed && resolveConsoleInvocationsIdentity() === identity) return installed
+  const invocations = createConsoleFixtureInvocations(resolvedFile)
+  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
   return invocations
 }

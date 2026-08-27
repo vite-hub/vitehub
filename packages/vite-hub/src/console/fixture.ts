@@ -30,9 +30,10 @@ const observationTypeSchema = v.picklist([
 const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 const booleanSchema = v.boolean()
+const diagnosticScalarSchema = v.union([v.string(), v.pipe(v.number(), v.finite())])
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  if (Array.isArray(value)) return
   const result = v.safeParse(recordSchema, value)
   return result.success ? result.output : undefined
 }
@@ -73,8 +74,8 @@ function agentName(value: unknown, path: string): string {
 
 function diagnosticScalar(value: unknown, path: string): number | string | undefined {
   if (value === undefined) return
-  if (typeof value === "string" || (typeof value === "number" && Number.isFinite(value)))
-    return value
+  const result = v.safeParse(diagnosticScalarSchema, value)
+  if (result.success) return result.output
   throw new TypeError(`[vitehub] Console fixture ${path} must be a string or finite number.`)
 }
 
@@ -107,6 +108,7 @@ function diagnosticError(value: unknown, path: string): RuntimeDiagnosticError {
   const stack = diagnosticString(input.stack, `${path}.stack`)
   const status = diagnosticScalar(input.status, `${path}.status`)
   const statusCode = diagnosticScalar(input.statusCode, `${path}.statusCode`)
+  // SAFETY: The parser validates the required diagnostic fields and reconstructs every supported nested value above.
   return {
     ...input,
     ...(cause ? { cause } : {}),

@@ -11,12 +11,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { consoleInvocationsIdentityKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
-import { createConsoleFixtureInvocations, createConsoleInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
+import { createConsoleFixtureInvocations, createConsoleInvocations, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -58,8 +58,10 @@ function runtime(runId: string): AgentRuntimeContext {
 
 afterEach(() => {
   delete scope[consoleInvocationsKey]
+  delete scope[consoleInvocationsIdentityKey]
   delete scope[consoleInvocationsRootKey]
   Reflect.deleteProperty(process, consoleInvocationsKey)
+  Reflect.deleteProperty(process, consoleInvocationsIdentityKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   vi.unstubAllEnvs()
@@ -99,6 +101,39 @@ describe("Agent invocation console", () => {
       })
       await expect(invocations.list()).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "fixture-invocation" })],
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("replaces an installed journal when the fixture identity changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-switch-"))
+    const fixture = (id: string) => ({
+      invocations: [{
+        agentName: "support",
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id,
+        observations: [],
+        status: "completed",
+        traceId: `${id}-trace`,
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      }],
+      version: 1,
+    })
+    try {
+      const firstFile = join(root, "first.json")
+      const secondFile = join(root, "second.json")
+      await writeFile(firstFile, JSON.stringify(fixture("first")))
+      await writeFile(secondFile, JSON.stringify(fixture("second")))
+
+      const first = installConsoleFixtureInvocations(root, firstFile)
+      const second = installConsoleFixtureInvocations(root, secondFile)
+
+      expect(second).not.toBe(first)
+      await expect(second.list()).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "second" })],
       })
     }
     finally {
