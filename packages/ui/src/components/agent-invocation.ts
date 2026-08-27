@@ -300,6 +300,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
               ]),
               command.cwd ? h("div", { class: "vh-invocation-command__cwd" }, command.cwd) : null,
               command.output ? h("pre", terminalText(command.output)) : null,
+              renderEventPayload("Error", activity.attributes["tool.error"]),
             ])
           : hasPayloads
             ? h("div", { class: "vh-invocation-event__payloads" }, [

@@ -29,7 +29,6 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
       "input.prompt",
       "message.content",
       "result.text",
-      "tool.error",
       "tool.input",
       "tool.output",
       "vitehub.activity.progress",

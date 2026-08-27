@@ -931,6 +931,26 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("renders failed command diagnostics with command details", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-command",
+      observations: [
+        { attributes: { "tool.id": "command", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "tool.error": "Command timed out", "tool.id": "command", "tool.name": "shell" }, name: "agent.tool.error", sequence: 2, timestamp, type: "error" as const },
+      ],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-command__bar code").text()).toBe("pnpm test");
+    expect(wrapper.get(".vh-invocation-command .vh-invocation-event__payload > strong").text()).toBe("Error");
+    expect(wrapper.get(".vh-invocation-command .vh-invocation-event__payload pre").text()).toBe("Command timed out");
+  });
+
   it("keeps an undecided approval request running", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
