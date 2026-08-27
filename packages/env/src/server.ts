@@ -111,7 +111,7 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv, path: string): un
   }
   if (isRuntimeProviderEntry(value)) throw asyncServerEnvRequired(path)
   if (!isRecord(value)) return undefined
-  const output: Record<string, unknown> = {}
+  const output: Record<string, unknown> = Object.create(null)
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`
     if (isRuntimeProviderEntry(child)) {
@@ -130,10 +130,20 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv, path: string): un
 }
 
 function providerFor(name: string, providers: EnvProviders | undefined): EnvProvider {
-  const provider = providers && Object.hasOwn(providers, name)
-    ? providers[name]
-    : undefined
-  if (!provider || typeof provider !== "object" || typeof provider.read !== "function") {
+  let provider: EnvProvider | undefined
+  try {
+    const configured = providers && Object.hasOwn(providers, name)
+      ? providers[name]
+      : undefined
+    if (configured && typeof configured === "object" && typeof configured.read === "function") {
+      const read = configured.read
+      provider = { read: input => read.call(configured, input) }
+    }
+  }
+  catch (cause) {
+    throw envSourceFailed("provider", cause)
+  }
+  if (!provider) {
     throw new TypeError("The configured Server Env provider is unavailable or invalid.")
   }
   return provider
@@ -189,16 +199,35 @@ function collectProviderKeys(value: unknown, requests = new Map<string, Set<stri
 }
 
 function normalizeProviderValues(value: unknown, keys: readonly string[]): ProviderValues {
-  if (!isRecord(value)) {
+  let record: Record<string, unknown> | undefined
+  try {
+    if (isRecord(value)) record = value
+  }
+  catch (cause) {
+    throw envSourceFailed("provider", cause)
+  }
+  if (!record) {
     throw invalidRuntimeEnvValue("provider", "A Server Env provider must return a plain record.")
   }
-  const prototype = Object.getPrototypeOf(value)
+  let prototype: object | null
+  try {
+    prototype = Object.getPrototypeOf(record)
+  }
+  catch (cause) {
+    throw envSourceFailed("provider", cause)
+  }
   if (prototype !== null && prototype !== Object.prototype) {
     throw invalidRuntimeEnvValue("provider", "A Server Env provider must return a plain record.")
   }
   const output = new Map<string, unknown>()
   for (const key of keys) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    let descriptor: PropertyDescriptor | undefined
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(record, key)
+    }
+    catch (cause) {
+      throw envSourceFailed("provider", cause)
+    }
     if (!descriptor) {
       output.set(key, undefined)
       continue
@@ -212,7 +241,7 @@ function normalizeProviderValues(value: unknown, keys: readonly string[]): Provi
 }
 
 function createProviderLoads(
-  registry: EnvRuntimeRegistry,
+  registry: EnvRuntimeRegistry<never>,
   localEnv: Readonly<Record<string, unknown>>,
   options: LoadServerEnvOptions,
 ): ProviderLoads {
@@ -255,7 +284,7 @@ function localRegistryValue(value: unknown, env: RuntimeEnv, tolerateInvalid: bo
     }
   }
   if (!isRecord(value)) return skipProviderValue
-  const output: Record<string, unknown> = {}
+  const output: Record<string, unknown> = Object.create(null)
   for (const [key, child] of Object.entries(value)) {
     const resolved = localRegistryValue(child, env, tolerateInvalid)
     if (resolved !== skipProviderValue) output[key] = resolved
@@ -264,7 +293,7 @@ function localRegistryValue(value: unknown, env: RuntimeEnv, tolerateInvalid: bo
 }
 
 function createLocalEnv(
-  registry: EnvRuntimeRegistry,
+  registry: EnvRuntimeRegistry<never>,
   env: RuntimeEnv,
   tolerateInvalid: boolean,
 ): Readonly<Record<string, unknown>> {
@@ -287,7 +316,7 @@ async function loadRegistryValue(
   }
   if (!isRecord(value)) return undefined
 
-  const output: Record<string, unknown> = {}
+  const output: Record<string, unknown> = Object.create(null)
   for (const [key, child] of Object.entries(value)) {
     output[key] = await loadRegistryValue(child, env, loads)
   }
@@ -354,14 +383,14 @@ async function inspectRegistryValue(
 }
 
 export function resolveServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(
-  registry: EnvRuntimeRegistry,
+  registry: EnvRuntimeRegistry<TServerEnv>,
   event?: unknown,
 ): TServerEnv {
   return resolveRegistryValue(registry, runtimeEnv(event), "env.server") as TServerEnv
 }
 
 export async function loadServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(
-  registry: EnvRuntimeRegistry,
+  registry: EnvRuntimeRegistry<TServerEnv>,
   event?: unknown,
   options: LoadServerEnvOptions = {},
 ): Promise<DeepReadonly<TServerEnv>> {

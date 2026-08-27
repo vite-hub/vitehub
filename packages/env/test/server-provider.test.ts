@@ -18,6 +18,27 @@ function providerRegistry() {
 }
 
 describe("Server Env providers", () => {
+  it("preserves __proto__ as an own key in every snapshot", async () => {
+    const registry = createRuntimeRegistry({
+      ["__proto__"]: { nested: env({ source: env.source("NESTED") }) },
+      provided: { ["__proto__"]: env({ source: env.provider("secrets", "token") }) },
+    })
+    const event = { env: { NESTED: "local" } }
+
+    const local = resolveServerEnv(registry, event)
+    expect(Object.hasOwn(local, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(local)).toBe(null)
+    expect(local["__proto__"]).toEqual({ nested: "local" })
+
+    const loaded = await loadServerEnv(registry, event, {
+      providers: { secrets: defineEnvProvider({ read: async () => ({ token: "remote" }) }) },
+    })
+    expect(Object.hasOwn(loaded, "__proto__")).toBe(true)
+    expect(Object.hasOwn(loaded.provided as object, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(loaded)).toBe(null)
+    expect(loaded.provided).toEqual({ ["__proto__"]: "remote" })
+  })
+
   it("keeps local values synchronous and loads one immutable provider snapshot", async () => {
     const providerValues = { "codex-auth": "codex-secret", "remote-token": "first-token" }
     const read = vi.fn(async (input: { env: Readonly<Record<string, unknown>>, keys: readonly string[], signal?: AbortSignal }) => {
@@ -162,6 +183,34 @@ describe("Server Env providers", () => {
     }
   })
 
+  it("redacts provider traps during lookup and output inspection", async () => {
+    const registry = createRuntimeRegistry({ token: env({ source: env.provider("secrets", "token") }) })
+    const privateFailure = new ViteHubError("ENV_SOURCE_FAILED", "private provider failure", {
+      details: { source: "provider", token: "private" } as never,
+    })
+    const providers = {
+      secrets: Object.defineProperty({}, "read", { get: () => { throw privateFailure } }),
+    } as never
+    const hostileOutput = new Proxy({}, {
+      getOwnPropertyDescriptor() { throw privateFailure },
+    })
+
+    for (const options of [
+      { providers },
+      { providers: { secrets: defineEnvProvider({ read: async () => hostileOutput }) } },
+    ]) {
+      const error = await loadServerEnv(registry, undefined, options)
+        .then(() => undefined, value => value)
+      expect(error).not.toBe(privateFailure)
+      expect(error).toMatchObject({
+        code: "ENV_SOURCE_FAILED",
+        details: { source: "provider" },
+        message: "[vitehub] Env source resolution failed.",
+      })
+      expect(JSON.stringify(error)).not.toMatch(/private provider failure|private/)
+    }
+  })
+
   it("applies missing, default, invalid, and safe provider error contracts", async () => {
     const registry = createRuntimeRegistry({
       defaulted: env({ default: "fallback", source: env.provider("values", "missing-default") }),
@@ -171,7 +220,10 @@ describe("Server Env providers", () => {
     })
     const values = defineEnvProvider({
       // Deliberately bypass the public value type to prove runtime hardening at an untyped boundary.
-      read: vi.fn(async () => ({ "invalid-value": { secret: "must-not-leak" } }) as unknown as EnvProviderValues),
+      read: vi.fn(async () => Object.defineProperty({}, "invalid-value", {
+        enumerable: true,
+        value: { secret: "must-not-leak" },
+      })),
     })
     const failed = defineEnvProvider({
       read: vi.fn(async () => {
@@ -235,7 +287,7 @@ describe("Server Env providers", () => {
       providers: {
         secrets: defineEnvProvider({
           // Deliberately bypass the public return type to prove runtime hardening at an untyped boundary.
-          read: async () => new (class ProviderValues { token = "secret" })() as unknown as EnvProviderValues,
+          read: async () => Object.create(new (class ProviderValues { token = "secret" })()),
         }),
       },
     })).rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID", details: { source: "provider" } })

@@ -198,10 +198,8 @@ describe("built-in deployment preset integration", () => {
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
-      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
-        secrets?: { required?: string[] }
-      }
-      expect(wrangler.secrets?.required).toEqual(["VITEHUB_TOKEN"])
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({ secrets: { required: ["VITEHUB_TOKEN"] } })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -224,10 +222,8 @@ describe("built-in deployment preset integration", () => {
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
-      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
-        secrets?: { required?: string[] }
-      }
-      expect(wrangler.secrets?.required).toEqual(["APP_TOKEN"])
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({ secrets: { required: ["APP_TOKEN"] } })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -257,10 +253,8 @@ describe("built-in deployment preset integration", () => {
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
-      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
-        secrets?: { required?: string[] }
-      }
-      expect(wrangler.secrets?.required).toEqual(["LATE_TOKEN"])
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({ secrets: { required: ["LATE_TOKEN"] } })
     }
     finally {
       await rm(root, { force: true, recursive: true })

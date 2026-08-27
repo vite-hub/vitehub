@@ -182,8 +182,11 @@ interface EnvRuntimeLiteralEntry {
 
 export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
 
-export interface EnvRuntimeRegistry {
+declare const serverEnvType: unique symbol
+
+export interface EnvRuntimeRegistry<TServerEnv extends Record<string, unknown> = Record<string, unknown>> {
   [key: string]: EnvRuntimeRegistryValue
+  readonly [serverEnvType]?: (value: TServerEnv) => void
 }
 
 export interface ServerEnv {

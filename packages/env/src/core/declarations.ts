@@ -186,13 +186,19 @@ export const env: EnvNamespace = Object.assign(variable, {
 })
 
 export function isDefaultStringEnvVariable(declaration: EnvVariableDeclaration): boolean {
+  const declarationToken = Object.getOwnPropertyDescriptor(declaration, defaultStringSchemaProperty)?.value
+  const schemaObject = typeof declaration.schema === "object" && declaration.schema !== null
+    ? declaration.schema
+    : undefined
+  const schemaToken = schemaObject
+    ? Object.getOwnPropertyDescriptor(schemaObject, defaultStringSchemaProperty)?.value
+    : undefined
   return defaultStringSchemas.get(declaration) === declaration.schema
     || (
-      (declaration as unknown as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
-      && typeof declaration.schema === "object"
-      && declaration.schema !== null
-      && (declaration.schema as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
-      && hasOnlyDefaultStringSchemaKeys(declaration.schema)
+      declarationToken === defaultStringSchemaToken
+      && schemaToken === defaultStringSchemaToken
+      && schemaObject !== undefined
+      && hasOnlyDefaultStringSchemaKeys(schemaObject)
     )
 }
 

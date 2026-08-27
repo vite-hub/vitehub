@@ -461,7 +461,11 @@ function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
 }
 
 async function readPackageJson(rootDir: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await readFile(resolve(rootDir, "package.json"), "utf8")) as Record<string, unknown>
+  const value: unknown = JSON.parse(await readFile(resolve(rootDir, "package.json"), "utf8"))
+  if (!isPlainRecord(value)) {
+    throw new TypeError("package.json must contain an object.")
+  }
+  return value
 }
 
 async function gitOutput(rootDir: string, args: string[]): Promise<string> {
