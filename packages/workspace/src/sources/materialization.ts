@@ -453,8 +453,8 @@ export async function materializeWorkspaceSources(
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
+    const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
     try {
-      const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
       throwIfAborted(options.abortSignal)
       await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
@@ -594,6 +594,7 @@ export async function materializeWorkspaceSources(
       })
     }
     catch (error) {
+      revision = ctx.revision ?? revision
       const failed: SourceSnapshotMetadata = {
         configHash,
         source: source.key,

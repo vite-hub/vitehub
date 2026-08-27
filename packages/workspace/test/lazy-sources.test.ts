@@ -734,12 +734,14 @@ describe("lazy sources", () => {
 
   it("does not rematerialize an explicitly materialized path during listing", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "# A\n" }))
+    const prepare = vi.fn()
     const view = createWorkspaceSourceView({
       name: "explicit-materialization-listing",
       sources: {
         docs: custom({
           cache: false,
           materialize: "lazy",
+          prepare,
           async getKeys() {
             return ["guides/a.md"]
           },
@@ -753,6 +755,7 @@ describe("lazy sources", () => {
       expect.objectContaining({ path: "docs/guides/a.md", type: "file" }),
     ])
     expect(getItem).toHaveBeenCalledOnce()
+    expect(prepare).toHaveBeenCalledOnce()
   })
 
   it("serializes implicit lazy access with explicit materialization", async () => {
@@ -943,6 +946,49 @@ describe("lazy sources", () => {
         source: "docs",
         status: "error",
       }],
+    })
+  })
+
+  it("reports a revision resolved before source preparation fails", async () => {
+    const progress: WorkspaceMaterializeSourcesProgressEvent[] = []
+    const view = createWorkspaceSourceView({
+      name: "failed-preparation-revision",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async resolveRevision() {
+            return { id: "commit-prepare-broken", immutable: true, ref: "main" }
+          },
+          async prepare() {
+            throw new Error("prepare failed")
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({
+      onProgress(event) {
+        progress.push(event)
+      },
+      sources: ["docs"],
+    })).resolves.toMatchObject({
+      sources: [{
+        error: "prepare failed",
+        revision: { id: "commit-prepare-broken", immutable: true, ref: "main" },
+        source: "docs",
+        status: "error",
+      }],
+    })
+    expect(progress.at(-1)).toMatchObject({
+      error: "prepare failed",
+      revision: { id: "commit-prepare-broken", immutable: true, ref: "main" },
+      status: "failed",
     })
   })
 
