@@ -100,9 +100,9 @@ function definitionsByRoot(value: unknown): ConsoleDefinitionsByRoot | undefined
   // SAFETY: The structural checks below validate every ConsoleDefinitionsByRoot member before use.
   const registry = value as Partial<ConsoleDefinitionsByRoot>
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
-  return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
-    ? registry as ConsoleDefinitionsByRoot
-    : undefined
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleDefinitionsByRoot member.
+  return registry as ConsoleDefinitionsByRoot
 }
 
 function kvByRoot(value: unknown): ConsoleKVByRoot | undefined {

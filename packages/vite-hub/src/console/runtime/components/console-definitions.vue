@@ -49,6 +49,7 @@ function parseFields(value: unknown): ConsoleDefinitionSummary["fields"] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
     const field = record(entry);
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate definition field labels and values at this boundary.
     return typeof field?.label === "string" && typeof field.value === "string"
       ? [{ label: field.label, value: field.value }]
       : [];
@@ -62,9 +63,9 @@ function parseDefinitions(value: unknown): ConsoleDefinitionSummary[] {
   }
   return source.definitions.flatMap((entry) => {
     const definition = record(entry);
-    return typeof definition?.name === "string"
-      && typeof definition.file === "string"
-      && typeof definition.source === "string"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate definition identity and source metadata at this boundary.
+    const valid = typeof definition?.name === "string" && typeof definition.file === "string" && typeof definition.source === "string";
+    return valid
       ? [{
           fields: parseFields(definition.fields),
           file: definition.file,

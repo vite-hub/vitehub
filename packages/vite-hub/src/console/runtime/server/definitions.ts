@@ -9,14 +9,16 @@ export function installConsoleDefinitions(
   projectRoot: string,
   catalog: ConsoleDefinitionCatalog,
 ): ConsoleDefinitionCatalog {
-  const installed = Object.fromEntries(
-    consoleDefinitionSectionIds
-      .filter(section => catalog[section])
-      .map(section => [section, catalog[section]?.map(definition => ({
+  const installed: ConsoleDefinitionCatalog = {}
+  for (const section of consoleDefinitionSectionIds) {
+    const definitions = catalog[section]
+    if (definitions) {
+      installed[section] = definitions.map(definition => ({
         ...definition,
         fields: definition.fields.map(field => ({ ...field })),
-      }))]),
-  ) as ConsoleDefinitionCatalog
+      }))
+    }
+  }
   return installConsoleDefinitionScope(resolve(projectRoot), installed)
 }
 

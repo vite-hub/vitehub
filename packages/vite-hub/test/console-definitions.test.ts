@@ -14,6 +14,7 @@ import type { ConsoleDefinitionCatalog } from "../src/console/runtime/definition
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
+// SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
 const scope = globalThis as ConsoleInvocationScope
 
 function event(query = "", method = "GET"): ConsoleRequestEvent {
