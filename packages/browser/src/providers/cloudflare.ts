@@ -2,9 +2,11 @@ import { browserProviderError } from "../errors.ts"
 import { createCloudflareBrowser } from "../internal/cloudflare-provider.ts"
 
 import type {
+  CloudflareBrowserBindingConnection,
   CloudflareBrowserOptions,
   CloudflarePlaywrightDriver,
 } from "../internal/cloudflare-provider.ts"
+import type { BrowserProvider } from "../types.ts"
 
 async function loadDriver(): Promise<CloudflarePlaywrightDriver> {
   try {
@@ -15,7 +17,9 @@ async function loadDriver(): Promise<CloudflarePlaywrightDriver> {
   }
 }
 
-export function cloudflareBrowser(options: CloudflareBrowserOptions = {}) {
+export function cloudflareBrowser(
+  options: CloudflareBrowserOptions = {},
+): BrowserProvider<CloudflareBrowserBindingConnection> {
   return createCloudflareBrowser(options, loadDriver)
 }
 
