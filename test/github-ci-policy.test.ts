@@ -396,6 +396,9 @@ jobs:
     "env --ignore-environment -u FOO BAR=baz npx unpinned",
     "if true; then npx unpinned; fi",
     "while npx unpinned; do echo ok; done",
+    'case "$x" in foo) npx unpinned ;; esac',
+    "echo ok && { npx unpinned; }",
+    "time -p npx unpinned",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,

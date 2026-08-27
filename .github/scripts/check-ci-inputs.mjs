@@ -9,17 +9,17 @@ const dockerDigestPattern = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
 const exactPackagePattern = /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const variablePackagePattern = /^((?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+))@(?:\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*))$/
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
-const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`)$/
+const shellOperatorPattern = /^(?:&&|\|\||;|\||\(|\)|`|\{|\})$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
 const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
-const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "time", "until", "while"])
+const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "until", "while"])
 const envValueOptions = new Set(["--chdir", "--split-string", "--unset", "-C", "-S", "-u"])
 
 function shellTokens(line) {
   const tokens = []
   let previousEnd = -1
   let wordIndex
-  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`])|([^\s;&|()`"']+)/g)) {
+  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(&&|\|\||[;|()`{}])|([^\s;&|()`{}"']+)/g)) {
     if (token.index !== previousEnd) wordIndex = undefined
     previousEnd = token.index + token[0].length
     if (token[4]?.startsWith("#")
@@ -47,10 +47,19 @@ function shellTokens(line) {
 function commandIndexes(tokens) {
   const indexes = []
   let commandStart = true
+  let commandOptions = false
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]
     if (shellOperatorPattern.test(token)) {
-      commandStart = token !== ")"
+      commandStart = true
+      commandOptions = false
+    }
+    else if (commandStart && token === "time") {
+      commandOptions = true
+      continue
+    }
+    else if (commandStart && commandOptions && token.startsWith("-")) {
+      continue
     }
     else if (commandStart && shellCommandPrefixes.has(token)) {
       continue
@@ -75,6 +84,7 @@ function commandIndexes(tokens) {
         indexes.push(executableIndex)
       }
       commandStart = false
+      commandOptions = false
     }
   }
   return indexes
