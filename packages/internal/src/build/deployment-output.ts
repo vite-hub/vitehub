@@ -212,12 +212,40 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   signal?.throwIfAborted()
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
+  const previousOutputRoot = `${outputRoot}.previous`
+  const staticOutputDir = options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir)
+  const previousStaticOutputDir = `${staticOutputDir}.previous`
+  const copiesStaticOutput = Boolean(options.bundleEntry && staticIndex && resolve(clientDir) !== resolve(staticOutputDir))
   const files = Object.entries(options.files ?? {})
   const workerOutfile = options.bundleEntry
     ? resolve(outputRoot, options.bundleOutfileName ?? "index.js")
     : undefined
   if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
     throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
+  }
+
+  await rm(previousOutputRoot, { force: true, recursive: true })
+  if (copiesStaticOutput) await rm(previousStaticOutputDir, { force: true, recursive: true })
+  let hadPreviousOutput = false
+  let hadPreviousStaticOutput = false
+  let publicationSucceeded = false
+  let outputRestorationSucceeded = false
+  let staticRestorationSucceeded = false
+  try {
+    await cp(outputRoot, previousOutputRoot, { recursive: true })
+    hadPreviousOutput = true
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  if (copiesStaticOutput) {
+    try {
+      await cp(staticOutputDir, previousStaticOutputDir, { recursive: true })
+      hadPreviousStaticOutput = true
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
   }
 
   await mkdir(outputRoot, { recursive: true })
@@ -230,7 +258,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       wranglerConfigOwnership: options.wranglerConfigOwnership ?? { keys: options.wranglerConfigKeys },
     }),
     options.bundleEntry && staticIndex
-      ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
+      ? copyClientOutput(clientDir, staticOutputDir)
       : Promise.resolve(),
     ...files.map(([fileName, contents]) =>
       writeFile(resolve(outputRoot, fileName), contents, "utf8")),
@@ -252,8 +280,34 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     })())
   }
 
-  await Promise.all(writes)
-  signal?.throwIfAborted()
+  try {
+    await Promise.all(writes)
+    signal?.throwIfAborted()
+    publicationSucceeded = true
+  }
+  catch (error) {
+    await rm(outputRoot, { force: true, recursive: true })
+    if (hadPreviousOutput) {
+      await rename(previousOutputRoot, outputRoot)
+      outputRestorationSucceeded = true
+    }
+    if (copiesStaticOutput) {
+      await rm(staticOutputDir, { force: true, recursive: true })
+      if (hadPreviousStaticOutput) {
+        await rename(previousStaticOutputDir, staticOutputDir)
+        staticRestorationSucceeded = true
+      }
+    }
+    throw error
+  }
+  finally {
+    if (publicationSucceeded || outputRestorationSucceeded || !hadPreviousOutput) {
+      await rm(previousOutputRoot, { force: true, recursive: true }).catch(() => undefined)
+    }
+    if (copiesStaticOutput && (publicationSucceeded || staticRestorationSucceeded || !hadPreviousStaticOutput)) {
+      await rm(previousStaticOutputDir, { force: true, recursive: true }).catch(() => undefined)
+    }
+  }
 }
 
 async function copyVercelClientOutput(rootDir: string, clientDir: string, staticOutputDir: string): Promise<void> {

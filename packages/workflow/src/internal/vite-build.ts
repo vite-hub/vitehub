@@ -1395,6 +1395,8 @@ async function generateProviderOutputsWithinLock(
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
+    let publicationSucceeded = false
+    let restorationSucceeded = false
     try {
       if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
         ...options.providerImportAliases,
@@ -1426,14 +1428,20 @@ async function generateProviderOutputsWithinLock(
         rootDir: options.rootDir,
         ...(vercelOutput ? { vercel: vercelOutput } : {}),
       })
+      publicationSucceeded = true
     }
     catch (error) {
       await rm(outputRoot, { force: true, recursive: true })
-      if (hadPreviousOutput) await rename(previousOutputRoot, outputRoot)
+      if (hadPreviousOutput) {
+        await rename(previousOutputRoot, outputRoot)
+        restorationSucceeded = true
+      }
       throw error
     }
     finally {
-      await rm(previousOutputRoot, { force: true, recursive: true }).catch(() => undefined)
+      if (publicationSucceeded || restorationSucceeded || !hadPreviousOutput) {
+        await rm(previousOutputRoot, { force: true, recursive: true }).catch(() => undefined)
+      }
     }
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)

@@ -338,7 +338,8 @@ export async function writeVercelScheduleFunctions(options: {
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   const stagedFunctionRoot = `${functionRoot}.pending`
-  const backupFunctionRoot = `${outputRoot}.vitehub-schedule.previous`
+  const backupFunctionRoot = resolve(options.rootDir, ".vitehub", "schedule", "vercel-functions.previous")
+  await mkdir(dirname(backupFunctionRoot), { recursive: true })
   await rm(stagedFunctionRoot, { force: true, recursive: true })
   options.signal?.throwIfAborted()
 
@@ -459,6 +460,7 @@ export async function writeVercelScheduleFunctions(options: {
     }
     options.signal?.throwIfAborted()
     await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
+    options.signal?.throwIfAborted()
   }
   catch (error) {
     if (installedFunctionRoot) rmSync(functionRoot, { force: true, recursive: true })
@@ -472,6 +474,7 @@ export async function writeVercelScheduleFunctions(options: {
       rmSync(backupFunctionRoot, { force: true, recursive: true })
     }
     catch {}
+    await removeEmptyDirectories(outputRoot, options.rootDir)
   }
 }
 

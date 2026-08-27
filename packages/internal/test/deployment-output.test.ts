@@ -896,6 +896,61 @@ describe("provider deployment outputs", () => {
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
   })
 
+  it("restores all Cloudflare output when cancellation begins during companion writes", async () => {
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultCloudflareOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const clientDir = join(rootDir, "dist", "client")
+    const staticDir = join(rootDir, "public")
+    await mkdir(outputRoot, { recursive: true })
+    await mkdir(clientDir, { recursive: true })
+    await mkdir(staticDir, { recursive: true })
+    await writeFile(join(outputRoot, "index.js"), "valid worker")
+    await writeFile(join(outputRoot, "wrangler.json"), "{\"main\":\"index.js\",\"name\":\"old\"}\n")
+    await writeFile(join(outputRoot, "metadata.json"), "old metadata")
+    await writeFile(join(staticDir, "index.html"), "old static")
+    await writeFile(join(clientDir, "index.html"), "new static")
+    const catalog = createProviderOutputCatalog()
+    let reset: Promise<void> | undefined
+    const wranglerConfig = new Proxy({ main: "index.js", name: "new" }, {
+      ownKeys(target) {
+        reset = resetProviderDeploymentOutputs(catalog)
+        return Reflect.ownKeys(target)
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+          files: { "metadata.json": "new metadata" },
+          staticOutputDir: staticDir,
+          wranglerConfig,
+        },
+        rootDir,
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await reset
+
+    await expect(readFile(join(outputRoot, "index.js"), "utf8")).resolves.toBe("valid worker")
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe("{\"main\":\"index.js\",\"name\":\"old\"}\n")
+    await expect(readFile(join(outputRoot, "metadata.json"), "utf8")).resolves.toBe("old metadata")
+    await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
   it("settles every started provider write before rejecting", async () => {
     let finishVercelWrite: (() => void) | undefined
     vi.mocked(bundleEsmEntry).mockImplementation(async (_entry, outfile) => {
