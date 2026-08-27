@@ -364,6 +364,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const usage = Promise.resolve({ inputTokens: 2, totalTokens: 2 })
     const raw = Object.assign((async function* () {
       yield { text: "answer", type: "text-delta" }
+      yield { type: "usage", usageRecord: { model: "provider/model", usage: { outputTokens: 3 } } }
     })(), { usage })
     const agent = defineAgent({
       driver: { run: () => raw },
@@ -375,9 +376,37 @@ describe("Agent Invocation Interface lifecycle", () => {
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
-      result: { raw, text: "answer", usage },
+      result: {
+        raw,
+        text: "answer",
+        usage: { inputTokens: 2, outputTokens: 3, totalTokens: 2 },
+        usageRecord: { model: "provider/model", usage: { inputTokens: 2, outputTokens: 3, totalTokens: 2 } },
+      },
     })
-    expect(finish.mock.calls[0]![0].result.usage).toBe(usage)
+  })
+
+  it("skips throwing metadata getters on streamed usage events", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usageRecord = Object.defineProperties({ usage: { totalTokens: 2 } }, {
+      response: {
+        get() {
+          throw new Error("unreadable streamed response metadata")
+        },
+      },
+    })
+    const raw = (async function* () {
+      yield { type: "usage", usageRecord }
+    })()
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, usage: { totalTokens: 2 }, usageRecord: { usage: { totalTokens: 2 } } },
+    })
   })
 
   it("merges nested usage on immutable raw streams", async () => {
