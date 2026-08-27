@@ -38,15 +38,20 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
 
 function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegistry | undefined {
   // Vite SSR module runners isolate globalThis but retain the host Node process object.
-  return scope.process && (typeof scope.process === "object" || typeof scope.process === "function")
-    ? scope.process as ConsoleInvocationRegistry
-    : undefined
+  if (!scope.process || (typeof scope.process !== "object" && typeof scope.process !== "function")) return
+  // SAFETY: ConsoleInvocationRegistry uses only optional symbol keys on the shared process object.
+  return scope.process as ConsoleInvocationRegistry
 }
 
 export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {
   const root = scope[consoleInvocationsRootKey]
-  const identity = scope[consoleInvocationsIdentityKey] ?? root
-  const registered = invocationsByRoot(processRegistry(scope)?.[consoleInvocationsRegistryKey])
+  const registry = processRegistry(scope)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const identities = registry?.[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const identity = root
+    ? identities?.get(root) ?? root
+    : scope[consoleInvocationsIdentityKey]
+  const registered = invocationsByRoot(registry?.[consoleInvocationsRegistryKey])
   if (root) {
     return registered?.get(identity ?? root) ?? scope[consoleInvocationsKey]
   }
@@ -73,6 +78,11 @@ export function installConsoleInvocationFallback(
       ?? new Map<string, AgentInvocations>()
     journals.set(identity, invocations)
     registry[consoleInvocationsRegistryKey] = journals
+    // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+    const identities = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+      ?? new Map<string, string>()
+    identities.set(projectRoot, identity)
+    registry[consoleInvocationsRootIdentityRegistryKey] = identities
     registry[consoleInvocationsKey] = invocations
   }
 }
