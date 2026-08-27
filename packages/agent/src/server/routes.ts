@@ -21,7 +21,7 @@ import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCa
 import {
   chatTriggerHistoryLimit,
   createChatMessageTriggerInput,
-  hasDerivedChatTriggerInvoker,
+  derivedChatTriggerInvoker,
   markDerivedChatTriggerInvoker,
   resolveChatSessionBaseId,
   resolveChatSessionId,
@@ -4502,7 +4502,7 @@ async function isChatMessageAuthorized(
   messageContext?: MessageContext,
 ): Promise<AgentInvoker | undefined> {
   const invocationContext = createAgentInvocationContextStore(input.context)
-  const derivedInvoker = hasDerivedChatTriggerInvoker(invocationContext.get("invoker"))
+  const derivedInvoker = derivedChatTriggerInvoker(invocationContext.get("invoker"))
   const invoker = await resolveAgentInvoker(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -4511,7 +4511,7 @@ async function isChatMessageAuthorized(
     input,
     run,
   )
-  if (derivedInvoker) markDerivedChatTriggerInvoker(invoker)
+  if (derivedInvoker) markDerivedChatTriggerInvoker(invoker, derivedInvoker)
   for (const accessOptions of getAccessCapabilityOptions(getAgentCapabilities(agent))) {
     if (!accessOptions.chat) continue
     const result = await accessOptions.chat.resolve({

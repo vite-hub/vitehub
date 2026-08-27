@@ -44,14 +44,18 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
   selectedMessages: UIMessageLike[]
 }
 
-const derivedChatInvokers = new WeakSet<object>()
+const derivedChatInvokers = new WeakMap<object, AgentInvoker>()
 
-export function markDerivedChatTriggerInvoker(invoker: unknown): void {
-  if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.add(invoker)
+export function markDerivedChatTriggerInvoker(invoker: unknown, source?: AgentInvoker): void {
+  if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
 }
 
 export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
-  return typeof invoker === "object" && invoker !== null && derivedChatInvokers.has(invoker)
+  return derivedChatTriggerInvoker(invoker) !== undefined
+}
+
+export function derivedChatTriggerInvoker(invoker: unknown): AgentInvoker | undefined {
+  return typeof invoker === "object" && invoker !== null ? derivedChatInvokers.get(invoker) : undefined
 }
 
 function uiMessageText(message: UIMessageLike): string {

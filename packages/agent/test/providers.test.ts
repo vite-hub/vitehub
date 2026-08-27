@@ -14699,6 +14699,7 @@ describe("server helpers", () => {
       driver: { run: () => "internal output" },
       hooks: { "agent:finish": (event) => event.reply("Durable reply") },
       messages: {
+        metaRevision: "settlement-retry-v1",
         meta: {
           "~standard": {
             validate: (value) => {

@@ -1,18 +1,18 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
-import { chatTriggerUserMeta, hasDerivedChatTriggerInvoker, markDerivedChatTriggerInvoker } from "../chat-message-input.ts"
+import { chatTriggerUserMeta, derivedChatTriggerInvoker, markDerivedChatTriggerInvoker } from "../chat-message-input.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvoker, withoutResolvedAgentInvokerInput } from "../invoker.ts"
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 
-import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
+import type { AgentDefinition, AgentInvocationContextStore, AgentInvoker, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
 
 const parsedAgentMessageMetaContextKey = "vitehub.agent.messageMetaParsed"
 interface ParsedAgentMessageMetaReceipt {
   revision?: string
 }
 export interface ParsedAgentMessageMetaState {
-  derivedInvoker?: true
+  derivedInvoker?: AgentInvoker
   revision?: string
 }
 
@@ -62,7 +62,7 @@ export function parsedAgentMessageMetaState<TRuntimeConfig extends AgentRuntimeC
   const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
   if (!receipt || input.context?.[parsedAgentMessageMetaContextKey] !== receipt) return
   return {
-    ...(hasDerivedChatTriggerInvoker(invocationContext.get("invoker")) ? { derivedInvoker: true } : {}),
+    ...(derivedChatTriggerInvoker(invocationContext.get("invoker")) ? { derivedInvoker: derivedChatTriggerInvoker(invocationContext.get("invoker")) } : {}),
     ...(receipt?.revision !== undefined ? { revision: receipt.revision } : {}),
   }
 }
@@ -74,7 +74,7 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
   state?: ParsedAgentMessageMetaState,
 ): AgentRunInput<CALL_OPTIONS> {
   if (!state) return input
-  if (state.derivedInvoker) markDerivedChatTriggerInvoker(input.context?.invoker)
+  if (state.derivedInvoker) markDerivedChatTriggerInvoker(input.context?.invoker, state.derivedInvoker)
   const receipt = parsedAgentMessageMetaReceipt(definition, createAgentInvocationContextStore(input.context), run)
   if (!receipt || state.revision === undefined || receipt.revision !== state.revision) {
     return state.derivedInvoker ? withoutResolvedAgentInvokerInput(input) : input
@@ -85,18 +85,15 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
   }
 }
 
-function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>, user: unknown, derived: boolean): unknown {
+function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>, user: unknown, derived: AgentInvoker | undefined): unknown {
   if (!isRuntimeObject(invoker)) return invoker
   if (!derived) return invoker
-  // SAFETY: isRuntimeObject established the mutable string-keyed record representation.
-  const record = invoker as Record<string, unknown>
-  if (record.kind !== "chat" || !isRuntimeObject(record.meta)) return invoker
-  const invokerMeta: Record<string, unknown> = { ...record.meta }
+  const invokerMeta: Record<string, unknown> = { ...derived.meta }
   if (isRuntimeObject(rawMeta)) {
     for (const key of Object.keys(rawMeta)) delete invokerMeta[key]
   }
   const normalizedInvoker: Record<string, unknown> = {
-    ...record,
+    ...derived,
     meta: { ...invokerMeta, ...chatTriggerUserMeta(isRuntimeRecord(user) ? user : undefined), ...meta },
   }
   if (isRuntimeObject(rawMeta) && Object.hasOwn(rawMeta, "email")) normalizedInvoker.email = undefined
@@ -152,7 +149,7 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
     rawMeta,
     meta as Record<string, unknown>,
     user,
-    hasDerivedChatTriggerInvoker(invocationContext.get("invoker")),
+    derivedChatTriggerInvoker(invocationContext.get("invoker")),
   )
   if (invoker !== invocationContext.get("invoker")) {
     invocationContext.set("actor", invoker, { overwrite: true })

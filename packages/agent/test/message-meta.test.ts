@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createChatMessageTriggerInput } from "../src/chat-message-input.ts"
+import { createChatMessageTriggerInput, markDerivedChatTriggerInvoker } from "../src/chat-message-input.ts"
 import { defineAgent, portableAgentWorkflowInput, runAgentInline } from "../src/index.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
@@ -275,8 +275,11 @@ describe("Agent message metadata", () => {
       user: { id: "chat:user-1" },
     }).input
     const prepared = await withParsedAgentMessageMeta(previousAgent, input)
-    const state = parsedAgentMessageMetaState(previousAgent, prepared)
-    const portable = await portableAgentWorkflowInput(withResolvedAgentInvokerInput(prepared, prepared.context!.invoker!))
+    const resolvedInvoker = { id: "audience:technical", kind: "service" }
+    markDerivedChatTriggerInvoker(resolvedInvoker, prepared.context!.invoker!)
+    const resolvedInput = withResolvedAgentInvokerInput(prepared, resolvedInvoker)
+    const state = parsedAgentMessageMetaState(previousAgent, resolvedInput)
+    const portable = await portableAgentWorkflowInput(resolvedInput)
     let observed: unknown
     const currentAgent = defineAgent({
       driver: { run: ({ context }) => {
@@ -311,7 +314,14 @@ describe("Agent message metadata", () => {
       provider: "cloudflare",
     }, runAgentInline)
 
-    expect(state).toEqual({ derivedInvoker: true, revision: "test-v1" })
+    expect(state).toEqual({
+      derivedInvoker: {
+        id: "chat:user-1",
+        kind: "chat",
+        meta: { audience: "technical", id: "chat:user-1" },
+      },
+      revision: "test-v1",
+    })
     expect(observed).toEqual({
       channel: {
         message: { text: "hello" },
