@@ -112,7 +112,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
         options.stderr || "inherit",
       ],
     })
-    const forwardedSignals = ["SIGHUP", "SIGINT", "SIGTERM"] as const
+    const forwardedSignals = ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const
     const handlers = new Map<NodeJS.Signals, () => void>()
     const cleanup = () => {
       for (const [signal, handler] of handlers) process.off(signal, handler)

@@ -236,10 +236,10 @@ describe("ViteHub CLI", () => {
     expect(stderrFlush).toHaveBeenCalledOnce()
   })
 
-  it.runIf(process.platform !== "win32")("ignores a signal forwarded after the child process group exits", async () => {
+  it.runIf(process.platform !== "win32")("forwards SIGQUIT and ignores a missing child process group", async () => {
     const originalKill = process.kill.bind(process)
     const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      if (pid < 0 && signal === "SIGTERM") {
+      if (pid < 0 && signal === "SIGQUIT") {
         throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" })
       }
       return originalKill(pid, signal)
@@ -257,8 +257,8 @@ describe("ViteHub CLI", () => {
                     name: "spawn",
                     run: async (_args, context) => {
                       const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 20)"])
-                      await vi.waitFor(() => expect(process.listenerCount("SIGTERM")).toBeGreaterThan(0))
-                      process.emit("SIGTERM")
+                      await vi.waitFor(() => expect(process.listenerCount("SIGQUIT")).toBeGreaterThan(0))
+                      process.emit("SIGQUIT")
                       return (await result).exitCode
                     },
                   }],
@@ -272,8 +272,8 @@ describe("ViteHub CLI", () => {
       })
 
       expect(exitCode).toBe(0)
-      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGTERM")
-      expect(process.listenerCount("SIGTERM")).toBe(0)
+      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGQUIT")
+      expect(process.listenerCount("SIGQUIT")).toBe(0)
     }
     finally {
       kill.mockRestore()
