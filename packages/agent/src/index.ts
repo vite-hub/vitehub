@@ -3835,10 +3835,18 @@ async function resultWithStreamedTextAndUsage(
       }
     }
     const normalizedUsage = normalizedAgentUsage(resolvedUsage)
+    const canonicalUsage = normalizedUsage ? (await resolveAgentUsageRecord({ usage: normalizedUsage }))?.usage : undefined
+    const canonicalResolvedUsage = canonicalUsage
+      ? {
+          ...(normalizedUsage?.details ? { details: normalizedUsage.details } : {}),
+          ...(normalizedUsage?.raw !== undefined ? { raw: normalizedUsage.raw } : {}),
+          ...canonicalUsage,
+        }
+      : undefined
     const fallbackUsage = normalizedAgentUsage(fallbackUsageRecordProperties.usage)
     const streamedUsage = normalizedAgentUsage(streamedUsageRecordProperties.usage)
     const normalizedRecordUsage = normalizedAgentUsage(normalizedUsageRecordProperties.usage)
-    const usageValues = [fallbackUsage, streamedUsage, sourceUsage, normalizedRecordUsage, normalizedUsage]
+    const usageValues = [fallbackUsage, streamedUsage, sourceUsage, normalizedRecordUsage, canonicalResolvedUsage]
     const mergedUsage = usageValues.some(Boolean)
       ? {
           ...mergedDefinedObjects(...usageValues),
@@ -3916,7 +3924,7 @@ function withStreamedResult(
     async finishResult(resultOverride: unknown = result, resolveUsage = true) {
       const finishResult = await resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord, resolveUsage)
       finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
-        ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+        ? toAgentRunResult(finishResult).usageRecord
         : undefined
       return finishResult
     },
@@ -4695,7 +4703,11 @@ async function finalizeAgentInvocationResult<
               })
             }
             return lifecycle.finish(finishOutcome.status === "success"
-              ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
+              ? {
+                  ...finishOutcome,
+                  usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined,
+                  usageResolved: true,
+                }
               : finishOutcome)
           }, {
             abortSignal: context.input.abortSignal,
