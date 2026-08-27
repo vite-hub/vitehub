@@ -1,13 +1,24 @@
+import { createRequire } from "node:module";
+
 import { defineConfig } from "vite-plus";
+
+const require = createRequire(import.meta.url);
+const requireFromTinyglobby = createRequire(require.resolve("tinyglobby"));
 
 export default defineConfig({
   pack: {
+    alias: {
+      // fdir's ESM entry resolves its optional picomatch peer through createRequire.
+      // Bundle the CJS entry so the package output can inline that dependency instead.
+      fdir: requireFromTinyglobby.resolve("fdir"),
+    },
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [
         /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
         "effect",
+        "fdir",
         "mrmime",
         "ocache",
         "picomatch",
