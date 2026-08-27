@@ -2,6 +2,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { agentErrorDetails } from "./agent-error.ts"
+import { agentInvokerLabel } from "./invoker.ts"
 import type { AgentActivity, StreamEvent } from "./messages.ts"
 import type {
   AgentInvocationContextStore,
@@ -65,6 +66,7 @@ function invocationAttributes(
   return {
     "agent.invoker.id": context.invoker.id,
     "agent.invoker.kind": context.invoker.kind,
+    "agent.invoker.label": agentInvokerLabel(context.invoker),
     "agent.run.id": context.run?.runId,
     "channel.delivery.id": context.runtime.channelDelivery?.id,
     "channel.delivery.provider": context.runtime.channelDelivery?.provider,

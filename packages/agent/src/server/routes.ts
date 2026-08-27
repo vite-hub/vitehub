@@ -21,6 +21,8 @@ import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCa
 import {
   chatTriggerHistoryLimit,
   createChatMessageTriggerInput,
+  derivedChatTriggerInvoker,
+  markDerivedChatTriggerInvoker,
   resolveChatSessionBaseId,
   resolveChatSessionId,
   resolveChatTriggerHistory,
@@ -34,7 +36,7 @@ import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
-import { hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
+import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -55,6 +57,8 @@ import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
+import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
+import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import {
   isRuntimeBigInt,
   isRuntimeBoolean,
@@ -2719,9 +2723,20 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 throw new Error("[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed.")
               }
               let recoveredWorkflowInput = recoveredInput
-              if (restored.message.resolvedInvoker) {
-                const recoveredInvoker = resolveInputAgentInvoker(recoveredInput.context)
-                if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredInput, recoveredInvoker)
+              if (restored.message.parsedMessageMeta !== undefined) {
+                recoveredWorkflowInput = restoreParsedAgentMessageMeta(
+                  // SAFETY: route discovery narrows this runtime value to an Agent Definition before recovery starts.
+                  agent as AgentDefinition | undefined,
+                  recoveredWorkflowInput,
+                  restored.message.run,
+                  restored.message.parsedMessageMeta,
+                )
+              }
+              const recoveredDerivedInvokerNeedsResolution = restored.message.parsedMessageMeta?.derivedInvoker
+                && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, recoveredWorkflowInput, restored.message.run)
+              if (restored.message.resolvedInvoker && !recoveredDerivedInvokerNeedsResolution) {
+                const recoveredInvoker = resolveInputAgentInvoker(recoveredWorkflowInput.context)
+                if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredWorkflowInput, recoveredInvoker)
               }
               let recoveredWorkflowAccepted = false
               let recoveredWorkflowRetryRegistered = false
@@ -2956,7 +2971,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         pendingQueue = durableSteerPendingQueue(queue)
         successorClaimId = crypto.randomUUID()
         let queuedInput = queued.message.input
-        if (queued.message.resolvedInvoker) {
+        // SAFETY: queued durable messages retain the Agent Definition selected by this route.
+        if (queued.message.parsedMessageMeta !== undefined) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
+        const queuedDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run)
+        if (queued.message.resolvedInvoker && !queuedDerivedInvokerNeedsResolution) {
           const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
           if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
         }
@@ -3010,9 +3029,13 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         if (ownerReleased) return
         if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error) && successorInput && queued?.message) {
           let retryInput = successorInput
-          if (queued.message.resolvedInvoker) {
-            const retryInvoker = resolveInputAgentInvoker(successorInput.context)
-            if (retryInvoker) retryInput = withResolvedAgentInvokerInput(successorInput, retryInvoker)
+          // SAFETY: settlement retries reuse the Agent Definition selected for the queued message.
+          if (queued.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
+          const retryDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+            && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run)
+          if (queued.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
+            const retryInvoker = resolveInputAgentInvoker(retryInput.context)
+            if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
           }
           const retryMessage = queued.message
           registerAgentWorkflowRetry(
@@ -3075,7 +3098,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             )
           } catch (settlementError) {
             let retryInput = successorPending.message.input
-            if (successorPending.message.resolvedInvoker) {
+            // SAFETY: successor settlement retries retain the Agent Definition selected by this route.
+            if (successorPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
+            const retryDerivedInvokerNeedsResolution = successorPending.message.parsedMessageMeta?.derivedInvoker
+              && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run)
+            if (successorPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
               const retryInvoker = resolveInputAgentInvoker(retryInput.context)
               if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
             }
@@ -3115,7 +3142,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           await restoreDurableSteerQueue(resolved.state, queue, queued.message)
         }
         let retryInput = claimedPending.message.input
-        if (claimedPending.message.resolvedInvoker) {
+        // SAFETY: claimed pending messages retain the Agent Definition selected by this route.
+        if (claimedPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
+        const retryDerivedInvokerNeedsResolution = claimedPending.message.parsedMessageMeta?.derivedInvoker
+          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run)
+        if (claimedPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
           const retryInvoker = resolveInputAgentInvoker(retryInput.context)
           if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
         }
@@ -3217,6 +3248,7 @@ interface DurableSteerQueueMessage {
   input?: AgentRunInput
   invokerKey?: string
   ownerToken?: string
+  parsedMessageMeta?: ParsedAgentMessageMetaState
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: AgentRunMetadata
@@ -3525,6 +3557,7 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
       input: restoredInput,
       capabilities: newerMessage.capabilities ?? previous.capabilities,
       requestUrl: newerMessage.requestUrl ?? previous.requestUrl,
+      parsedMessageMeta: newerMessage.parsedMessageMeta,
       resolvedInvoker: newerMessage.resolvedInvoker ?? previous.resolvedInvoker,
       run: newerMessage.run ?? previous.run,
     }
@@ -4502,8 +4535,28 @@ function withChatFinishExtension<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS
   return {
     ...input,
     context: {
-      ...(input.context || {}),
+      ...input.context,
       [CHAT_FINISH_EXTENSION_CONTEXT_KEY]: chat,
+    },
+  }
+}
+
+function withAgentInvokerRunAnnotation(
+  input: AgentChatMessageTriggerInput,
+  invoker: AgentInvoker,
+): AgentChatMessageTriggerInput {
+  if (!input.run) return input
+  const annotations = { ...input.run.annotations }
+  delete annotations.triggeredBy
+  const triggeredBy = agentInvokerLabel(invoker)
+  return {
+    ...input,
+    run: {
+      ...input.run,
+      annotations: {
+        ...(triggeredBy ? { triggeredBy } : {}),
+        ...annotations,
+      },
     },
   }
 }
@@ -4519,6 +4572,7 @@ async function isChatMessageAuthorized(
   messageContext?: MessageContext,
 ): Promise<AgentInvoker | undefined> {
   const invocationContext = createAgentInvocationContextStore(input.context)
+  const derivedInvoker = derivedChatTriggerInvoker(invocationContext.get("invoker"))
   const invoker = await resolveAgentInvoker(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -4527,6 +4581,7 @@ async function isChatMessageAuthorized(
     input,
     run,
   )
+  if (derivedInvoker) markDerivedChatTriggerInvoker(invoker, derivedInvoker)
   for (const accessOptions of getAccessCapabilityOptions(getAgentCapabilities(agent))) {
     if (!accessOptions.chat) continue
     const result = await accessOptions.chat.resolve({
@@ -4616,15 +4671,24 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
-    const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
+    const authorizationInput = await withParsedAgentMessageMeta(
+      // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
+      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+      createChatMessageTriggerInput(options || {}, input).input,
+      input.run,
+    )
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) {
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
+    const parsedChannelContext = authorizationInput.context?.channel
+    input = withAgentInvokerRunAnnotation({
+      ...input,
+      context: authorizationInput.context,
+      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
+    }, invoker)
 
-    const manualDelivery = options?.delivery === "manual"
-    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const messages = scopeCurrentChatUiMessage(
       await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
       message.id,
@@ -4654,6 +4718,9 @@ async function handleChatSdkMessage(
         return
       }
     }
+
+    const manualDelivery = options?.delivery === "manual"
+    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     input = { ...input, messages }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
@@ -4716,6 +4783,7 @@ async function handleChatSdkMessage(
         },
         invoker,
       ) as AgentRunInput
+      let workflowInputHasParsedMessageMeta = parsedAgentMessageMetaState(agent, workflowInput, run)
       let workflowInputHasResolvedInvoker = hasResolvedAgentInvokerInput(workflowInput)
       let workflowInvokerKey = JSON.stringify(resolveInputAgentInvoker(workflowInput.context) ?? null)
       let workflowCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
@@ -4783,6 +4851,7 @@ async function handleChatSdkMessage(
                 : [currentErrorDelivery],
               input: workflowInput,
               invokerKey: workflowInvokerKey,
+              parsedMessageMeta: workflowInputHasParsedMessageMeta,
               requestUrl: workflowRequestUrl,
               resolvedInvoker: workflowInputHasResolvedInvoker,
               run,
@@ -4843,6 +4912,7 @@ async function handleChatSdkMessage(
                   errorDeliveries: [currentErrorDelivery],
                   input: workflowInput,
                   invokerKey: workflowInvokerKey,
+                  parsedMessageMeta: workflowInputHasParsedMessageMeta,
                   requestUrl: workflowRequestUrl,
                   resolvedInvoker: workflowInputHasResolvedInvoker,
                   run: workflowRun,
@@ -4856,6 +4926,7 @@ async function handleChatSdkMessage(
             // The persisted entry remains the CAS expectation below. Rebinding
             // steer ownership must not mutate that expected value in place.
             workflowInput = structuredClone(previous.message.input)
+            workflowInputHasParsedMessageMeta = previous.message.parsedMessageMeta
             workflowInputHasResolvedInvoker = previous.message.resolvedInvoker === true
             workflowInvokerKey = durableSteerInvokerKey(previous.message)
             workflowCapabilities = previous.message.capabilities
@@ -4927,6 +4998,7 @@ async function handleChatSdkMessage(
               input: workflowInput,
               invokerKey: workflowInvokerKey,
               ownerToken: steerLock.token,
+              parsedMessageMeta: workflowInputHasParsedMessageMeta,
               requestUrl: workflowRequestUrl,
               resolvedInvoker: workflowInputHasResolvedInvoker,
               run: workflowRun,
@@ -4950,8 +5022,11 @@ async function handleChatSdkMessage(
           steerStartOwnershipLost = true
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
         }
+        const workflowStartInput = workflowInputHasParsedMessageMeta
+          ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+          : workflowInput
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+        await runAgent(agent as never, workflowRunContext as never, workflowStartInput as never)
         durableHandoff = true
         if (steerStartOwnershipLost && steerLock && !(await state.state.extendLock(steerLock, steerTtlMs))) {
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
@@ -5058,7 +5133,11 @@ async function handleChatSdkMessage(
                     try {
                       recoveryStartAttempts++
                       // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
-                      await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
+                      const recoveryStartInput = workflowInputHasParsedMessageMeta
+                        ? restoreParsedAgentMessageMeta(agent, recoveryInput, workflowRun, workflowInputHasParsedMessageMeta)
+                        : recoveryInput
+                      // SAFETY: recovery reuses the input and context accepted by this Agent's initial run.
+                      await runAgent(agent as never, workflowRunContext as never, recoveryStartInput as never)
                       return
                     } catch (recoveryError) {
                       if (isAmbiguousAgentWorkflowStartFailure(recoveryError)) return
@@ -5094,7 +5173,11 @@ async function handleChatSdkMessage(
               // lease was lost. Start a fresh Workflow so persisted custody does not
               // depend on another webhook arriving.
               // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-              await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+              const recoveredWorkflowInput = workflowInputHasParsedMessageMeta
+                ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+                : workflowInput
+              // SAFETY: ownership recovery reuses the input and context accepted by this Agent's initial run.
+              await runAgent(agent as never, workflowRunContext as never, recoveredWorkflowInput as never)
               durableHandoff = true
             } catch (retryError) {
               if (isAmbiguousAgentWorkflowStartFailure(retryError)) {
@@ -5162,7 +5245,11 @@ async function handleChatSdkMessage(
                 durableHandoff = true
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                  const settlementRetryInput = workflowInputHasParsedMessageMeta
+                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+                    : workflowInput
+                  // SAFETY: settlement retry reuses the input and context accepted by this Agent's initial run.
+                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
@@ -5188,7 +5275,11 @@ async function handleChatSdkMessage(
                 steerPending = failedPending
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                  const settlementRetryInput = workflowInputHasParsedMessageMeta
+                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+                    : workflowInput
+                  // SAFETY: this terminal settlement path reuses the input and context accepted by the initial run.
+                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
@@ -6290,7 +6381,20 @@ export function createChannelChatRouteHandler(
         resumableClaim = claim
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
-      const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
+      let invokerInput: AgentRunInput
+      try {
+        invokerInput = await withParsedAgentMessageMeta(
+          // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
+          agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+          createChatMessageTriggerInput(chatOptions, triggerInput).input,
+          triggerInput.run,
+        )
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("[vitehub] Invalid agent channel metadata:")) {
+          throw createRouteBodyError(error.message)
+        }
+        throw error
+      }
       const invoker = await resolveAgentInvoker(
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -6300,12 +6404,15 @@ export function createChannelChatRouteHandler(
         invokerInput,
         triggerInput.run,
       )
-      triggerInput = {
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        ...(withResolvedAgentInvokerInput(triggerInput as never, invoker) as AgentChatMessageTriggerInput),
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+      triggerInput = withAgentInvokerRunAnnotation(withResolvedAgentInvokerInput({
+        ...triggerInput,
+        context: invokerInput.context,
         invoker,
-      }
+        ...(isRuntimeObject(invokerInput.context?.channel) && isRuntimeObject(invokerInput.context.channel.meta)
+          ? { meta: invokerInput.context.channel.meta }
+          : {}),
+      } as never, invoker) as AgentChatMessageTriggerInput, invoker)
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
       let selectedSessionId = resolveChatSessionId(triggerInput.messages, chatOptions.sessions, triggerInput.session)
       const registration = {

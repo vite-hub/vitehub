@@ -186,13 +186,15 @@ describe("Agent Invocations", () => {
       await journal.context.traceLog?.append({
         attributes: { "channel.effect.content": "Late reply" },
         name: "agent.channel.delivery.effect",
-        sequence: 42,
         type: "run",
       })
       await vi.advanceTimersByTimeAsync(1_500)
 
       const record = await invocations.getByRunId("slow-late-delivery")
-      expect(record?.observations.filter(observation => observation.sequence === 42)).toHaveLength(1)
+      expect(record?.observations.filter(observation =>
+        observation.name === "agent.channel.delivery.effect"
+        && observation.attributes?.["channel.effect.content"] === "Late reply",
+      )).toHaveLength(1)
     }
     finally {
       vi.useRealTimers()

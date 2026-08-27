@@ -28,6 +28,8 @@ export interface InvocationActivity {
   attributes: Record<string, unknown>;
   body?: string;
   command?: InvocationCommand;
+  durationMs?: number;
+  endedAt?: string;
   id: string;
   kind: InvocationActivityKind;
   name: string;
@@ -37,6 +39,7 @@ export interface InvocationActivity {
   reasoningTokens?: number;
   role?: "assistant" | "system" | "tool" | "user";
   sequence: number;
+  startedAt?: string;
   status: "running" | "completed" | "failed";
   totalTokens?: number;
   truncated?: boolean;
@@ -67,7 +70,6 @@ function messageRole(value: unknown): InvocationActivity["role"] {
 function activityBody(attributes: Record<string, unknown>): string | undefined {
   for (const key of [
     "vitehub.activity.progress",
-    "channel.effect.content",
     "result.text",
     "input.prompt",
     "input.messages",
@@ -87,8 +89,12 @@ function activityBody(attributes: Record<string, unknown>): string | undefined {
     const value = attributes[key];
     if (value === undefined || value === "undefined") continue;
     if (typeof value === "string" && value) return value;
-    const json = JSON.stringify(value, null, 2);
-    if (json) return json;
+    try {
+      const json = JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? `${item}n` : item, 2);
+      if (json) return json;
+    } catch (error) {
+      return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+    }
   }
 }
 
@@ -183,7 +189,7 @@ function payloadDetail(attributes: Record<string, unknown>): string | undefined 
   for (const key of ["tool.output", "tool.input"]) {
     const payload = record(attributes[key]);
     const item = record(payload?.item) ?? payload;
-    const detail = item && stringAttribute(item, "detail", "output", "query", "path");
+    const detail = item && stringAttribute(item, "detail", "summary", "output", "query", "path");
     if (detail) return detail.split(/\r?\n/).find(Boolean)?.trim();
   }
   return stringAttribute(attributes, "tool.detail", "tool.output.summary", "vitehub.activity.detail");
@@ -332,10 +338,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         .join("");
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
-      const failed = sorted.some(item => item.type === "error" || item.name.endsWith(".error"))
+      const failed = sorted.some(item => item.type === "error" || /\.(error|failed)$/.test(item.name))
         || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")));
       const approvalDenied = attributes["approval.approved"] === false;
-      const completed = sorted.some(item => /\.(cancelled|completed|decision|finish|recorded)$/.test(item.name));
+      const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|failed|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
       const role = explicitRole ?? (attributes["result.text"]
         ? "assistant"
@@ -343,22 +349,39 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
+      const observedEndedAt = sorted.at(-1)?.timestamp;
+      const invocationEndedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt;
       const started = /\.(request|start|started)$/.test(first.name);
       const unfinishedTerminalStatus = started
+        && !completed
         && invocation.status !== "pending"
         && invocation.status !== "running"
         ? invocation.status === "failed" ? "failed" : "completed"
+        : undefined;
+      const endedAt = unfinishedTerminalStatus
+        ? invocationEndedAt ?? observedEndedAt
+        : started && !completed && invocation.status === "running"
+          ? invocation.updatedAt
+          : observedEndedAt;
+      const observedDuration = Date.parse(endedAt ?? "") - Date.parse(first.timestamp);
+      const durationMs = numericAttribute(attributes, "tool.durationMs")
+        ?? (Number.isFinite(observedDuration) ? Math.max(0, observedDuration) : undefined);
+      const terminalStartedAt = !started && endedAt && durationMs !== undefined
+        ? new Date(Date.parse(endedAt) - durationMs).toISOString()
         : undefined;
       const draft = {
         attributes,
         body: patches.join("") || messageBody || activityBody(attributes),
         command,
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(endedAt ? { endedAt } : {}),
         id,
         kind,
         name: first.name,
         patches,
         paths,
         sequence: first.sequence,
+        startedAt: terminalStartedAt ?? first.timestamp,
         ...(numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") !== undefined
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
           : {}),
@@ -447,11 +470,7 @@ function channelDeliveryTitle(activity: InvocationActivity): string {
   const delivery = rawKind.includes(".") ? rawKind : kind ? normalizedTitle(kind) : "Channel delivery";
   if (activity.attributes["channel.effect.supported"] === false) return `${delivery} not supported`;
   if (stringAttribute(activity.attributes, "channel.effect.skipped")) return `${delivery} skipped`;
-  if (stringAttribute(activity.attributes, "error.message")) {
-    if (kind === "reply") return "Reply failed";
-    if (kind === "reaction") return "Reaction failed";
-    return `${delivery} failed`;
-  }
+  if (activity.status === "failed") return `${delivery} failed`;
   if (kind === "reaction") {
     const reaction: Record<string, string> = { completed: "hooray", failed: "confused", started: "eyes" };
     return reaction[intent] ? `Reacted with ${reaction[intent]}` : "Reaction sent";

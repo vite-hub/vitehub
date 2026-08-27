@@ -418,12 +418,12 @@ export function applyAgentInvocationStoreUpdate(
 ): AgentInvocationRecord {
   if (terminalStatus(record.status) && input.observation && !deliveryOutcomeObservation(input.observation)) return record
   if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
-  if (input.observation?.sequence !== undefined
-    && record.observations.some(observation => observation.sequence === input.observation?.sequence)) return record
+  const duplicateObservation = input.observation?.sequence !== undefined
+    && record.observations.some(observation => observation.sequence === input.observation?.sequence)
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
-  const observations = input.observation
+  const observations = input.observation && !duplicateObservation
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
           const observation = cloneObservation(boundedObservation(input.observation))
@@ -881,7 +881,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               }, claimId))
               const boundedUpdate = await boundedStoreOperation(() => update)
               const updated = boundedUpdate === storeOperationTimedOut
-                ? await update.catch(() => undefined)
+                ? await boundedStoreOperation(() => update, Math.max(0, deadline - Date.now()))
                 : boundedUpdate
               persisted = updated !== undefined && updated !== storeOperationTimedOut
             }
