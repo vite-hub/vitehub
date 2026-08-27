@@ -36,6 +36,19 @@ const configuredContext = createExecutionContext({
 configuredContext.capabilities satisfies RuntimeCapabilities
 configuredContext.runtimeConfig satisfies { region: string }
 
+const explicitlyUndefinedContext = createExecutionContext({
+  capabilities: undefined,
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig: undefined,
+  source: "host" as const,
+  waitUntil: () => {},
+})
+
+explicitlyUndefinedContext.capabilities satisfies RuntimeCapabilities
+explicitlyUndefinedContext.runtimeConfig satisfies Record<string, unknown>
+explicitlyUndefinedContext.source satisfies "host"
+
 const error = new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
   details: { provider: "fixture" },
 })

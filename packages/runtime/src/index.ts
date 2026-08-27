@@ -700,12 +700,14 @@ export interface LeaseStore {
 }
 
 type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRuntimeConfig }
-  ? Exclude<TRuntimeConfig, undefined>
+  ? [Exclude<TRuntimeConfig, undefined>] extends [never]
+    ? Record<string, unknown>
+    : Exclude<TRuntimeConfig, undefined>
   : Record<string, unknown>
 
 export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
+): Omit<TContext, "capabilities" | "runtimeConfig"> & ExecutionContext<RuntimeConfigOf<TContext>> {
   return {
     ...context,
     capabilities: context.capabilities ?? {},

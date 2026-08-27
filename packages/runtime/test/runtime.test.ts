@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import {
   createExecutionContext,
@@ -47,6 +47,24 @@ describe("@vite-hub/runtime", () => {
 
     expect(context.capabilities).toBe(capabilities)
     expect(context.runtimeConfig).toBe(runtimeConfig)
+  })
+
+  it("normalizes explicitly undefined execution context fields", () => {
+    const context = createExecutionContext({
+      capabilities: undefined,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: undefined,
+      source: "host" as const,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.capabilities).toEqualTypeOf<RuntimeCapabilities>()
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expectTypeOf(context.source).toEqualTypeOf<"host">()
+    expect(context.capabilities).toEqual({})
+    expect(context.runtimeConfig).toEqual({})
+    expect(context.source).toBe("host")
   })
 
   it("registers, finds, and resolves capability handles", () => {
