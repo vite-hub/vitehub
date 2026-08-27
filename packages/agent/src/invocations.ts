@@ -283,10 +283,49 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
       boundedObservationValue(child, budget, depth + 1, maxStringLength),
     ])
   }
+  if (value instanceof Set) {
+    budget.truncated = true
+    const entries = Array.from(value.values())
+    const length = Math.min(entries.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    if (length < entries.length) budget.truncated = true
+    return entries.slice(0, length).map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength))
+  }
+  if (value instanceof ArrayBuffer) {
+    budget.truncated = true
+    return boundedObservationValue(Array.from(new Uint8Array(value)), budget, depth + 1, maxStringLength)
+  }
+  if (ArrayBuffer.isView(value)) {
+    budget.truncated = true
+    return {
+      bytes: boundedObservationValue(
+        Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)),
+        budget,
+        depth + 1,
+        maxStringLength,
+      ),
+      type: value.constructor.name,
+    }
+  }
+  if (value instanceof RegExp) {
+    budget.truncated = true
+    return { flags: value.flags, source: value.source }
+  }
+  if (value instanceof Error) {
+    budget.truncated = true
+    return {
+      message: boundedObservationValue(value.message, budget, depth + 1, maxStringLength),
+      name: boundedObservationValue(value.name, budget, depth + 1, maxStringLength),
+    }
+  }
   if (!value || !hasRuntimeType(value, "object")) {
     const string = String(value)
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
+  }
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== null && prototype !== Object.prototype) {
+    budget.truncated = true
+    return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const entries = Object.entries(value as Record<string, unknown>)

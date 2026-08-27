@@ -255,7 +255,10 @@ describe("Agent Invocations", () => {
       payload: {
         value: {
           createdAt: new Date("2026-08-27T00:00:00.000Z"),
+          data: new Uint8Array([1, 2, 3]),
           files: new Map([["README.md", 42]]),
+          paths: new Set(["README.md", "package.json"]),
+          pattern: /vitehub/gi,
         },
         visibility: "public",
       },
@@ -269,7 +272,10 @@ describe("Agent Invocations", () => {
     expect(observation?.payload).toEqual({
       value: {
         createdAt: "2026-08-27T00:00:00.000Z",
+        data: { bytes: [1, 2, 3], type: "Uint8Array" },
         files: [["README.md", 42]],
+        paths: ["README.md", "package.json"],
+        pattern: { flags: "gi", source: "vitehub" },
       },
       visibility: "public",
     })
