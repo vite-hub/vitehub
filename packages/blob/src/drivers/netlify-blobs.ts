@@ -123,8 +123,11 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
           pageIndex++
           continue
         }
-        const directoriesConsumed = includeDirectories && selected.length < limit && startIndex < page.blobs.length
-        if (directoriesConsumed) {
+        const consumeDirectories = includeDirectories && selected.length < limit && startIndex < page.blobs.length
+        const directoriesConsumed = pageIndex === cursor.page
+          ? cursor.directoriesConsumed || consumeDirectories
+          : consumeDirectories
+        if (consumeDirectories) {
           for (const directory of page.directories) folders.add(directory)
         }
         for (let blobIndex = startIndex; blobIndex < page.blobs.length; blobIndex++) {

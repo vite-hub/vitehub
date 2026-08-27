@@ -55,4 +55,30 @@ describe("Netlify Blobs driver", () => {
     expect(second.blobs.map(blob => blob.pathname)).toEqual(["keep.txt"])
     expect(second.folders).toEqual(["selected/"])
   })
+
+  it("does not repeat folded directories across repeated page resumes", async () => {
+    store.list.mockReturnValue({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          blobs: [
+            { etag: "one", key: "one.txt" },
+            { etag: "two", key: "two.txt" },
+            { etag: "three", key: "three.txt" },
+          ],
+          directories: ["nested/"],
+        }
+      },
+    })
+    store.getMetadata.mockResolvedValue({ metadata: {} })
+
+    const driver = createDriver(options)
+    const first = await driver.list({ folded: true, limit: 1 })
+    const second = await driver.list({ cursor: first.cursor, folded: true, limit: 1 })
+    const third = await driver.list({ cursor: second.cursor, folded: true, limit: 1 })
+
+    expect(first.folders).toEqual(["nested/"])
+    expect(second.folders).toEqual([])
+    expect(third.folders).toEqual([])
+    expect(third.blobs.map(blob => blob.pathname)).toEqual(["three.txt"])
+  })
 })
