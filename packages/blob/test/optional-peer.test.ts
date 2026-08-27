@@ -89,6 +89,14 @@ describe("optional peer imports", () => {
 })
 
 describe("package exports", () => {
+  it("keeps the Files SDK helper private to the bundled drivers", async () => {
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports: Record<string, string>
+    }
+
+    expect(manifest.exports).not.toHaveProperty("./drivers/files-sdk")
+  })
+
   it("keeps the bundled Vercel runtime internal", async () => {
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       exports: Record<string, string>

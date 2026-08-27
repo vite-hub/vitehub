@@ -53,7 +53,6 @@
       "default": "./dist/drivers/dropbox.js"
     },
     "./drivers/files": "./dist/drivers/files.js",
-    "./drivers/files-sdk": "./dist/drivers/files-sdk.js",
     "./drivers/fs": {
       "types": "./dist/drivers/fs.d.ts",
       "default": "./dist/drivers/fs.js"
