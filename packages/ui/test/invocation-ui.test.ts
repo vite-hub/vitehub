@@ -62,7 +62,22 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
 
-    expect(invocationActivities(invocation).every(activity => activity.truncated)).toBe(true);
+    const activities = invocationActivities(invocation);
+    expect(activities.slice(0, -1).every(activity => activity.truncated === undefined)).toBe(true);
+    expect(activities.at(-1)).toMatchObject({
+      id: "trace-truncated",
+      kind: "system",
+      name: "vitehub.observation.truncated",
+      sequence: 2,
+      status: "completed",
+    });
+    expect(invocationActivities({
+      ...invocation,
+      observations: [],
+      observationsTruncated: true,
+    })).toEqual([
+      expect.objectContaining({ id: "trace-truncated", kind: "system", sequence: 0 }),
+    ]);
   });
 
   it("discloses bounded ordinary observations", () => {
@@ -82,9 +97,16 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
 
-    expect(invocationActivities(invocation)).toEqual([
-      expect.objectContaining({ truncated: true }),
-    ]);
+    const activities = invocationActivities(invocation);
+    expect(activities).toHaveLength(2);
+    expect(activities[0]).not.toHaveProperty("truncated");
+    expect(activities[1]).toMatchObject({
+      id: "trace-truncated",
+      kind: "system",
+      name: "vitehub.observation.truncated",
+    });
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.text()).toContain("Trace content was truncated");
   });
 
   it("renders only HTTP source URLs as links", () => {
@@ -1234,7 +1256,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.find(".vh-invocation-preparation__context a").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-preparation__context").text()).toContain("PR #1040");
     expect(wrapper.get(".vh-invocation-preparation__body").text()).toBe("Workspace checkout failed");
-    expect(wrapper.get(".vh-invocation-preparation__steps .vh-invocation-event__notice").text()).toContain("truncated");
+    expect(wrapper.get('[data-activity-id="trace-truncated"] .vh-invocation-event__title').text()).toBe("Trace content was truncated");
   });
 
   it("preserves input transcript order when the latest user has no response", () => {
@@ -1302,7 +1324,7 @@ describe("Agent Invocation UI", () => {
       ["🎉", "hooray"],
       ["😕", "confused"],
     ]);
-    expect(wrapper.get(".vh-invocation-event__notice").text()).toContain("truncated");
+    expect(wrapper.get('[data-activity-id="trace-truncated"] .vh-invocation-event__title').text()).toBe("Trace content was truncated");
   });
 
   it("exposes grouped lifecycle failures", () => {
