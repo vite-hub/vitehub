@@ -505,12 +505,14 @@ export type WorkspaceFileSourceInput<TKey extends string = string> =
 export interface WorkspaceFetchSourceRequestOptions {
   body?: unknown
   headers?: Record<string, string>
+  maxResponseBytes?: number
   method?: "GET" | "HEAD" | "POST"
   query?: Record<string, unknown>
   timeout?: number
 }
 
 export interface WorkspaceFetchSourceInput<TResponse = unknown, TOutput = TResponse> extends WorkspaceSourceBindingOptions {
+  maxResponseBytes?: number
   method?: "GET" | "HEAD" | "POST"
   path?: string
   request?: WorkspaceFetchSourceRequestOptions | (() => WorkspaceFetchSourceRequestOptions | Promise<WorkspaceFetchSourceRequestOptions>)

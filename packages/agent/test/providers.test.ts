@@ -21,6 +21,7 @@ import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
+  copyNodeRuntimePackages: vi.fn(async () => undefined),
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
@@ -577,11 +578,13 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => { server?: { watch?: { ignored?: string[] } } }
+    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } } }
 
     expect(config({}).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
     expect(config({ server: { watch: { ignored: ["**/node_modules/**"] } } }).server?.watch?.ignored).toEqual(["**/node_modules/**", "**/.vitehub/**"])
     expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } }).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+    expect(config({ root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe(JSON.stringify("/repo/apps/web"))
+    expect(config({ define: { __VITEHUB_AGENT_APP_ROOT__: "configured" }, root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe("configured")
   })
 
   it("merges server noExternal", async () => {
@@ -1240,8 +1243,166 @@ describe("agent Vite plugin", () => {
         externals: {
           inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),
+        },
       },
     })
+  })
+
+  it("replaces the Agent app root in Nitro server code without overriding user replacements", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    // SAFETY: This fixture supplies the private Nitro config context consumed by the plugin.
+    const nitroConfig = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      nitro: {
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: "configured",
+          __VITEHUB_OTHER_REPLACEMENT__: "other",
+        },
+      },
+      root: "/repo/apps/web",
+    } as never
+    const result = isRuntimeFunction(plugin.config)
+      ? await plugin.config.call(
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          {} as never,
+          nitroConfig,
+          { command: "build", mode: "production" },
+        )
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: "configured",
+          __VITEHUB_OTHER_REPLACEMENT__: "other",
+        },
+      },
+    })
+  })
+
+  it("packages an installed Codex CLI into self-hosted Node output", async () => {
+    const { copyNodeRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubAgent } = await import("../src/vite.ts")
+    const platformPackages: Record<string, string> = {
+      "darwin-arm64": "@openai/codex-darwin-arm64",
+      "darwin-x64": "@openai/codex-darwin-x64",
+      "linux-arm64": "@openai/codex-linux-arm64",
+      "linux-x64": "@openai/codex-linux-x64",
+    }
+    const platformPackage = platformPackages[`${process.platform}-${process.arch}`]
+    if (!platformPackage) throw new Error(`Unsupported test platform ${process.platform}/${process.arch}.`)
+    const nitroRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-codex-nitro-"))
+    const root = join(nitroRoot, "app")
+    try {
+      await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}\n")
+      const codexPackageDir = join(root, "node_modules", "@openai", "codex")
+      const platformPackageDir = join(root, "node_modules", ...platformPackage.split("/"))
+      await mkdir(codexPackageDir, { recursive: true })
+      await mkdir(platformPackageDir, { recursive: true })
+      await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.149.1" }))
+      await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: `0.149.1-${process.platform}-${process.arch}` }))
+      const plugin = hubAgent()
+      const result = isRuntimeFunction(plugin.config)
+        ? await plugin.config.call(
+            // SAFETY: This focused fixture does not read the Vite plugin context.
+            {} as never,
+            // SAFETY: This fixture supplies the Nitro fields read by the config hook.
+            {
+              [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+              nitro: { modules: ["existing"] },
+              root,
+            } as never,
+            { command: "build", mode: "production" },
+          )
+        : undefined
+      // SAFETY: The fixture above supplies Nitro configuration and the hook preserves its modules array.
+      const modules = (result as { nitro: { modules: unknown[] } }).nitro.modules
+      expect(modules.slice(1)).toEqual(["existing"])
+      let compiled: (() => Promise<void>) | undefined
+      // SAFETY: The ViteHub config hook prepends its Nitro setup module to this array.
+      ;(modules[0] as (nitro: unknown) => void)({
+        hooks: {
+          hook(name: string, callback: () => Promise<void>) {
+            if (name === "compiled") compiled = callback
+          },
+        },
+        options: {
+          dev: false,
+          output: { serverDir: join(root, ".output", "server") },
+          preset: "node-server",
+          rootDir: nitroRoot,
+        },
+      })
+      vi.mocked(copyNodeRuntimePackages).mockClear()
+
+      if (!compiled) throw new Error("Expected the Nitro compiled hook to be registered.")
+      await compiled()
+
+      expect(copyNodeRuntimePackages).toHaveBeenCalledWith({
+        outputNodeModules: join(root, ".output", "server", "node_modules"),
+        packages: [
+          { name: "@openai/codex", resolveFrom: join(root, "package.json") },
+          { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
+        ],
+        rootDir: root,
+      })
+
+      const unsupportedHook = vi.fn()
+      // SAFETY: The ViteHub config hook prepends its Nitro setup module to this array.
+      ;(modules[0] as (nitro: unknown) => void)({
+        hooks: { hook: unsupportedHook },
+        options: {
+          output: { serverDir: join(root, ".output", "server") },
+          preset: "cloudflare-module",
+          rootDir: root,
+        },
+      })
+      expect(unsupportedHook).not.toHaveBeenCalled()
+
+      const devHook = vi.fn()
+      // SAFETY: The ViteHub config hook prepends its Nitro setup module to this array.
+      ;(modules[0] as (nitro: unknown) => void)({
+        hooks: { hook: devHook },
+        options: {
+          dev: true,
+          output: { serverDir: join(root, ".output", "server") },
+          preset: "node-server",
+          rootDir: root,
+        },
+      })
+      expect(devHook).not.toHaveBeenCalled()
+    }
+    finally {
+      await rm(nitroRoot, { force: true, recursive: true })
+    }
+  }, 15_000)
+
+  it("packages provider runtimes for suffix-only scheduled Agents", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-scheduled-output-"))
+    try {
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
+      const plugin = hubAgent()
+      const result = isRuntimeFunction(plugin.config)
+        ? await plugin.config.call(
+            // SAFETY: This focused fixture does not read the Vite plugin context.
+            {} as never,
+            // SAFETY: This fixture supplies the Nitro fields read by the config hook.
+            { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root } as never,
+            { command: "build", mode: "production" },
+          )
+        : undefined
+
+      expect(result).toMatchObject({ nitro: { modules: [expect.any(Function)] } })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("registers configured Discord Gateway routes with Nitro", async () => {

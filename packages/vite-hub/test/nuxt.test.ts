@@ -15,6 +15,10 @@ import type { Plugin, PluginOption } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
+function isTestRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
 const mocks = vi.hoisted(() => ({
   objectHook: vi.fn((config: { nitro?: Record<string, unknown> }) => ({
     nitro: {
@@ -41,15 +45,24 @@ const mocks = vi.hoisted(() => ({
   markdownTemplateLoad: vi.fn(),
   markdownTemplateResolveId: vi.fn(),
   outputHook: vi.fn(),
-  agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[]; nitro?: Record<string, unknown> }) => ({
-    nitro: {
-      ...config.nitro,
-      handlers: config[VITEHUB_SERVER_DIRS]?.map(serverDir => ({
-        handler: `${serverDir}/agents/support.ts`,
-      })),
-      modules: ["agent-module"],
-    },
-  })),
+  agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[]; nitro?: Record<string, unknown>; root?: string }) => {
+    const replace = isTestRecord(config.nitro?.replace)
+      ? config.nitro.replace
+      : {}
+    return {
+      nitro: {
+        ...config.nitro,
+        handlers: config[VITEHUB_SERVER_DIRS]?.map(serverDir => ({
+          handler: `${serverDir}/agents/support.ts`,
+        })),
+        modules: ["agent-module"],
+        replace: {
+          __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(config.root),
+          ...replace,
+        },
+      },
+    }
+  }),
   agentWorkflowRegistryTransform: vi.fn((code: string) => `// transformed\n${code}`),
   queueNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
@@ -716,6 +729,9 @@ describe("ViteHub Nuxt integration", () => {
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
       },
+      replace: {
+        __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt"),
+      },
       rollupConfig: {
         plugins: [expect.objectContaining({ name: "vite-hub/nuxt-markdown-templates" })],
       },
@@ -747,7 +763,12 @@ describe("ViteHub Nuxt integration", () => {
     })
 
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
-    await runNitroConfigHook({})
+    const nitroConfig = {
+      replace: {
+        __VITEHUB_EXISTING_REPLACEMENT__: "existing",
+      },
+    }
+    await runNitroConfigHook(nitroConfig)
 
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -756,6 +777,10 @@ describe("ViteHub Nuxt integration", () => {
       }),
       expect.anything(),
     )
+    expect(nitroConfig.replace).toEqual({
+      __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt/custom-vite-root"),
+      __VITEHUB_EXISTING_REPLACEMENT__: "existing",
+    })
   })
 
   it("finalizes deployment output after later ViteHub post hooks", async () => {
