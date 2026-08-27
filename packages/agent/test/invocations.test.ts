@@ -1854,6 +1854,47 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("uses one age cutoff while creating a terminal SQLite duplicate", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-cutoff-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const now = Date.now()
+    const nearlyExpired = new Date(now - 999).toISOString()
+    try {
+      await unboundedStore.create({
+        createdAt: nearlyExpired,
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "old-trace",
+        updatedAt: nearlyExpired,
+      })
+      const clock = vi.spyOn(Date, "now")
+        .mockReturnValueOnce(now)
+        .mockReturnValue(now + 2)
+
+      await expect(store.create({
+        createdAt: new Date(now).toISOString(),
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "replacement-trace",
+        updatedAt: new Date(now).toISOString(),
+      })).resolves.toMatchObject({
+        created: false,
+        record: { id: "retry", traceId: "old-trace" },
+      })
+      clock.mockRestore()
+      await expect(store.get("retry")).resolves.toMatchObject({ traceId: "old-trace" })
+    }
+    finally {
+      vi.restoreAllMocks()
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("rejects an age-expired terminal SQLite create that retention removes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-expired-create-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })

@@ -259,13 +259,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const row = result.rows[0]
     return row ? deserialize(row.record, row.sequence) : undefined
   }
-  const pruneStatements = () => {
+  const pruneStatements = (now = Date.now()) => {
     const filters: string[] = []
     const args: Array<number | string> = []
     const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
     if (maxAgeMs !== false) {
       filters.push("json_extract(record, '$.updatedAt') < ?")
-      args.push(new Date(Date.now() - maxAgeMs).toISOString())
+      args.push(new Date(now - maxAgeMs).toISOString())
     }
     if (maxRecords !== false) {
       filters.push(`sequence NOT IN (
@@ -313,7 +313,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         return await retrySqliteBusy(async () => {
-          const prePrune = pruneStatements()
+          const retentionNow = Date.now()
+          const prePrune = pruneStatements(retentionNow)
           const insertIndex = prePrune.length
           const statements = [
             ...prePrune,
@@ -323,7 +324,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             }
           ]
           if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
-            statements.push(...pruneStatements())
+            statements.push(...pruneStatements(retentionNow))
           }
           statements.push({
             args: [input.id],
