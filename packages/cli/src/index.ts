@@ -222,8 +222,7 @@ function exitAfterStreamsFlush(exitCode: number, streams: ViteHubCliStreams): vo
   }
   for (const stream of [streams.stdout, streams.stderr]) {
     if (stream.write.length < 2) {
-      stream.write("")
-      flushed()
+      Promise.resolve(stream.write("")).then(flushed, flushed)
     }
     else {
       stream.write("", flushed)
