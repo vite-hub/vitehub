@@ -10,11 +10,11 @@ describe("optional peer imports", () => {
       .rejects.toThrow("The \"s3\" blob driver requires files-sdk. Install it with: pnpm add files-sdk")
   })
 
-  it("keeps the generic Vercel Blob driver behind the lazy optional-peer path", async () => {
+  it("ships the patched Vercel Blob runtime through the public driver", async () => {
     const built = await readFile(new URL("../dist/drivers/vercel.js", import.meta.url), "utf8")
 
     expect(built).not.toContain('from "files-sdk/vercel-blob"')
-    expect(built).not.toContain('from "@vercel/blob"')
+    expect(built).toContain("vercel-bundled")
   })
 
   it("keeps the bundled Vercel Blob driver statically reachable for selected Vercel outputs", async () => {

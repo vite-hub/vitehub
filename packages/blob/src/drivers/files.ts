@@ -2,14 +2,13 @@ import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 import { createDriver as createNetlifyBlobsDriver } from "./netlify-blobs.ts"
+import { createDriver as createVercelBlobDriver } from "./vercel-bundled.ts"
 
 import type {
   BlobDriverAdapter,
-  BlobPutOptions,
   ResolvedBlobStoreConfig,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
-  ResolvedVercelBlobStoreConfig,
 } from "../types.ts"
 import type { Adapter } from "files-sdk"
 
@@ -26,9 +25,9 @@ function getCloudflareBinding(options: ResolvedCloudflareR2BlobStoreConfig) {
   return binding
 }
 
-type FilesSdkBlobStoreConfig = Exclude<ResolvedBlobStoreConfig, { driver: "netlify-blobs" }>
+type FilesSdkBlobStoreConfig = Exclude<ResolvedBlobStoreConfig, { driver: "netlify-blobs" | "vercel-blob" }>
 
-async function createAdapter(options: FilesSdkBlobStoreConfig, putOptions: BlobPutOptions = {}): Promise<Adapter> {
+async function createAdapter(options: FilesSdkBlobStoreConfig): Promise<Adapter> {
   switch (options.driver) {
     case "akamai":
       return (await importOptionalPeer<typeof import("files-sdk/akamai")>("files-sdk/akamai", options.driver, "files-sdk")).akamai(options)
@@ -69,17 +68,11 @@ async function createAdapter(options: FilesSdkBlobStoreConfig, putOptions: BlobP
       return (await importOptionalPeer<typeof import("files-sdk/supabase")>("files-sdk/supabase", options.driver, "files-sdk")).supabase(options)
     case "uploadthing":
       return (await importOptionalPeer<typeof import("files-sdk/uploadthing")>("files-sdk/uploadthing", options.driver, "files-sdk")).uploadthing(options)
-    case "vercel-blob":
-      return (await importOptionalPeer<typeof import("files-sdk/vercel-blob")>("files-sdk/vercel-blob", options.driver, "files-sdk")).vercelBlob({
-        ...(options as ResolvedVercelBlobStoreConfig),
-        access: putOptions.access || options.access,
-        addRandomSuffix: false,
-        allowOverwrite: options.allowOverwrite ?? true,
-      })
   }
 }
 
 export function createDriver(options: ResolvedBlobStoreConfig): BlobDriverAdapter<ResolvedBlobStoreConfig> {
   if (options.driver === "netlify-blobs") return createNetlifyBlobsDriver(options)
+  if (options.driver === "vercel-blob") return createVercelBlobDriver(options)
   return createFilesSdkDriver(options, createAdapter)
 }
