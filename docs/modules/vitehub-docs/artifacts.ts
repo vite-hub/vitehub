@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import {
@@ -48,7 +49,13 @@ function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
       const destination = resolve(rawOutputDir, rawPagePath(contentRoot, absolutePath, prefix));
       expectedPaths.add(destination);
       mkdirSync(resolve(destination, ".."), { recursive: true });
-      writeFileSync(destination, toRawMarkdown(readFileSync(absolutePath, "utf8")));
+      const temporaryPath = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+      try {
+        writeFileSync(temporaryPath, toRawMarkdown(readFileSync(absolutePath, "utf8")));
+        renameSync(temporaryPath, destination);
+      } finally {
+        rmSync(temporaryPath, { force: true });
+      }
     }
   }
 

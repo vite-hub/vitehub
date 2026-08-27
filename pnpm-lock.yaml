@@ -416,6 +416,10 @@ patchedDependencies:
 importers:
 
   .:
+    dependencies:
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.0
     devDependencies:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
@@ -531,6 +535,7 @@ importers:
       vitest:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(happy-dom@20.11.6)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
+
   docs:
     dependencies:
       '@nuxt/content':

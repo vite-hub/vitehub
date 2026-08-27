@@ -4,8 +4,6 @@ const frontmatterBoundary = "---";
 const siteOrigin = "https://vitehub.dev";
 
 type Frontmatter = Record<string, unknown>;
-type CardFields = Record<string, string>;
-
 type Fence = {
   length: number;
   listIndent: number | null;
@@ -112,12 +110,51 @@ function rewriteInlineMarkdownLinks(line: string) {
 }
 
 function rewriteMarkdownLinks(line: string) {
-  const inlineLinks = rewriteInlineMarkdownLinks(line);
+  return rewriteInlineMarkdownLinks(line);
+}
 
-  return inlineLinks.replace(
-    /^([ \t]{0,3}\[[^\]]+\]:[ \t]*<?)(\/(?!\/)[^\s>]*)(>?(?:[ \t]+.*)?)$/gm,
-    (_match, opening: string, target: string, closing: string) => `${opening}${absoluteUrl(target)}${closing}`,
-  );
+function referenceContainer(line: string) {
+  const match = line.match(/^(?:(?:[ \t]{0,3}>[ \t]?)+)?(?:[ \t]{0,3}(?:[-+*]|\d+[.)])[ \t]+)?/);
+  return match?.[0] || "";
+}
+
+function rewriteReferenceDefinitions(source: string) {
+  const lines = source.split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    const container = referenceContainer(line);
+    const definition = line.slice(container.length).match(/^([ \t]{0,3})(\[(?:\\.|[^\\\]])+\]:)([ \t]*)(.*)$/);
+    if (!definition) continue;
+
+    let destinationLine = index;
+    let destinationPrefix = `${container}${definition[1]}${definition[2]}${definition[3]}`;
+    let destinationAndTitle = definition[4]!;
+
+    if (!destinationAndTitle) {
+      const next = lines[index + 1];
+      if (next === undefined) continue;
+      const nextContainer = referenceContainer(next);
+      if (leadingQuoteDepth(nextContainer) !== leadingQuoteDepth(container)) continue;
+      const continuation = next.slice(nextContainer.length).match(/^([ \t]{1,3})(\S.*)$/);
+      if (!continuation) continue;
+      destinationLine = index + 1;
+      destinationPrefix = `${nextContainer}${continuation[1]}`;
+      destinationAndTitle = continuation[2]!;
+    }
+
+    const angleDestination = destinationAndTitle.match(/^<([^<>\n]*)>([ \t]*(?:["'(].*)?)$/);
+    const bareDestination = destinationAndTitle.match(/^([^\s<>]+)([ \t]*(?:["'(].*)?)$/);
+    const destination = angleDestination?.[1] ?? bareDestination?.[1];
+    if (!destination?.startsWith("/") || destination.startsWith("//")) continue;
+
+    const suffix = (angleDestination ?? bareDestination)![2]!;
+    lines[destinationLine] = angleDestination
+      ? `${destinationPrefix}<${absoluteUrl(destination)}>${suffix}`
+      : `${destinationPrefix}${absoluteUrl(destination)}${suffix}`;
+  }
+
+  return lines.join("\n");
 }
 
 function rawHtmlBlockEnd(line: string) {
@@ -130,6 +167,10 @@ function rawHtmlBlockEnd(line: string) {
   if (/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(line)) return /^\s*$/;
   if (/^[ \t]{0,3}(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>)[ \t]*$/.test(line)) return /^\s*$/;
   return null;
+}
+
+function withoutBlockquoteContainers(line: string) {
+  return line.replace(/^(?:[ \t]{0,3}>[ \t]?)+/, "");
 }
 
 function htmlBlockContinues(end: RegExp, openingLine: string) {
@@ -181,7 +222,7 @@ function rewriteLinks(source: string) {
   let listIndent: number | null = null;
   let listQuotePrefix = "";
   const protectedLines: string[] = [];
-  const rewriteOutside = () => rewriteInlineLinks(outsideFence).replace(
+  const rewriteOutside = () => rewriteReferenceDefinitions(rewriteInlineLinks(outsideFence)).replace(
     /\0INDENT(\d+)\0/g,
     (_match, index: string) => protectedLines[Number(index)]!,
   );
@@ -193,15 +234,16 @@ function rewriteLinks(source: string) {
 
     if (htmlEnd) {
       output.push(lineWithEnding);
-      if (htmlEnd.test(line)) htmlEnd = null;
+      if (htmlEnd.test(withoutBlockquoteContainers(line))) htmlEnd = null;
       continue;
     }
 
-    const nextHtmlEnd = rawHtmlBlockEnd(line);
+    const htmlLine = withoutBlockquoteContainers(line);
+    const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     if (!fence && nextHtmlEnd) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
-      if (htmlBlockContinues(nextHtmlEnd, line)) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
       continue;
     }
 
@@ -295,15 +337,16 @@ function cardList(source: string) {
     const items: string[] = [];
     const cardPattern = /^\s*:::u-page-card[^\n]*\n\s*---\n([\s\S]*?)\n\s*---\n\s*:::\s*$/gm;
     for (const match of cards.matchAll(cardPattern)) {
-      const fields: CardFields = {};
-      for (const line of (match[1] || "").split("\n")) {
-        const field = line.trim().match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
-        if (!field) continue;
-        fields[field[1] || ""] = (field[2] || "").trim().replace(/^['"]|['"]$/g, "");
-      }
-      if (!fields.title) continue;
-      const label = fields.to ? `[${fields.title}](${absoluteUrl(fields.to)})` : fields.title;
-      items.push(`${indent}- ${label}${fields.description ? ` — ${fields.description}` : ""}`);
+      const parsed: unknown = parse(match[1] || "");
+      const fields = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+      const title = typeof fields.title === "string" ? fields.title.trim() : null;
+      const to = typeof fields.to === "string" ? fields.to.trim() : null;
+      const description = typeof fields.description === "string" ? fields.description.trim() : null;
+      if (!title) continue;
+      const label = to ? `[${title}](${absoluteUrl(to)})` : title;
+      items.push(`${indent}- ${label}${description ? ` — ${description}` : ""}`);
     }
     return items.length > 0 ? `${items.join("\n")}\n` : "";
   });
@@ -326,15 +369,16 @@ function cardListsOutsideFences(source: string) {
 
     if (htmlEnd) {
       output.push(lineWithEnding);
-      if (htmlEnd.test(line)) htmlEnd = null;
+      if (htmlEnd.test(withoutBlockquoteContainers(line))) htmlEnd = null;
       continue;
     }
 
-    const nextHtmlEnd = rawHtmlBlockEnd(line);
+    const htmlLine = withoutBlockquoteContainers(line);
+    const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     if (!fence && nextHtmlEnd) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
-      if (htmlBlockContinues(nextHtmlEnd, line)) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
       continue;
     }
 
@@ -421,7 +465,7 @@ function stripPresentationDirectives(source: string) {
 
     if (htmlEnd) {
       output.push(deindented);
-      if (htmlEnd.test(deindented)) htmlEnd = null;
+      if (htmlEnd.test(withoutBlockquoteContainers(deindented))) htmlEnd = null;
       continue;
     }
 
@@ -459,10 +503,11 @@ function stripPresentationDirectives(source: string) {
       continue;
     }
 
-    const nextHtmlEnd = rawHtmlBlockEnd(deindented);
+    const htmlLine = withoutBlockquoteContainers(deindented);
+    const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     if (nextHtmlEnd) {
       output.push(deindented);
-      if (htmlBlockContinues(nextHtmlEnd, deindented)) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
       continue;
     }
 

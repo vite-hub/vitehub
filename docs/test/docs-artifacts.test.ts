@@ -53,6 +53,57 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("parses complete reference definitions before rewriting destinations", () => {
+    expect(toRawMarkdown([
+      "> [quote\\]d]: /docs/quoted",
+      "- [listed]: /docs/listed",
+      "[continued]:",
+      "  </docs/continued>",
+      "[malformed]: </docs/malformed",
+      "    [literal]: /docs/code",
+    ].join("\n"))).toBe([
+      "> [quote\\]d]: https://vitehub.dev/docs/quoted",
+      "- [listed]: https://vitehub.dev/docs/listed",
+      "[continued]:",
+      "  <https://vitehub.dev/docs/continued>",
+      "[malformed]: </docs/malformed",
+      "    [literal]: /docs/code",
+      "",
+    ].join("\n"));
+  });
+
+  it("preserves raw HTML blocks inside blockquotes", () => {
+    expect(toRawMarkdown([
+      "> <pre>",
+      "> [literal](/docs/literal)",
+      "> ::warning",
+      "> </pre>",
+      "[rendered](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "> <pre>",
+      "> [literal](/docs/literal)",
+      "> ::warning",
+      "> </pre>",
+      "[rendered](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
+  it("parses page-card metadata as YAML", () => {
+    expect(toRawMarkdown([
+      "::u-page-grid",
+      "  :::u-page-card",
+      "  ---",
+      "  title: >",
+      "    Agent Definitions",
+      "  description: Source-backed docs.",
+      "  to: /docs/agents",
+      "  ---",
+      "  :::",
+      "::",
+    ].join("\n"))).toBe("- [Agent Definitions](https://vitehub.dev/docs/agents) — Source-backed docs.\n");
+  });
+
   it("rewrites links whose labels contain balanced brackets", () => {
     expect(toRawMarkdown([
       "[API [beta]](/docs/api)",
