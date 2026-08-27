@@ -65,6 +65,6 @@ describe("Agent Invoker", () => {
       actor: { id: "user-1", kind: "user", meta: { tenant: "acme" } },
       invoker: { id: "user-1", kind: "user", meta: { tenant: "acme" } },
     })
-    expect((portable.context as { invoker: { meta: Record<string, unknown> } }).invoker.meta.loadTenant).toBeUndefined()
+    expect(portable.context?.invoker?.meta?.loadTenant).toBeUndefined()
   })
 })

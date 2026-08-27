@@ -2919,7 +2919,7 @@ describe("server helpers", () => {
       capabilities: [defineChatCapability()],
       driver: {
         run({ run }) {
-          annotations = run.annotations
+          annotations = run?.annotations
           return "ok"
         },
       },
