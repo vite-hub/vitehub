@@ -753,6 +753,53 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
   })
 
+  it("preserves the previous Vercel function when replacement bundling is cancelled", async () => {
+    let bundlingStarted!: () => void
+    const started = new Promise<void>(resolve => bundlingStarted = resolve)
+    vi.mocked(bundleEsmEntry).mockImplementationOnce(async (_entry, outfile, options) => {
+      await writeFile(outfile, "incomplete replacement")
+      bundlingStarted()
+      await new Promise<void>((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true })
+      })
+    })
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultVercelOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const serverEntry = join(serverDir, "index.mjs")
+    await mkdir(serverDir, { recursive: true })
+    await writeFile(serverEntry, "valid function")
+    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs22.x\"}\n")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+        },
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    await resetProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+
+    await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
+    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
+    expect(existsSync(join(serverDir, ".index.mjs.pending"))).toBe(false)
+  })
+
   it("settles every started provider write before rejecting", async () => {
     let finishVercelWrite: (() => void) | undefined
     vi.mocked(bundleEsmEntry).mockImplementation(async (_entry, outfile) => {

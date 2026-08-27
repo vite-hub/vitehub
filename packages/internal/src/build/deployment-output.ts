@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -274,19 +274,24 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const config = options.config ?? (functionOutput.kind === "root" ? createVercelConfigJson() : {})
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
   const serverEntry = resolve(serverDir, "index.mjs")
+  const stagedServerEntry = resolve(serverDir, ".index.mjs.pending")
 
   await mkdir(serverDir, { recursive: true })
-  const staleFiles = (await readdir(serverDir)).filter(file => file !== "node_modules")
-  await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
+  const staleFiles = (await readdir(serverDir)).filter(file => file !== "node_modules" && file !== ".index.mjs.pending")
 
   try {
-    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+    await rm(stagedServerEntry, { force: true })
+    await bundleEsmEntry(options.bundleEntry, stagedServerEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+    signal?.throwIfAborted()
+    await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
+    if ((await readdir(serverDir)).includes(".index.mjs.pending")) {
+      await rename(stagedServerEntry, serverEntry)
+    }
   }
   catch (error) {
-    await rm(serverDir, { force: true, recursive: true })
+    await rm(stagedServerEntry, { force: true })
     throw error
   }
-  signal?.throwIfAborted()
 
   const writes = await Promise.allSettled([
     writeFile(
