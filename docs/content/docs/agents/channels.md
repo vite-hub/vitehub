@@ -178,7 +178,7 @@ teams({
 
 `deliveryKind` is `direct`, `mention`, or `subscribed`. Returning `false` posts no fallback error because the Agent never started.
 
-Set `messages.meta` to a Standard Schema when application-owned Channel metadata must be validated before Capabilities, hooks, or the Driver run. The schema may normalize or add defaults, but its output must be an object. Put the schema on shared Agent message settings or on one Channel to override it for that Channel.
+Set `messages.meta` to a Standard Schema when application-owned Channel metadata must be validated before Capabilities, hooks, or the Driver run. The schema may normalize or add defaults, but its output must be an object. Set `metaRevision` to a stable value and change it whenever the schema contract changes so durable Agent Workflows can reuse parsed metadata across processes. Without a revision, durable execution validates the metadata again. Put both settings on shared Agent message settings or on one Channel to override them for that Channel.
 
 ```ts
 import { defineAgent } from 'vite-hub/agent'
@@ -188,6 +188,7 @@ export default defineAgent({
   driver: { run: ({ context }) => context.get('channel')?.meta },
   messages: {
     meta: v.object({ audience: v.optional(v.picklist(['support', 'technical'])) }),
+    metaRevision: '1',
   },
 })
 ```

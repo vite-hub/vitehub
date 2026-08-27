@@ -223,15 +223,21 @@ declare global {
   }
 }
 
+export function getAgentChatContext(
+  input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
+): AgentChatContext | undefined
 export function getAgentChatContext<
-  TMeta extends object = Record<string, unknown>,
-  TUser extends object = Record<string, unknown>,
+  TSchema extends { "~standard": { types?: { output: object } } },
 >(
   input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
-): AgentChatContext<TMeta, TUser> | undefined {
+  _metaSchema: TSchema,
+): AgentChatContext<NonNullable<TSchema["~standard"]["types"]>["output"]> | undefined
+export function getAgentChatContext(
+  input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
+  _metaSchema?: unknown,
+): AgentChatContext | undefined {
   const store = "get" in input ? input : input.context
-  // SAFETY: The caller supplies the Agent-owned metadata contract for this context lookup.
-  return store.get(agentChatContextKey) as AgentChatContext<TMeta, TUser> | undefined
+  return store.get(agentChatContextKey)
 }
 
 async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(

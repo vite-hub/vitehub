@@ -8,7 +8,7 @@ import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, Agent
 
 const parsedAgentMessageMetaContextKey = "vitehub.agent.messageMetaParsed"
 interface ParsedAgentMessageMetaReceipt {
-  id: string
+  revision?: string
 }
 
 const parsedAgentMessageMetaReceipts = new WeakMap<object, WeakMap<object, Map<string | undefined, ParsedAgentMessageMetaReceipt>>>()
@@ -18,7 +18,7 @@ function parsedAgentMessageMetaReceipt<TRuntimeConfig extends AgentRuntimeConfig
   invocationContext: AgentInvocationContextStore,
   run?: AgentRunMetadata,
 ): ParsedAgentMessageMetaReceipt | undefined {
-  const { channelId, schema } = activeMessageSettings(definition, invocationContext, run)
+  const { channelId, revision, schema } = activeMessageSettings(definition, invocationContext, run)
   if (!definition || !schema || !isRuntimeObject(schema)) return
   let definitionReceipts = parsedAgentMessageMetaReceipts.get(definition)
   if (!definitionReceipts) {
@@ -32,7 +32,7 @@ function parsedAgentMessageMetaReceipt<TRuntimeConfig extends AgentRuntimeConfig
   }
   let receipt = schemaReceipts.get(channelId)
   if (!receipt) {
-    receipt = Object.freeze({ id: crypto.randomUUID() })
+    receipt = Object.freeze({ revision })
     schemaReceipts.set(channelId, receipt)
   }
   return receipt
@@ -54,17 +54,17 @@ export function parsedAgentMessageMetaReceiptId<TRuntimeConfig extends AgentRunt
 ): string | undefined {
   const invocationContext = createAgentInvocationContextStore(input.context)
   const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
-  return input.context?.[parsedAgentMessageMetaContextKey] === receipt ? receipt?.id : undefined
+  return input.context?.[parsedAgentMessageMetaContextKey] === receipt ? receipt?.revision : undefined
 }
 
 export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
-  receiptId?: string,
+  revision?: string,
 ): AgentRunInput<CALL_OPTIONS> {
   const receipt = parsedAgentMessageMetaReceipt(definition, createAgentInvocationContextStore(input.context), run)
-  if (!receipt || receipt.id !== receiptId) return input
+  if (!receipt || !revision || receipt.revision !== revision) return input
   return {
     ...input,
     context: { ...input.context, [parsedAgentMessageMetaContextKey]: receipt },
@@ -73,17 +73,19 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
 
 function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>): unknown {
   if (!isRuntimeObject(invoker)) return invoker
+  // SAFETY: isRuntimeObject established the mutable string-keyed record representation.
   const record = invoker as Record<string, unknown>
   if (record.kind !== "chat" || !isRuntimeObject(record.meta)) return invoker
   const invokerMeta: Record<string, unknown> = { ...record.meta }
   if (isRuntimeObject(rawMeta)) {
     for (const key of Object.keys(rawMeta)) delete invokerMeta[key]
   }
-  return normalizeAgentInvoker({
+  const normalizedInvoker: Record<string, unknown> = {
     ...record,
-    ...(isRuntimeObject(rawMeta) && Object.hasOwn(rawMeta, "email") ? { email: undefined } : {}),
     meta: { ...invokerMeta, ...meta },
-  })
+  }
+  if (isRuntimeObject(rawMeta) && Object.hasOwn(rawMeta, "email")) normalizedInvoker.email = undefined
+  return normalizeAgentInvoker(normalizedInvoker)
 }
 
 function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -94,8 +96,10 @@ function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_O
   const trigger = invocationContext.get("agent.trigger")
   const triggerChannelId = isRuntimeObject(trigger) && hasRuntimeType(trigger.channelId, "string") ? trigger.channelId : undefined
   const channelId = run?.channelId || triggerChannelId
-  const messages = channelId ? definition?.channels?.[channelId]?.messages : undefined
-  return { channelId, schema: messages ? messages.meta ?? definition?.messages?.meta : definition?.messages?.meta }
+  const configuredChannelMessages = channelId ? definition?.channels?.[channelId]?.messages : undefined
+  const channelMessages = configuredChannelMessages || undefined
+  const messages = channelMessages?.meta ? channelMessages : definition?.messages
+  return { channelId, revision: messages?.metaRevision, schema: messages?.meta }
 }
 
 export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -124,7 +128,8 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   }
   if (isRuntimeObject(channel)) invocationContext.set("channel", { ...channel, meta }, { overwrite: true })
   if (isRuntimeObject(chat)) invocationContext.set("chat", { ...chat, meta }, { overwrite: true })
-  const invoker = withParsedMeta(invocationContext.get("invoker"), rawMeta, meta)
+  // SAFETY: the object-output check above establishes a metadata record.
+  const invoker = withParsedMeta(invocationContext.get("invoker"), rawMeta, meta as Record<string, unknown>)
   if (invoker !== invocationContext.get("invoker")) {
     invocationContext.set("actor", invoker, { overwrite: true })
     invocationContext.set("invoker", invoker, { overwrite: true })

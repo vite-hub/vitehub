@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, portableAgentWorkflowInput, runAgentInline } from "../src/index.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import {
   hasParsedAgentMessageMeta,
@@ -16,8 +17,8 @@ vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 const metaSchema = {
   "~standard": {
     validate(input: unknown) {
-      const meta = input as Record<string, unknown>
-      if (!meta || typeof meta !== "object" || Array.isArray(meta) || ![undefined, "support", "technical"].includes(meta.audience as string | undefined)) {
+      const meta = isRuntimeRecord(input) && !Array.isArray(input) ? input : undefined
+      if (!meta || ![undefined, "support", "technical"].includes(hasRuntimeType(meta.audience, "string") ? meta.audience : undefined)) {
         return { issues: [{ message: "audience must be support or technical" }] }
       }
       return { value: { audience: meta.audience ?? "support" } }
@@ -26,6 +27,8 @@ const metaSchema = {
     version: 1,
   },
 } as const
+
+const metaSettings = { meta: metaSchema, metaRevision: "test-v1" } as const
 
 function runtime(run?: { channelId?: string, runId: string }) {
   return {
@@ -39,7 +42,7 @@ function runtime(run?: { channelId?: string, runId: string }) {
 describe("Agent message metadata", () => {
   it("allows Channel-local metadata schemas with multiple message Channels", () => {
     expect(() => resolveAgentChannelChatOptions({
-      support: { kind: "support", messages: { meta: metaSchema } },
+      support: { kind: "support", messages: metaSettings },
       technical: { kind: "technical", messages: {} },
     }, undefined)).not.toThrow()
   })
@@ -51,7 +54,7 @@ describe("Agent message metadata", () => {
         observed = { channel: context.get("channel"), chat: context.get("chat") }
         return "ok"
       } },
-      messages: { meta: metaSchema },
+      messages: metaSettings,
     })
 
     await runAgentInline(agent, runtime(), {
@@ -77,12 +80,12 @@ describe("Agent message metadata", () => {
       },
     } as const
     const agent = defineAgent({
-      channels: { support: { kind: "support", messages: { meta: channelSchema } } },
+      channels: { support: { kind: "support", messages: { meta: channelSchema, metaRevision: "channel-v1" } } },
       driver: { run: ({ context }) => {
         observed = context.get("channel")
         return "ok"
       } },
-      messages: { meta: metaSchema },
+      messages: metaSettings,
     })
 
     await runAgentInline(agent, runtime({ channelId: "support", runId: "run-support" }), {
@@ -94,7 +97,7 @@ describe("Agent message metadata", () => {
 
   it("rejects invalid metadata before the driver runs", async () => {
     const run = vi.fn(() => "unreachable")
-    const agent = defineAgent({ driver: { run }, messages: { meta: metaSchema } })
+    const agent = defineAgent({ driver: { run }, messages: metaSettings })
 
     await expect(runAgentInline(agent, runtime(), {
       context: { channel: { meta: { audience: "customer" } } },
@@ -106,10 +109,12 @@ describe("Agent message metadata", () => {
     const validate = vi.fn(() => ({ issues: [{ message: "metadata must be an object" }] }))
     const agent = defineAgent({
       driver: { run: () => "unreachable" },
+      // SAFETY: this deliberately incomplete schema tests runtime validation of untyped definitions.
       messages: { meta: { "~standard": { validate } } as never },
     })
 
     await expect(runAgentInline(agent, runtime(), {
+      // SAFETY: explicit null is outside the typed contract and is the boundary case under test.
       context: { channel: { meta: null } } as never,
     })).rejects.toThrow("Invalid agent channel metadata")
     expect(validate).toHaveBeenCalledWith(null)
@@ -118,6 +123,7 @@ describe("Agent message metadata", () => {
   it("rejects schemas that transform metadata to a non-object", async () => {
     const agent = defineAgent({
       driver: { run: () => "unreachable" },
+      // SAFETY: this deliberately invalid output schema tests the runtime object-output guard.
       messages: { meta: { "~standard": { validate: () => ({ value: "invalid" }) } } as never },
     })
 
@@ -135,7 +141,7 @@ describe("Agent message metadata", () => {
         version: 1,
       },
     } as const
-    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema, metaRevision: "parse-v1" } })
     const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
 
     await parseAgentMessageMeta(agent, createAgentInvocationContextStore(prepared.context))
@@ -145,7 +151,7 @@ describe("Agent message metadata", () => {
   })
 
   it("does not reuse another Agent Definition's metadata receipt", async () => {
-    const first = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
+    const first = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
     const secondSchema = {
       "~standard": {
         validate: () => ({ value: { owner: "second" } }),
@@ -171,22 +177,23 @@ describe("Agent message metadata", () => {
         version: 1,
       },
     } as const
-    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema, metaRevision: "durable-v1" } })
     const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
 
     expect(hasParsedAgentMessageMeta(agent, prepared)).toBe(true)
     const receiptId = parsedAgentMessageMetaReceiptId(agent, prepared)
     const portable = await portableAgentWorkflowInput(prepared)
-    const restored = restoreParsedAgentMessageMeta(agent, portable, undefined, receiptId)
-    await parseAgentMessageMeta(agent, createAgentInvocationContextStore(restored.context))
+    const workflowAgent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema, metaRevision: "durable-v1" } })
+    const restored = restoreParsedAgentMessageMeta(workflowAgent, portable, undefined, receiptId)
+    await parseAgentMessageMeta(workflowAgent, createAgentInvocationContextStore(restored.context))
 
     expect(parses).toBe(1)
     expect(restored.context?.channel).toEqual({ meta: { parse: 1 } })
   })
 
   it("revalidates durable metadata when the schema receipt is no longer current", async () => {
-    const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
-    const prepared = await withParsedAgentMessageMeta(previousAgent, { context: { channel: { meta: { audience: "TECHNICAL" } } } })
+    const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
+    const prepared = await withParsedAgentMessageMeta(previousAgent, { context: { channel: { meta: { audience: "technical" } } } })
     const previousReceiptId = parsedAgentMessageMetaReceiptId(previousAgent, prepared)
     const portable = await portableAgentWorkflowInput(prepared)
     const currentAgent = defineAgent({
@@ -199,6 +206,7 @@ describe("Agent message metadata", () => {
             version: 1,
           },
         },
+        metaRevision: "current-v2",
       },
     })
     const restored = restoreParsedAgentMessageMeta(currentAgent, portable, undefined, previousReceiptId)
@@ -215,6 +223,7 @@ describe("Agent message metadata", () => {
       messages: {
         meta: {
           "~standard": {
+            // SAFETY: this schema's contract requires a Date and the test supplies one before portability.
             validate: (input: unknown) => ({ value: { sentAt: (input as { sentAt: Date }).sentAt.toISOString() } }),
             vendor: "vitehub-test",
             version: 1,
@@ -250,7 +259,7 @@ describe("Agent message metadata", () => {
   })
 
   it("rebuilds a chat invoker from parsed metadata", async () => {
-    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
     const context = createAgentInvocationContextStore({
       actor: { id: "chat:user-1", kind: "chat", meta: { audience: "technical", email: "user@example.com", ignored: true } },
       channel: { meta: { audience: "technical", ignored: true } },
@@ -293,7 +302,7 @@ describe("Agent message metadata", () => {
   })
 
   it("removes derived Invoker identity stripped by the metadata schema", async () => {
-    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: metaSchema } })
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
     const context = createAgentInvocationContextStore({
       actor: {
         email: { address: "raw@example.com", domain: "example.com" },
@@ -361,7 +370,7 @@ describe("Agent message metadata", () => {
       },
       driver: { run },
       invoker: { resolve },
-      messages: { meta: metaSchema },
+      messages: metaSettings,
     })
 
     await runAgentInline(agent, runtime(), {

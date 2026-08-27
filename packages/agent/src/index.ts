@@ -930,6 +930,7 @@ async function runAgentAsWorkflow<
   const inheritedRun = options.fresh && context.run && !durableChannelDelivery
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
+  // SAFETY: withParsedAgentMessageMeta preserves this invocation's call-options type.
   const parsedMessageMeta = parsedAgentMessageMetaReceiptId(agent, parsedInput as AgentRunInput<CALL_OPTIONS>, context.run)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
