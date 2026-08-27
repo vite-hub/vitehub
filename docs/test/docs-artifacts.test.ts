@@ -129,6 +129,16 @@ describe("writeDocsArtifacts", () => {
         "Keep secrets out of examples.",
         "::",
         "",
+        "    ::warning",
+        "    This indented code block remains literal.",
+        "    ::",
+        "",
+        "::steps",
+        "      ::warning",
+        "      This nested indented code block remains literal.",
+        "      ::",
+        "::",
+        "",
         "```md",
         "::warning",
         "This is example source.",
@@ -184,6 +194,8 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("- [Get started](https://vitehub.dev/docs/getting-started) — Run one local result.");
       expect(raw).toContain("| Choice | Result |");
       expect(raw).toContain("> **Warning**");
+      expect(raw).toContain("    ::warning\n    This indented code block remains literal.\n    ::");
+      expect(raw).toContain("    ::warning\n    This nested indented code block remains literal.\n    ::");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
       expect(raw).toContain([
         "````md",
