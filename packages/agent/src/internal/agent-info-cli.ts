@@ -128,6 +128,10 @@ function agentInfoCapacity(config: AgentInspectionMetadata["config"]): string {
   const queue = capacity.queue
     ? `${capacity.pending}/${capacity.queue.maxPending} pending${capacity.queue.timeout ? `, ${capacity.queue.timeout}ms timeout` : ""}`
     : "queue disabled"
+  if (capacity.effectiveConcurrency !== undefined) {
+    const reason = capacity.reason ? `, ${capacity.reason}` : ""
+    return `${capacity.active} active, ${capacity.effectiveConcurrency} admitted, ${capacity.concurrency} hard max, ${queue}${reason}`
+  }
   return `${capacity.active}/${capacity.concurrency} active, ${queue}`
 }
 

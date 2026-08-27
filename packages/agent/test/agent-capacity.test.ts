@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, defineCapability, runAgentInline, startAgentInvocation, streamAgentInline } from "../src/index.ts"
 import { inputCommands } from "../src/capabilities.ts"
+import { createProcessAgentCapacity } from "../src/runtime/process.ts"
 import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 import { cancellableAsyncIterableSource } from "../src/stream-output.ts"
 import { capabilityInvocationStartSymbol } from "../src/capability-runtime.ts"
@@ -579,6 +580,366 @@ describe("Agent Driver capacity", () => {
     gates["4"]!.resolve()
 
     await expect(Promise.all(results)).resolves.toEqual(["1", "2", "3", "4"])
+  })
+
+  it("keeps adaptive work queued at zero capacity and resumes it on refresh", async () => {
+    const starts: string[] = []
+    const gates = { first: deferred(), second: deferred() }
+    let available = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: {
+          adaptive: {
+            fallbackConcurrency: 0,
+            intervalMs: 100,
+            rampUp: 1,
+            sample: () => ({ concurrency: available, reason: available ? "ready" : "pressured" }),
+          },
+          concurrency: 2,
+          queue: { maxPending: 2 },
+        },
+        async run({ input }) {
+          const id = input.prompt as keyof typeof gates
+          starts.push(id)
+          await gates[id].promise
+          return id
+        },
+      },
+      runtime: false,
+    })
+
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    await vi.waitFor(() => expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+      active: 0,
+      concurrency: 2,
+      effectiveConcurrency: 0,
+      pending: 2,
+      reason: "pressured",
+    }))
+    expect(createAgentInspectionMetadata(agent).config?.driver.capacity).not.toHaveProperty("adaptive")
+    expect(starts).toEqual([])
+
+    available = 99
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]), { timeout: 1_000 })
+    expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+      active: 2,
+      effectiveConcurrency: 2,
+      pending: 0,
+      reason: "ready",
+    })
+
+    gates.first.resolve()
+    gates.second.resolve()
+    await expect(Promise.all([first, second])).resolves.toEqual(["first", "second"])
+  })
+
+  it("uses bounded fallback capacity when adaptive sampling fails", async () => {
+    const starts: string[] = []
+    const gate = deferred()
+    const agent = defineAgent({
+      driver: {
+        capacity: {
+          adaptive: {
+            fallbackConcurrency: 2,
+            intervalMs: 100,
+            sample: () => { throw new Error("metrics unavailable") },
+          },
+          concurrency: 3,
+          queue: { maxPending: 3 },
+        },
+        async run({ input }) {
+          starts.push(input.prompt as string)
+          await gate.promise
+          return input.prompt
+        },
+      },
+      runtime: false,
+    })
+
+    const results = ["first", "second", "third"].map(prompt => runAgentInline(agent, runtime(), { prompt }))
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
+    expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+      active: 2,
+      effectiveConcurrency: 2,
+      pending: 1,
+      reason: "sample-error: metrics unavailable",
+    })
+
+    gate.resolve()
+    await expect(Promise.all(results)).resolves.toEqual(["first", "second", "third"])
+  })
+
+  it("rejects promptly when aborted during a stuck sample and recovers later admissions", async () => {
+    vi.useFakeTimers()
+    try {
+      const sampleStarted = deferred()
+      const run = vi.fn(() => "done")
+      let samples = 0
+      const agent = defineAgent({
+        driver: {
+          capacity: {
+            adaptive: {
+              fallbackConcurrency: 0,
+              intervalMs: 100,
+              sample: () => {
+                samples++
+                if (samples === 1) {
+                  sampleStarted.resolve()
+                  return new Promise<never>(() => {})
+                }
+                return { concurrency: 1 }
+              },
+              sampleTimeoutMs: 100,
+            },
+            concurrency: 1,
+            queue: { maxPending: 1 },
+          },
+          run,
+        },
+        runtime: false,
+      })
+      const controller = new AbortController()
+
+      const aborted = runAgentInline(agent, runtime(), { abortSignal: controller.signal })
+      await sampleStarted.promise
+      controller.abort(new DOMException("stop", "AbortError"))
+
+      await expect(aborted).rejects.toMatchObject({ name: "AbortError" })
+      expect(run).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(100)
+      expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+        active: 0,
+        effectiveConcurrency: 0,
+        pending: 0,
+        reason: "sample-error: [vitehub] Adaptive Agent capacity sample timed out after 100ms.",
+      })
+
+      const recovered = runAgentInline(agent, runtime(), {})
+      await vi.advanceTimersByTimeAsync(0)
+      expect(createAgentInspectionMetadata(agent).config?.driver.capacity?.pending).toBe(1)
+      await vi.advanceTimersByTimeAsync(100)
+
+      await expect(recovered).resolves.toBe("done")
+      expect(run).toHaveBeenCalledTimes(1)
+      expect(samples).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("allows prompt abort while sampling adaptive capacity without a queue", async () => {
+    vi.useFakeTimers()
+    try {
+      const sampleStarted = deferred()
+      const run = vi.fn(() => "done")
+      const agent = defineAgent({
+        driver: {
+          capacity: {
+            adaptive: {
+              fallbackConcurrency: 0,
+              intervalMs: 100,
+              sample: () => {
+                sampleStarted.resolve()
+                return new Promise<never>(() => {})
+              },
+              sampleTimeoutMs: 100,
+            },
+            concurrency: 1,
+          },
+          run,
+        },
+        runtime: false,
+      })
+      const controller = new AbortController()
+
+      const invocation = runAgentInline(agent, runtime(), { abortSignal: controller.signal })
+      await sampleStarted.promise
+      controller.abort(new DOMException("stop", "AbortError"))
+
+      await expect(invocation).rejects.toMatchObject({ name: "AbortError" })
+      expect(run).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(100)
+      expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+        active: 0,
+        pending: 0,
+        reason: "sample-error: [vitehub] Adaptive Agent capacity sample timed out after 100ms.",
+      })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("applies queue bounds and timeout while an adaptive sample is stuck", async () => {
+    vi.useFakeTimers()
+    try {
+      const sampleStarted = deferred()
+      const agent = defineAgent({
+        driver: {
+          capacity: {
+            adaptive: {
+              fallbackConcurrency: 0,
+              intervalMs: 100,
+              sample: () => {
+                sampleStarted.resolve()
+                return new Promise<never>(() => {})
+              },
+              sampleTimeoutMs: 500,
+            },
+            concurrency: 1,
+            queue: { maxPending: 1, timeout: 50 },
+          },
+          run: () => "done",
+        },
+        runtime: false,
+      })
+
+      const invocation = runAgentInline(agent, runtime(), {})
+      await sampleStarted.promise
+      expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+        active: 0,
+        effectiveConcurrency: 0,
+        pending: 1,
+      })
+      await expect(runAgentInline(agent, runtime(), {})).rejects.toMatchObject({
+        code: "AGENT_CAPACITY_QUEUE_FULL",
+        message: "[vitehub] Agent driver capacity is full (0 active, 1 queued).",
+      })
+
+      const timedOut = expect(invocation).rejects.toMatchObject({
+        code: "AGENT_CAPACITY_QUEUE_TIMEOUT",
+        name: "TimeoutError",
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      await timedOut
+      expect(vi.getTimerCount()).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(450)
+      expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+        active: 0,
+        pending: 0,
+        reason: "sample-error: [vitehub] Adaptive Agent capacity sample timed out after 500ms.",
+      })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("aborts a custom adaptive sampler when its sample timeout expires", async () => {
+    vi.useFakeTimers()
+    try {
+      const sampleStarted = deferred()
+      let sampleSignal: AbortSignal | undefined
+      const agent = defineAgent({
+        driver: {
+          capacity: {
+            adaptive: {
+              fallbackConcurrency: 1,
+              intervalMs: 100,
+              sample: ({ signal }) => new Promise((_resolve, reject) => {
+                sampleSignal = signal
+                sampleStarted.resolve()
+                signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+              }),
+              sampleTimeoutMs: 100,
+            },
+            concurrency: 1,
+            queue: { maxPending: 1, timeout: 1_000 },
+          },
+          run: () => "done",
+        },
+        runtime: false,
+      })
+
+      const invocation = runAgentInline(agent, runtime(), {})
+      await sampleStarted.promise
+      expect(sampleSignal?.aborted).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(sampleSignal?.aborted).toBe(true)
+      expect(sampleSignal?.reason).toMatchObject({
+        code: "AGENT_CAPACITY_SAMPLE_TIMEOUT",
+        name: "TimeoutError",
+      })
+      await expect(invocation).resolves.toBe("done")
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("clears adaptive refresh timers when the pending queue becomes empty", async () => {
+    vi.useFakeTimers()
+    try {
+      const agent = defineAgent({
+        driver: {
+          capacity: {
+            adaptive: {
+              fallbackConcurrency: 0,
+              intervalMs: 100,
+              sample: () => ({ concurrency: 0 }),
+            },
+            concurrency: 1,
+            queue: { maxPending: 1 },
+          },
+          run: () => "done",
+        },
+        runtime: false,
+      })
+      const controller = new AbortController()
+
+      const invocation = runAgentInline(agent, runtime(), { abortSignal: controller.signal })
+      await vi.waitFor(() => expect(createAgentInspectionMetadata(agent).config?.driver.capacity?.pending).toBe(1))
+      expect(vi.getTimerCount()).toBe(1)
+
+      controller.abort(new DOMException("stop", "AbortError"))
+      await expect(invocation).rejects.toMatchObject({ name: "AbortError" })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("shares one adaptive scheduler across Agent Definitions using the same process capacity", async () => {
+    const starts: string[] = []
+    const firstGate = deferred()
+    const capacity = createProcessAgentCapacity({
+      concurrency: 1,
+      queue: { maxPending: 1 },
+      sample: () => ({ concurrency: 1 }),
+    })
+    const create = (name: string) => defineAgent({
+      driver: {
+        capacity,
+        async run() {
+          starts.push(name)
+          if (name === "first") await firstGate.promise
+          return name
+        },
+      },
+      runtime: false,
+    })
+    const firstAgent = create("first")
+    const secondAgent = create("second")
+
+    const first = runAgentInline(firstAgent, runtime(), {})
+    await vi.waitFor(() => expect(starts).toEqual(["first"]))
+    const second = runAgentInline(secondAgent, runtime(), {})
+    await vi.waitFor(() => expect(createAgentInspectionMetadata(secondAgent).config?.driver.capacity).toMatchObject({
+      active: 1,
+      pending: 1,
+    }))
+    expect(starts).toEqual(["first"])
+
+    firstGate.resolve()
+    await expect(first).resolves.toBe("first")
+    await expect(second).resolves.toBe("second")
+    expect(starts).toEqual(["first", "second"])
   })
 
   it("shares capacity across Agent Definition descriptor clones", async () => {
