@@ -44,6 +44,20 @@ describe("agent public types", () => {
     })
   })
 
+  it("accepts optional MCP servers without conditional capability arrays", () => {
+    const enabled = false as boolean
+    const optionalClient = undefined as MCPClient | undefined
+
+    mcp({
+      servers: {
+        disabled: enabled ? remoteMcpServer({ url: "https://example.com/mcp" }) : false,
+        nullable: () => null,
+        optional: optionalClient,
+        runtime: async () => undefined,
+      },
+    })
+  })
+
   it("types Eve extensions in static capabilities", () => {
     defineAgent({
       capabilities: [githubExtension({ preset: "code-review" })],
