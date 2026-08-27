@@ -75,6 +75,13 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   const request = options.fetch ?? globalThis.fetch
   if (!(request instanceof Function)) throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.")
   const endpoint = options.endpoint ?? "https://api.resend.com"
+  try {
+    const url = new URL(endpoint)
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new TypeError("Unsupported protocol")
+  }
+  catch (cause) {
+    throw emailProviderError("resend", "INVALID_OPTIONS", "endpoint must be a valid HTTP or HTTPS URL.", { cause })
+  }
   return {
     name: "resend",
     async send(message, context) {

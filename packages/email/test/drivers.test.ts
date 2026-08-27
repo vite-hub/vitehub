@@ -27,6 +27,10 @@ describe("Resend Email driver", () => {
     expect(() => resend({ apiKey: "re_secret\n" })).toThrow("apiKey contains an invalid HTTP header character")
   })
 
+  it.each(["", "not a url", "ftp://api.resend.com"])("rejects an invalid endpoint during configuration", (endpoint) => {
+    expect(() => resend({ apiKey: "re_secret", endpoint })).toThrow("endpoint must be a valid HTTP or HTTPS URL")
+  })
+
   it("maps the portable message and returns the provider id", async () => {
     const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) => new Response(JSON.stringify({ id: "email-1" }), {
       headers: { "content-type": "application/json" },
