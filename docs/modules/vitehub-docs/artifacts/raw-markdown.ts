@@ -52,26 +52,63 @@ function rewriteMarkdownLinks(line: string) {
   });
 }
 
-function rewriteLinks(line: string) {
+function isEscaped(source: string, index: number) {
+  let backslashes = 0;
+  while (index > backslashes && source[index - backslashes - 1] === "\\") backslashes += 1;
+  return backslashes % 2 === 1;
+}
+
+function rewriteInlineLinks(source: string) {
   let output = "";
   let offset = 0;
 
-  for (const opening of line.matchAll(/`+/g)) {
+  for (const opening of source.matchAll(/`+/g)) {
     const openingIndex = opening.index;
-    if (openingIndex < offset) continue;
+    if (openingIndex < offset || isEscaped(source, openingIndex)) continue;
 
     const marker = opening[0];
     const closingPattern = new RegExp(`(?<!\`)${marker}(?!\`)`, "g");
     closingPattern.lastIndex = openingIndex + marker.length;
-    const closing = closingPattern.exec(line);
+    let closing = closingPattern.exec(source);
+    while (closing && isEscaped(source, closing.index)) closing = closingPattern.exec(source);
     if (!closing) break;
 
-    output += rewriteMarkdownLinks(line.slice(offset, openingIndex));
-    output += line.slice(openingIndex, closing.index + marker.length);
+    output += rewriteMarkdownLinks(source.slice(offset, openingIndex));
+    output += source.slice(openingIndex, closing.index + marker.length);
     offset = closing.index + marker.length;
   }
 
-  return output + rewriteMarkdownLinks(line.slice(offset));
+  return output + rewriteMarkdownLinks(source.slice(offset));
+}
+
+function rewriteLinks(source: string) {
+  const output: string[] = [];
+  let outsideFence = "";
+  let fence: Fence | null = null;
+
+  for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
+    if (!lineWithEnding) continue;
+    const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
+    const run = fenceRun(line);
+
+    if (!fence && run) {
+      output.push(rewriteInlineLinks(outsideFence), lineWithEnding);
+      outsideFence = "";
+      fence = { length: run.length, marker: run[0]! };
+      continue;
+    }
+
+    if (fence) {
+      output.push(lineWithEnding);
+      if (closesFence(line, fence)) fence = null;
+      continue;
+    }
+
+    outsideFence += lineWithEnding;
+  }
+
+  output.push(rewriteInlineLinks(outsideFence));
+  return output.join("");
 }
 
 function indentationColumns(line: string) {
@@ -167,15 +204,28 @@ function directiveLabel(name: string, attributes: string | undefined) {
 
 function stripPresentationDirectives(source: string) {
   const output: string[] = [];
-  let depth = 0;
+  const directives: boolean[] = [];
   let fence: (Fence & { indent: number }) | null = null;
+  const presentationDirectives = new Set([
+    "component-preview",
+    "important",
+    "note",
+    "steps",
+    "tabs",
+    "tabs-item",
+    "tip",
+    "u-page-card",
+    "u-page-grid",
+    "warning",
+  ]);
 
   for (const originalLine of source.split("\n")) {
     const leadingColumns = indentationColumns(originalLine);
-    const structuralIndent: number = fence?.indent ?? Math.min(leadingColumns, depth * 2);
+    const structuralDepth = directives.filter(Boolean).length;
+    const structuralIndent: number = fence?.indent ?? Math.min(leadingColumns, structuralDepth * 2);
     const deindented = removeIndentation(originalLine, structuralIndent);
 
-    if (!fence && leadingColumns >= depth * 2 + 4) {
+    if (!fence && leadingColumns >= structuralDepth * 2 + 4) {
       output.push(deindented);
       continue;
     }
@@ -184,7 +234,7 @@ function stripPresentationDirectives(source: string) {
     if (run) {
       if (!fence) fence = { indent: structuralIndent, length: run.length, marker: run[0]! };
       else if (closesFence(deindented, fence)) fence = null;
-      output.push(rewriteLinks(deindented));
+      output.push(deindented);
       continue;
     }
 
@@ -194,28 +244,35 @@ function stripPresentationDirectives(source: string) {
     }
 
     if (/^\s*:{2,}\s*$/.test(deindented)) {
-      depth = Math.max(0, depth - 1);
+      const stripped = directives.pop();
+      if (stripped === false || stripped === undefined) output.push(deindented);
       continue;
     }
 
     const directive = deindented.match(/^\s*:{2,}([a-z][a-z0-9-]*)(?:\{([^}]*)\})?\s*$/i);
     if (directive) {
-      const label = directiveLabel((directive[1] || "").toLowerCase(), directive[2]);
+      const name = (directive[1] || "").toLowerCase();
+      const stripped = presentationDirectives.has(name);
+      directives.push(stripped);
+      if (!stripped) {
+        output.push(deindented);
+        continue;
+      }
+      const label = directiveLabel(name, directive[2]);
       if (label) output.push(label, "");
-      depth += 1;
       continue;
     }
 
-    output.push(rewriteLinks(deindented));
+    output.push(deindented);
   }
 
-  return output.join("\n");
+  return rewriteLinks(output.join("\n"));
 }
 
 export function toRawMarkdown(source: string) {
   const { body, frontmatter } = splitFrontmatter(source);
   const title = frontmatter.title;
-  const content = stripPresentationDirectives(cardListsOutsideFences(body)).trim();
+  const content = stripPresentationDirectives(cardListsOutsideFences(body)).replace(/^\n+|\n+$/g, "");
   const document = title && !content.startsWith("# ") ? `# ${title}\n\n${content}` : content;
   return `${document}\n`;
 }

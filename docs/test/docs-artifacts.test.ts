@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readDocsArtifactsManifest, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
+import { toRawMarkdown } from "../modules/vitehub-docs/artifacts/raw-markdown";
 
 function writeText(filePath: string, contents: string) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -10,6 +11,11 @@ function writeText(filePath: string, contents: string) {
 }
 
 describe("writeDocsArtifacts", () => {
+  it("preserves semantic indentation at document boundaries", () => {
+    expect(toRawMarkdown("---\ntitle: Boundary\n---\n    first\n    second")).toBe("# Boundary\n\n    first\n    second\n");
+    expect(toRawMarkdown("    first\n    second\n")).toBe("    first\n    second\n");
+  });
+
   it("builds a docs manifest from the unified content tree only", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const docsRoot = resolve(rootDir, "docs");
@@ -147,6 +153,13 @@ describe("writeDocsArtifacts", () => {
         "::",
         "",
         "[Rendered link](/docs/rendered) and `[literal link](/docs/literal)`.",
+        "Escaped \\` delimiter and [rendered link](/docs/escaped) \\` stay outside code.",
+        "`multiline literal",
+        "[link](/docs/multiline)` and [rendered link](/docs/after-code).",
+        "",
+        "::video{src=\"/demo.mp4\"}",
+        "Keep this semantic directive.",
+        "::",
         "",
         "```md",
         "::warning",
@@ -208,6 +221,9 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("    ::warning\n    This nested indented code block remains literal.\n    ::");
       expect(raw).toContain("\t  ::important\n\t  This mixed-indentation code block remains literal.\n\t  ::");
       expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
+      expect(raw).toContain("Escaped \\` delimiter and [rendered link](https://vitehub.dev/docs/escaped) \\` stay outside code.");
+      expect(raw).toContain("`multiline literal\n[link](/docs/multiline)` and [rendered link](https://vitehub.dev/docs/after-code).");
+      expect(raw).toContain("::video{src=\"/demo.mp4\"}\nKeep this semantic directive.\n::");
       expect(raw).toContain("```md\n::warning\nThis is example source.\n::\n```");
       expect(raw).toContain([
         "````md",

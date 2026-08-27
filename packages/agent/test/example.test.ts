@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { once } from "node:events"
-import { createServer as createPortServer } from "node:net"
+import { createServer as createPortServer, type AddressInfo } from "node:net"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -30,10 +30,11 @@ async function availablePort() {
   await once(server, "listening")
 
   const address = server.address()
-  if (!address || typeof address === "string") throw new Error("Could not allocate an Agent example test port")
+  if (!address) throw new Error("Could not allocate an Agent example test port")
 
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
-  return address.port
+  // SAFETY: listening with a TCP host and port makes net.Server return an AddressInfo object.
+  return (address as AddressInfo).port
 }
 
 describe("offline Agent Vite example", () => {
