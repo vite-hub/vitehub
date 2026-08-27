@@ -1102,6 +1102,24 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__next.mjs"), "utf8")).resolves.toContain("next")
   })
 
+  it("keeps the last valid generated bundles when regeneration fails", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    const generated = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const previous = await readFile(generated, "utf8")
+    await writeFile(definition, "export default { run: async () => {\n")
+
+    await expect(configResolved({ root: rootDir, resolve: { alias: [] } })).rejects.toThrow()
+    await expect(readFile(generated, "utf8")).resolves.toBe(previous)
+  })
+
   it("refreshes generated options when a Sandbox project manifest changes", async () => {
     const rootDir = await createViteRoot()
     const projectDir = join(rootDir, "server/sandboxes/example")

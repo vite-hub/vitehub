@@ -6,6 +6,8 @@ declare module "#vitehub/browser/registry" {
 }
 
 declare module "#vitehub/browser/runtime" {
+  export const loadCloudflarePlaywright: (() => Promise<unknown>) | undefined
+
   const config: import("./types.ts").BrowserRuntimeConfig
   export default config
 }

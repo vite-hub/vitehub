@@ -9,7 +9,7 @@ import {
 import type { BrowserClient } from "../src/types.ts"
 
 const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
-vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig }))
+vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig, loadCloudflarePlaywright: undefined }))
 
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
 

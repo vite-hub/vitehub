@@ -148,12 +148,16 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   }
 
   function runtimeContents() {
+    const config = enabled ? {
+      binding: resolvedOptions.binding,
+      engine: resolvedOptions.engine,
+      provider: "cloudflare",
+    } : {}
     return [
-      `export default ${JSON.stringify(enabled ? {
-        binding: resolvedOptions.binding,
-        engine: resolvedOptions.engine,
-        provider: "cloudflare",
-      } : {}, null, 2)}`,
+      ...(enabled && resolvedOptions.engine === "chromium"
+        ? ["export const loadCloudflarePlaywright = () => import(\"@cloudflare/playwright\")"]
+        : ["export const loadCloudflarePlaywright = undefined"]),
+      `export default ${JSON.stringify(config, null, 2)}`,
       "",
     ].join("\n")
   }

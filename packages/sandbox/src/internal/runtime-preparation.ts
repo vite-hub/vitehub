@@ -209,12 +209,8 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
 
 async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
-  await rm(resolve(generatedDir, 'runtime/sandbox-definitions'), { recursive: true, force: true })
   const emitted = new Map<string, EmittedArtifact>()
   const typeTemplate = plan.manifest.typeTemplate
-
-  if (typeTemplate)
-    await writeFileIfChanged(resolve(generatedDir, typeTemplate.filename), typeTemplate.contents)
 
   for (const artifact of plan.artifacts || []) {
     const dst = resolve(generatedDir, artifact.filename)
@@ -223,8 +219,13 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan) 
       throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
 
     emitted.set(artifact.key, { ...artifact, contents, dst })
-    await writeFileIfChanged(dst, contents)
   }
+
+  await rm(resolve(generatedDir, 'runtime/sandbox-definitions'), { recursive: true, force: true })
+  if (typeTemplate)
+    await writeFileIfChanged(resolve(generatedDir, typeTemplate.filename), typeTemplate.contents)
+  for (const artifact of emitted.values())
+    await writeFileIfChanged(artifact.dst, artifact.contents)
 
   return emitted
 }

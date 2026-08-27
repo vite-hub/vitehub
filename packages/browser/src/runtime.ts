@@ -1,5 +1,5 @@
 import browserRegistry from "#vitehub/browser/registry"
-import runtimeConfig from "#vitehub/browser/runtime"
+import runtimeConfig, { loadCloudflarePlaywright } from "#vitehub/browser/runtime"
 
 import {
   browserDefinitionNotFoundError,
@@ -214,7 +214,9 @@ function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
         binding: runtimeConfig.binding,
         engine: runtimeConfig.engine,
       },
-      () => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"),
+      loadCloudflarePlaywright
+        ? async () => await loadCloudflarePlaywright!() as unknown as CloudflarePlaywrightDriver
+        : () => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"),
     ),
   })
   return configuredClient
