@@ -12,7 +12,6 @@ const message: EmailMessage = {
   html: "<p>Hello</p>",
   replyTo: "support@example.com",
   subject: "Welcome",
-  tags: [{ name: "kind", value: "welcome" }],
   text: "Hello",
   to: ["maxi@example.com"],
 }
@@ -35,7 +34,7 @@ describe("Resend Email driver", () => {
     }))
     const driver = resend({ apiKey: "re_secret", fetch: request })
 
-    await expect(driver.send({ ...message, idempotencyKey: "send-1", scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context)).resolves.toMatchObject({
+    await expect(driver.send({ ...message, idempotencyKey: "send-1", scheduledAt: new Date("2026-08-26T12:00:00.000Z"), tags: [{ name: "kind", value: "welcome" }] }, context)).resolves.toMatchObject({
       data: { driver: "resend", id: "email-1" },
       error: null,
     })
@@ -47,6 +46,7 @@ describe("Resend Email driver", () => {
       from: "\"ViteHub\" <hello@example.com>",
       reply_to: ["support@example.com"],
       scheduled_at: "2026-08-26T12:00:00.000Z",
+      tags: [{ name: "kind", value: "welcome" }],
       to: ["maxi@example.com"],
     })
   })
@@ -127,6 +127,21 @@ describe("Resend Email driver", () => {
     await expect(driver.send({ ...message, template: { id: "welcome" } }, context)).resolves.toMatchObject({
       error: { code: "UNSUPPORTED", driver: "resend" },
     })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["tracking preferences", { tracking: { opens: false } }],
+    ["AMP content", { amp: "<html amp4email>" }],
+    ["DSN options", { dsn: { notify: ["FAILURE"] } }],
+    ["preheaders", { preheader: "Preview" }],
+    ["locales", { locale: "en" }],
+  ])("rejects unsupported %s before fetch", async (_name, unsupported) => {
+    const request = vi.fn()
+    const driver = resend({ apiKey: "re_secret", fetch: request })
+
+    await expect(driver.send({ ...message, ...unsupported } as typeof message, context))
+      .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } })
     expect(request).not.toHaveBeenCalled()
   })
 
@@ -361,12 +376,19 @@ describe("Cloudflare Email driver", () => {
     ["Handlebars variables", { handlebarsVars: { name: "Maxi" } }],
     ["Liquid renderer payloads", { liquid: "Hello {{ name }}" }],
     ["Liquid variables", { liquidVars: { name: "Maxi" } }],
+    ["tracking preferences", { tracking: { opens: false } }],
+    ["AMP content", { amp: "<html amp4email>" }],
+    ["DSN options", { dsn: { notify: ["FAILURE"] } }],
+    ["preheaders", { preheader: "Preview" }],
+    ["locales", { locale: "en" }],
+    ["tags", { tags: [{ name: "kind", value: "welcome" }] }],
+    ["metadata", { metadata: { campaign: "welcome" } }],
   ])("rejects unsupported %s before sending", async (_name, unsupported) => {
     const send = vi.fn()
     const Constructor = vi.fn()
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor })
 
-    await expect(driver.send({ ...message, ...unsupported }, context))
+    await expect(driver.send({ ...message, ...unsupported } as typeof message, context))
       .resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } })
     expect(Constructor).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()

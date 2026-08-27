@@ -70,6 +70,11 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   return {
     name: "resend",
     async send(message, context) {
+      const unsupportedOption = (["tracking", "amp", "dsn", "preheader", "locale"] as const)
+        .find(option => message[option] !== undefined)
+      if (unsupportedOption) {
+        return { data: null, error: emailProviderError("resend", "UNSUPPORTED", `Resend does not support the ${unsupportedOption} option.`) }
+      }
       if (message.sandbox === true) {
         return { data: null, error: emailProviderError("resend", "UNSUPPORTED", "Resend does not support sandbox delivery.") }
       }

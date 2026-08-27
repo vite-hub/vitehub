@@ -127,6 +127,11 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
     name: "cloudflare-email",
     async send(message, context) {
       try {
+        const unsupportedOption = (["tracking", "amp", "dsn", "preheader", "locale", "tags", "metadata"] as const)
+          .find(option => message[option] !== undefined)
+        if (unsupportedOption) {
+          return { data: null, error: emailProviderError("cloudflare-email", "UNSUPPORTED", `Cloudflare Email does not support the ${unsupportedOption} option.`) }
+        }
         if (context.signal?.aborted) {
           return { data: null, error: emailProviderError("cloudflare-email", "CANCELLED", "Cloudflare Email send was cancelled.", { retryable: false }) }
         }
