@@ -110,6 +110,9 @@ describe("Agent Invocation UI", () => {
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     const metrics = inspector.findAll(".vh-invocation-inspector__metrics > div");
     expect(metrics.find(metric => metric.get("dt").text() === "Steps")?.get("dd").text()).toBe("1");
+    const timelineRows = inspector.findAll(".vh-invocation-timeline__row");
+    expect(timelineRows).toHaveLength(1);
+    expect(timelineRows[0]!.text()).not.toContain("Trace content was truncated");
   });
 
   it("renders only HTTP source URLs as links", () => {
@@ -443,6 +446,126 @@ describe("Agent Invocation UI", () => {
     });
   });
 
+  it("renders structured tool payloads and a timed Agent and ViteHub trace", () => {
+    const invocation = {
+      completedAt: "2026-08-22T00:00:03.000Z",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "trace-context",
+      observations: [
+        {
+          attributes: {
+            "step.id": "materialize",
+            "tool.id": "materialize",
+            "tool.input": { path: "workspace root" },
+            "tool.name": "materialize_sources",
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Materialized ViteHub workspace",
+          },
+          name: "agent.tool.start",
+          sequence: 1,
+          timestamp: "2026-08-22T00:00:00.250Z",
+          type: "run" as const,
+        },
+        {
+          attributes: {
+            "step.id": "materialize",
+            "tool.durationMs": 500,
+            "tool.id": "materialize",
+            "tool.name": "materialize_sources",
+            "tool.output": { files: 12, summary: "Materialized repository (12 files)." },
+          },
+          name: "agent.tool.finish",
+          sequence: 2,
+          timestamp: "2026-08-22T00:00:00.750Z",
+          type: "run" as const,
+        },
+        {
+          attributes: {
+            "tool.id": "query",
+            "tool.input": { summary: "Private query omitted." },
+            "tool.name": "database_query",
+          },
+          name: "agent.tool.start",
+          sequence: 3,
+          timestamp: "2026-08-22T00:00:01.000Z",
+          type: "run" as const,
+        },
+        {
+          attributes: {
+            "tool.id": "query",
+            "tool.error": "Result was incomplete.",
+            "tool.name": "database_query",
+            "tool.output": "  Returned 1 row.\n",
+          },
+          name: "agent.tool.finish",
+          sequence: 4,
+          timestamp: "2026-08-22T00:00:02.000Z",
+          type: "run" as const,
+        },
+      ],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:03.000Z",
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)).toEqual([
+      expect.objectContaining({
+        durationMs: 500,
+        endedAt: "2026-08-22T00:00:00.750Z",
+        preview: "Materialized repository (12 files).",
+        startedAt: "2026-08-22T00:00:00.250Z",
+      }),
+      expect.objectContaining({ durationMs: 1_000, startedAt: "2026-08-22T00:00:01.000Z" }),
+    ]);
+
+    const thread = mount(AgentInvocation, { props: { invocation } });
+    expect(thread.findAll(".vh-invocation-event__payload > strong").map(item => item.text())).toEqual([
+      "Input",
+      "Output",
+      "Error",
+    ]);
+    expect(thread.text()).toContain("Private query omitted.");
+    expect(thread.findAll(".vh-invocation-event__payload pre").at(-2)!.element.textContent).toBe("  Returned 1 row.\n");
+    expect(thread.findAll(".vh-invocation-event__payload pre").at(-1)!.text()).toBe("Result was incomplete.");
+
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    const rows = inspector.findAll(".vh-invocation-timeline__row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.attributes()).toMatchObject({
+      "data-owner": "vitehub",
+      title: "Materialized ViteHub workspace — Materialized repository (12 files).",
+    });
+    expect(rows[0]!.text()).toContain("+250ms · 500ms");
+    expect(rows[1]!.attributes("data-owner")).toBe("agent");
+    expect(rows[1]!.text()).toContain("+1s · 1s");
+  });
+
+  it("keeps rounded and terminal trace timings inside their bounds", () => {
+    const invocation = {
+      completedAt: "2026-08-22T00:01:59.999Z",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "trace-boundaries",
+      observations: [{
+        attributes: { "tool.durationMs": 1_000, "tool.id": "terminal", "tool.name": "finish" },
+        name: "agent.tool.finish",
+        sequence: 1,
+        timestamp: "2026-08-22T00:01:59.999Z",
+        type: "run" as const,
+      }],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:01:59.999Z",
+    } satisfies AgentInvocationView;
+
+    const row = mount(AgentInvocationInspector, { props: { invocation } })
+      .get(".vh-invocation-timeline__row");
+    expect(row.text()).toContain("+1m 59s · 1s");
+    expect(row.get(".vh-invocation-timeline__track span").attributes("style"))
+      .toContain("left: 98.5%");
+  });
+
   it.each([
     ["direct output", "clean"],
     ["completed output", { output: "clean" }],
@@ -467,7 +590,9 @@ describe("Agent Invocation UI", () => {
     "preserves streamed Provider command output through %s",
     (terminalName) => {
       const timestamp = "2026-08-22T00:00:00.000Z";
+      const terminalTimestamp = "2026-08-22T00:00:01.000Z";
       const invocation = {
+        completedAt: "2026-08-22T00:00:03.000Z",
         createdAt: timestamp,
         id: "provider-command",
         observations: [
@@ -475,16 +600,65 @@ describe("Agent Invocation UI", () => {
           { attributes: { "tool.id": "command", "tool.output": "first\n", "tool.name": "shell" }, name: "agent.tool.output", sequence: 2, timestamp, type: "run" as const },
           { attributes: { "tool.id": "command", "tool.output": "second\n", "tool.name": "shell" }, name: "agent.tool.output", sequence: 3, timestamp, type: "run" as const },
           { attributes: { "tool.id": "command", "tool.output": { summary: "Still running" }, "tool.name": "shell" }, name: "agent.tool.progress", sequence: 4, timestamp, type: "run" as const },
-          { attributes: { "tool.id": "command", "tool.output": { detail: "terminal state" }, "tool.name": "shell" }, name: terminalName, sequence: 5, timestamp, type: terminalName.endsWith(".error") ? "error" as const : "run" as const },
+          { attributes: { "tool.id": "command", "tool.output": { detail: "terminal state" }, "tool.name": "shell" }, name: terminalName, sequence: 5, timestamp: terminalTimestamp, type: terminalName.endsWith(".error") ? "error" as const : "run" as const },
         ],
         status: "completed" as const,
         traceId: "trace",
         updatedAt: timestamp,
       } satisfies AgentInvocationView;
 
-      expect(invocationActivities(invocation)[0]?.command?.output).toBe("first\nsecond\n");
+      expect(invocationActivities(invocation)[0]).toMatchObject({
+        command: { output: "first\nsecond\n" },
+        durationMs: 1_000,
+        endedAt: terminalTimestamp,
+      });
     },
   );
+
+  it("bounds failed tasks by their observed failure", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const failedAt = "2026-08-22T00:00:01.000Z";
+    const invocation = {
+      completedAt: "2026-08-22T00:00:03.000Z",
+      createdAt: timestamp,
+      id: "failed-task",
+      observations: [
+        { attributes: { "step.id": "task" }, name: "agent.task.started", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "error.message": "Task failed", "step.id": "task" }, name: "agent.task.failed", sequence: 2, timestamp: failedAt, type: "run" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]).toMatchObject({
+      durationMs: 1_000,
+      endedAt: failedAt,
+      status: "failed",
+    });
+  });
+
+  it("extends running activities through the invocation update", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const updatedAt = "2026-08-22T00:00:03.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "running-tool",
+      observations: [
+        { attributes: { "tool.id": "command", "tool.name": "shell" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "command", "tool.name": "shell" }, name: "agent.tool.progress", sequence: 2, timestamp: "2026-08-22T00:00:01.000Z", type: "run" as const },
+      ],
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]).toMatchObject({
+      durationMs: 3_000,
+      endedAt: updatedAt,
+      status: "running",
+    });
+  });
 
   it.each([
     ["cancelled", "completed"],
@@ -760,6 +934,26 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("renders failed command diagnostics with command details", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-command",
+      observations: [
+        { attributes: { "tool.id": "command", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 1, timestamp, type: "run" as const },
+        { attributes: { "tool.error": "Command timed out", "tool.id": "command", "tool.name": "shell" }, name: "agent.tool.error", sequence: 2, timestamp, type: "error" as const },
+      ],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-command__bar code").text()).toBe("pnpm test");
+    expect(wrapper.get(".vh-invocation-command .vh-invocation-event__payload > strong").text()).toBe("Error");
+    expect(wrapper.get(".vh-invocation-command .vh-invocation-event__payload pre").text()).toBe("Command timed out");
+  });
+
   it("keeps an undecided approval request running", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -909,7 +1103,13 @@ describe("Agent Invocation UI", () => {
       cancelledAt: "2026-08-22T00:01:05.000Z",
       createdAt: "2026-08-22T00:00:00.000Z",
       id: "cancelled",
-      observations: [],
+      observations: [{
+        attributes: { "tool.id": "search", "tool.name": "search" },
+        name: "agent.tool.start",
+        sequence: 1,
+        timestamp: "2026-08-22T00:01:00.000Z",
+        type: "run",
+      }],
       startedAt: "2026-08-22T00:00:00.000Z",
       status: "cancelled",
       traceId: "trace",
@@ -918,6 +1118,13 @@ describe("Agent Invocation UI", () => {
 
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
     expect(wrapper.get(".vh-invocation-inspector__status small").text()).toBe("1m 5s");
+    expect(invocationActivities(invocation)[0]).toMatchObject({
+      durationMs: 5_000,
+      endedAt: "2026-08-22T00:01:05.000Z",
+      startedAt: "2026-08-22T00:01:00.000Z",
+      status: "completed",
+    });
+    expect(wrapper.get(".vh-invocation-timeline__row").text()).toContain("+1m 0s · 5s");
   });
 
   it("carries rounded duration seconds into minutes", () => {

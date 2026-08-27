@@ -636,6 +636,7 @@ onBeforeUnmount(() => {
 .vitehub-console [data-slot="invocation"],
 .vitehub-console [data-slot="invocation-inspector"] {
   height: 100%;
+  width: 100%;
 }
 
 .vitehub-console [data-slot="invocation-inspector"] {

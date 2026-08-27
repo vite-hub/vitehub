@@ -73,6 +73,16 @@ function formatDuration(startedAt: string | undefined, completedAt: string | und
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+function formatTimelineDuration(value: number): string | undefined {
+  if (!Number.isFinite(value) || value < 0) return;
+  if (value < 1_000) return `${Math.round(value)}ms`;
+  if (value < 60_000) {
+    return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value / 1_000)}s`;
+  }
+  const seconds = Math.round(value / 1_000);
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
 function driverLabel(configuration: AgentInvocationConfiguration): string | undefined {
   const driver = configuration.driver;
   const model = driver?.model;
@@ -238,7 +248,12 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const suffix = agentConfigurationSummary(activity)
     ?? channelDeliverySummary(activity)
     ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
-  const hasDetails = activity.patches.length > 0 || Boolean(command || activity.body || activity.truncated);
+  const hasPayloads = activity.kind === "tool" && (
+    activity.attributes["tool.input"] !== undefined
+    || activity.attributes["tool.output"] !== undefined
+    || activity.attributes["tool.error"] !== undefined
+  );
+  const hasDetails = activity.patches.length > 0 || Boolean(command || hasPayloads || activity.body || activity.truncated);
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
   const summaryContent = [
@@ -285,7 +300,14 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
               ]),
               command.cwd ? h("div", { class: "vh-invocation-command__cwd" }, command.cwd) : null,
               command.output ? h("pre", terminalText(command.output)) : null,
+              renderEventPayload("Error", activity.attributes["tool.error"]),
             ])
+          : hasPayloads
+            ? h("div", { class: "vh-invocation-event__payloads" }, [
+                renderEventPayload("Input", activity.attributes["tool.input"]),
+                renderEventPayload("Output", activity.attributes["tool.output"]),
+                renderEventPayload("Error", activity.attributes["tool.error"]),
+              ].filter(Boolean))
           : activity.body
             ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
             : null,
@@ -298,6 +320,15 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
           : null,
       ]) : null,
     ]),
+  ]);
+}
+
+function renderEventPayload(label: string, value: unknown) {
+  if (value === undefined) return null;
+  const text = Object.prototype.toString.call(value) === "[object String]" ? String(value) : JSON.stringify(value, null, 2);
+  return h("section", { class: "vh-invocation-event__payload" }, [
+    h("strong", label),
+    h("pre", text),
   ]);
 }
 
@@ -502,6 +533,77 @@ function renderActivityGroup(
 
 function inspectorSection(title: string, body: ReturnType<typeof h>) {
   return h("section", [h("h4", title), body]);
+}
+
+function timelineOwner(activity: InvocationActivity): "agent" | "vitehub" {
+  const tool = String(activity.attributes["tool.name"] ?? "").toLocaleLowerCase();
+  if (
+    activity.kind === "preparation"
+    || activity.kind === "action"
+    || activity.kind === "system"
+    || activity.kind === "delivery"
+    || activity.name.startsWith("vitehub.")
+    || tool === "materialize_sources"
+    || tool.startsWith("vitehub_")
+  ) return "vitehub";
+  return "agent";
+}
+
+function traceTimeline(activities: readonly InvocationActivity[], invocation: AgentInvocationView) {
+  const items = activities.filter(activity => activity.kind !== "message" && Number.isFinite(Date.parse(activity.startedAt ?? "")));
+  if (!items.length) return null;
+  const invocationStart = Date.parse(invocation.startedAt ?? invocation.createdAt ?? "");
+  const observedStarts = items
+    .map(activity => Date.parse(activity.startedAt ?? ""))
+    .filter(Number.isFinite);
+  const zero = Number.isFinite(invocationStart) ? invocationStart : Math.min(...observedStarts);
+  const invocationEnd = Date.parse(
+    invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt ?? "",
+  );
+  const observedEnds = items
+    .map(activity => Date.parse(activity.endedAt ?? activity.startedAt ?? ""))
+    .filter(Number.isFinite);
+  const end = Number.isFinite(invocationEnd) ? invocationEnd : Math.max(...observedEnds, zero + 1);
+  const span = Math.max(1, end - zero);
+  return inspectorSection("Trace timeline", h("div", { class: "vh-invocation-timeline" }, [
+    h("div", { class: "vh-invocation-timeline__legend", "aria-hidden": "true" }, [
+      h("span", { "data-owner": "agent" }, "Agent"),
+      h("span", { "data-owner": "vitehub" }, "ViteHub"),
+    ]),
+    h("ol", items.map((activity) => {
+      const started = Date.parse(activity.startedAt ?? "");
+      const duration = Number.isFinite(activity.durationMs) ? (activity.durationMs ?? 0) : 0;
+      const offset = Number.isFinite(started) ? Math.max(0, started - zero) : 0;
+      const owner = timelineOwner(activity);
+      const timing = [
+        offset ? `+${formatTimelineDuration(offset)}` : "start",
+        duration ? formatTimelineDuration(duration) : undefined,
+      ].filter(Boolean).join(" · ");
+      const title = invocationActivityTitle(activity);
+      const detail = activityDetail(activity);
+      const width = Math.max(1.5, Math.min(100, (duration / span) * 100));
+      const left = Math.min(100 - width, Math.max(0, (offset / span) * 100));
+      return h("li", {
+        class: "vh-invocation-timeline__row",
+        "data-owner": owner,
+        key: `timeline:${activity.id}`,
+        tabindex: "0",
+        title: detail ? `${title} — ${detail}` : title,
+      }, [
+        h("div", { class: "vh-invocation-timeline__heading" }, [
+          h("strong", title),
+          h("time", timing),
+        ]),
+        detail ? h("code", { class: "vh-invocation-timeline__detail" }, detail) : null,
+        h("div", { class: "vh-invocation-timeline__track", "aria-hidden": "true" }, [
+          h("span", { style: {
+            left: `${left}%`,
+            width: `${width}%`,
+          } }),
+        ]),
+      ]);
+    })),
+  ]));
 }
 
 function inspectorRow(label: string, value: string | number | undefined) {
@@ -1006,6 +1108,7 @@ export const AgentInvocationInspector = defineComponent({
                   : null,
               ]),
             ),
+            traceTimeline(activities.value, props.invocation),
             ...(configuration ? renderConfiguration(configuration) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(

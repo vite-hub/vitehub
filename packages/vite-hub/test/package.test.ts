@@ -262,6 +262,7 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain("@cloudflare/workers-types")
     const consolePage = readFileSync(`${packageRoot}/dist/console/runtime/components/console-app.vue`, "utf8")
     expect(consolePage).toContain('from "../agent-route"')
+    expect(consolePage).toMatch(/\[data-slot="invocation"\],[\s\S]*?\[data-slot="invocation-inspector"\]\s*\{[\s\S]*?height: 100%;[\s\S]*?width: 100%;[\s\S]*?\}/)
     expect(existsSync(`${packageRoot}/dist/console/runtime/agent-route.js`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true)
