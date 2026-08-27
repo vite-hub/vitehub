@@ -96,6 +96,20 @@ describe("Resend Email driver", () => {
     await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK", retryable: true } })
   })
 
+  it("cancels and times out a stalled response body", async () => {
+    vi.useFakeTimers()
+    const cancel = vi.fn()
+    const response = new Response(new ReadableStream({ cancel }))
+    const driver = resend({ apiKey: "re_secret", fetch: async () => response })
+
+    const delivery = driver.send(message, context)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } })
+    expect(cancel).toHaveBeenCalledOnce()
+    vi.useRealTimers()
+  })
+
   it("cancels and rejects an oversized response body", async () => {
     const cancel = vi.fn()
     const response = new Response(new ReadableStream({

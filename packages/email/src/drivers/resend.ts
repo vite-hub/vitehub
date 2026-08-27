@@ -10,6 +10,7 @@ export interface ResendEmailDriverOptions {
 }
 
 const MAX_RESPONSE_BYTES = 64 * 1024
+const RESPONSE_READ_TIMEOUT_MS = 30_000
 
 function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
   return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError")
@@ -30,7 +31,24 @@ async function readResponseText(response: Response): Promise<string> {
   let bytes = 0
   let text = ""
   while (true) {
-    const { done, value } = await reader.read()
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let result: { done: false, value: Uint8Array } | { done: true, value?: undefined }
+    try {
+      result = await Promise.race([
+        reader.read(),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(emailProviderError("resend", "TIMEOUT", "Resend response timed out.", { retryable: true })), RESPONSE_READ_TIMEOUT_MS)
+        }),
+      ])
+    }
+    catch (cause) {
+      await reader.cancel().catch(() => {})
+      throw cause
+    }
+    finally {
+      if (timeout !== undefined) clearTimeout(timeout)
+    }
+    const { done, value } = result
     if (done) return text + decoder.decode()
     bytes += value.byteLength
     if (bytes > MAX_RESPONSE_BYTES) {
