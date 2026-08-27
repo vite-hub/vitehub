@@ -297,6 +297,28 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(raw).not.toHaveProperty("usageRecord")
   })
 
+  it("preserves existing usage on immutable raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
+    const usageRecord = { cost: { total: 0.01 }, usage }
+    const raw = Object.assign((async function* () {
+      yield { type: "usage", usageRecord: { model: "provider/model" } }
+    })(), { usage, usageRecord })
+    Object.preventExtensions(raw)
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, usage, usageRecord },
+    })
+  })
+
   it("preserves immutable plain raw streams in the finish result", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

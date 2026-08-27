@@ -3610,11 +3610,12 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
       // Fall through to a wrapper when an existing property cannot be assigned.
     }
   }
+  const normalized = toAgentRunResult(result)
   return {
-    ...toAgentRunResult(result),
+    ...normalized,
     raw: result,
-    usage: usageRecord.usage,
-    usageRecord,
+    usage: normalized.usage ?? usageRecord.usage,
+    usageRecord: normalized.usageRecord ?? usageRecord,
   }
 }
 
