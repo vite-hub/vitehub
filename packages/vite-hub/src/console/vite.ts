@@ -175,7 +175,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         readConsoleFixture(fixture)
       }
       generatedPlugin = resolve(root, generatedConsolePlugin)
-      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root), fixture)
+      if (!viteConfig.vitehubCliDiscovery) {
+        await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root), fixture)
+      }
 
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
       const consoleConfig = viteConfig as typeof viteConfig & { nitro?: ConsoleNitroConfig }

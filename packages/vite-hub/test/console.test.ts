@@ -436,6 +436,9 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cli-discovery-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
+      const generatedPlugin = resolve(root, ".vitehub/nitro/console/plugin.mjs")
+      await mkdir(resolve(generatedPlugin, ".."), { recursive: true })
+      await writeFile(generatedPlugin, "// active fixture plugin\n")
       vi.stubEnv(consoleFixtureEnvironmentVariable, join(root, "missing.fixture.json"))
       const plugin = consoleVitePlugin({ preset: "node" })
       const configHook = plugin.config
@@ -446,6 +449,7 @@ describe("Agent invocation console", () => {
         { root, vitehubCliDiscovery: true },
         { command: "serve", mode: "development" },
       ])).resolves.toBeUndefined()
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe("// active fixture plugin\n")
     }
     finally {
       vi.unstubAllEnvs()
