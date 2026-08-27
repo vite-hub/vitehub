@@ -81,6 +81,7 @@ import "real"
     expect(scheduleBundle).not.toContain("./registry.mjs")
     expect(scheduleBundle).not.toContain("../../server/schedules/heartbeat.ts")
     await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      deploy: { runtime: { type: "dynamic", entrypoint: "./main.ts", cwd: "." } },
       tasks: { start: "deno run --unstable-cron -A ./main.ts" },
     })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
@@ -345,7 +346,10 @@ import "real"
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
     expect(deployRunner).toContain('process.env.DENO_DEPLOY_APP || "package-default"')
-    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", 'const entrypoint = "server/index.mjs"', '["deploy", ".", "--prod", "--config", "deno.json"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    await expect(readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      deploy: { runtime: { type: "dynamic", entrypoint: "./server/index.mjs", cwd: "." } },
+    })
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
   })
 

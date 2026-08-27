@@ -393,7 +393,7 @@ try {
   const common = ["--allow-node-modules", "--org", organization, "--app", app]
   const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
   if (creation.code !== 0) {
-    const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
+    const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
     if (deployment.code !== 0) {
       throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
     }
@@ -473,6 +473,13 @@ export async function finalizeDenoDeploymentOutput(
   })
 
   const denoConfig = {
+    deploy: {
+      runtime: {
+        type: "dynamic",
+        entrypoint: `./${entrypoint}`,
+        cwd: ".",
+      },
+    },
     nodeModulesDir: "manual",
     tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
