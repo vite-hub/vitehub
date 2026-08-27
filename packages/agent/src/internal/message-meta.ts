@@ -1,6 +1,6 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
-import { chatTriggerUserMeta, hasDerivedChatTriggerInvoker } from "../chat-message-input.ts"
+import { chatTriggerUserMeta, hasDerivedChatTriggerInvoker, markDerivedChatTriggerInvoker } from "../chat-message-input.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvoker } from "../invoker.ts"
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
@@ -9,6 +9,10 @@ import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, Agent
 
 const parsedAgentMessageMetaContextKey = "vitehub.agent.messageMetaParsed"
 interface ParsedAgentMessageMetaReceipt {
+  revision?: string
+}
+export interface ParsedAgentMessageMetaState {
+  derivedInvoker?: true
   revision?: string
 }
 
@@ -48,24 +52,30 @@ export function hasParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeCon
   return input.context?.[parsedAgentMessageMetaContextKey] === parsedAgentMessageMetaReceipt(definition, invocationContext, run)
 }
 
-export function parsedAgentMessageMetaReceiptId<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+export function parsedAgentMessageMetaState<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
-): string | undefined {
+): ParsedAgentMessageMetaState | undefined {
   const invocationContext = createAgentInvocationContextStore(input.context)
   const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
-  return input.context?.[parsedAgentMessageMetaContextKey] === receipt ? receipt?.revision : undefined
+  if (input.context?.[parsedAgentMessageMetaContextKey] !== receipt) return
+  return {
+    ...(hasDerivedChatTriggerInvoker(invocationContext.get("invoker")) ? { derivedInvoker: true } : {}),
+    ...(receipt?.revision !== undefined ? { revision: receipt.revision } : {}),
+  }
 }
 
 export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
-  revision?: string,
+  state?: ParsedAgentMessageMetaState,
 ): AgentRunInput<CALL_OPTIONS> {
+  if (!state) return input
+  if (state.derivedInvoker) markDerivedChatTriggerInvoker(input.context?.invoker)
   const receipt = parsedAgentMessageMetaReceipt(definition, createAgentInvocationContextStore(input.context), run)
-  if (!receipt || revision === undefined || receipt.revision !== revision) return input
+  if (!receipt || state.revision === undefined || receipt.revision !== state.revision) return input
   return {
     ...input,
     context: { ...input.context, [parsedAgentMessageMetaContextKey]: receipt },
@@ -87,7 +97,9 @@ function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string,
     meta: { ...invokerMeta, ...chatTriggerUserMeta(isRuntimeRecord(user) ? user : undefined), ...meta },
   }
   if (isRuntimeObject(rawMeta) && Object.hasOwn(rawMeta, "email")) normalizedInvoker.email = undefined
-  return normalizeAgentInvoker(normalizedInvoker)
+  const normalized = normalizeAgentInvoker(normalizedInvoker)
+  markDerivedChatTriggerInvoker(normalized)
+  return normalized
 }
 
 function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(

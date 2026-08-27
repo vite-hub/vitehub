@@ -46,6 +46,10 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
 
 const derivedChatInvokers = new WeakSet<object>()
 
+export function markDerivedChatTriggerInvoker(invoker: unknown): void {
+  if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.add(invoker)
+}
+
 export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
   return typeof invoker === "object" && invoker !== null && derivedChatInvokers.has(invoker)
 }
@@ -413,7 +417,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     : transportSessionId)
   const hookArgs = createChatTriggerHookArgs(options, selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
-  if (invoker && !triggerInput?.invoker) derivedChatInvokers.add(invoker)
+  if (!triggerInput?.invoker) markDerivedChatTriggerInvoker(invoker)
   return {
     hookArgs,
     input: {

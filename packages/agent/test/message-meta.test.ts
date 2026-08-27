@@ -8,7 +8,7 @@ import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { hasResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 import {
   hasParsedAgentMessageMeta,
-  parsedAgentMessageMetaReceiptId,
+  parsedAgentMessageMetaState,
   parseAgentMessageMeta,
   restoreParsedAgentMessageMeta,
   withParsedAgentMessageMeta,
@@ -199,10 +199,10 @@ describe("Agent message metadata", () => {
     const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
 
     expect(hasParsedAgentMessageMeta(agent, prepared)).toBe(true)
-    const receiptId = parsedAgentMessageMetaReceiptId(agent, prepared)
+    const receipt = parsedAgentMessageMetaState(agent, prepared)
     const portable = await portableAgentWorkflowInput(prepared)
     const workflowAgent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema, metaRevision: "durable-v1" } })
-    const restored = restoreParsedAgentMessageMeta(workflowAgent, portable, undefined, receiptId)
+    const restored = restoreParsedAgentMessageMeta(workflowAgent, portable, undefined, receipt)
     await parseAgentMessageMeta(workflowAgent, createAgentInvocationContextStore(restored.context))
 
     expect(parses).toBe(1)
@@ -220,20 +220,20 @@ describe("Agent message metadata", () => {
     } as const
     const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema, metaRevision: "" } })
     const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
-    const receiptId = parsedAgentMessageMetaReceiptId(agent, prepared)
+    const receipt = parsedAgentMessageMetaState(agent, prepared)
     const portable = await portableAgentWorkflowInput(prepared)
-    const restored = restoreParsedAgentMessageMeta(agent, portable, undefined, receiptId)
+    const restored = restoreParsedAgentMessageMeta(agent, portable, undefined, receipt)
 
     await parseAgentMessageMeta(agent, createAgentInvocationContextStore(restored.context))
 
-    expect(receiptId).toBe("")
+    expect(receipt).toEqual({ revision: "" })
     expect(parses).toBe(1)
   })
 
   it("revalidates durable metadata when the schema receipt is no longer current", async () => {
     const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
     const prepared = await withParsedAgentMessageMeta(previousAgent, { context: { channel: { meta: { audience: "technical" } } } })
-    const previousReceiptId = parsedAgentMessageMetaReceiptId(previousAgent, prepared)
+    const previousReceipt = parsedAgentMessageMetaState(previousAgent, prepared)
     const portable = await portableAgentWorkflowInput(prepared)
     const currentAgent = defineAgent({
       driver: { run: () => "ok" },
@@ -248,12 +248,49 @@ describe("Agent message metadata", () => {
         metaRevision: "current-v2",
       },
     })
-    const restored = restoreParsedAgentMessageMeta(currentAgent, portable, undefined, previousReceiptId)
+    const restored = restoreParsedAgentMessageMeta(currentAgent, portable, undefined, previousReceipt)
     const context = createAgentInvocationContextStore(restored.context)
 
     await parseAgentMessageMeta(currentAgent, context)
 
     expect(context.get("channel")).toEqual({ meta: { audience: "current" } })
+  })
+
+  it("rebuilds a derived Invoker after durable revalidation", async () => {
+    const previousAgent = defineAgent({ driver: { run: () => "ok" }, messages: metaSettings })
+    const input = createChatMessageTriggerInput({}, {
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      meta: { audience: "technical" },
+      user: { id: "chat:user-1" },
+    }).input
+    const prepared = await withParsedAgentMessageMeta(previousAgent, input)
+    const state = parsedAgentMessageMetaState(previousAgent, prepared)
+    const portable = await portableAgentWorkflowInput(prepared)
+    const currentAgent = defineAgent({
+      driver: { run: () => "ok" },
+      messages: {
+        meta: {
+          "~standard": {
+            validate: () => ({ value: { audience: "current" } }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+        metaRevision: "current-v2",
+      },
+    })
+    const restored = restoreParsedAgentMessageMeta(currentAgent, portable, undefined, state)
+    const context = createAgentInvocationContextStore(restored.context)
+
+    await parseAgentMessageMeta(currentAgent, context)
+
+    expect(state).toEqual({ derivedInvoker: true, revision: "test-v1" })
+    expect(context.get("channel")).toEqual({ meta: { audience: "current" }, user: { id: "chat:user-1" } })
+    expect(context.get("invoker")).toEqual({
+      id: "chat:user-1",
+      kind: "chat",
+      meta: { audience: "current", id: "chat:user-1" },
+    })
   })
 
   it("transforms nonportable metadata before a durable handoff", async () => {
