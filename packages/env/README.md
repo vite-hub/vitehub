@@ -6,7 +6,7 @@
   <img alt="Vite" src="https://img.shields.io/badge/Vite-public%20env-646cff?style=flat-square">
 </p>
 
-`@vite-hub/env` declares environment values once, then generates typed public, build-time, and server-only access for Vite applications.
+`@vite-hub/env` declares environment values once, then generates typed public, build-time, and server-oriented access for Vite applications.
 
 Most applications install `vite-hub` and enable Env through the framework preset. Install this owner package directly when a library or focused Vite integration needs Env without the rest of ViteHub.
 
@@ -18,11 +18,11 @@ pnpm add @vite-hub/env
 
 ## Choose an Env section
 
-| Section      | Read when                 | Visible to client code | Use it for                                              |
-| ------------ | ------------------------- | ---------------------- | ------------------------------------------------------- |
-| `env.public` | Build time                | Yes                    | Browser-safe application configuration.                 |
-| `env.define` | Build transform           | Yes, where bundled     | Compile-time replacements such as a release identifier. |
-| `env.server` | Request or server runtime | No                     | Credentials and host-supplied server configuration.     |
+| Section      | Read when                 | Visible to client code | Use it for                                                       |
+| ------------ | ------------------------- | ---------------------- | ---------------------------------------------------------------- |
+| `env.public` | Build time                | Yes                    | Browser-safe application configuration.                          |
+| `env.define` | Build transform           | Yes, where bundled     | Compile-time replacements such as a release identifier.          |
+| `env.server` | Request or server runtime | By caller convention   | Host-supplied server configuration and source-only credentials.  |
 
 ## First result
 
@@ -86,6 +86,8 @@ export async function sync(event: unknown) {
   });
 }
 ```
+
+The generated `#vitehub/env/server` module is not blocked from client builds. Keep its imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
 
 `SecretEnv` renders as `<redacted>` in string conversion, JSON, and Node inspection. Call `unseal()` only at the provider boundary that needs the raw value. Redaction is type friction, not complete leak prevention: never return, log, trace, or place an unsealed value in Agent input.
 
