@@ -8,6 +8,17 @@ import type { AgentDefinition, AgentInvocationContextStore, AgentRunInput, Agent
 const parsedAgentMessageMetaContextKey = "vitehub.agent.messageMetaParsed"
 const parsedAgentMessageMetaReceipt = Object.freeze({})
 
+export function hasParsedAgentMessageMeta(input: AgentRunInput): boolean {
+  return input.context?.[parsedAgentMessageMetaContextKey] === parsedAgentMessageMetaReceipt
+}
+
+export function restoreParsedAgentMessageMeta<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
+  return {
+    ...input,
+    context: { ...input.context, [parsedAgentMessageMetaContextKey]: parsedAgentMessageMetaReceipt },
+  }
+}
+
 function withParsedMeta(invoker: unknown, rawMeta: Record<string, unknown>, meta: Record<string, unknown>): unknown {
   if (!isRuntimeObject(invoker)) return invoker
   const record = invoker as Record<string, unknown>

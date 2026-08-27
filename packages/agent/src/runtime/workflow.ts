@@ -10,6 +10,7 @@ import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
+import { restoreParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "../agent-error.ts"
 import {
@@ -54,6 +55,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
     workflowName: string
   }
   requestUrl?: string
+  parsedMessageMeta?: boolean
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   trace?: AgentRuntimeContext["trace"]
@@ -369,11 +371,14 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
       return
     }
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
+    let restoredWorkflowInput = workflowInput as AgentRunInput<CALL_OPTIONS>
+    if (payload.parsedMessageMeta) restoredWorkflowInput = restoreParsedAgentMessageMeta(restoredWorkflowInput)
+    if (payload.resolvedInvoker) restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput)
     const inlineResult = await runAgentInline(
       agent,
       runtimeContext,
       // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-      payload.resolvedInvoker ? restoreResolvedAgentInvokerInput(workflowInput as AgentRunInput<CALL_OPTIONS>) : (workflowInput as AgentRunInput<CALL_OPTIONS>),
+      restoredWorkflowInput,
     )
     channelOwnership?.abortSignal?.throwIfAborted()
     const result = await portableWorkflowResult(inlineResult)

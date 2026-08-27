@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, runAgentInline } from "../src/index.ts"
+import { defineAgent, portableAgentWorkflowInput, runAgentInline } from "../src/index.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
-import { parseAgentMessageMeta, withParsedAgentMessageMeta } from "../src/internal/message-meta.ts"
+import {
+  hasParsedAgentMessageMeta,
+  parseAgentMessageMeta,
+  restoreParsedAgentMessageMeta,
+  withParsedAgentMessageMeta,
+} from "../src/internal/message-meta.ts"
 
 const metaSchema = {
   "~standard": {
@@ -121,6 +126,27 @@ describe("Agent message metadata", () => {
 
     expect(parses).toBe(1)
     expect(prepared.context?.channel).toEqual({ meta: { parse: 1 } })
+  })
+
+  it("restores trusted parsed metadata after a durable handoff", async () => {
+    let parses = 0
+    const schema = {
+      "~standard": {
+        validate: () => ({ value: { parse: ++parses } }),
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    } as const
+    const agent = defineAgent({ driver: { run: () => "ok" }, messages: { meta: schema } })
+    const prepared = await withParsedAgentMessageMeta(agent, { context: { channel: { meta: {} } } })
+
+    expect(hasParsedAgentMessageMeta(prepared)).toBe(true)
+    const portable = await portableAgentWorkflowInput(prepared)
+    const restored = restoreParsedAgentMessageMeta(portable)
+    await parseAgentMessageMeta(agent, createAgentInvocationContextStore(restored.context))
+
+    expect(parses).toBe(1)
+    expect(restored.context?.channel).toEqual({ meta: { parse: 1 } })
   })
 
   it("does not trust a caller-provided parsed marker", async () => {
