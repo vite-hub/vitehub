@@ -52,6 +52,7 @@ interface ConsoleVitePluginOptions {
 
 export interface ConsoleInvocationRootState {
   binding?: string
+  closed?: boolean
   identity?: string
   projectRoot?: string
 }
@@ -61,6 +62,7 @@ export function updateConsoleInvocationRootState(
   projectRoot: string,
   identity: string,
 ): void {
+  if (state.closed) return
   state.binding ??= randomUUID()
   state.identity = identity
   state.projectRoot = projectRoot
@@ -127,6 +129,7 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   agents: readonly ConsoleAgentEntry[],
   fixture?: string,
+  active: () => boolean = () => true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot)
@@ -134,7 +137,7 @@ async function writeConsoleNitroPlugin(
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
-  if (fixture && snapshot) {
+  if (fixture && snapshot && active()) {
     installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot))
   }
   return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
@@ -166,6 +169,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot,
       discoverAgentDefinitionEntries(root, serverDirs),
       fixture,
+      () => !options.invocationRootState?.closed,
     )
     if (options.invocationRootState) {
       updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
@@ -286,6 +290,7 @@ export function consoleInvocationRootPlugin(
   state: ConsoleInvocationRootState = {},
 ): Plugin {
   const frameworkAgentEntries = new Set<string>()
+  const activeEnvironments = new Set<object>()
   let projectRoot = configuredProjectRoot
   let identity = configuredIdentity
 
@@ -317,9 +322,19 @@ export function consoleInvocationRootPlugin(
       updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
     },
     closeBundle() {
+      if (this.environment) activeEnvironments.delete(this.environment)
+      if (activeEnvironments.size > 0) return
+      state.closed = true
       if (state.binding) releaseConsoleInvocationsBinding(state.binding)
     },
     async buildStart() {
+      if (this.environment) activeEnvironments.add(this.environment)
+      if (state.closed) {
+        state.closed = false
+        if (state.binding && state.identity && state.projectRoot) {
+          bindConsoleInvocationsIdentity(state.binding, state.identity, state.projectRoot)
+        }
+      }
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
       if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
       rememberFrameworkAgent(resolved.id)

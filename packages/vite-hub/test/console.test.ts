@@ -29,6 +29,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | string | undefined>
@@ -620,6 +621,43 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("does not reinstall a refreshed fixture after its runtime closes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-refresh-close-"))
+    const fixture = join(root, "console.fixture.json")
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(fixture, JSON.stringify(fixtureDocument("initial")))
+      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+      const state: ConsoleInvocationRootState = {}
+      const plugin = consoleVitePlugin({ invocationRootState: state })
+      await callPluginHook(plugin.config, {}, [{ root }, { command: "serve", mode: "development" }])
+      await callPluginHook(plugin.configResolved, {}, [{ root }])
+
+      const listeners = new Map<string, () => Promise<void>>()
+      await callPluginHook(plugin.configureServer, {}, [{
+        config: { logger: { error: vi.fn() } },
+        watcher: {
+          add: vi.fn(),
+          on: (event: string, listener: () => Promise<void>) => listeners.set(event, listener),
+        },
+      }])
+      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
+      const refresh = listeners.get("change")?.()
+      const runtimePlugin = consoleInvocationRootPlugin(undefined, undefined, state)
+      await callPluginHook(runtimePlugin.closeBundle, {})
+      await refresh
+
+      expect(state.closed).toBe(true)
+      expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).toBe(false)
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(false)
+      expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: root })).toBeUndefined()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("serves discovered Agent names in stable order for the active project", async () => {
     const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -726,6 +764,35 @@ describe("Agent invocation console", () => {
     expect(scope[consoleInvocationsRootKey]).toBeUndefined()
     expect(scope[consoleInvocationsIdentityKey]).toBeUndefined()
     expect(scope[consoleInvocationsIdentityRootKey]).toBeUndefined()
+  })
+
+  it("keeps a shared runtime binding until its last server environment closes", async () => {
+    const projectRoot = "/project"
+    const identity = "fixture:/project:/fixture.json:revision"
+    const invocations = fakeInvocations("fixture")
+    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity, "revision")
+    const state: ConsoleInvocationRootState = { identity, projectRoot }
+    updateConsoleInvocationRootState(state, projectRoot, identity)
+    const plugin = consoleInvocationRootPlugin(projectRoot, identity, state)
+    const firstEnvironment = { name: "first" }
+    const secondEnvironment = { name: "second" }
+    const resolved = { id: "/agent.ts" }
+    await callPluginHook(plugin.configEnvironment, {}, [firstEnvironment.name, { consumer: "server" }])
+    await callPluginHook(plugin.configEnvironment, {}, [secondEnvironment.name, { consumer: "server" }])
+    await callPluginHook(plugin.buildStart, { environment: firstEnvironment, resolve: vi.fn().mockResolvedValue(resolved) })
+    await callPluginHook(plugin.buildStart, { environment: secondEnvironment, resolve: vi.fn().mockResolvedValue(resolved) })
+    const transformed = callPluginHook(plugin.transform, {}, ["", resolved.id])
+    // SAFETY: The generated script returns the isolated realm used by this focused environment-lifecycle test.
+    const realm = runInNewContext(`${transformed}\nglobalThis`, { process }) as object
+
+    await callPluginHook(plugin.closeBundle, { environment: firstEnvironment })
+    expect(state.closed).toBeUndefined()
+    expect(resolveConsoleInvocations(realm)).toBe(invocations)
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(identity)).toBe(true)
+
+    await callPluginHook(plugin.closeBundle, { environment: secondEnvironment })
+    expect(state.closed).toBe(true)
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(identity)).toBe(false)
   })
 
   it("restores a surviving same-root runtime when the current runtime closes", async () => {

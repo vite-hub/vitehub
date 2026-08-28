@@ -191,6 +191,7 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   agents: readonly { handler: string, name: string }[],
   fixture?: string,
+  active: () => boolean = () => true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot)
@@ -198,7 +199,7 @@ async function writeConsoleNitroPlugin(
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
-  if (fixture && snapshot) {
+  if (fixture && snapshot && active()) {
     installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot))
   }
   return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
@@ -262,6 +263,7 @@ async function installConsole(
       projectRoot,
       discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
       fixture,
+      () => !invocationRootState?.closed,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
