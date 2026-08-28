@@ -693,6 +693,36 @@ describe("framework generated types", () => {
     expect(viteConfig.nitro.handlers).toEqual([existing])
   })
 
+  it("keeps Nitro contribution ownership scoped across interleaved project roots", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const firstCollection = join(first.root, "server/collections/meals.ts")
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await Promise.all([
+      mkdir(dirname(firstCollection), { recursive: true }),
+      mkdir(dirname(secondCollection), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(firstCollection, collectionModule("meals")),
+      writeFile(secondCollection, collectionModule("drinks")),
+    ])
+    const plugin = sourcePlugin()
+    const firstConfig: { nitro?: Record<string, unknown>; root: string } = { root: first.root }
+    const secondConfig: { nitro?: Record<string, unknown>; root: string } = { root: second.root }
+
+    const firstContribution = await config(plugin)(firstConfig)
+    firstConfig.nitro = firstContribution?.nitro
+    const secondContribution = await config(plugin)(secondConfig)
+    secondConfig.nitro = secondContribution?.nitro
+    await rm(firstCollection)
+    await configResolved(plugin)(firstConfig)
+
+    expect(Reflect.get(Object(firstConfig.nitro), "handlers")).toEqual([])
+    expect(Reflect.get(Object(secondConfig.nitro), "handlers")).toContainEqual(
+      expect.objectContaining({ route: "/api/drinks" }),
+    )
+  })
+
   it("does not contribute duplicate Nitro handlers when Source is composed twice", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })

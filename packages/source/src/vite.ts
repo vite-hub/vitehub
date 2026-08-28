@@ -361,10 +361,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     prepareSources: (options: Omit<SourceGenerationOptions, "importBase">) => Promise<GeneratedSourceHandler[]>
   }
 } {
-  let projectRoot: string | undefined
-  let serverDirs: string[] | undefined
-  let configuredHandlerKey = "[]"
-  let configuredNitroContribution: NitroGeneratedConfig | undefined
+  let latestProjectRoot: string | undefined
+  const configuredStateByRoot = new Map<string, {
+    handlerKey: string
+    nitroContribution?: NitroGeneratedConfig
+    serverDirs?: string[]
+  }>()
   const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
   const hostRefreshLifecycleByRoot = new Map<string, {
     close: () => void
@@ -391,7 +393,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     return preparation
   }
   const refresh = async () => {
-    if (projectRoot) await prepareSources({ projectRoot, serverDirs })
+    if (!latestProjectRoot) return
+    await prepareSources({
+      projectRoot: latestProjectRoot,
+      serverDirs: configuredStateByRoot.get(latestProjectRoot)?.serverDirs,
+    })
   }
   const onGeneratedHandlersChanged = (
     listener: GeneratedSourceHandlersListener,
@@ -401,7 +407,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       ...listenerOptions,
       projectRoot: listenerOptions.projectRoot
         ? resolve(listenerOptions.projectRoot)
-        : projectRoot,
+        : latestProjectRoot,
     })
     return () => generatedHandlersListeners.delete(listener)
   }
@@ -413,6 +419,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   const replaceConfiguredNitroContribution = (
     value: unknown,
     handlers: GeneratedSourceHandler[],
+    configuredNitroContribution: NitroGeneratedConfig | undefined,
   ): NitroGeneratedConfig => {
     let nitro: NitroGeneratedConfig = {}
     if (Object(value) === value && !Array.isArray(value)) {
@@ -437,16 +444,21 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
-      projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      const projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
       const previousLifecycle = hostRefreshLifecycleByRoot.get(projectRoot)
       previousLifecycle?.pause()
-      serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
+      const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       try {
         const handlers = await prepareSources({ projectRoot, serverDirs })
-        configuredHandlerKey = await generatedHandlerKey(handlers)
+        const handlerKey = await generatedHandlerKey(handlers)
         const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
-        configuredNitroContribution = nitro
+        configuredStateByRoot.set(projectRoot, {
+          handlerKey,
+          nitroContribution: nitro,
+          serverDirs: serverDirs?.slice(),
+        })
         const contribution: SourcePluginConfig = {
           define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
           ...(nitro ? { nitro } : {}),
@@ -460,21 +472,33 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       }
     },
     async configResolved(config) {
-      projectRoot = resolveViteHubProjectRoot(config.root)
+      const projectRoot = resolveViteHubProjectRoot(config.root)
+      latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
       const viteConfig = config as SourcePluginConfig
-      serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
+      const configuredState = configuredStateByRoot.get(projectRoot)
+      const serverDirs = viteConfig[VITEHUB_SERVER_DIRS] ?? configuredState?.serverDirs
       const handlers = await prepareSources({ projectRoot, serverDirs })
-      configuredHandlerKey = await generatedHandlerKey(handlers)
+      const handlerKey = await generatedHandlerKey(handlers)
+      configuredStateByRoot.set(projectRoot, {
+        handlerKey,
+        nitroContribution: configuredState?.nitroContribution,
+        serverDirs: serverDirs?.slice(),
+      })
       if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
-        viteConfig.nitro = replaceConfiguredNitroContribution(viteConfig.nitro, handlers)
+        viteConfig.nitro = replaceConfiguredNitroContribution(
+          viteConfig.nitro,
+          handlers,
+          configuredState?.nitroContribution,
+        )
       }
     },
     configureServer(server) {
-      const root = projectRoot
-      const lifecycleServerDirs = serverDirs?.slice()
-      let activeHandlerKey = configuredHandlerKey
+      const root = resolveViteHubProjectRoot(server.config.root ?? latestProjectRoot ?? process.cwd())
+      const configuredState = configuredStateByRoot.get(root)
+      const lifecycleServerDirs = configuredState?.serverDirs?.slice()
+      let activeHandlerKey = configuredState?.handlerKey ?? "[]"
       const effectiveServerDirs = lifecycleServerDirs === undefined
         ? root ? [resolve(root, "server")] : []
         : root ? lifecycleServerDirs.map(directory => resolve(root, directory)) : []
