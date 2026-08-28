@@ -860,6 +860,39 @@ describe("lazy sources", () => {
     expect(progress.at(-1)).toMatchObject({ bytes: 8, files: 2, status: "completed" })
   })
 
+  it("excludes removed untracked files from scoped snapshot byte deltas", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-scoped-untracked-removal",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return ["guides/a.md", "reference/b.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: key.endsWith("a.md") ? "# A\n" : "# BB\n" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    await store.writeFile("docs/guides/untracked.md", {
+      path: "docs/guides/untracked.md",
+      content: "not in the Source snapshot",
+    })
+    await view.materializeSources({ path: "docs/guides", sources: ["docs"] })
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 9,
+      files: 2,
+      sources: [{ bytes: 9, cacheStatus: "hit", files: 2 }],
+    })
+    await expect(store.stat("docs/guides/untracked.md")).resolves.toBeUndefined()
+  })
+
   it("composes concurrent scoped materialization snapshots", async () => {
     const files = new Map([
       ["a.md", "# A\n"],

@@ -540,7 +540,7 @@ export async function materializeWorkspaceSources(
       await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, {
         onRemoved(path, removedBytes) {
           counts.removed++
-          persistedBytesDelta -= removedBytes
+          if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= removedBytes
           delete itemMetadata[path]
           paths.push({ path, status: "removed" })
         },
