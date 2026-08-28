@@ -793,6 +793,7 @@ function withWorkspaceFallbackFullStream(
   fallbackUsageCapture?: ReturnType<typeof createUsageCapture>,
   usageCaptures?: () => readonly ReturnType<typeof createUsageCapture>[],
   onSynthesis?: () => void,
+  sharedSynthesis?: { task?: Promise<Awaited<ReturnType<typeof synthesizeWorkspaceFallbackFromEvidence>>> },
 ): AsyncIterable<unknown> {
   return (async function* () {
     let text = ""
@@ -835,10 +836,19 @@ function withWorkspaceFallbackFullStream(
         : undefined
       return { usage, usageRecord }
     }
-    onSynthesis?.()
     let synthesized: Awaited<ReturnType<typeof synthesizeWorkspaceFallbackFromEvidence>>
     try {
-      synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
+      if (sharedSynthesis) {
+        sharedSynthesis.task ??= Promise.resolve().then(() => {
+          onSynthesis?.()
+          return synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
+        })
+        synthesized = await sharedSynthesis.task
+      }
+      else {
+        onSynthesis?.()
+        synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
+      }
     }
     catch (error) {
       try {
@@ -872,26 +882,44 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   onSynthesis?: () => void,
 ): T {
   if (!fallback.enabled) return result
-  const stream = result.stream
-  const fullStream = result.fullStream
-  if (stream || fullStream) {
-    const wrappedStream = stream
-      ? withWorkspaceFallbackFullStream(stream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)
-      : undefined
-    const wrappedFullStream = fullStream
-      ? fullStream === stream && wrappedStream
-        ? wrappedStream
-        : withWorkspaceFallbackFullStream(fullStream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)
-      : undefined
+  const hasStream = "stream" in result
+  const hasFullStream = "fullStream" in result
+  if (hasStream || hasFullStream) {
+    const sharedSynthesis: { task?: Promise<Awaited<ReturnType<typeof synthesizeWorkspaceFallbackFromEvidence>>> } = {}
+    const descriptor = (property: "fullStream" | "stream"): PropertyDescriptor => ({
+      configurable: true,
+      enumerable: true,
+      get() {
+        const source = Reflect.get(result, property)
+        if (!isAsyncIterable(source)) return source
+        return toReadableAsyncIterableStream(withWorkspaceFallbackFullStream(
+          source,
+          model,
+          context,
+          fallback.maxToolResults,
+          capturedEvidence,
+          fallbackUsageCapture,
+          usageCaptures,
+          onSynthesis,
+          sharedSynthesis,
+        ), { highWaterMark: 0 })
+      },
+    })
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    return cloneStreamTextResult(result as object, {
-      ...(wrappedStream ? { stream: wrappedStream } : {}),
-      ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
-    }, false) as T
+    return cloneWithPropertyDescriptors(result as object, {
+      ...(hasStream ? { stream: descriptor("stream") } : {}),
+      ...(hasFullStream ? { fullStream: descriptor("fullStream") } : {}),
+    }) as T
   }
   if (isAsyncIterable(result)) {
+    const wrapped = withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    return asUnknownBoundary(withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)) as T
+    return cloneWithPropertyDescriptors(result as object, {
+      [Symbol.asyncIterator]: {
+        configurable: true,
+        value: () => wrapped[Symbol.asyncIterator](),
+      },
+    }) as T
   }
   return result
 }
@@ -1531,8 +1559,14 @@ function withProviderStreamCancellation<T>(model: T): T {
   const doStream = Reflect.get(model, "doStream")
   if (!hasRuntimeType(doStream, "function")) return model
   return new Proxy(model, {
-    get(target, property, receiver) {
-      if (property !== "doStream") return Reflect.get(target, property, receiver)
+    get(target, property) {
+      if (property !== "doStream") {
+        const value = Reflect.get(target, property, target)
+        if (!hasRuntimeType(value, "function")) return value
+        // SAFETY: The runtime function check establishes the callable model member forwarded with its original receiver.
+        const callable = value as (...args: unknown[]) => unknown
+        return (...args: unknown[]) => Reflect.apply(callable, target, args)
+      }
       return async (options: unknown) => {
         const result = await Reflect.apply(doStream, target, [options])
         const resultRecord = recordFrom(result)
@@ -1551,13 +1585,13 @@ function withProviderStreamCancellation<T>(model: T): T {
           if (cancelled || completed) return
           cancelled = true
           detach()
-          await reader.cancel(reason)
           try {
             streamController?.close()
           }
           catch {
             // A concurrent provider read may already have closed the wrapper.
           }
+          await reader.cancel(reason)
         }
         const onAbort = () => { void cancel(signal?.reason).catch(() => undefined) }
         const stream = new ReadableStream({
@@ -2067,13 +2101,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         invocationAbortSignal,
       )
       if (context.workspace && tools && "materialize_sources" in tools) {
-        await runWithinInvocationSignal(
-          () => {
-            // SAFETY: createAgent normalizes tools to AgentToolSet, and the guard proves materialize_sources is present.
-            return reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
-          },
-          invocationAbortSignal,
-        )
+        // SAFETY: createAgent normalizes tools to AgentToolSet, and the guard proves materialize_sources is present.
+        await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter, invocationAbortSignal)
       }
       const usageCapture = createUsageCapture()
       const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
@@ -2263,7 +2292,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         : undefined
       const abortSignal = context.input.abortSignal
       const streamCancellation = new AbortController()
-      const providerAbortSignal = combinedAbortSignal(abortSignal, invocationDeadline?.signal, streamCancellation.signal)!
+      const invocationAbortSignal = combinedAbortSignal(abortSignal, invocationDeadline?.signal)
+      const providerAbortSignal = combinedAbortSignal(invocationAbortSignal, streamCancellation.signal)!
       const { agent, maxOutputAttempts, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await runWithinInvocationSignal(
         () => createAgent(options, context, fallbackCapture, usageCapture, invocationDeadline, providerAbortSignal),
         providerAbortSignal,
@@ -2297,19 +2327,22 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       let outputAttemptsUsed = 1
       const cancelProvider = (reason?: unknown) => {
         if (!streamCancellation.signal.aborted) streamCancellation.abort(reason)
+        resolveUsageReady()
       }
       let abortListener: (() => void) | undefined
       const detachAbortListener = () => {
         if (!abortListener) return
-        abortSignal?.removeEventListener("abort", abortListener)
+        invocationAbortSignal?.removeEventListener("abort", abortListener)
         abortListener = undefined
       }
       let started: Promise<StreamTextResult<ToolSet, never, never>> | undefined
-      const start = () => {
+      const start = (allowExpiredDeadline = false) => {
         if (started) return started
         // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
         started = Promise.resolve(agent.stream({
-          ...withRemainingInvocationTimeout(callInput, invocationDeadline),
+          ...(allowExpiredDeadline && invocationAbortSignal?.aborted
+            ? callInput
+            : withRemainingInvocationTimeout(callInput, invocationDeadline)),
           abortSignal: providerAbortSignal,
           onEnd: usageCapture.onEnd,
           onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
@@ -2343,7 +2376,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         // oxlint-disable-next-line unicorn/no-thenable -- Preserve lazy startup until a caller consumes the Promise-compatible AI SDK accessor.
         then: (onfulfilled, onrejected) => Promise.resolve().then(driveUsage).then(select).catch((error) => {
           // SAFETY: cancellation fulfills the generic accessor with no value because the caller abandoned the result.
-          if (streamCancellation.signal.aborted || abortSignal?.aborted) return undefined as T
+          if (streamCancellation.signal.aborted && !invocationAbortSignal?.aborted) return undefined as T
           throw error
         }).then(onfulfilled, onrejected),
         [Symbol.toStringTag]: "Promise",
@@ -2365,7 +2398,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
         const read = async () => {
           const interruptedRead = () => {
-            if (streamCancellation.signal.aborted) return { done: true as const, value: undefined }
+            if (streamCancellation.signal.aborted && !invocationAbortSignal?.aborted) return { done: true as const, value: undefined }
             throw providerAbortSignal.reason ?? new DOMException("[vitehub] Agent Invocation aborted.", "AbortError")
           }
           if (providerAbortSignal.aborted) return interruptedRead()
@@ -2473,9 +2506,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         },
       }) as StreamTextResult<ToolSet, never, never>
       const cancelStarted = async () => {
-        cancelProvider(abortSignal?.reason)
+        cancelProvider(invocationAbortSignal?.reason)
         try {
-          const streamed = await start()
+          const streamed = await start(true)
           const candidates = [streamed.stream, streamed.fullStream]
           await Promise.allSettled(candidates.map(async (candidate) => {
             const iterator = candidate?.[Symbol.asyncIterator]()
@@ -2490,10 +2523,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           resolveUsageReady()
         }
       }
-      if (abortSignal?.aborted) void cancelStarted()
-      else if (abortSignal) {
+      if (invocationAbortSignal?.aborted) void cancelStarted()
+      else if (invocationAbortSignal) {
         abortListener = () => void cancelStarted()
-        abortSignal.addEventListener("abort", abortListener, { once: true })
+        invocationAbortSignal.addEventListener("abort", abortListener, { once: true })
       }
       if (repairOutput && context.output) {
         // Stream results are cloned before structured repair runs. Keep a shared

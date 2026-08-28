@@ -173,8 +173,12 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>, o
   const cancel = async (reason?: unknown) => {
     if (completed) return
     cancelTask ||= (async () => {
-      if (hasRuntimeType(directCancel, "function")) directCancel(reason)
-      await getIterator().return?.(reason)
+      await Promise.all([
+        hasRuntimeType(directCancel, "function")
+          ? Promise.resolve(Reflect.apply(directCancel, stream, [reason]))
+          : Promise.resolve(),
+        Promise.resolve(getIterator().return?.(reason)),
+      ])
     })()
     await cancelTask
   }

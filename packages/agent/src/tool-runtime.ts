@@ -161,11 +161,12 @@ function materializeSummary(output: unknown): unknown {
 export async function reportWorkspaceMaterialization(
   tools: AgentToolSet | undefined,
   reportToolStep?: AgentToolStepReporter,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   if (!tools || typeof tools !== "object") return
   const materializeTool = (tools as Record<string, unknown>).materialize_sources
   const execute = materializeTool && typeof materializeTool === "object" && typeof (materializeTool as { execute?: unknown }).execute === "function"
-    ? (materializeTool as { execute: (input: unknown) => Promise<unknown> }).execute
+    ? (materializeTool as { execute: (input: unknown, options?: { abortSignal?: AbortSignal }) => Promise<unknown> }).execute
     : undefined
   if (!execute) return
 
@@ -176,11 +177,16 @@ export async function reportWorkspaceMaterialization(
   }
   await reportToolStep?.({ toolCalls: [toolCall] })
   try {
-    const output = await execute.call(materializeTool, toolCall.input)
+    abortSignal?.throwIfAborted()
+    const output = abortSignal
+      ? await execute.call(materializeTool, toolCall.input, { abortSignal })
+      : await execute.call(materializeTool, toolCall.input)
+    abortSignal?.throwIfAborted()
     await reportToolStep?.({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
   }
   catch (error) {
     await reportToolStep?.({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+    if (abortSignal?.aborted) throw abortSignal.reason
   }
 }
 
