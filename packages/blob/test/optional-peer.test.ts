@@ -83,13 +83,20 @@ describe("optional peer imports", () => {
     expect(attempts).toEqual([1, 2])
   })
 
-  it("uses deterministic Vercel retry delays by default", async () => {
-    const random = vi.spyOn(Math, "random")
+  it("randomizes Vercel retry delays by default and supports deterministic delays", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.5)
     let attempts = 0
     try {
       await retry(() => {
         if (attempts++ === 0) throw new Error("retry")
       }, { minTimeout: 0, retries: 1 })
+      expect(random).toHaveBeenCalledOnce()
+
+      random.mockClear()
+      attempts = 0
+      await retry(() => {
+        if (attempts++ === 0) throw new Error("retry")
+      }, { minTimeout: 0, randomize: false, retries: 1 })
       expect(random).not.toHaveBeenCalled()
     }
     finally {

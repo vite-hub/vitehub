@@ -52,7 +52,7 @@ export default async function retry<T>(
       errors.push(error)
       if (attempt > retries) throw mainError(errors)
       options.onRetry?.(error, attempt)
-      const random = options.randomize === true ? Math.random() + 1 : 1
+      const random = options.randomize !== false ? Math.random() + 1 : 1
       const timeout = Math.min(Math.round(random * Math.max(minTimeout, 1) * factor ** (attempt - 1)), maxTimeout)
       await new Promise(resolve => setTimeout(resolve, timeout))
     }
