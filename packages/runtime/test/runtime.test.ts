@@ -438,6 +438,40 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("preserves public Blob payload snapshots", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: new Blob(["public bytes"], { type: "text/plain" }), visibility: "public" },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (entry?.payload?.visibility !== "public") throw new Error("Expected a public Blob payload.")
+    expect(entry.payload.value).toBeInstanceOf(Blob)
+    const snapshot = entry.payload.value as Blob
+    expect(snapshot).toMatchObject({ size: 12, type: "text/plain" })
+    await expect(snapshot.text()).resolves.toBe("public bytes")
+  })
+
+  it("rejects custom symbol fields on Blob payloads", async () => {
+    const hidden = Symbol("hidden")
+    const value = new Blob(["public bytes"])
+    Object.defineProperty(value, hidden, { enumerable: true, value: "must not disappear" })
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
   it("isolates stored entries from returned and observed payloads", async () => {
     let observed: TraceEventLogEntry | undefined
     const log = createTraceEventLog({

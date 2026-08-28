@@ -458,6 +458,24 @@ function reflectedRegExpState(value: unknown): { flags: string, lastIndex: numbe
   }
 }
 
+function reflectedBlobState(value: unknown): { intrinsicSymbols: ReadonlySet<symbol>, size: number, type: string } | undefined {
+  const BlobConstructor = globalThis.Blob
+  if (!hasRuntimeType(BlobConstructor, "function") || !(value instanceof BlobConstructor)) return
+  try {
+    const intrinsic = new BlobConstructor()
+    return {
+      intrinsicSymbols: new Set(Reflect.ownKeys(intrinsic).filter((key): key is symbol =>
+        hasRuntimeType(key, "symbol") && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
+      )),
+      size: value.size,
+      type: value.type,
+    }
+  }
+  catch {
+    return
+  }
+}
+
 function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = new Map<object, object>()): boolean {
   if (!source || !hasRuntimeType(source, "object")) return true
   if (!snapshot || !hasRuntimeType(snapshot, "object")) return false
@@ -472,6 +490,11 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
       || sourceRegExp.source !== snapshotRegExp.source
       || sourceRegExp.flags !== snapshotRegExp.flags
       || sourceRegExp.lastIndex !== snapshotRegExp.lastIndex) return false
+  }
+  const sourceBlob = reflectedBlobState(source)
+  if (sourceBlob) {
+    const snapshotBlob = reflectedBlobState(snapshot)
+    if (!snapshotBlob || sourceBlob.size !== snapshotBlob.size || sourceBlob.type !== snapshotBlob.type) return false
   }
   const sourceAggregateErrors = Object.getOwnPropertyDescriptor(source, "errors")
   if (sourceAggregateErrors && "value" in sourceAggregateErrors) {
@@ -503,7 +526,11 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   for (const key of Reflect.ownKeys(source)) {
     const sourceDescriptor = Object.getOwnPropertyDescriptor(source, key)
     if (!sourceDescriptor?.enumerable) continue
-    if (hasRuntimeType(key, "symbol") || !("value" in sourceDescriptor)) return false
+    if (hasRuntimeType(key, "symbol")) {
+      if (sourceBlob?.intrinsicSymbols.has(key)) continue
+      return false
+    }
+    if (!("value" in sourceDescriptor)) return false
     const snapshotDescriptor = Object.getOwnPropertyDescriptor(snapshot, key)
     if (!snapshotDescriptor || !("value" in snapshotDescriptor)) return false
     if (!preservesEnumerableFields(sourceDescriptor.value, snapshotDescriptor.value, seen)) return false
