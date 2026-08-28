@@ -49,9 +49,8 @@ export interface WorkspaceSourceView {
   rm(path: string, options?: RmOptions): Promise<void>
 }
 
-const materializationProgressSource = new AsyncLocalStorage<string>()
-
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
+  const materializationProgressSources = new AsyncLocalStorage<ReadonlySet<string>>()
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
   const sources = allSources.filter(source => !source.requestOnly && source.materialize === "lazy")
@@ -95,6 +94,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     let started = false
     const selectedSources = sources
       .filter(source => !options?.sources?.length || options.sources.includes(source.key))
+    const selectedSourceKeys = new Set(selectedSources.map(source => source.key))
     const concurrentPreparations = new Map(selectedSources
       .map(source => [source.key, prepareBySource.get(source.key)] as const)
       .filter((entry): entry is readonly [string, Promise<void>] => Boolean(entry[1])))
@@ -131,8 +131,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         const materializationOptions = options?.onProgress
           ? {
               ...options,
-              onProgress: async (event: WorkspaceMaterializeSourcesProgressEvent) => await materializationProgressSource.run(
-                event.source,
+              onProgress: async (event: WorkspaceMaterializeSourcesProgressEvent) => await materializationProgressSources.run(
+                selectedSourceKeys,
                 async () => await options.onProgress!(event),
               ),
             }
@@ -314,7 +314,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensurePrepared(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
-    if (materializationProgressSource.getStore() !== sourceKey) {
+    if (!materializationProgressSources.getStore()?.has(sourceKey)) {
       await materializationPreparationBySource.get(sourceKey)
     }
     if (preparedSources.has(sourceKey)) return
@@ -345,7 +345,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if ([...materializedPaths || []].some(materializedPath =>
       !materializedPath || normalized === materializedPath || normalized.startsWith(`${materializedPath}/`)
     )) return
-    if (materializationProgressSource.getStore() === sourceKey) return
+    if (materializationProgressSources.getStore()?.has(sourceKey)) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
       const reusePreparedContext = !materializedPathsBySource.has(sourceKey)

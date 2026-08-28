@@ -428,6 +428,45 @@ describe("lazy sources", () => {
     expect(observed).toEqual(["# A\n"])
   })
 
+  it("allows progress observers to read another Source in the same materialization", async () => {
+    let view: ReturnType<typeof createWorkspaceSourceView>
+    const observed: string[] = []
+    view = createWorkspaceSourceView({
+      name: "lazy-progress-cross-source-read",
+      sources: {
+        reference: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["b.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# B\n" }
+          },
+        }),
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# A\n" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({
+      async onProgress(event) {
+        if (event.source === "docs" && event.status === "updating") {
+          observed.push(await view.readFile("reference/b.md", { encoding: "utf8" }))
+        }
+      },
+      sources: ["reference", "docs"],
+    })
+
+    expect(observed).toEqual(["# B\n"])
+  })
+
   it("reports failures during source fingerprinting", async () => {
     const progress: unknown[] = []
     const view = createWorkspaceSourceView({
