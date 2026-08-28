@@ -39,7 +39,9 @@ export default defineConfig({
   pack: {
     alias: {
       "@vercel/oidc": new URL("./src/internal/vercel-oidc.ts", import.meta.url).pathname,
+      "async-retry": new URL("./src/internal/vercel-retry.ts", import.meta.url).pathname,
       "is-buffer": new URL("./src/internal/vercel-is-buffer.ts", import.meta.url).pathname,
+      throttleit: new URL("./src/internal/vercel-throttle.ts", import.meta.url).pathname,
       undici: new URL("./src/internal/vercel-fetch.ts", import.meta.url).pathname,
     },
     tsconfig: "tsconfig.build.json",
