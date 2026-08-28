@@ -2291,7 +2291,7 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!({
       ...(context() as Record<string, unknown>),
-      input: { messages: [] },
+      input: { context: {}, messages: [] },
       run: {
         origin: "teams",
         runId: "run_123",

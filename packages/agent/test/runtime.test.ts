@@ -5525,7 +5525,7 @@ describe("agent message protocol", () => {
         web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options other than commentary, filter, or stream are only supported when an Agent defines one message-shaped Channel")
+    })).toThrow("Channel-local messages options other than commentary, filter, meta, metaRevision, or stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {
@@ -5591,7 +5591,7 @@ describe("agent message protocol", () => {
     }, input)).resolves.toMatchObject({ text: "ok" })
 
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      input,
+      input: { ...input, context: {} },
       invocation: expect.objectContaining({
         durationMs: expect.any(Number),
         run: { runId: "run-1" },
