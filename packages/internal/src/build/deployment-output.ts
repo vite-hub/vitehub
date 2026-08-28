@@ -744,6 +744,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     createDefaultVercelOutputRoot(rootDir),
     resolve(rootDir, ".vitehub/blob/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/queue/registry.mjs"),
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/manifest.json"),

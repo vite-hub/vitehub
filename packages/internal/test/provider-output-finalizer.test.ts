@@ -305,6 +305,7 @@ describe("Provider Output finalizer", () => {
     const customOutputRoot = join(rootDir, "custom-cloudflare")
     const customOutputFile = join(customOutputRoot, "owner.js")
     const ownershipFile = join(rootDir, ".vitehub/blob/cloudflare-output.json")
+    const queueRegistry = join(rootDir, ".vitehub/queue/registry.mjs")
     const rateLimitManifest = join(rootDir, ".vitehub/rate-limit/manifest.json")
     const scheduleRegistry = join(rootDir, ".vitehub/schedule/registry.mjs")
     const denoCron = join(rootDir, ".vitehub/schedule/deno-cron.mjs")
@@ -312,6 +313,7 @@ describe("Provider Output finalizer", () => {
       mkdir(outputRoot, { recursive: true }),
       mkdir(customOutputRoot, { recursive: true }),
       mkdir(dirname(ownershipFile), { recursive: true }),
+      mkdir(dirname(queueRegistry), { recursive: true }),
       mkdir(dirname(rateLimitManifest), { recursive: true }),
       mkdir(dirname(scheduleRegistry), { recursive: true }),
     ])
@@ -319,6 +321,7 @@ describe("Provider Output finalizer", () => {
       writeFile(outputFile, "previous\n"),
       writeFile(customOutputFile, "previous\n"),
       writeFile(ownershipFile, "previous\n"),
+      writeFile(queueRegistry, "previous\n"),
       writeFile(rateLimitManifest, "previous\n"),
       writeFile(scheduleRegistry, "previous\n"),
       writeFile(denoCron, "previous\n"),
@@ -339,6 +342,7 @@ describe("Provider Output finalizer", () => {
         })
         await writeFile(ownershipFile, "replacement\n")
         await Promise.all([
+          writeFile(queueRegistry, "replacement\n"),
           writeFile(rateLimitManifest, "replacement\n"),
           writeFile(scheduleRegistry, "replacement\n"),
           writeFile(denoCron, "replacement\n"),
@@ -355,6 +359,7 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(customOutputFile, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(queueRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(rateLimitManifest, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(scheduleRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(denoCron, "utf8")).resolves.toBe("previous\n")
