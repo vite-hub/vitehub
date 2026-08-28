@@ -302,23 +302,22 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
   const entries = caseInsensitive
     ? new Map([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries].map(entry => [entry.toLowerCase(), entry])).values()
     : new Set([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries])
-  await Promise.all([...entries]
-    .filter((entry) => {
-      const comparableEntry = entry.toLowerCase()
-      return !codexPrivateHomeEntries.has(comparableEntry) && !codexLocalHomeEntries.has(comparableEntry)
-    })
-    .map(async (entry) => {
-      const source = join(sharedHome, entry)
-      const target = join(home, entry)
-      const sourceEntry = await lstat(source)
-      if (sourceEntry.isSymbolicLink()) {
-        const linkedEntry = await stat(source).catch((error) => {
-          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
-          throw error
-        })
-        if (!linkedEntry) return
-      }
+  const materializedEntries = new Set<string>()
+  for (const entry of entries) {
+    const comparableEntry = entry.toLowerCase()
+    if (codexPrivateHomeEntries.has(comparableEntry) || codexLocalHomeEntries.has(comparableEntry)) continue
+    const source = join(sharedHome, entry)
+    const target = join(home, entry)
+    const sourceEntry = await lstat(source)
+    if (sourceEntry.isSymbolicLink()) {
+      const linkedEntry = await stat(source).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })
+      if (!linkedEntry) continue
+    }
+    try {
       if (process.platform === "win32" && sourceEntry.isFile()) {
         await link(source, target).catch(async (error) => {
           // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
@@ -326,10 +325,17 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
           if (code !== "EACCES" && code !== "EPERM" && code !== "EXDEV") throw error
           await copyFile(source, target)
         })
-        return
       }
-      await symlink(source, target, process.platform === "win32" && sourceEntry.isDirectory() ? "junction" : undefined)
-    }))
+      else {
+        await symlink(source, target, process.platform === "win32" && sourceEntry.isDirectory() ? "junction" : undefined)
+      }
+      materializedEntries.add(comparableEntry)
+    }
+    catch (error) {
+      // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !materializedEntries.has(comparableEntry)) throw error
+    }
+  }
 }
 
 async function persistCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {

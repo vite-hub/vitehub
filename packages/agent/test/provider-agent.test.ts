@@ -19,6 +19,7 @@ const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | un
 const readCodexSharedHome = vi.hoisted(() => vi.fn())
 const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
 const beforeCodexCredentialChmod = vi.hoisted(() => vi.fn())
+const beforeCodexHomeSymlink = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
@@ -36,6 +37,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     realpath: (...args: Parameters<typeof original.realpath>) => canonicalizeCodexSharedHome.getMockImplementation()
       ? canonicalizeCodexSharedHome(...args)
       : original.realpath(...args),
+    symlink: async (...args: Parameters<typeof original.symlink>) => {
+      await beforeCodexHomeSymlink(...args)
+      return await original.symlink(...args)
+    },
   }
 })
 
@@ -441,6 +446,43 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(shadowHome).toBeDefined()
     if (!shadowHome) throw new Error("Expected a Codex shadow home")
     await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("deduplicates case-equivalent shared entries when the shadow home rejects them", async () => {
+    const threadId = "thread-case-insensitive-shadow-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await mkdir(join(sharedHome, "Sessions"))
+    const linkedShadowEntries = new Set<string>()
+    beforeCodexHomeSymlink.mockImplementation((_source, target) => {
+      const path = String(target)
+      if (!path.includes("vitehub-codex-shadow-home-")) return
+      const key = path.toLowerCase()
+      if (linkedShadowEntries.has(key)) {
+        throw Object.assign(new Error("case-equivalent shadow entry"), { code: "EEXIST" })
+      }
+      linkedShadowEntries.add(key)
+    })
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions")
+      expect(sessionEntries).toEqual(["sessions"])
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+    }
+    finally {
+      beforeCodexHomeSymlink.mockReset()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
   })
 
   it.runIf(process.platform !== "win32")("ignores dangling links in the shared Codex home", async () => {
