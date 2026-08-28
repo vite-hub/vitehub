@@ -33,7 +33,7 @@ function fixtureDocument(id?: string) {
 }
 
 function isTestRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
+  return value !== null && Object(value) === value && Object.getPrototypeOf(value) === Object.prototype
 }
 
 const mocks = vi.hoisted(() => ({
@@ -442,9 +442,7 @@ describe("ViteHub Nuxt integration", () => {
         .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")
       if (!isTestRecord(invocationRootPlugin)) throw new TypeError("Expected the Console invocation root plugin.")
       const configResolved = invocationRootPlugin.configResolved
-      const configResolvedHandler = typeof configResolved === "function"
-        ? configResolved
-        : isTestRecord(configResolved) ? configResolved.handler : undefined
+      const configResolvedHandler = isTestRecord(configResolved) ? configResolved.handler : configResolved
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
       if (typeof configResolvedHandler !== "function") throw new TypeError("Expected a Console configResolved hook.")
       await Reflect.apply(configResolvedHandler, {}, [{ root: "/tmp/vitehub-nuxt" }])
