@@ -22,8 +22,7 @@ const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
 const KV_ERRORS_IMPORT_ID = new URL(import.meta.url.endsWith(".ts") ? "./errors.ts" : "./errors.js", import.meta.url).href
 const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
-const UNSTORAGE_IMPORT_ID = import.meta.resolve("unstorage")
-const CLOUDFLARE_KV_DRIVER_IMPORT_ID = import.meta.resolve("unstorage/drivers/cloudflare-kv-binding")
+const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = "@vite-hub/kv/runtime/cloudflare-kv"
 const mergeNoExternal = createNoExternalMerger("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
@@ -113,8 +112,7 @@ async function writeOwnedCloudflareKVBindings(rootDir: string, bindings: string[
 
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
-    `import { createStorage } from ${JSON.stringify(UNSTORAGE_IMPORT_ID)};`,
-    `import createDriver from ${JSON.stringify(CLOUDFLARE_KV_DRIVER_IMPORT_ID)};`,
+    `import { createCloudflareKVStorage } from ${JSON.stringify(CLOUDFLARE_KV_RUNTIME_IMPORT_ID)};`,
     `import { kvResult } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
@@ -131,7 +129,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "  const store = resolveStoreConfig(name);",
     "  const existing = storages.get(name);",
     "  if (existing) return existing;",
-    "  const storage = createStorage({ driver: createDriver(store) });",
+    "  const storage = createCloudflareKVStorage(store);",
     "  storages.set(name, storage);",
     "  return storage;",
     "}",
