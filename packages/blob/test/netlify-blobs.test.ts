@@ -429,4 +429,30 @@ describe("Netlify Blobs driver", () => {
     expect(maximumActive).toBe(16)
     expect(result.blobs.map(blob => blob.pathname)).toEqual(blobs.map(blob => blob.key))
   })
+
+  it("stops metadata workers and awaits in-flight lookups after a failure", async () => {
+    const blobs = Array.from({ length: 40 }, (_, index) => ({ etag: `etag-${index}`, key: `${index}.txt` }))
+    mockListPages({ first: { blobs, directories: [] } })
+    let releaseInFlight: (() => void) | undefined
+    const inFlight = new Promise<void>((resolve) => { releaseInFlight = resolve })
+    store.getMetadata.mockImplementation(async (key: string) => {
+      if (key === "0.txt") {
+        while (store.getMetadata.mock.calls.length < 16) await Promise.resolve()
+        throw new Error("metadata unavailable")
+      }
+      if (Number.parseInt(key) < 16) await inFlight
+      return { metadata: {} }
+    })
+
+    const listing = createDriver(options).list()
+    let settled = false
+    void listing.finally(() => { settled = true }).catch(() => {})
+    await vi.waitFor(() => expect(store.getMetadata).toHaveBeenCalledTimes(16))
+    await Promise.resolve()
+
+    expect(settled).toBe(false)
+    releaseInFlight?.()
+    await expect(listing).rejects.toThrow("metadata unavailable")
+    expect(store.getMetadata).toHaveBeenCalledTimes(16)
+  })
 })

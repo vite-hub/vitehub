@@ -61,8 +61,7 @@ function isString(value: unknown): value is string {
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
-  return typeof value === "object"
-    && value !== null
+  return value === Object(value)
     && !Array.isArray(value)
     && Object.values(value).every(isString)
 }
@@ -282,13 +281,20 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
 
 async function mapWithConcurrency<T, U>(values: readonly T[], visit: (value: T) => Promise<U>): Promise<U[]> {
   const results: U[] = []
+  let failure: { error: unknown } | undefined
   let nextIndex = 0
   await Promise.all(Array.from({ length: Math.min(METADATA_CONCURRENCY, values.length) }, async () => {
-    while (nextIndex < values.length) {
+    while (!failure && nextIndex < values.length) {
       const index = nextIndex++
-      results[index] = await visit(values[index]!)
+      try {
+        results[index] = await visit(values[index]!)
+      }
+      catch (error) {
+        failure ??= { error }
+      }
     }
   }))
+  if (failure) throw failure.error
   return results
 }
 
@@ -328,11 +334,9 @@ function toBlobObject(
   const contentType = envelope === "files-sdk"
     ? metadata.__contentType
     : envelope === "legacy" ? metadata.contentType : undefined
-  const customMetadata = {
-    ...rawCustomMetadata(metadata, envelope),
-    ...(isStringRecord(metadata.customMetadata) ? metadata.customMetadata : {}),
-    ...(isStringRecord(metadata.__user) ? metadata.__user : {}),
-  }
+  const customMetadata = rawCustomMetadata(metadata, envelope)
+  if (isStringRecord(metadata.customMetadata)) Object.assign(customMetadata, metadata.customMetadata)
+  if (isStringRecord(metadata.__user)) Object.assign(customMetadata, metadata.__user)
   const metadataSize = envelope === "files-sdk"
     ? metadata.__size
     : envelope === "legacy" ? metadata.size : undefined
