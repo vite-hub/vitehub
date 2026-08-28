@@ -5173,6 +5173,7 @@ async function executeAgentInvocationWithCapacityLease<
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
       )
+      const driverUsageFallback = rawDriverUsageObserved ? resolveRawDriverUsageRecord : driverUsageRecord
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
@@ -5348,7 +5349,7 @@ async function executeAgentInvocationWithCapacityLease<
           const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
           preservedSources.set(renderedStream, source)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
-          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
           const value = withCapabilityCleanup(tracedStream, async (outcome) => {
@@ -5483,7 +5484,7 @@ async function executeAgentInvocationWithCapacityLease<
                   : withEagerStreamUsageExtensions(normalizedStream, invocation, rendered)
                 const streamed = existingStream
                   ? undefined
-                  : withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+                  : withStreamedResult(enrichedStream, rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
                 const tracedStream = existingStream
                   ? enrichedStream
                   : invocation.runtimeContext.traceLog
@@ -5662,6 +5663,7 @@ async function executeAgentInvocationWithCapacityLease<
     const driverUsageRecord = rawDriverUsageObserved ? rawDriverUsageRecord : (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result))
+    const driverUsageFallback = rawDriverUsageObserved ? resolveRawDriverUsageRecord : driverUsageRecord
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
       const projection = hasRuntimeType(definition?.uiMessageStream, "function")
@@ -5816,7 +5818,7 @@ async function executeAgentInvocationWithCapacityLease<
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
-    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const value = shouldWrapOutput

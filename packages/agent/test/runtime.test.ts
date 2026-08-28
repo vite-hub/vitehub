@@ -6522,6 +6522,48 @@ describe("agent message protocol", () => {
     })
   })
 
+  it.each(["runAgent", "streamAgent"] as const)("preserves raw usage settled while a nested lazy renderer stream is consumed by %s", async (method) => {
+    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const raw = Object.assign((async function* () {
+      yield { text: "provider", type: "text-delta" }
+      resolveUsage({ totalTokens: 7 })
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "nested-lazy-renderer-stream",
+          output(context) {
+            context.output.render(source => ({
+              stream: (async function* () {
+                for await (const _event of source as AsyncIterable<unknown>) {}
+                yield { text: "rendered", type: "text-delta" }
+              })(),
+            }))
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = method === "runAgent"
+      ? await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+      : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(finish).not.toHaveBeenCalled()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const stream = method === "runAgent" ? (result as { stream: AsyncIterable<unknown> }).stream : result as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].result).toMatchObject({
+      usage: { totalTokens: 7 },
+    })
+  })
+
   it("does not re-await pending raw usage after UI message stream consumption", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
