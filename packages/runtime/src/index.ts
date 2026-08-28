@@ -556,16 +556,21 @@ function traceEventAttributes(
   delete source["vitehub.payload.summary"]
   delete source["vitehub.payload.value"]
   delete source["vitehub.payload.visibility"]
-  if (Array.isArray(source["content.omitted"])) {
-    const omitted = source["content.omitted"].filter(key => hasRuntimeType(key, "string") && ![
-      "vitehub.activity.owner",
-      "vitehub.activity.phase",
-      "vitehub.payload.summary",
-      "vitehub.payload.value",
-      "vitehub.payload.visibility",
-    ].includes(key))
-    if (omitted.length) source["content.omitted"] = omitted
-    else delete source["content.omitted"]
+  try {
+    if (Array.isArray(source["content.omitted"])) {
+      const omitted = source["content.omitted"].filter(key => hasRuntimeType(key, "string") && ![
+        "vitehub.activity.owner",
+        "vitehub.activity.phase",
+        "vitehub.payload.summary",
+        "vitehub.payload.value",
+        "vitehub.payload.visibility",
+      ].includes(key))
+      if (omitted.length) source["content.omitted"] = omitted
+      else delete source["content.omitted"]
+    }
+  }
+  catch {
+    delete source["content.omitted"]
   }
   const attributes = content === "metadata" ? metadataAttributes(source) : source
   const next: Record<string, unknown> = { ...attributes }

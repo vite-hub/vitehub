@@ -46,7 +46,17 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
   if (value instanceof Date) {
     return { stringValue: Number.isFinite(value.getTime()) ? value.toISOString() : String(value) }
   }
-  if (value instanceof RegExp) return { stringValue: String(value) }
+  if (value instanceof RegExp) {
+    return {
+      kvlistValue: {
+        values: [
+          { key: "source", value: { stringValue: value.source } },
+          { key: "flags", value: { stringValue: value.flags } },
+          { key: "lastIndex", value: otlpAnyValue(value.lastIndex) },
+        ],
+      },
+    }
+  }
   if (value && hasRuntimeType(value, "object")) {
     if (ancestors.has(value)) return { stringValue: "[Circular]" }
     const nextAncestors = new Set(ancestors)

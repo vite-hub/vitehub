@@ -141,6 +141,8 @@ describe("Agent telemetry", () => {
     vi.stubGlobal("fetch", fetch)
     const cyclic: { self?: unknown } = {}
     cyclic.self = cyclic
+    const pattern = /token/gi
+    pattern.lastIndex = 4
 
     await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
       agent: {},
@@ -154,6 +156,7 @@ describe("Agent telemetry", () => {
             invalidDate: new Date(Number.NaN),
             map: new Map<unknown, string>([[1, "number"], ["1", "string"]]),
             negativeZero: -0,
+            pattern,
             set: new Set(["first", "second"]),
             undefined,
           },
@@ -204,6 +207,11 @@ describe("Agent telemetry", () => {
             },
           },
           { key: "negativeZero", value: { stringValue: "-0" } },
+          { key: "pattern", value: { kvlistValue: { values: [
+            { key: "source", value: { stringValue: "token" } },
+            { key: "flags", value: { stringValue: "gi" } },
+            { key: "lastIndex", value: { intValue: "4" } },
+          ] } } },
           { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
           { key: "undefined", value: { stringValue: "undefined" } },
         ],

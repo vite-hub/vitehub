@@ -812,6 +812,21 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("drops hostile omission markers without dropping the trace event", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    const marker = Proxy.revocable([], {})
+    marker.revoke()
+
+    await expect(log.append({
+      attributes: { "content.omitted": marker.proxy },
+      name: "custom.event",
+      type: "lifecycle",
+    })).resolves.toMatchObject({ name: "custom.event", type: "lifecycle" })
+
+    expect(log.entries()).toHaveLength(1)
+    expect(log.entries()[0]?.attributes).toBeUndefined()
+  })
+
   it("normalizes untyped payloads at the OpenTelemetry export boundary", () => {
     const revokedPayload = Proxy.revocable({}, {})
     revokedPayload.revoke()
