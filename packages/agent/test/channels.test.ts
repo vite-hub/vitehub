@@ -878,10 +878,10 @@ describe("agent channels", () => {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
-    } as never
-    await reviewEffect(reviewContext)
+    }
+    await reviewEffect(reviewContext as never)
 
-    expect(messageChannelDeliveredReplyBody(reviewContext)).toBe(
+    expect(messageChannelDeliveredReplyBody(reviewContext as never)).toBe(
       "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
     )
 
@@ -905,10 +905,10 @@ describe("agent channels", () => {
         kind: "update",
         payload: { body: "Updated body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)" },
       },
-    } as never
-    await updateEffect(updateContext)
+    }
+    await updateEffect(updateContext as never)
 
-    expect(messageChannelDeliveredReplyBody(updateContext)).toBe(
+    expect(messageChannelDeliveredReplyBody(updateContext as never)).toBe(
       "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
     )
     expect(fetcher).toHaveBeenCalledWith(
