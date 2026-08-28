@@ -3045,6 +3045,7 @@ describe("server helpers", () => {
         invoker: {
           resolve: ({ request }) => ({ id: request?.headers.get("x-user") || "anonymous" }),
         },
+      // SAFETY: the test fixture intentionally supplies only the route fields exercised by metadata admission.
       }) as never,
       {
         admission: { authenticate: () => true },
@@ -3659,6 +3660,62 @@ describe("server helpers", () => {
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
     await expect(response.text()).resolves.toContain("portal portal portal portal:portal-thread customer:acme user@example.com technical")
     expect(run).toHaveBeenCalled()
+  })
+
+  it("returns a client error for invalid webChat Channel metadata", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unreachable")
+    // SAFETY: the test fixture intentionally supplies only the route fields exercised by metadata admission.
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: the route handler test accepts this intentionally minimal Agent Definition fixture.
+      defineAgent({
+        channels: {
+          portal: webChat({
+            route: {
+              admission: { authenticate: () => true },
+              input: { trust: ["meta"] },
+            },
+          }),
+        },
+        driver: { run },
+        messages: {
+          meta: {
+            "~standard": {
+              validate: (value: unknown) => {
+                // SAFETY: this schema fixture has asserted its metadata input contract for the test.
+                const meta = value as Record<string, unknown>
+                return meta.audience === "technical"
+                  ? { value: meta }
+                  : { issues: [{ message: "audience must be technical" }] }
+              },
+              vendor: "vitehub-test",
+              version: 1,
+            },
+          },
+        },
+      // SAFETY: the test fixture intentionally supplies only the route fields exercised by metadata admission.
+      }) as never,
+      { channelId: "portal" },
+    )
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+          meta: { audience: "customer" },
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentName: "support" },
+    )
+
+    expect(response.status).toBe(400)
+    // SAFETY: the route's JSON error response is intentionally inspected as an untyped test value.
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("Invalid agent channel metadata") })
+    expect(run).not.toHaveBeenCalled()
   })
 
   it("uses route Channel chat state for webChat approvals", async () => {
@@ -14625,6 +14682,7 @@ describe("server helpers", () => {
       if (stalledFallback === "resolution") return await new Promise<string>(() => undefined)
       return "Queued delivery failed."
     })
+    let metadataParses = 0
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -14640,6 +14698,20 @@ describe("server helpers", () => {
       },
       driver: { run: () => "internal output" },
       hooks: { "agent:finish": (event) => event.reply("Durable reply") },
+      messages: {
+        metaRevision: "settlement-retry-v1",
+        meta: {
+          "~standard": {
+            validate: (value) => {
+              metadataParses++
+              // SAFETY: this schema fixture returns the record-shaped metadata supplied by the test.
+              return { value: value as Record<string, unknown> }
+            },
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -14708,6 +14780,7 @@ describe("server helpers", () => {
       const deliveries = await handler.deliveries(chatWebhookRequest(91_141), "telegram", {
         agentIdentity: { name: "calories" },
       })
+      // SAFETY: this assertion narrows the matched delivery before its events are inspected below.
       const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91141"))
       expect(successor).toMatchObject({ status: "failed" })
       expect(successor?.events).toEqual(
@@ -14725,6 +14798,7 @@ describe("server helpers", () => {
       } else expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Queued delivery failed.")
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(0)
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(0)
+      expect(metadataParses).toBe(2)
     } finally {
       queueReplaceHead.mockRestore()
       setActiveCloudflareEnv(undefined)

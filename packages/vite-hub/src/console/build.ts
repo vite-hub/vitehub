@@ -175,15 +175,25 @@ export function renderConsoleNitroPlugin(options: {
   const definitionsEnabled = consoleDefinitionSectionIds.some(section => options.sections.includes(section))
   const kvEnabled = options.sections.includes("kv")
   return [
-    `import { ${[
-      "installConsoleSections",
-      ...(blobEnabled ? ["installConsoleBlob"] : []),
-      ...(agentsEnabled ? ["installConsoleAgentDefinitions", "installConsoleInvocations"] : []),
-      ...(definitionsEnabled ? ["installConsoleDefinitions"] : []),
-      ...(kvEnabled ? ["installConsoleKV"] : []),
-    ].join(", ")} } from "vite-hub/console/server"`,
-    ...(blobEnabled ? [`import { blob as vitehubConsoleBlob } from "vite-hub/blob"`] : []),
-    ...(kvEnabled ? [`import { kv as vitehubConsoleKV } from "vite-hub/kv"`] : []),
+    `import { installConsoleSections } from "vite-hub/console/sections"`,
+    ...(blobEnabled
+      ? [
+          `import { installConsoleBlob } from "vite-hub/console/blob"`,
+          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
+        ]
+      : []),
+    ...(agentsEnabled
+      ? [`import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`]
+      : []),
+    ...(definitionsEnabled
+      ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`]
+      : []),
+    ...(kvEnabled
+      ? [
+          `import { installConsoleKV } from "vite-hub/console/kv"`,
+          `import { kv as vitehubConsoleKV } from "vite-hub/kv"`,
+        ]
+      : []),
     ...options.catalog.agents.map((agent, index) =>
       `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(options.projectRoot)}, ${JSON.stringify(options.sections)})`,

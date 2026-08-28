@@ -550,7 +550,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
-  const explicitBlob = Boolean(options.blob && typeof options.blob === "object" && ("driver" in options.blob || "stores" in options.blob))
+  const explicitBlob = Boolean(options.blob && options.blob !== true && ("driver" in options.blob || "stores" in options.blob))
   const consoleBlobEnabled = Boolean(options.blob) && (plan.services.blob.supported || explicitBlob)
   const resolvedConsoleBlob = consoleBlobEnabled
     ? resolveBlobViteConfig(options.blob === true ? undefined : options.blob, { hosting: plan.nitroPreset }).blob
