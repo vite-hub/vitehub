@@ -146,7 +146,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       for (const [laterKey, laterStatuses] of groups.slice(groupIndex + 1)) {
         if (laterKey === "history" || !pendingKeys.has(laterKey)) continue
         const laterPage = pages[laterKey]
-        const recheckLimit = Math.min(pageLimit, laterPage.invocations.length + budget)
+        const recheckLimit = Math.min(pageLimit, budget)
         if (recheckLimit === 0) continue
         const refreshed = await listLifecyclePage(
           laterStatuses,

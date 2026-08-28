@@ -595,6 +595,57 @@ describe("Agent invocation console", () => {
     expect(result.invocations.some(invocation => invocation.status === "completed")).toBe(true)
   })
 
+  it("caps replacement lifecycle rechecks to the remaining response budget", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 3; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let queuedRead = false
+    let workingRead = false
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending") && !queuedRead) {
+        queuedRead = true
+        for (let index = 0; index < 3; index++) {
+          await store.update(`pending-${index}`, {
+            status: "running",
+            timestamp: "2026-08-23T12:01:00.000Z",
+          })
+        }
+      }
+      else if (Array.isArray(options?.status) && options.status.includes("running") && !workingRead) {
+        workingRead = true
+        await store.update("pending-2", {
+          status: "completed",
+          timestamp: "2026-08-23T12:02:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(2)
+    expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(2)
+    expect(result.invocations).toContainEqual(expect.objectContaining({
+      id: "pending-2",
+      status: "completed",
+    }))
+  })
+
   it("rechecks later lifecycles after refilling a rolled-back backfill", async () => {
     const store = createMemoryAgentInvocationStore()
     for (let index = 0; index < 10; index++) {
