@@ -958,13 +958,13 @@ describe("vitehub", () => {
 
     expect(() => callHook(plugin.configResolved, [{
       command: "build",
-      nitro: { preset: "deno-server" },
+      nitro: { preset: "deno-deploy" },
       plugins: [],
       resolve: { alias: [{ customResolver, find: "#app", replacement: "/app/index.ts" }] },
     }])).not.toThrow()
   })
 
-  it("forwards resolved server aliases and explicit conditions to Deno output staging", async () => {
+  it("forwards resolved aliases and Nitro server conditions to Deno output staging", async () => {
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
     integrationMocks.finalizeDeploymentPlanOutput.mockClear()
     const plugins = vitehub({ preset: "deno" })
@@ -1008,7 +1008,7 @@ describe("vitehub", () => {
     await compiled()
 
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
-      conditions: ["module", "node", "production", "browser", "launch"],
+      conditions: ["module", "node", "production"],
     }))
 
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
@@ -1016,17 +1016,20 @@ describe("vitehub", () => {
       ...resolvedConfig,
       environments: {
         ...resolvedConfig.environments,
-        ssr: {
+        nitro: {
           ...resolvedConfig.environments.ssr,
           resolve: {
             ...resolvedConfig.resolve,
-            alias: [
-              { find: "#server-first", replacement: "/server/first.ts" },
-              { find: "#server-second", replacement: "/server/second.ts" },
-            ],
             conditions: ["module", "node", "development|production", "browser", "launch"],
           },
         },
+      },
+      resolve: {
+        ...resolvedConfig.resolve,
+        alias: [
+          { find: "#server-first", replacement: "/server/first.ts" },
+          { find: "#server-second", replacement: "/server/second.ts" },
+        ],
       },
       nitro: nitroConfig,
     }])

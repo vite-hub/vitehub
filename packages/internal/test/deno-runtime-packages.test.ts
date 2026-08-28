@@ -75,6 +75,7 @@ await import(\`escaped\\u002dtemplate-package\`)
   it("ignores import- and require-shaped member calls", () => {
     expect(collectDenoRuntimePackageNames(`
 loader.import("member-data", { with: { type: "json" } })
+loader . import("spaced-member-import")
 this.#import("private-member-data")
 loader.require("member-require")
 loader.__require("member-helper-require")
@@ -207,7 +208,7 @@ import "real"
       deploy: { runtime: { mode: "dynamic", entrypoint: "./main.ts", cwd: "." } },
       tasks: { start: "deno run --unstable-cron -A ./main.ts" },
     })
-    await expect(execFile("deno", ["check", "--config", join(root, ".output/deno.json"), join(root, ".output/main.ts")])).resolves.toMatchObject({ stderr: "" })
+    await expect(execFile("deno", ["check", "--config", "deno.json", "main.ts"], { cwd: join(root, ".output") })).resolves.toMatchObject({ stderr: "" })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
   })
 
@@ -360,6 +361,7 @@ import "real"
     await writeJson(join(second, "package.json"), { name: "shared-runtime", version: "2" })
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), [
+      'import "shared-runtime"',
       `//#region ${relative(root, first).replaceAll("\\", "/")}/index.js`,
       `//#region ${relative(root, second).replaceAll("\\", "/")}/index.js`,
     ].join("\n"))
@@ -402,15 +404,15 @@ import "real"
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), [
-      'await import(new URL("./schedule/deno-cron.mjs", import.meta.url).href)',
-      'await import(new URL("./server/index.mjs", import.meta.url).href)',
+      'await import(new URL(`./schedule/deno-cron.mjs`, import.meta.url).href)',
+      'await import(new URL(`./server/index.mjs`, import.meta.url).href)',
       "",
     ].join("\n"), "utf8")
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8"))
-      .resolves.toContain('new URL("./schedule/deno-cron.mjs", import.meta.url).href')
+      .resolves.toContain('new URL(`./schedule/deno-cron.mjs`, import.meta.url).href')
   })
 
   it("rejects computed local imports in relocated Schedule bundles", async () => {

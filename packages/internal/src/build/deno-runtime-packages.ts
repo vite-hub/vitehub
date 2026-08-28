@@ -180,6 +180,7 @@ function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
   const imports: LiteralDynamicImport[] = []
   for (const match of source.matchAll(/(?:^|[^\w$.#])import\s*\(\s*(["'`])/g)) {
     const start = match.index! + match[0].indexOf("import")
+    if (!isStandaloneCall(source, start)) continue
     const quote = match[1]!
     const literalStart = match.index! + match[0].length - 1
     let literalEnd = literalStart + 1
@@ -225,7 +226,8 @@ function maskInertImportText(source: string): string {
 
   function scanTemplate(): void {
     if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(output)
-      || /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/.test(output)) {
+      || /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/.test(output)
+      || /\bnew\s+URL\s*\(\s*$/.test(output)) {
       let literalEnd = index + 1
       while (literalEnd < source.length) {
         if (source[literalEnd] === "\\") literalEnd += 2
@@ -657,14 +659,16 @@ async function recordServerRuntimePackageResolutions(
   resolvedPackageJsonPaths: Map<string, string>,
 ): Promise<void> {
   const files = await runtimeSourceFiles(serverDir)
-  const bundledPackageJsonPaths = new Map<string, string>()
+  const bundledPackageJsonPaths = new Map<string, Set<string>>()
   for (const file of files) {
     const source = await readFile(file, "utf8")
     for (const { name, path: packagePath } of collectBundledPackages(source)) {
       const candidate = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
       try {
         const packageJsonPath = await realpath(candidate)
-        recordRuntimePackageResolution(bundledPackageJsonPaths, name, packageJsonPath)
+        const paths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
+        paths.add(packageJsonPath)
+        bundledPackageJsonPaths.set(name, paths)
       }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
@@ -675,13 +679,17 @@ async function recordServerRuntimePackageResolutions(
     const source = await readFile(file, "utf8")
     const resolver = createRequire(file)
     for (const name of collectImportedPackageNames(source)) {
-      const packageJsonPath = bundledPackageJsonPaths.get(name)
+      const bundledPaths = bundledPackageJsonPaths.get(name)
+      if (bundledPaths && bundledPaths.size > 1) {
+        throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+      }
+      const packageJsonPath = bundledPaths?.values().next().value
         ?? await resolvePackageJson(name, resolver, dirname(file))
       if (!packageJsonPath) continue
       recordRuntimePackageResolution(
         resolvedPackageJsonPaths,
         name,
-        bundledPackageJsonPaths.has(name) ? packageJsonPath : await realpath(packageJsonPath),
+        bundledPaths ? packageJsonPath : await realpath(packageJsonPath),
       )
     }
   }
@@ -726,13 +734,13 @@ async function readRuntimePackages(
 
 export function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
   const executableSource = maskInertImportText(source)
-  for (const match of executableSource.matchAll(/new URL\(\s*["'](\.[^"']*)["']\s*,\s*import\.meta\.url\s*\)/g)) {
-    const specifier = match[1]!
+  for (const match of executableSource.matchAll(/new URL\(\s*(["'`])(\.[^"'`]*)\1\s*,\s*import\.meta\.url\s*\)/g)) {
+    const specifier = cookImportSpecifier(match[2]!)
     if (allowedLocalImports.includes(specifier)) continue
     throw new Error(`Deno ${outputName} contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
   }
   let remaining = executableSource
-    .replaceAll(/import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, specifier: string) => allowedLocalImports.includes(specifier) ? "" : expression)
+    .replaceAll(/import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, _quote: string, rawSpecifier: string) => allowedLocalImports.includes(cookImportSpecifier(rawSpecifier)) ? "" : expression)
   for (const literalImport of findLiteralDynamicImports(remaining).reverse()) {
     remaining = remaining.slice(0, literalImport.start) + " ".repeat(literalImport.literalEnd - literalImport.start) + remaining.slice(literalImport.literalEnd)
   }
@@ -756,8 +764,8 @@ function hasTopLevelRelocatableDynamicImport(source: string, specifier: string):
   const executableSource = maskInertImportText(source)
   if (findLiteralDynamicImports(executableSource)
     .some(entry => entry.specifier === specifier && isTopLevelExpression(executableSource, entry.start))) return true
-  return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
-    .some(match => match[1] === specifier && isTopLevelExpression(executableSource, match.index! + match[0].indexOf("import")))
+  return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
+    .some(match => cookImportSpecifier(match[2]!) === specifier && isTopLevelExpression(executableSource, match.index! + match[0].indexOf("import")))
 }
 
 function hasRelocatableStaticImport(source: string, specifier: string): boolean {
@@ -853,8 +861,11 @@ try {
     }
   }
 } finally {
-  for (const signal of signals) process.off(signal, handleSignal)
-  await rm(uploadRoot, { force: true, recursive: true })
+  try {
+    await rm(uploadRoot, { force: true, recursive: true })
+  } finally {
+    for (const signal of signals) process.off(signal, handleSignal)
+  }
 }
 `
 }
@@ -881,24 +892,18 @@ export async function finalizeDenoDeploymentOutput(
     await mkdir(join(outputDir, "schedule"), { recursive: true })
     const scheduleOutput = join(outputDir, "schedule", "deno-cron.mjs")
     const temporaryScheduleOutput = `${scheduleOutput}.vitehub-tmp`
-    try {
-      await bundleEsmEntry(scheduleSource, temporaryScheduleOutput, {
-        external: [...builtinModuleNames],
-        alias: options.alias,
-        conditions: options.conditions,
-        format: "esm",
-        packages: "external",
-        platform: "neutral",
-        plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
-        rootDir: options.rootDir,
-        workingDir: options.rootDir,
-      })
-      assertSupportedRelocatedImports(await readFile(temporaryScheduleOutput, "utf8"), "Schedule bundle")
-      await rename(temporaryScheduleOutput, scheduleOutput)
-    }
-    finally {
-      await rm(temporaryScheduleOutput, { force: true })
-    }
+    await bundleEsmEntry(scheduleSource, temporaryScheduleOutput, {
+      external: [...builtinModuleNames],
+      alias: options.alias,
+      conditions: options.conditions,
+      format: "esm",
+      packages: "external",
+      platform: "neutral",
+      plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
+      rootDir: options.rootDir,
+      workingDir: options.rootDir,
+    })
+    assertSupportedRelocatedImports(await readFile(temporaryScheduleOutput, "utf8"), "Schedule bundle")
     const applicationOutput = join(outputDir, "main.ts")
     const temporaryApplicationOutput = `${applicationOutput}.vitehub-tmp`
     try {
@@ -928,9 +933,11 @@ export async function finalizeDenoDeploymentOutput(
         throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./server/index.mjs".')
       }
       await rename(temporaryApplicationOutput, applicationOutput)
+      await rename(temporaryScheduleOutput, scheduleOutput)
     }
     finally {
       await rm(temporaryApplicationOutput, { force: true })
+      await rm(temporaryScheduleOutput, { force: true })
     }
     entrypoint = "main.ts"
   }
@@ -945,6 +952,22 @@ export async function finalizeDenoDeploymentOutput(
     serverDir,
     ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
   ], options.rootDir, resolvedPackageJsonPaths)
+  const nodeTypesPackageJson = await resolvePackageJson(
+    "@types/node",
+    createRequire(join(options.rootDir, "package.json")),
+    options.rootDir,
+  )
+  const hasNodeTypes = nodeTypesPackageJson !== undefined
+  if (nodeTypesPackageJson && !packages.some(runtimePackage => runtimePackage.name === "@types/node")) {
+    packages.push({
+      includeOptionalDependencies: true,
+      includePeerDependencies: true,
+      name: "@types/node",
+      onlyIfOptionalDependencies: false,
+      optional: false,
+      packageJsonPath: await realpath(nodeTypesPackageJson),
+    })
+  }
 
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
@@ -961,6 +984,7 @@ export async function finalizeDenoDeploymentOutput(
       },
     },
     nodeModulesDir: "manual",
+    ...(hasNodeTypes ? { compilerOptions: { types: ["npm:@types/node"] } } : {}),
     tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
