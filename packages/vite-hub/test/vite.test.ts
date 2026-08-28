@@ -964,7 +964,7 @@ describe("vitehub", () => {
     }])).not.toThrow()
   })
 
-  it("forwards resolved server conditions to Deno output staging", async () => {
+  it("forwards resolved server aliases and explicit conditions to Deno output staging", async () => {
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
     integrationMocks.finalizeDeploymentPlanOutput.mockClear()
     const plugins = vitehub({ preset: "deno" })
@@ -972,13 +972,14 @@ describe("vitehub", () => {
     const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
     const config: Record<string, unknown> = {}
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
+    callHook(output.config, [{ resolve: { conditions: ["browser", "launch"] } }, { command: "build", mode: "production" }])
     // SAFETY: The preset config hook populated Nitro modules for the Deno build above.
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
     vi.stubEnv("NODE_ENV", "production")
     let resolvedConfig: Awaited<ReturnType<typeof resolveConfig>>
     try {
       resolvedConfig = await resolveConfig({
-        resolve: { conditions: ["launch"] },
+        resolve: { conditions: ["browser", "launch"] },
       }, "build", "staging")
     }
     finally {
@@ -1007,7 +1008,36 @@ describe("vitehub", () => {
     await compiled()
 
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
-      conditions: ["module", "node", "production", "launch"],
+      conditions: ["module", "node", "production", "browser", "launch"],
+    }))
+
+    integrationMocks.finalizeDenoDeploymentOutput.mockClear()
+    callHook(output.configResolved, [{
+      ...resolvedConfig,
+      environments: {
+        ...resolvedConfig.environments,
+        ssr: {
+          ...resolvedConfig.environments.ssr,
+          resolve: {
+            ...resolvedConfig.resolve,
+            alias: [
+              { find: "#server-first", replacement: "/server/first.ts" },
+              { find: "#server-second", replacement: "/server/second.ts" },
+            ],
+            conditions: ["module", "node", "development|production", "browser", "launch"],
+          },
+        },
+      },
+      nitro: nitroConfig,
+    }])
+    await compiled()
+
+    expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
+      alias: [
+        { customResolver: false, find: "#server-first", replacement: "/server/first.ts" },
+        { customResolver: false, find: "#server-second", replacement: "/server/second.ts" },
+      ],
+      conditions: ["module", "node", "production", "browser", "launch"],
     }))
   })
 

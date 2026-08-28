@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 
-import { defaultClientConditions, defaultServerConditions } from "vite"
+import { defaultServerConditions } from "vite"
 
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
@@ -57,8 +57,8 @@ export type { ConsoleOptions } from "./console/vite.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 
-function resolveServerConditions(config: ResolvedConfig): string[] {
-  const customConditions = (config.resolve.conditions ?? []).filter(condition => !defaultClientConditions.includes(condition))
+function resolveServerConditions(config: ResolvedConfig, configuredConditions: string[]): string[] {
+  const customConditions = configuredConditions.filter(condition => !defaultServerConditions.includes(condition))
   const conditions = config.environments?.ssr?.resolve.conditions ?? [...defaultServerConditions, ...customConditions]
   return conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition)
 }
@@ -401,6 +401,7 @@ function deploymentPlugins(
     conditions: [],
     hasScheduleIntegration: false,
   }
+  let configuredResolveConditions: string[] = []
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
@@ -565,6 +566,7 @@ function deploymentPlugins(
         },
       },
       config(config) {
+        configuredResolveConditions = [...(config.resolve?.conditions ?? [])]
         deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
         if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
         if (plan.preset !== "cloudflare") return
@@ -574,13 +576,14 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        const serverResolve = config.environments?.ssr?.resolve ?? config.resolve
         resolvedBuildConfig = {
-          alias: config.resolve.alias.flatMap(alias =>
-            (typeof alias.find === "string" || alias.find instanceof RegExp) && typeof alias.replacement === "string"
-              ? [{ customResolver: alias.customResolver !== undefined, find: alias.find, replacement: alias.replacement }]
-              : [],
-          ),
-          conditions: resolveServerConditions(config),
+          alias: serverResolve.alias.map(alias => ({
+            customResolver: alias.customResolver !== undefined,
+            find: alias.find,
+            replacement: alias.replacement,
+          })),
+          conditions: resolveServerConditions(config, configuredResolveConditions),
           hasScheduleIntegration: config.plugins.some(plugin => plugin.name === "@vite-hub/schedule/vite"),
         }
         if (plan.preset === "cloudflare") {
