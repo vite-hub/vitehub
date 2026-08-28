@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { IncomingMessage, ServerResponse } from "node:http"
 import { Socket } from "node:net"
 import { tmpdir } from "node:os"
@@ -642,6 +642,32 @@ describe("framework generated types", () => {
     expect(restart).toHaveBeenCalledTimes(2)
   })
 
+  it("restarts the Vite host when a generated handler changes its source target", async () => {
+    const { root } = await createNestedProject()
+    const typescriptCollection = join(root, "server/collections/meals.ts")
+    const javascriptCollection = join(root, "server/collections/meals.js")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(typescriptCollection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rename(typescriptCollection, javascriptCollection)
+    await listeners.get("unlink")?.(typescriptCollection)
+
+    expect(restart).toHaveBeenCalledOnce()
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(javascriptCollection),
+    )
+  })
+
   it("keeps the Vite restart fallback for passive generated-handler observers", async () => {
     const { root } = await createNestedProject()
     const collection = join(root, "server/collections/meals.ts")
@@ -822,7 +848,7 @@ describe("framework generated types", () => {
 
       await listeners.get("change")?.(join(root, "README.md"))
       await vi.runAllTimersAsync()
-      expect(restartHost).toHaveBeenCalledTimes(2)
+      await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
     }
     finally {
       vi.useRealTimers()

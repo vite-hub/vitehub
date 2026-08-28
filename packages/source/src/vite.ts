@@ -306,8 +306,11 @@ function applicationBaseURL(base: string | undefined): string {
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
-function generatedHandlerKey(handlers: GeneratedSourceHandler[]): string {
-  return JSON.stringify(handlers)
+async function generatedHandlerKey(handlers: GeneratedSourceHandler[]): Promise<string> {
+  return JSON.stringify(await Promise.all(handlers.map(async handler => ({
+    ...handler,
+    contents: await readFile(handler.handler, "utf8"),
+  }))))
 }
 
 function generatedSourceNitroContribution(
@@ -350,7 +353,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
 } {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
-  let configuredHandlerKey = generatedHandlerKey([])
+  let configuredHandlerKey = "[]"
   const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
@@ -376,7 +379,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
-      configuredHandlerKey = generatedHandlerKey(handlers)
+      configuredHandlerKey = await generatedHandlerKey(handlers)
       const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
       const contribution: SourcePluginConfig = {
         define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
@@ -390,7 +393,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const viteConfig = config as SourcePluginConfig
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
-      configuredHandlerKey = generatedHandlerKey(handlers)
+      configuredHandlerKey = await generatedHandlerKey(handlers)
       if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
         viteConfig.nitro = mergeGeneratedSourceNitroConfig(viteConfig.nitro, handlers)
       }
@@ -431,7 +434,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           if (serverClosed) return
           const handlers = await prepareSources({ projectRoot: root, serverDirs })
           if (serverClosed) return
-          const handlerKey = generatedHandlerKey(handlers)
+          const handlerKey = await generatedHandlerKey(handlers)
           if (handlerKey === configuredHandlerKey) return
           const listeners = [...generatedHandlersListeners]
           const passiveListeners = listeners.filter(([, listenerOptions]) =>
