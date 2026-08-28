@@ -431,14 +431,18 @@ function runtimePackageResolutionPlugin(
         const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
         if (!packageJsonPath) return
         const resolvedPackageJsonPath = await realpath(packageJsonPath)
-        const existing = packageJsonPaths.get(name)
-        if (existing && existing !== resolvedPackageJsonPath) {
-          throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
-        }
-        packageJsonPaths.set(name, resolvedPackageJsonPath)
+        recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
       })
     },
   }
+}
+
+function recordRuntimePackageResolution(packageJsonPaths: Map<string, string>, name: string, packageJsonPath: string): void {
+  const existing = packageJsonPaths.get(name)
+  if (existing && existing !== packageJsonPath) {
+    throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+  }
+  packageJsonPaths.set(name, packageJsonPath)
 }
 
 export function collectDenoRuntimePackageNames(source: string): string[] {
@@ -638,6 +642,42 @@ async function runtimeSourceFiles(serverDir: string): Promise<string[]> {
     .map((entry) => resolve(entry.parentPath, entry.name))
 }
 
+async function recordServerRuntimePackageResolutions(
+  serverDir: string,
+  rootDir: string,
+  resolvedPackageJsonPaths: Map<string, string>,
+): Promise<void> {
+  const files = await runtimeSourceFiles(serverDir)
+  const bundledPackageJsonPaths = new Map<string, string>()
+  for (const file of files) {
+    const source = await readFile(file, "utf8")
+    for (const [name, packagePath] of collectBundledPackages(source)) {
+      const candidate = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
+      try {
+        const packageJsonPath = await realpath(candidate)
+        recordRuntimePackageResolution(bundledPackageJsonPaths, name, packageJsonPath)
+      }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      }
+    }
+  }
+  for (const file of files) {
+    const source = await readFile(file, "utf8")
+    const resolver = createRequire(file)
+    for (const name of collectImportedPackageNames(source)) {
+      const packageJsonPath = bundledPackageJsonPaths.get(name)
+        ?? await resolvePackageJson(name, resolver, dirname(file))
+      if (!packageJsonPath) continue
+      recordRuntimePackageResolution(
+        resolvedPackageJsonPaths,
+        name,
+        bundledPackageJsonPaths.has(name) ? packageJsonPath : await realpath(packageJsonPath),
+      )
+    }
+  }
+}
+
 async function readRuntimePackages(
   runtimeDirs: string[],
   rootDir: string,
@@ -796,6 +836,7 @@ export async function finalizeDenoDeploymentOutput(
   const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
   const applicationEntrySource = join(options.rootDir, "main.ts")
   const resolvedPackageJsonPaths = new Map<string, string>()
+  await recordServerRuntimePackageResolutions(serverDir, options.rootDir, resolvedPackageJsonPaths)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
   try {

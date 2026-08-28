@@ -251,6 +251,38 @@ import "real"
     await expect(readFile(join(root, ".output/node_modules/nested-only/marker"), "utf8")).resolves.toBe("nested")
   })
 
+  it.each(["application", "schedule"])("rejects package conflicts between the generated server and the %s bundle", async (target) => {
+    const root = await mkdtemp(join(tmpdir(), `vitehub-deno-${target}-server-conflict-`))
+    const helperDir = join(root, "packages/helper")
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "shared-runtime")
+    await writeJson(join(helperDir, "node_modules/shared-runtime/package.json"), {
+      name: "shared-runtime",
+      version: "2",
+    })
+    await mkdir(join(helperDir, "src"), { recursive: true })
+    await writeFile(join(helperDir, "src/index.ts"), 'import "shared-runtime"\n', "utf8")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "shared-runtime"\n', "utf8")
+    await writeFile(
+      join(root, ".vitehub/schedule/deno-cron.mjs"),
+      target === "schedule" ? 'import "#helper"\n' : "void 0\n",
+      "utf8",
+    )
+    await writeFile(join(root, "main.ts"), [
+      ...(target === "application" ? ['import "#helper"'] : []),
+      'await import("./schedule/deno-cron.mjs")',
+      'await import("./server/index.mjs")',
+      "",
+    ].join("\n"), "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({
+      alias: [{ find: "#helper", replacement: join(helperDir, "src/index.ts") }],
+      rootDir: root,
+    })).rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
+  })
+
   it("rejects computed local application imports that cannot survive relocation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-entry-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
