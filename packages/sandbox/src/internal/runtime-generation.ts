@@ -398,21 +398,12 @@ export function resolveSandboxRuntimeLinkType(platform: NodeJS.Platform): 'dir' 
   return platform === 'win32' ? 'junction' : 'dir'
 }
 
-export type SandboxRuntimeFacadeImportBases = {
-  local: string
-  package: string
-}
-
-export function resolveSandboxRuntimeFacadeImportBases(
+export function resolveSandboxRuntimeFacadeImportBase(
   runtimeDir: string,
   generationFacadeFile: string,
   platform: NodeJS.Platform,
-): SandboxRuntimeFacadeImportBases {
-  const stableFacadeFile = resolve(runtimeDir, 'sandbox.mjs')
-  return {
-    local: platform === 'win32' ? stableFacadeFile : generationFacadeFile,
-    package: stableFacadeFile,
-  }
+): string {
+  return platform === 'win32' ? resolve(runtimeDir, 'sandbox.mjs') : generationFacadeFile
 }
 
 export async function pruneSandboxRuntimeGeneration(

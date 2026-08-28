@@ -1,6 +1,6 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -176,9 +176,15 @@ describe("hubSandbox", () => {
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toHaveLength(2)
+    expect(facadePackageImports.every(isAbsolute)).toBe(true)
+    const facadePaths = [sandboxAlias, await realpath(sandboxAlias)]
     await Promise.all(facadePackageImports.map(async (specifier) => {
-      await expect(realpath(join(dirname(sandboxAlias), specifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
+      await Promise.all(facadePaths.map(async (facadePath) => {
+        await expect(realpath(resolve(dirname(facadePath), specifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
+      }))
     }))
+    expect(facade).toContain('from "./sandbox-registry.mjs"')
+    expect(facade).toContain('from "./sandbox-provider-loader.mjs"')
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("resolveSandboxBox")
     expect(providerLoader).not.toContain("createSandboxClient")
