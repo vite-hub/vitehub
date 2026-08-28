@@ -7,7 +7,7 @@ import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEn
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -181,7 +181,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
-      await generateProviderOutputs({
+      await generateWorkflowProviderOutputs({
         agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolve(resolved.root, resolved.build.outDir),
         hosting: internalOptions?.hosting,

@@ -547,6 +547,20 @@ onBeforeUnmount(() => {
     />
 
     <UDashboardPanel id="agent-session">
+      <header
+        v-if="!invocationView"
+        data-slot="mobile-session-navigation"
+        class="flex h-14 shrink-0 items-center border-b border-default px-4 lg:hidden"
+      >
+        <UButton
+          aria-label="Open sessions"
+          color="neutral"
+          icon="i-lucide-panel-left"
+          variant="ghost"
+          @click="sessionsOpen = true"
+        />
+        <span class="ml-2 truncate text-sm font-semibold text-highlighted">{{ selectedAgentLabel }}</span>
+      </header>
       <div class="min-h-0 flex-1" aria-live="polite">
         <div
           v-if="!selectedInvocationId"
