@@ -8,6 +8,7 @@ import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { describe, expect, it } from "vitest";
 
+import { createConsoleCliNamespace } from "../src/console/cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -45,6 +46,7 @@ describe("CLI documentation contract", () => {
     const plugins = [
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
+      { vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } } },
       hubWorkspace(),
       viteHubTypesPlugin(),
     ];

@@ -1,9 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { constants, tmpdir } from "node:os"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 
@@ -235,42 +234,6 @@ describe("ViteHub CLI", () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
     expect(stdoutFlush).toHaveBeenCalledOnce()
     expect(stderrFlush).toHaveBeenCalledOnce()
-  })
-
-  it.runIf(process.platform !== "win32")("forwards SIGTERM to the foreground child", async () => {
-    const exitCode = await runViteHubCli({
-      args: ["test", "spawn"],
-      loadConfig: async () => ({
-        plugins: [{
-          vitehub: {
-            cli: {
-              namespaces: [{
-                features: [{
-                  name: "spawn",
-                  run: async (_args: string[], context: ViteHubCliContext) => {
-                    const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 10_000)"])
-                    await vi.waitFor(() => expect(process.listenerCount("SIGTERM")).toBeGreaterThan(0))
-                    process.emit("SIGTERM")
-                    return (await result).exitCode
-                  },
-                }],
-                name: "test",
-              }],
-            },
-          },
-        }],
-        root: "/repo",
-      }),
-    })
-
-    expect(exitCode).toBe(128 + constants.signals.SIGTERM)
-    expect(process.listenerCount("SIGTERM")).toBe(0)
-  })
-
-  it.runIf(process.platform !== "win32")("leaves foreground terminal signals to the process group", () => {
-    for (const signal of ["SIGCONT", "SIGINT", "SIGQUIT", "SIGTSTP"] as const) {
-      expect(process.listenerCount(signal)).toBe(0)
-    }
   })
 
   it("routes package-contributed CLI features", async () => {
