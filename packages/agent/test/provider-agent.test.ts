@@ -733,15 +733,23 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
-  it("aborts stalled Codex shared-home materialization and retains its lock until settlement", async () => {
+  it("retains the Codex home lock through overlapping materialization and persistence", async () => {
+    vi.useFakeTimers()
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
     let finishMaterialization!: () => void
     const materialization = new Promise<string[]>(resolve => finishMaterialization = () => resolve([]))
-    readCodexSharedHome.mockImplementationOnce(async (path: string) => {
-      expect(path).toBe(sharedHome)
-      return await materialization
-    })
+    let finishPersistence!: () => void
+    const persistence = new Promise<string[]>(resolve => finishPersistence = () => resolve([]))
+    readCodexSharedHome
+      .mockImplementationOnce(async (path: string) => {
+        expect(path).toBe(sharedHome)
+        return await materialization
+      })
+      .mockImplementationOnce(async (path: string) => {
+        expect(path).toContain("vitehub-codex-shadow-home-")
+        return await persistence
+      })
     const controller = new AbortController()
     const adapter = createProviderAgentAdapter({
       credentials: '{"tokens":{"access_token":"secret"}}',
@@ -762,6 +770,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
         new Promise(resolve => setTimeout(() => resolve("still pending"), 100)),
       ])
       expect(outcome).toBe("cancelled")
+      await vi.advanceTimersByTimeAsync(10_000)
       await vi.waitFor(async () => {
         expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
       })
@@ -769,17 +778,24 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const second = runtime("thread-stalled-home-second", [event("turn.completed", "thread-stalled-home-second", { state: "completed" }, { turnId: "turn-1" })])
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
       const secondResult = adapter.generate(context("thread-stalled-home-second") as never)
-      await new Promise(resolve => setTimeout(resolve, 25))
+      await vi.advanceTimersByTimeAsync(25)
       expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
 
       finishMaterialization()
+      await vi.advanceTimersByTimeAsync(25)
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+
+      finishPersistence()
+      await vi.advanceTimersByTimeAsync(0)
       await expect(secondResult).resolves.toBeDefined()
       expect(second.startSession).toHaveBeenCalledOnce()
     }
     finally {
       finishMaterialization()
+      finishPersistence()
       controller.abort("cancelled")
       await firstResult.catch(() => undefined)
+      vi.useRealTimers()
       await rm(sharedHome, { force: true, recursive: true })
     }
   })

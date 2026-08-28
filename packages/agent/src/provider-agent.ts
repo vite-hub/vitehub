@@ -1336,19 +1336,25 @@ async function* runProvider<
   let credentialHome: string | undefined
   let credentialSharedHome: string | undefined
   let releaseCredentialHomeLock: (() => void) | undefined
-  let credentialOverlayLockReleaseDeferred = false
+  let credentialOverlayRemoved = false
+  const credentialOverlayOwners = new Set<Promise<void>>()
   const releaseCredentialOverlayLock = () => {
+    if (!credentialOverlayRemoved || credentialOverlayOwners.size) return
     const release = releaseCredentialHomeLock
     releaseCredentialHomeLock = undefined
     release?.()
   }
   const releaseCredentialOverlayLockAfterRemoval = () => {
-    if (!credentialOverlayLockReleaseDeferred) releaseCredentialOverlayLock()
+    credentialOverlayRemoved = true
+    releaseCredentialOverlayLock()
   }
   const deferCredentialOverlayLockRelease = (cleanup: Promise<void>) => {
-    if (credentialOverlayLockReleaseDeferred) return
-    credentialOverlayLockReleaseDeferred = true
-    void cleanup.then(releaseCredentialOverlayLock, releaseCredentialOverlayLock)
+    if (credentialOverlayOwners.has(cleanup)) return
+    credentialOverlayOwners.add(cleanup)
+    void cleanup.then(
+      () => credentialOverlayOwners.delete(cleanup),
+      () => credentialOverlayOwners.delete(cleanup),
+    ).then(releaseCredentialOverlayLock)
   }
   const credentialCleanup = createAgentProviderCredentialCleanup(
     async () => {
