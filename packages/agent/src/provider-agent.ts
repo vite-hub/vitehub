@@ -1491,7 +1491,15 @@ async function* runProvider<
     codexCredentialHome = await waitForProviderOperation(
       prepareCodexCredentialHome(options, context),
       effectiveSignal,
-      home => home?.release(),
+      async (home) => {
+        codexCredentialHome = home
+        try {
+          await releaseCodexCredentialHome()
+        }
+        catch {
+          await releaseCodexCredentialHome()
+        }
+      },
       observeLateCleanup,
     )
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")

@@ -2535,8 +2535,9 @@ cli_auth_credentials_store = "keyring"
       }) as never)
 
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      const rejection = expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
       await vi.advanceTimersByTimeAsync(10_000)
-      await expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
+      await rejection
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
