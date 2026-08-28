@@ -19,17 +19,17 @@ export interface ChatFinishDeliveryRegistrar {
 }
 
 const deferredReplyTraces = new WeakMap<object, (callback: ChatFinishDeliveryCallback) => boolean>()
-const directReplyTraces = new WeakMap<object, (message: AgentChatMessage) => ChatFinishDeliveryCallback>()
+const directReplyTraces = new WeakMap<ChatFinishDeliveryRegistrar, (message: AgentChatMessage) => ChatFinishDeliveryCallback>()
 
 export function setChatFinishDirectReplyTrace(
-  extension: object,
+  extension: ChatFinishDeliveryRegistrar,
   createCallback: (message: AgentChatMessage) => ChatFinishDeliveryCallback,
 ): void {
   directReplyTraces.set(extension, createCallback)
 }
 
 export function chatFinishDirectReplyTrace(
-  extension: object,
+  extension: ChatFinishDeliveryRegistrar,
   message: AgentChatMessage,
 ): ChatFinishDeliveryCallback | undefined {
   return directReplyTraces.get(extension)?.(message)
