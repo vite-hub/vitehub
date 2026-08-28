@@ -78,9 +78,13 @@ describe("GitHub CI input policy", () => {
         "      - run: npm --silent exec --package=tool@1.2.3 -- tool --package unpinned",
         "      - run: npx --package=tool@1.2.3 -- tool --package unpinned",
         "      - run: pnpx tool@1.2.3 --help",
+        "      - run: corepack pnpm dlx tool@1.2.3 --help",
+        "      - run: corepack pnpx tool@1.2.3 --help",
+        "      - run: corepack yarn dlx tool@1.2.3 --help",
         "      - run: bun x tool@1.2.3 --help",
         "      - run: npm exec --package=runner@1.2.3 --call=\"npx nested@2.3.4\"",
         "      - run: npm exec -c 'echo ok'",
+        "      - run: npm exec --allow-scripts lifecycle-helper tool@1.2.3",
         "      - run: env FOO=bar",
         "      - run: env -S 'npx tool@1.2.3'",
         "      - run: env -S '-u FOO npx tool@1.2.3'",
@@ -390,6 +394,9 @@ jobs:
     "bunx tool --help",
     "bun x tool --help",
     "pnpx tool --help",
+    "corepack pnpm dlx tool --help",
+    "corepack pnpx tool --help",
+    "corepack yarn dlx tool --help",
     "npm exec -- tool --help",
     "vp dlx tool@latest --help",
     "npx pinned@1.2.3 && npx unpinned",
@@ -452,6 +459,8 @@ jobs:
     "printf '%s\\n' 'npx unpinned' | bash",
     "printf '%s\\n' 'echo safe' 'npx unpinned' | bash",
     "echo -e 'npx unpinned\\n' | bash",
+    "echo -ne 'npx unpinned\\n' | bash",
+    "printf '%c%s\\n' n 'px unpinned' | bash",
     String.raw`n\px unpinned`,
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
@@ -485,6 +494,32 @@ jobs:
   it("tracks exact package versions assigned by export", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: |\n          export VERSION=1.2.3\n          npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it("applies exports in shell execution order", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: npx tool@$VERSION && export VERSION=1.2.3",
+        "      - run: export VERSION=1.2.3 && npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("does not apply a later export to an earlier executor", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: npx tool@$VERSION && export VERSION=latest\n",
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
@@ -568,6 +603,30 @@ jobs:
         "    steps:",
         "      - run: |",
         "          set_version()",
+        "          {",
+        "            VERSION=1.2.3",
+        "          }",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("preserves a pending function declaration across blank and comment lines", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          set_version()",
+        "",
+        "          # Keep the function body separate from its declaration.",
         "          {",
         "            VERSION=1.2.3",
         "          }",

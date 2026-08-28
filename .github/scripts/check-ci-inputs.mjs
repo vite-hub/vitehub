@@ -11,8 +11,9 @@ const variablePackagePattern = /^((?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+))@(?:\$\{([A-Z
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const shellOperatorPattern = /^(?:&&|\|\||[;&|]|\$\(|\(|\)|`|\{|\})$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
-const npmExecValueOptions = new Set(["--workspace", "-w"])
+const npmExecValueOptions = new Set(["--allow-scripts", "--workspace", "-w"])
 const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
+const corepackDelegates = new Set(["pnpm", "pnpx", "yarn"])
 const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "until", "while"])
 const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
 const envSplitStringOptions = new Set(["--split-string", "-S"])
@@ -181,6 +182,10 @@ function commandIndexes(tokens) {
           }
           continue
         }
+        if (wrapper === "corepack" && corepackDelegates.has(executableName(tokens[executableIndex + 1] ?? ""))) {
+          executableIndex++
+          continue
+        }
         if (wrapper !== "env") break
         executableIndex++
         while (executableIndex < tokens.length) {
@@ -317,9 +322,11 @@ function pipedShellSource(tokens, shellIndex) {
   let producerArguments = invocation.slice(1)
   if (executable === "echo") {
     let interpretsEscapes = false
-    while (producerArguments[0] === "-n" || producerArguments[0] === "-e" || producerArguments[0] === "-E") {
-      if (producerArguments[0] === "-e") interpretsEscapes = true
-      if (producerArguments[0] === "-E") interpretsEscapes = false
+    while (/^-[neE]+$/.test(producerArguments[0] ?? "")) {
+      for (const option of producerArguments[0].slice(1)) {
+        if (option === "e") interpretsEscapes = true
+        if (option === "E") interpretsEscapes = false
+      }
       producerArguments = producerArguments.slice(1)
     }
     if (producerArguments[0] === "--") producerArguments = producerArguments.slice(1)
@@ -332,10 +339,11 @@ function pipedShellSource(tokens, shellIndex) {
   let source = ""
   do {
     let consumedArguments = 0
-    source += expandPrintfEscapes(format).replace(/%(%|s|b)/g, (_match, conversion) => {
+    source += expandPrintfEscapes(format).replace(/%(%|s|b|c)/g, (_match, conversion) => {
       if (conversion === "%") return "%"
       const argument = producerArguments.shift() ?? ""
       consumedArguments++
+      if (conversion === "c") return argument.slice(0, 1)
       return conversion === "b" ? expandPrintfEscapes(argument) : argument
     })
     if (consumedArguments === 0) break
@@ -370,7 +378,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       }
       continue
     }
-    if (line.trimStart().startsWith("#")) continue
+    if (!line.trim() || line.trimStart().startsWith("#")) continue
 
     const tokens = shellTokens(line)
     const executableIndexes = commandIndexes(tokens)
@@ -391,16 +399,6 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         environment.set(assignment[1], assignment[2])
       }
     }
-    for (const index of executableIndexes) {
-      if (activeConditionalDepth > 0 || opensConditional > 0 || activeFunctionDepth > 0 || opensFunction > 0
-        || executableName(tokens[index]) !== "export") continue
-      for (const token of tokens.slice(index + 1)) {
-        if (shellOperatorPattern.test(token)) break
-        if (token === "--" || token.startsWith("-")) continue
-        const assignment = assignmentPattern.exec(token)
-        if (assignment) environment.set(assignment[1], assignment[2])
-      }
-    }
     const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
     if (hereDocument && !executableIndexes.some(index => isShellCommand(tokens[index]))) {
       dataHereDocument = { delimiter: hereDocument[2], expand: hereDocument[1] === "" }
@@ -411,6 +409,18 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       let inspectsTerminatedCommand = false
       const token = tokens[index]
       const executable = executableName(token)
+
+      if (executable === "export") {
+        if (activeConditionalDepth === 0 && opensConditional === 0 && activeFunctionDepth === 0 && opensFunction === 0) {
+          for (const argument of tokens.slice(index + 1)) {
+            if (shellOperatorPattern.test(argument)) break
+            if (argument === "--" || argument.startsWith("-")) continue
+            const assignment = assignmentPattern.exec(argument)
+            if (assignment) environment.set(assignment[1], assignment[2])
+          }
+        }
+        continue
+      }
 
       if (executable === "eval") {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
