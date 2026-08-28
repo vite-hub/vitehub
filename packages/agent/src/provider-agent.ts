@@ -272,7 +272,6 @@ async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
 }
 
 async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> {
-  if (providerHostPlatform === "win32") return true
   const probe = await mkdtemp(join(sharedHome, ".vitehub-case-probe-"))
   const alternate = join(dirname(probe), basename(probe).toUpperCase())
   try {
@@ -291,14 +290,15 @@ async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> 
   }
 }
 
-async function materializeCodexCredentialOverlay(home: string, sharedHome: string, caseInsensitive: boolean): Promise<void> {
+async function materializeCodexCredentialOverlay(home: string, sharedHome: string, sharedHomeCaseInsensitive: boolean): Promise<void> {
   await mkdir(sharedHome, { recursive: true })
   const discoveredEntries = await readdir(sharedHome)
   await Promise.all([
     ...codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })),
     ...codexSharedHomeFiles.map(file => writeFile(join(sharedHome, file), "", { flag: "a" })),
   ])
-  const entries = caseInsensitive
+  const shadowHomeCaseInsensitive = await isCaseInsensitiveCodexHome(home)
+  const entries = sharedHomeCaseInsensitive || shadowHomeCaseInsensitive
     ? new Map([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries].map(entry => [entry.toLowerCase(), entry])).values()
     : new Set([...discoveredEntries, ...codexSharedHomeDirectories, ...codexSharedHomeFiles])
   const materializedEntries = new Set<string>()
@@ -320,7 +320,10 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
     }
     try {
       if (process.platform === "win32" && linkedEntry.isFile()) {
-        await link(source, target).catch(async (error) => {
+        if (sourceEntry.isSymbolicLink()) {
+          await copyFile(source, target)
+        }
+        else await link(source, target).catch(async (error) => {
           // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           const code = (error as NodeJS.ErrnoException).code
           if (code !== "EACCES" && code !== "EPERM" && code !== "EXDEV") throw error

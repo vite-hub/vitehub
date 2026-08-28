@@ -557,7 +557,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
-  it.runIf(process.platform !== "win32")("uses Windows hard links for linked shared Codex home files", async () => {
+  it.runIf(process.platform !== "win32")("copies linked shared Codex home files on Windows", async () => {
     const threadId = "thread-windows-linked-codex-home-file"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
@@ -565,6 +565,11 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     const externalConfig = join(externalHome, "config.toml")
     await writeFile(externalConfig, "model = \"gpt-5.6-sol\"\n")
     await symlink(externalConfig, join(sharedHome, "config.toml"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await writeFile(join(shadowHome, "config.toml"), "model = \"gpt-5.6-terra\"\n")
+      return providerRuntimes.shift()
+    })
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
 
     try {
@@ -576,10 +581,9 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
       await adapter.generate(context(threadId) as never)
 
-      expect(beforeCodexHomeLink).toHaveBeenCalledWith(
-        join(sharedHome, "config.toml"),
-        expect.stringContaining("vitehub-codex-shadow-home-"),
-      )
+      expect(beforeCodexHomeLink).not.toHaveBeenCalled()
+      expect(await readFile(externalConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-terra\"\n")
     }
     finally {
       platform.mockRestore()

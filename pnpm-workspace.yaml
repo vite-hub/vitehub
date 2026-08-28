@@ -13,7 +13,7 @@ catalogMode: prefer
 catalogs:
   ai:
     "@ai-sdk/gateway": 4.0.26
-    "@ai-sdk/mcp": 2.0.0
+    "@ai-sdk/mcp": 2.0.36
     "@ai-sdk/vue": 4.0.38
     "@modelcontextprotocol/sdk": ^1.29.0
     "@types/json-schema": ^7.0.15
@@ -154,7 +154,7 @@ catalogs:
     workflow: 5.0.0-beta.35
   workspace:
     isomorphic-git: ^1.38.7
-    minimatch: ^10.2.5
+    minimatch: ^10.2.6
     mountx: 0.0.2
     mrmime: ^2.0.1
     picomatch: ^4.0.5
