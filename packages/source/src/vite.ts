@@ -15,6 +15,8 @@ const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
+const initialHostRefreshRetryDelay = 25
+const maximumHostRefreshRetryDelay = 1_000
 
 export interface GeneratedSourceHandler {
   handler: string
@@ -372,7 +374,13 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         ? root ? [resolve(root, "server")] : []
         : root ? serverDirs.map(directory => resolve(root, directory)) : []
       server.watcher.add(effectiveServerDirs)
-      const refreshHost = (file: string) => {
+      let hostRefreshRetry: ReturnType<typeof setTimeout> | undefined
+      let hostRefreshRetryDelay = initialHostRefreshRetryDelay
+      const clearHostRefreshRetry = () => {
+        if (hostRefreshRetry) clearTimeout(hostRefreshRetry)
+        hostRefreshRetry = undefined
+      }
+      const queueHostRefresh = (file: string) => {
         if (!root || !sourceDefinitionPath(file, root, serverDirs)) return
         const result = refreshQueue.then(async () => {
           const handlers = await prepareSources({ projectRoot: root, serverDirs })
@@ -391,15 +399,32 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const hostRestartHandled = listeners.some(([, listenerOptions], index) =>
             listenerOptions.handlesHostRestart && listenerResults[index]?.status === "fulfilled",
           )
-          if (hasHostRestartOwner && !hostRestartHandled) return
+          if (hasHostRestartOwner && !hostRestartHandled) {
+            if (!hostRefreshRetry) {
+              hostRefreshRetry = setTimeout(() => {
+                hostRefreshRetry = undefined
+                void queueHostRefresh(file)
+              }, hostRefreshRetryDelay)
+              hostRefreshRetry.unref?.()
+              hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)
+            }
+            return
+          }
           if (!hasHostRestartOwner) {
             await server.restart()
           }
           configuredHandlerKey = handlerKey
+          clearHostRefreshRetry()
+          hostRefreshRetryDelay = initialHostRefreshRetryDelay
         })
         refreshQueue = result.catch(() => {})
         void result.catch(error => server.config.logger.error(String(error)))
         return result
+      }
+      const refreshHost = (file: string) => {
+        clearHostRefreshRetry()
+        hostRefreshRetryDelay = initialHostRefreshRetryDelay
+        return queueHostRefresh(file)
       }
       server.watcher.on("add", refreshHost)
       server.watcher.on("change", refreshHost)

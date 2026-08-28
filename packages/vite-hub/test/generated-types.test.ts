@@ -629,8 +629,7 @@ describe("framework generated types", () => {
     expect(restart).not.toHaveBeenCalled()
     expect(loggerError).toHaveBeenCalledWith("Error: host restart failed")
 
-    await listeners.get("unlink")?.(collection)
-    expect(restartHost).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
     expect(restart).not.toHaveBeenCalled()
 
     await listeners.get("unlink")?.(collection)

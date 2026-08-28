@@ -158,6 +158,10 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |
 | `@vite-hub/workspace/vite` | Register the Workspace Vite Integration. |
 
+Applications composing `@vite-hub/source/vite` directly should extend
+`@vite-hub/source/tsconfig`. The config includes the generated Collection registry
+without requiring a framework-owned TypeScript entry or an application `.vitehub` glob.
+
 ## Generated and internal paths
 
 | Path family | Status | Guidance |

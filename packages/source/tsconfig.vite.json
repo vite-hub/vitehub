@@ -1,0 +1,3 @@
+{
+  "files": ["${configDir}/.vitehub/types/source/collections.d.ts"]
+}
