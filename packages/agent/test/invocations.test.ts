@@ -1216,8 +1216,14 @@ describe("Agent Invocations", () => {
 
       const record = await invocations.getByRunId("finish-deadline-active-fatal")
       expect(record).toMatchObject({ status: "failed" })
-      expect(record?.observations).toContainEqual(expect.objectContaining({ name: "run.error" }))
-      expect(record?.observations).toContainEqual(expect.objectContaining({ name: "agent.invocation.finish" }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "vitehub.observation.id": expect.any(String) }),
+        name: "run.error",
+      }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "vitehub.observation.id": expect.any(String) }),
+        name: "agent.invocation.finish",
+      }))
     }
     finally {
       vi.useRealTimers()

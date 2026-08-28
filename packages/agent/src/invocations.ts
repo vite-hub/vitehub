@@ -579,7 +579,7 @@ function journalTraceLog(
   let pendingMessageDeltaEvents = 0
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
-    const identity = deliveryOutcomeObservation(entry)
+    const identity = outcomeObservationPriority(entry) !== undefined
       ? { [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: `${journalId}:${sequence}` }
       : undefined
     void observe({
