@@ -425,14 +425,18 @@ function retainedPriorityOutcomes(
     else identified.set(identity, observation)
   }
   const candidates = [...identified.values(), ...unidentified]
+  const hasTerminal = candidates.some(terminalObservation)
   const retained: TraceEventLogEntry[] = []
   for (const priority of [0, 1, 2]) {
     const remaining = limit - retained.length
     if (remaining === 0) break
+    const available = priority === 0 && hasTerminal ? Math.max(0, remaining - 1) : remaining
     const matching = candidates.filter(observation => outcomeObservationPriority(observation) === priority)
-    retained.push(...matching.slice(-remaining))
+    if (available > 0) retained.push(...matching.slice(-available))
   }
-  return retained
+  const candidateOrder = new Map(candidates.map((observation, index) => [observation, index]))
+  return retained.sort((left, right) => left.sequence - right.sequence
+    || (candidateOrder.get(left) ?? 0) - (candidateOrder.get(right) ?? 0))
 }
 
 function prioritizePendingOutcomes(

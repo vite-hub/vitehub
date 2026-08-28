@@ -922,8 +922,10 @@ describe("agent channels", () => {
       runtime: "unknown",
       waitUntil: vi.fn(),
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await reviewEffect(reviewContext as never)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     expect(messageChannelDeliveredReplyBody(reviewContext as never)).toBe(
       "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
     )
@@ -940,7 +942,6 @@ describe("agent channels", () => {
       }),
     )
 
-    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const updateContext = {
       ...reviewContext,
       effect: {
@@ -949,8 +950,10 @@ describe("agent channels", () => {
         payload: { body: "Updated body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)" },
       },
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await updateEffect(updateContext as never)
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     expect(messageChannelDeliveredReplyBody(updateContext as never)).toBe(
       "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
     )
