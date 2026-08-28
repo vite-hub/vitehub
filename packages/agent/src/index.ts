@@ -5914,10 +5914,13 @@ async function executeAgentInvocationWithCapacityLease<
       const shouldWrapOutput = shouldHoldInvocationOutput()
       const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
       const finishUiMessageStream = async (outcome: CapabilityCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => {
-        const cancellations = await Promise.allSettled([
-          ...uiMessageSources.values(),
-          ...(rendererSource ? [rendererSource] : []),
-        ].map(source => source.settleCancellation(outcome.failed ? outcome.error : undefined)))
+        const cancellationSources = !outcome.failed && !outcome.completed && rendererSource
+          ? [rendererSource]
+          : [
+              ...uiMessageSources.values(),
+              ...(rendererSource ? [rendererSource] : []),
+            ]
+        const cancellations = await Promise.allSettled(cancellationSources.map(source => source.settleCancellation(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
         const resolveUsage = !outcome.failed && outcome.completed === true
