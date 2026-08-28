@@ -54,7 +54,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { registerMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
+import { registerMessageChannelDeferredReplyTrace, setChatFinishDirectReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
@@ -4368,6 +4368,21 @@ async function finishAgentInvocation<
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
+        const chatFinish = extensions.get("chat")
+        if (chatFinish && isRuntimeObject(chatFinish)) {
+          setChatFinishDirectReplyTrace(chatFinish, message => async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), {
+              kind: "reply",
+              payload: message,
+            }, {
+              "channel.effect.content": capture.content,
+              "channel.effect.supported": true,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          })
+        }
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
           .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))

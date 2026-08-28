@@ -18237,9 +18237,11 @@ describe("server helpers", () => {
 
   it("exposes chat sendMessage to agent finish hooks for chat webhooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const finish = vi.fn(async (event) => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const chat = event.extensions.get("chat") as { provider?: string; sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
@@ -18261,6 +18263,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
+      invocations,
       driver: { run: () => ({ text: "agent answer" }) },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -18291,6 +18294,18 @@ describe("server helpers", () => {
     })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", {
       markdown: "side message via telegram",
+    })
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "side message via telegram",
+          "channel.effect.kind": "reply",
+          "channel.effect.supported": true,
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
     })
   })
 

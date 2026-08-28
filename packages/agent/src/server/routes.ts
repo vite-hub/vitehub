@@ -48,7 +48,7 @@ import {
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
-import { chatFinishDeliveryRegistrarKey } from "../internal/chat-finish-delivery.ts"
+import { chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl } from "../internal/chat-approvals.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
@@ -317,6 +317,7 @@ const vercelFunctionsPackage = "@vercel/functions"
 
 interface QueuedChatFinishMessage {
   callbacks: ChatFinishDeliveryCallback[]
+  directCallback?: ChatFinishDeliveryCallback
   message: AgentChatMessage
 }
 
@@ -4379,21 +4380,23 @@ function createChatFinishExtension(
   registration: AgentWebhookRegistrationDefinition,
 ): AgentChatQueuedFinishExtension {
   const messages: QueuedChatFinishMessage[] = []
-  const queuedStreams = new WeakMap<object, QueuedChatFinishMessage>()
   const extension: AgentChatQueuedFinishExtension = {
     [chatFinishMessagesKey]: messages,
     [chatFinishDeliveryRegistrarKey]: (message, callback) => {
-      if (!isRuntimeObject(message)) return false
-      const queued = queuedStreams.get(message)
+      const queued = messages.findLast(candidate => candidate.callbacks.length === 0 && Object.is(candidate.message, message))
       if (!queued) return false
+      queued.directCallback = undefined
       queued.callbacks.push(callback)
       return true
     },
     provider: chatRegistrationOrigin(registration),
     sendMessage: async (message) => {
-      const queued = { callbacks: [], message } satisfies QueuedChatFinishMessage
+      const queued = {
+        callbacks: [],
+        directCallback: chatFinishDirectReplyTrace(extension, message),
+        message,
+      } satisfies QueuedChatFinishMessage
       messages.push(queued)
-      if (isRuntimeObject(message)) queuedStreams.set(message, queued)
     },
   }
   if (input.run) extension.run = input.run
@@ -4459,9 +4462,10 @@ async function flushChatFinishExtensionMessages(
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
   for (const [index, queued] of messages.entries()) {
+    const callbacks = queued.directCallback ? [queued.directCallback, ...queued.callbacks] : queued.callbacks
     let { message } = queued
     const capture: ChatFinishDeliveryCapture = { content: "", truncated: false }
-    if (isAsyncIterable(message) && queued.callbacks.length) {
+    if (isAsyncIterable(message) && callbacks.length) {
       const source = message
       message = (async function* () {
         for await (const chunk of source) {
@@ -4475,7 +4479,7 @@ async function flushChatFinishExtensionMessages(
         }
       })()
     }
-    else if (queued.callbacks.length) captureStaticChatFinishMessage(message, capture)
+    else if (callbacks.length) captureStaticChatFinishMessage(message, capture)
     try {
       abortSignal?.throwIfAborted()
       if (abortSignal && isAsyncIterable(message)) {
@@ -4510,7 +4514,7 @@ async function flushChatFinishExtensionMessages(
           }
         }
         if (deliveredToPlaceholder) {
-          for (const callback of queued.callbacks) await callback(capture)
+          for (const callback of callbacks) await callback(capture)
           continue
         }
       }
@@ -4518,18 +4522,19 @@ async function flushChatFinishExtensionMessages(
     }
     catch (error) {
       capture.error = error instanceof Error ? error.message : String(error)
-      for (const callback of queued.callbacks) await callback(capture)
+      for (const callback of callbacks) await callback(capture)
       const skippedCapture: ChatFinishDeliveryCapture = {
         content: "",
         skipped: `Skipped after an earlier queued reply failed: ${capture.error}`,
         truncated: false,
       }
       for (const skipped of messages.slice(index + 1)) {
-        for (const callback of skipped.callbacks) await callback(skippedCapture)
+        const skippedCallbacks = skipped.directCallback ? [skipped.directCallback, ...skipped.callbacks] : skipped.callbacks
+        for (const callback of skippedCallbacks) await callback(skippedCapture)
       }
       throw error
     }
-    for (const callback of queued.callbacks) await callback(capture)
+    for (const callback of callbacks) await callback(capture)
   }
 }
 
@@ -4539,7 +4544,8 @@ async function skipChatFinishExtensionMessages(chat: AgentChatQueuedFinishExtens
   for (const queued of chat[chatFinishMessagesKey].splice(0)) {
     const capture: ChatFinishDeliveryCapture = { content: "", skipped, truncated: false }
     captureStaticChatFinishMessage(queued.message, capture)
-    for (const callback of queued.callbacks) await callback(capture)
+    const callbacks = queued.directCallback ? [queued.directCallback, ...queued.callbacks] : queued.callbacks
+    for (const callback of callbacks) await callback(capture)
   }
 }
 
