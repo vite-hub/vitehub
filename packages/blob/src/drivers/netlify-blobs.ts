@@ -170,8 +170,14 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
   if (options.directories) parameters.directories = "true"
   if (options.prefix) parameters.prefix = options.prefix
   const response = await fetchPage(parameters)
-  if (response.status === 204 || response.status === 404) return { blobs: [], directories: [] } satisfies NetlifyListPage
-  if (response.status !== 200) throw new Error(`Netlify Blobs list failed with status ${response.status}.`)
+  if (response.status === 204 || response.status === 404) {
+    await response.body?.cancel()
+    return { blobs: [], directories: [] } satisfies NetlifyListPage
+  }
+  if (response.status !== 200) {
+    await response.body?.cancel()
+    throw new Error(`Netlify Blobs list failed with status ${response.status}.`)
+  }
   return await response.json() as NetlifyListPage
 }
 

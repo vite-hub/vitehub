@@ -141,6 +141,32 @@ describe("Netlify Blobs driver", () => {
     expect(cancel).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    { status: 400, succeeds: false },
+    { status: 404, succeeds: true },
+  ])("cancels terminal $status list response bodies", async ({ status, succeeds }) => {
+    const cancel = vi.fn()
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream({ cancel }), { status })))
+
+    const listing = createDriver(options).list()
+    if (succeeds) await expect(listing).resolves.toMatchObject({ blobs: [] })
+    else await expect(listing).rejects.toThrow(`Netlify Blobs list failed with status ${status}.`)
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("cancels the final list response after exhausting server-error retries", async () => {
+    const cancels = Array.from({ length: 6 }, () => vi.fn())
+    let responseIndex = 0
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream({ cancel: cancels[responseIndex++] }), { status: 503 })))
+
+    await expect(createDriver(options).list()).rejects.toThrow("Netlify Blobs list failed with status 503.")
+
+    expect(fetch).toHaveBeenCalledTimes(6)
+    for (const cancel of cancels) expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it("shares the retry budget across HTTP and network failures", async () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 500 }))
