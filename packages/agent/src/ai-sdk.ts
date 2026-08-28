@@ -1375,6 +1375,7 @@ function withCapturedStreamUsage<T extends {
             // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
             const getReader = () => {
               if (reader) return reader
+              // SAFETY: `args` came from this method's original parameter list and are forwarded unchanged.
               const [consumerStream, usageStream] = toUIMessageStream.apply(result, args as never[]).tee()
               reader = consumerStream.getReader()
               usageReader = usageStream.getReader()
@@ -1539,8 +1540,8 @@ function withProviderStreamCancellation<T>(model: T): T {
         const source = Reflect.get(resultRecord, "stream")
         if (!(source instanceof ReadableStream)) return result
         const reader = source.getReader()
-        const signal = options && hasRuntimeType(options, "object")
-          ? Reflect.get(options, "abortSignal") as AbortSignal | undefined
+        const signal: AbortSignal | undefined = options && hasRuntimeType(options, "object")
+          ? Reflect.get(options, "abortSignal")
           : undefined
         let cancelled = false
         let completed = false
@@ -2013,6 +2014,7 @@ async function createAgent(
         throw latestFailure.error
       }
     : undefined
+  const configuredStopWhen = Reflect.get(settings, "stopWhen") ?? isStepCount(stepLimit ?? 20)
 
   return {
     agent: new ToolLoopAgent({
@@ -2027,8 +2029,8 @@ async function createAgent(
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       stopWhen: (repairToolCall === builtInRepairToolCall
-        ? [() => toolRepairFailure !== undefined, ...[((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20))].flat()]
-        : (settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
+        ? [() => toolRepairFailure !== undefined, ...[configuredStopWhen].flat()]
+        : configuredStopWhen) as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
@@ -2340,6 +2342,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         ),
         // oxlint-disable-next-line unicorn/no-thenable -- Preserve lazy startup until a caller consumes the Promise-compatible AI SDK accessor.
         then: (onfulfilled, onrejected) => Promise.resolve().then(driveUsage).then(select).catch((error) => {
+          // SAFETY: cancellation fulfills the generic accessor with no value because the caller abandoned the result.
           if (streamCancellation.signal.aborted || abortSignal?.aborted) return undefined as T
           throw error
         }).then(onfulfilled, onrejected),

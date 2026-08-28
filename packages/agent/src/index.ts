@@ -3916,6 +3916,7 @@ async function finishStreamAgentInvocation<
     }
     else if (context.output && finishResult && hasRuntimeType(finishResult, "object")) {
       // The streamed data event already exposes this value. Keep finish-time usage decoration on a separate object.
+      // SAFETY: the runtime guard above proves the value is an object before descriptor cloning.
       finishResult = cloneWithPropertyDescriptors(finishResult as object, {})
     }
     else finishResult = resultWithUsageRecord(finishResult, usageRecord)
