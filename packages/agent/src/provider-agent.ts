@@ -1463,6 +1463,17 @@ async function* runProvider<
     }
     catch {}
   }
+  const observeBoundedLateCleanup = (cleanup: Promise<void>) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const boundedCleanup = Promise.race([
+      cleanup,
+      new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+    ]).finally(() => {
+      if (timeout) clearTimeout(timeout)
+    })
+    void cleanup.catch(() => undefined)
+    observeLateCleanup(boundedCleanup)
+  }
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
@@ -1618,7 +1629,7 @@ async function* runProvider<
         })(),
         effectiveSignal,
         () => undefined,
-        observeLateCleanup,
+        observeBoundedLateCleanup,
       )
       credentialSharedHome = sharedHome.home
       const sharedHomeKey = sharedHome.caseInsensitive ? credentialSharedHome.toLowerCase() : credentialSharedHome

@@ -1140,11 +1140,11 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
-  it("aborts stalled Codex shared-home canonicalization", async () => {
+  it("bounds stalled Codex shared-home canonicalization after abort", async () => {
+    vi.useFakeTimers()
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
-    let finishCanonicalization!: () => void
-    const canonicalization = new Promise<string>(resolve => finishCanonicalization = () => resolve(sharedHome))
+    const canonicalization = new Promise<string>(() => undefined)
     canonicalizeCodexSharedHome.mockImplementationOnce(async (path: string) => {
       expect(path).toBe(sharedHome)
       return await canonicalization
@@ -1155,27 +1155,33 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       provider: "codex",
       providerSettings: { homePath: sharedHome },
     })
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    const result = Promise.resolve(adapter.generate(context("thread-stalled-home-canonicalization", {
+    const invocation = context("thread-stalled-home-canonicalization", {
       input: { abortSignal: controller.signal, prompt: "hello" },
-    }) as never))
+    })
+    const backgroundTasks: Promise<unknown>[] = []
+    invocation.runtime.waitUntil = (task?: Promise<unknown>) => {
+      if (task) backgroundTasks.push(task)
+    }
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const result = Promise.resolve(adapter.generate(invocation as never))
 
     try {
       await vi.waitFor(() => expect(canonicalizeCodexSharedHome).toHaveBeenCalledOnce())
       controller.abort("cancelled")
-      const outcome = await Promise.race([
-        result.then(() => "resolved", error => error),
-        new Promise(resolve => setTimeout(() => resolve("still pending"), 100)),
-      ])
-      expect(outcome).toBe("cancelled")
+      await expect(result).rejects.toBe("cancelled")
       await vi.waitFor(async () => {
         expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
       })
+      expect(backgroundTasks.length).toBeGreaterThan(0)
+      let workflowSettled = false
+      void Promise.all(backgroundTasks).then(() => workflowSettled = true)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(workflowSettled).toBe(true)
     }
     finally {
-      finishCanonicalization()
       controller.abort("cancelled")
       await result.catch(() => undefined)
+      vi.useRealTimers()
       await rm(sharedHome, { force: true, recursive: true })
     }
   })
