@@ -181,7 +181,7 @@ describe("Sandbox runtime lifecycle", () => {
     runtimeMocks.executeSandboxDefinition.mockImplementation(async (...args) => {
       const lifecycle = args[6] as { onHandlerStart?: () => void }
       lifecycle.onHandlerStart?.()
-      throw sandboxError("container is starting", {
+      throw sandboxError("[vitehub] Cloudflare Box exists timed out after 15000ms.", {
         code: "SANDBOX_HANDLER_ERROR",
         provider: "cloudflare",
       })
@@ -200,7 +200,7 @@ describe("Sandbox runtime lifecycle", () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxDefinition
-      .mockRejectedValueOnce(new Error("container is starting"))
+      .mockRejectedValueOnce(new Error("[vitehub] Cloudflare Box exists failed: [vitehub] Cloudflare Box exists timed out after 15000ms."))
       .mockImplementationOnce(async (...args) => {
         const lifecycle = args[6] as { onHandlerStart?: () => void }
         lifecycle.onHandlerStart?.()
@@ -214,6 +214,29 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
     expect(runtimeMocks.close).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries Cloudflare initialization timeouts even when cleanup also times out", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.open
+      .mockRejectedValueOnce(new AggregateError(
+        [
+          new Error("[vitehub] Cloudflare Box exists timed out after 15000ms."),
+          new Error("[vitehub] Cloudflare Box destroy timed out after 10000ms."),
+        ],
+        "[vitehub] cloudflare Box initialization failed: [vitehub] Cloudflare Box exists timed out after 15000ms. Cleanup failed: [vitehub] Cloudflare Box destroy timed out after 10000ms.",
+      ))
+      .mockResolvedValueOnce(createSession())
+    runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result[0]).toBeNull()
+    expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
+    expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
+    expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
   it("retries transient Cloudflare failures before Definition execution starts", async () => {
