@@ -5,24 +5,19 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
+import { array, boolean, object, optional, parse, record, string, unknown } from "valibot"
+
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
-function isString(value: unknown): value is string {
-  return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
-}
-
-function parseRecord(value: string, label: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(value)
-  if (!isRecord(parsed)) throw new TypeError(`Expected ${label} to contain a JSON object`)
-  return parsed
-}
+const packageManifestSchema = object({ name: string(), version: string() })
+const workerMetadataSchema = object({
+  inputs: record(string(), unknown()),
+  outputs: record(string(), object({
+    imports: optional(array(object({ external: optional(boolean()), path: string() }))),
+  })),
+})
 
 async function run(command: string, args: string[], cwd: string) {
   try {
@@ -38,13 +33,7 @@ async function run(command: string, args: string[], cwd: string) {
 async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
   for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
-    const manifest = parseRecord(
-      await readFile(join(info.dir, "package.json"), "utf8"),
-      `${info.packageName} package.json`,
-    )
-    if (!isString(manifest.name) || !isString(manifest.version)) {
-      throw new TypeError(`Expected ${info.packageName} package.json to define name and version`)
-    }
+    const manifest = parse(packageManifestSchema, JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")))
     await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
     const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
     overrides[manifest.name] = `file:${join(packDir, tarball)}`
@@ -89,24 +78,14 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  const contents = parseRecord(await readFile(meta, "utf8"), `${name} worker metafile`)
-  if (!isRecord(contents.inputs) || !isRecord(contents.outputs)) {
-    throw new TypeError(`Expected ${name} worker metafile to define inputs and outputs`)
-  }
-  return { inputs: contents.inputs, outputs: contents.outputs }
+  return parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
 }
 
-function externalImports(outputs: Record<string, unknown>): string[] {
-  const paths: string[] = []
-  for (const output of Object.values(outputs)) {
-    if (!isRecord(output) || !Array.isArray(output.imports)) continue
-    for (const entry of output.imports) {
-      if (isRecord(entry) && entry.external === true && isString(entry.path)) {
-        paths.push(entry.path)
-      }
-    }
-  }
-  return paths
+function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {
+  return Object.values(outputs)
+    .flatMap(output => output.imports || [])
+    .filter(entry => entry.external)
+    .map(entry => entry.path)
 }
 
 describe("packed Source capability closures", () => {
