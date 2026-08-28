@@ -163,6 +163,16 @@ Applications composing `@vite-hub/source/vite` directly should extend
 `@vite-hub/source/tsconfig`. The config includes the generated Collection registry
 without requiring a framework-owned TypeScript entry or an application `.vitehub` glob.
 
+TypeScript replaces inherited array options. If an application defines its own `rootDirs`
+or `files`, its `include` must retain the generated Source declarations:
+
+```json
+{
+  "extends": ["@vite-hub/source/tsconfig"],
+  "include": ["src", ".vitehub/types/source/**/*.d.ts"]
+}
+```
+
 ## Generated and internal paths
 
 | Path family | Status | Guidance |

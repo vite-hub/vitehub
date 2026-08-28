@@ -18,6 +18,23 @@ describe("@vite-hub/source package contract", () => {
     const applicationEntry = join(root, "src/index.ts")
     const configEntry = resolve(import.meta.dirname, "../types/source/index.d.ts")
     const fallbackEntry = resolve(import.meta.dirname, "../types/source/fallback.d.ts")
+    const configFile = join(root, "tsconfig.json")
+    const writeConfig = async (overrides: {
+      compilerOptions?: { rootDirs?: string[] }
+      files?: string[]
+      include?: string[]
+    } = {}) => await writeFile(configFile, JSON.stringify({
+      extends: [resolve(import.meta.dirname, "../tsconfig.vite.json")],
+      include: ["src"],
+      ...overrides,
+      compilerOptions: {
+        paths: {
+          "#application/*": ["./src/*"],
+        },
+        types: ["node"],
+        ...overrides.compilerOptions,
+      },
+    }))
     try {
       await Promise.all([
         mkdir(dirname(applicationEntry), { recursive: true }),
@@ -26,19 +43,10 @@ describe("@vite-hub/source package contract", () => {
       await Promise.all([
         writeFile(applicationEntry, "void __vitehubNodeAmbient\nexport {}\n"),
         writeFile(nodeTypes, "declare const __vitehubNodeAmbient: true\n"),
-        writeFile(join(root, "tsconfig.json"), JSON.stringify({
-          extends: [resolve(import.meta.dirname, "../tsconfig.vite.json")],
-          include: ["src"],
-          compilerOptions: {
-            paths: {
-              "#application/*": ["./src/*"],
-            },
-            types: ["node"],
-          },
-        })),
+        writeConfig(),
       ])
 
-      const parse = () => getParsedCommandLineOfConfigFile(join(root, "tsconfig.json"), {}, {
+      const parse = () => getParsedCommandLineOfConfigFile(configFile, {}, {
         ...sys,
         onUnRecoverableConfigFileDiagnostic: diagnostic => {
           throw new TypeError(String(diagnostic.messageText))
@@ -71,11 +79,44 @@ describe("@vite-hub/source package contract", () => {
       expect(new Set(generated?.fileNames)).toEqual(new Set([applicationEntry, configEntry, fallbackEntry]))
       expect(sourceFiles(generated)).toContain(generatedTypes)
 
-      await Promise.all([rm(generatedTypes), rm(generatedTypesEntry)])
+      await Promise.all([
+        writeFile(applicationEntry, 'void __vitehubNodeAmbient\ntype Meal = ViteHubCollectionMap["meals"]\nexport type { Meal }\n'),
+        writeConfig({
+          compilerOptions: { rootDirs: ["src"] },
+          include: ["src", ".vitehub/types/source/**/*.d.ts"],
+        }),
+      ])
+      const ownedRootDirs = parse()
+      if (!ownedRootDirs) throw new TypeError("Expected Source config with consumer-owned rootDirs.")
+      expect(ownedRootDirs.errors).toEqual([])
+      expect(diagnostics(ownedRootDirs)).toEqual([])
+      expect(sourceFiles(ownedRootDirs)).toContain(generatedTypes)
+
+      await writeConfig({
+        compilerOptions: { rootDirs: ["src"] },
+        files: ["src/index.ts"],
+        include: [".vitehub/types/source/**/*.d.ts"],
+      })
+      const ownedFiles = parse()
+      if (!ownedFiles) throw new TypeError("Expected Source config with a consumer-owned files list.")
+      expect(ownedFiles.errors).toEqual([])
+      expect(diagnostics(ownedFiles)).toEqual([])
+      expect(sourceFiles(ownedFiles)).toContain(generatedTypes)
+
+      await Promise.all([
+        rm(generatedTypes),
+        rm(generatedTypesEntry),
+        writeFile(applicationEntry, "void __vitehubNodeAmbient\nexport {}\n"),
+        writeConfig({
+          compilerOptions: { rootDirs: ["src"] },
+          include: ["src", ".vitehub/types/source/**/*.d.ts"],
+        }),
+      ])
       const removed = parse()
       if (!removed) throw new TypeError("Expected cleaned Source TypeScript config.")
       expect(removed?.errors).toEqual([])
       expect(new Set(removed?.fileNames)).toEqual(new Set([applicationEntry, configEntry, fallbackEntry]))
+      expect(diagnostics(removed)).toEqual([])
       expect(sourceFiles(removed)).not.toContain(generatedTypes)
     }
     finally {

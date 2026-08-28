@@ -584,7 +584,7 @@ describe("framework generated types", () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
     await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-    const viteConfig = { root } as { nitro?: Record<string, unknown>; root: string }
+    const viteConfig: { nitro?: Record<string, unknown>; root: string } = { root }
 
     const first = await config(sourcePlugin())(viteConfig)
     viteConfig.nitro = first?.nitro

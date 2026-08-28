@@ -314,9 +314,11 @@ function generatedSourceNitroContribution(
   value: unknown,
   generatedHandlers: GeneratedSourceHandler[],
 ): NitroGeneratedConfig | undefined {
-  const existing = Object(value) === value && !Array.isArray(value)
-    ? value as NitroGeneratedConfig
-    : {}
+  let existing: NitroGeneratedConfig = {}
+  if (Object(value) === value && !Array.isArray(value)) {
+    // SAFETY: the runtime guard excludes primitives and arrays before treating the config as a Nitro config record.
+    existing = value as NitroGeneratedConfig
+  }
   const merged = mergeGeneratedSourceNitroConfig(existing, generatedHandlers)
   const handlers = merged.handlers?.slice(Array.isArray(existing.handlers) ? existing.handlers.length : 0)
   const modules = merged.modules?.slice(Array.isArray(existing.modules) ? existing.modules.length : 0)
