@@ -104,6 +104,7 @@ export function bindConsoleInvocationsIdentity(
   const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
     ?? new Map<string, string>()
   const previousIdentity = bindings.get(binding)
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
   const bindingRoots = registry[consoleInvocationsBindingRootRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
     ?? new Map<string, string>()
   bindings.set(binding, identity)
