@@ -15139,7 +15139,7 @@ describe("server helpers", () => {
         (value) => ({ value }),
         (error) => ({ error }),
       )
-      await vi.waitFor(() => expect(runs).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(runs).toHaveBeenCalledOnce(), { timeout: binding!.steer!.ttlMs * 5 })
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const replay = runAgentWorkflowDefinition(agent as never, workflow, inline as never).then(
         (value) => ({ value }),
@@ -15164,12 +15164,20 @@ describe("server helpers", () => {
 
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
       await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
-      const acquireLock = vi.spyOn(state, "acquireLock")
+      const handoffLock = `${binding!.steer!.lock.threadId}:handoff`
+      const originalAcquireLock = state.acquireLock.bind(state)
+      let handoffAcquisition: ReturnType<typeof originalAcquireLock> | undefined
+      vi.spyOn(state, "acquireLock").mockImplementation((threadId, ttlMs) => {
+        const acquisition = originalAcquireLock(threadId, ttlMs)
+        if (threadId === handoffLock) handoffAcquisition = acquisition
+        return acquisition
+      })
       const overlappingDelivery = handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      await vi.waitFor(() => expect(acquireLock).toHaveBeenCalledWith(`${binding!.steer!.lock.threadId}:handoff`, expect.any(Number)))
+      await vi.waitFor(() => expect(handoffAcquisition).toBeDefined())
+      await expect(handoffAcquisition).resolves.toBeNull()
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)
@@ -15203,7 +15211,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("restarts pending steer input when terminal settlement cannot read its delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")

@@ -73,6 +73,90 @@ describe("optional peer imports", () => {
     expect(closure).not.toContain("reason instanceof Error ? reason : void 0")
   })
 
+  it("retries Vercel requests without a CommonJS runtime", async () => {
+    const attempts: number[] = []
+    await expect(retry((_, attempt) => {
+      attempts.push(attempt)
+      if (attempt === 1) throw new Error("retry")
+      return "done"
+    }, { minTimeout: 0, randomize: false, retries: 1 })).resolves.toBe("done")
+    expect(attempts).toEqual([1, 2])
+  })
+
+  it("starts the first Vercel attempt synchronously", async () => {
+    let started = false
+    const result = retry(() => {
+      started = true
+      return "done"
+    }, { retries: 0 })
+
+    expect(started).toBe(true)
+    await expect(result).resolves.toBe("done")
+  })
+
+  it("stops Vercel retries when the request bails", async () => {
+    const error = new Error("stop")
+    let attempts = 0
+    await expect(retry((bail) => {
+      attempts++
+      bail(error)
+    }, { minTimeout: 0, retries: 2 })).rejects.toBe(error)
+    expect(attempts).toBe(1)
+  })
+
+  it("rejects immediately when a bailed Vercel request stays pending", async () => {
+    const error = new Error("stop")
+    await expect(retry((bail) => {
+      bail(error)
+      return new Promise(() => {})
+    }, { minTimeout: 0, retries: 2 })).rejects.toBe(error)
+  })
+
+  it("does not retry when Vercel supplies an invalid retry count", async () => {
+    const error = new Error("invalid retries")
+    let attempts = 0
+    await expect(retry(() => {
+      attempts++
+      if (attempts === 1) throw error
+      return "unexpected retry"
+    }, { minTimeout: 0, retries: Number.NaN })).rejects.toBe(error)
+    expect(attempts).toBe(1)
+  })
+
+  it("returns Vercel's most frequent retry error and breaks ties with the latest error", async () => {
+    const repeated = new Error("repeated")
+    const final = new Error("final")
+    await expect(retry((_, attempt) => {
+      throw attempt < 3 ? repeated : final
+    }, { minTimeout: 0, randomize: false, retries: 2 })).rejects.toBe(repeated)
+
+    const first = new Error("first")
+    const latest = new Error("latest")
+    await expect(retry((_, attempt) => {
+      throw attempt === 1 ? first : latest
+    }, { minTimeout: 0, randomize: false, retries: 1 })).rejects.toBe(latest)
+  })
+
+  it("throttles Vercel callbacks with a leading call and the latest trailing call", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const calls: string[] = []
+      const throttled = throttle((value: string) => calls.push(value), 100)
+
+      throttled("first")
+      throttled("stale")
+      throttled("latest")
+      expect(calls).toEqual(["first"])
+
+      vi.advanceTimersByTime(100)
+      expect(calls).toEqual(["first", "latest"])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("ships the patched Vercel Blob runtime through the public driver", async () => {
     const built = await readFile(new URL("../dist/drivers/vercel.js", import.meta.url), "utf8")
 
