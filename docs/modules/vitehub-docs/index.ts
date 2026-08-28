@@ -22,6 +22,12 @@ function removeDocusCatchAllPage(pages: Array<{ path?: string, file?: string }>)
   }
 }
 
+export function isDocsArtifactSource(path: string) {
+  const normalizedPath = path.replace(/\\/g, "/");
+  return /content\/(?:docs|blog|trust)\/.*\.md$/.test(normalizedPath)
+    || /content\/docs\/(?:.*\/)?\.navigation\.yml$/.test(normalizedPath);
+}
+
 export default defineNuxtModule({
   meta: {
     name: "vitehub-docs",
@@ -35,8 +41,7 @@ export default defineNuxtModule({
     const manifest = writeDocsArtifacts({ docsRoot, outputDir });
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
     nuxt.hook("builder:watch", (_event, path) => {
-      const normalizedPath = path.replace(/\\/g, "/");
-      if (/content\/(?:docs|blog|trust)\/.*\.md$/.test(normalizedPath)) {
+      if (isDocsArtifactSource(path)) {
         writeDocsArtifacts({ docsRoot, outputDir });
       }
     });

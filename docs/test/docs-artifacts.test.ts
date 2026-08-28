@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readDocsArtifactsManifest, recoverAbandonedLock, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
 import { toRawMarkdown } from "../modules/vitehub-docs/artifacts/raw-markdown";
+import { isDocsArtifactSource } from "../modules/vitehub-docs/index";
 
 function writeText(filePath: string, contents: string) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -11,6 +12,12 @@ function writeText(filePath: string, contents: string) {
 }
 
 describe("writeDocsArtifacts", () => {
+  it("watches Markdown and documentation navigation metadata", () => {
+    expect(isDocsArtifactSource("content/docs/server-primitives/.navigation.yml")).toBe(true);
+    expect(isDocsArtifactSource("content\\docs\\index.md")).toBe(true);
+    expect(isDocsArtifactSource("content/docs/server-primitives/example.ts")).toBe(false);
+  });
+
   it("preserves semantic indentation at document boundaries", () => {
     expect(toRawMarkdown("---\ntitle: Boundary\n---\n    first\n    second")).toBe("# Boundary\n\n    first\n    second\n");
     expect(toRawMarkdown("    first\n    second\n")).toBe("    first\n    second\n");
@@ -108,6 +115,12 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("keeps link-like text inside inline HTML attributes literal", () => {
+    expect(toRawMarkdown('<span title="[literal](/docs/literal)">label</span> [rendered](/docs/rendered)')).toBe(
+      '<span title="[literal](/docs/literal)">label</span> [rendered](https://vitehub.dev/docs/rendered)\n',
+    );
+  });
+
   it("does not start type-7 HTML blocks inside paragraphs", () => {
     expect(toRawMarkdown([
       "Paragraph",
@@ -132,6 +145,40 @@ describe("writeDocsArtifacts", () => {
       "<custom-block>",
       "[literal](/docs/literal)",
     ].join("\n"));
+  });
+
+  it("keeps type-7 HTML in lazy list-item paragraph continuations", () => {
+    expect(toRawMarkdown([
+      "- Paragraph",
+      "<custom-tag>",
+      "[rendered](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "- Paragraph",
+      "<custom-tag>",
+      "[rendered](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
+  it("preserves indented page-grid examples", () => {
+    const source = [
+      "    ::u-page-grid",
+      "      :::u-page-card",
+      "      ---",
+      "      title: Literal card",
+      "      to: /docs/literal",
+      "      ---",
+      "      :::",
+      "    ::",
+    ].join("\n");
+    expect(toRawMarkdown(source)).toBe(`${source}\n`);
+  });
+
+  it("does not duplicate authored H1 forms", () => {
+    expect(toRawMarkdown("---\ntitle: Frontmatter\n---\n#\tExisting heading")).toBe("#\tExisting heading\n");
+    expect(toRawMarkdown("---\ntitle: Frontmatter\n---\nExisting heading\n================")).toBe(
+      "Existing heading\n================\n",
+    );
   });
 
   it("keeps contextual setext-like and malformed definition lines in paragraphs", () => {
@@ -188,7 +235,7 @@ describe("writeDocsArtifacts", () => {
       "",
       "- List item",
       "<custom-list>",
-      "[list literal](/docs/list)",
+      "[list literal](https://vitehub.dev/docs/list)",
     ].join("\n"));
   });
 
@@ -478,6 +525,25 @@ describe("writeDocsArtifacts", () => {
 
       expect(recoverAbandonedLock(lockDir)).toBe(false);
       expect(readFileSync(resolve(lockDir, "owner.json"), "utf8")).toContain('"token":"live"');
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("recovers a lock whose PID belongs to a different process identity", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-recycled-lock-"));
+    const lockDir = resolve(rootDir, ".raw-artifacts.lock");
+
+    try {
+      mkdirSync(lockDir);
+      writeText(resolve(lockDir, "owner.json"), JSON.stringify({
+        identity: "different-process",
+        pid: process.pid,
+        token: "abandoned",
+      }));
+
+      expect(recoverAbandonedLock(lockDir)).toBe(true);
+      expect(existsSync(lockDir)).toBe(false);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }

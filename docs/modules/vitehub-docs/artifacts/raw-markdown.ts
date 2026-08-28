@@ -357,7 +357,18 @@ function rewriteInlineLinks(source: string) {
   }
 
   protectedSource += source.slice(offset);
+  const htmlTags: string[] = [];
+  let htmlPlaceholderPrefix = "__VITEHUB_RAW_HTML_TAG_";
+  while (protectedSource.includes(htmlPlaceholderPrefix)) htmlPlaceholderPrefix += "_";
+  protectedSource = protectedSource.replace(
+    /<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>/g,
+    (tag) => `${htmlPlaceholderPrefix}${htmlTags.push(tag) - 1}__`,
+  );
+
   return rewriteMarkdownLinks(protectedSource).replace(
+    new RegExp(`${htmlPlaceholderPrefix}(\\d+)__`, "g"),
+    (_match, index: string) => htmlTags[Number(index)]!,
+  ).replace(
     new RegExp(`${placeholderPrefix}(\\d+)__`, "g"),
     (_match, index: string) => codeSpans[Number(index)]!,
   );
@@ -406,11 +417,16 @@ function rewriteLinks(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
     const quoteDepth = leadingQuoteDepth(referenceContainer(line));
-    if (paragraphOpen && exitsMarkdownContainer(line, paragraphListIndent, paragraphQuoteDepth)) {
+    const lazyTypeSevenContinuation = typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth;
+    if (
+      paragraphOpen
+      && exitsMarkdownContainer(line, paragraphListIndent, paragraphQuoteDepth)
+      && !lazyTypeSevenContinuation
+    ) {
       paragraphOpen = false;
       paragraphListIndent = null;
     }
-    if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
+    if (!fence && nextHtmlEnd && !lazyTypeSevenContinuation) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
@@ -522,7 +538,8 @@ function removeIndentation(line: string, columns: number) {
 }
 
 function cardList(source: string) {
-  return source.replace(/^([ \t]*)::u-page-grid[^\n]*\n([\s\S]*?)^\1::\s*$/gm, (_grid, indent: string, cards: string) => {
+  return source.replace(/^([ \t]*)::u-page-grid[^\n]*\n([\s\S]*?)^\1::\s*$/gm, (grid, indent: string, cards: string) => {
+    if (indentationColumns(indent) >= 4) return grid;
     const items: string[] = [];
     const cardPattern = /^\s*:::u-page-card[^\n]*\n\s*---\n([\s\S]*?)\n\s*---\n\s*:::\s*$/gm;
     for (const match of cards.matchAll(cardPattern)) {
@@ -788,6 +805,8 @@ export function toRawMarkdown(source: string) {
   const titleResult = safeParse(string(), frontmatter.title);
   const title = titleResult.success ? titleResult.output.trim() : undefined;
   const content = stripPresentationDirectives(cardListsOutsideFences(body)).replace(/^\n+|\n+$/g, "");
-  const document = title && !content.startsWith("# ") ? `# ${title}\n\n${content}` : content;
+  const startsWithH1 = /^[ \t]{0,3}#(?:[ \t]+|$)/.test(content)
+    || /^[^\n]+\n[ \t]{0,3}=+[ \t]*(?:\n|$)/.test(content);
+  const document = title && !startsWithH1 ? `# ${title}\n\n${content}` : content;
   return `${document}\n`;
 }

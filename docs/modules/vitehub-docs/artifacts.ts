@@ -29,7 +29,7 @@ const docsManifestSchema = object({
   version: literal(docsManifestVersion),
 });
 const fileSystemErrorSchema = object({ code: optional(string()) });
-const lockOwnerSchema = object({ pid: number(), token: string() });
+const lockOwnerSchema = object({ identity: optional(string()), pid: number(), token: string() });
 const lockStaleAfterMs = 30_000;
 
 function fileSystemErrorCode(error: unknown) {
@@ -44,6 +44,27 @@ function processIsRunning(pid: number) {
   } catch (error) {
     return fileSystemErrorCode(error) === "EPERM";
   }
+}
+
+function linuxProcessIdentity(pid: number) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    const startedAt = fields[19];
+    const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+    return startedAt && bootId ? `${bootId}:${startedAt}` : null;
+  } catch {
+    return null;
+  }
+}
+
+const currentProcessIdentity = linuxProcessIdentity(process.pid) || `node:${randomUUID()}`;
+
+function lockOwnerIsRunning(owner: { identity?: string, pid: number }) {
+  if (!processIsRunning(owner.pid)) return false;
+  if (!owner.identity) return true;
+  const identity = owner.pid === process.pid ? currentProcessIdentity : linuxProcessIdentity(owner.pid);
+  return identity === null || identity === owner.identity;
 }
 
 function hasRecoveryClaim(lockDir: string) {
@@ -75,7 +96,7 @@ export function recoverAbandonedLock(lockDir: string) {
         try {
           const currentOwner: unknown = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
           const parsedCurrentOwner = safeParse(lockOwnerSchema, currentOwner);
-          if (parsedCurrentOwner.success && processIsRunning(parsedCurrentOwner.output.pid)) return false;
+          if (parsedCurrentOwner.success && lockOwnerIsRunning(parsedCurrentOwner.output)) return false;
         } catch (ownerError) {
           if (fileSystemErrorCode(ownerError) !== "ENOENT" && !(ownerError instanceof SyntaxError)) throw ownerError;
         } finally {
@@ -88,7 +109,7 @@ export function recoverAbandonedLock(lockDir: string) {
       throw error;
     }
     const parsedOwner = safeParse(lockOwnerSchema, owner);
-    if (!parsedOwner.success || processIsRunning(parsedOwner.output.pid)) return false;
+    if (!parsedOwner.success || lockOwnerIsRunning(parsedOwner.output)) return false;
 
     const claimedOwnerPath = resolve(lockDir, `.recovery-${randomUUID()}.json`);
     try {
@@ -102,6 +123,7 @@ export function recoverAbandonedLock(lockDir: string) {
     if (
       !parsedClaimedOwner.success
       || parsedClaimedOwner.output.pid !== parsedOwner.output.pid
+      || parsedClaimedOwner.output.identity !== parsedOwner.output.identity
       || parsedClaimedOwner.output.token !== parsedOwner.output.token
     ) {
       if (!existsSync(resolve(lockDir, "owner.json"))) renameSync(claimedOwnerPath, resolve(lockDir, "owner.json"));
@@ -146,7 +168,11 @@ function withArtifactLock<T>(outputDir: string, callback: () => T) {
   while (true) {
     try {
       mkdirSync(lockDir);
-      writeFileSync(resolve(lockDir, "owner.json"), JSON.stringify({ pid: process.pid, token: lockToken }));
+      writeFileSync(resolve(lockDir, "owner.json"), JSON.stringify({
+        identity: currentProcessIdentity,
+        pid: process.pid,
+        token: lockToken,
+      }));
       if (hasRecoveryClaim(lockDir) || !ownsLock(lockDir, lockToken)) {
         if (ownsLock(lockDir, lockToken)) rmSync(lockDir, { recursive: true });
         continue;
