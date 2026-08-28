@@ -11,6 +11,7 @@ const variablePackagePattern = /^((?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+))@(?:\$\{([A-Z
 const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const shellOperatorPattern = /^(?:&&|\|\||[;&|]|\$\(|\(|\)|`|\{|\})$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
+const npmExecValueOptions = new Set(["--workspace", "-w"])
 const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
 const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "until", "while"])
 const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
@@ -253,14 +254,20 @@ function conditionalCounts(tokens) {
   return { closes, opens }
 }
 
-function functionScopeCounts(tokens) {
+function functionScopeCounts(tokens, pendingDeclaration) {
   const declaration = tokens.findIndex((token, index) => token === "{" && (
     (tokens[index - 1] === ")" && tokens[index - 2] === "(" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens[index - 3] ?? ""))
     || (tokens[index - 2] === "function" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens[index - 1] ?? ""))
   ))
+  const opensPendingDeclaration = pendingDeclaration && tokens[0] === "{"
+  const declaresPendingFunction = declaration === -1 && (
+    (tokens.at(-1) === ")" && tokens.at(-2) === "(" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens.at(-3) ?? ""))
+    || (tokens.at(-2) === "function" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens.at(-1) ?? ""))
+  )
   return {
     closes: tokens.filter(token => token === "}").length,
-    opens: declaration === -1 ? 0 : 1,
+    opens: declaration === -1 && !opensPendingDeclaration ? 0 : 1,
+    pendingDeclaration: declaresPendingFunction,
   }
 }
 
@@ -291,10 +298,38 @@ function pipedShellSource(tokens, shellIndex) {
   const invocation = tokens.slice(start + 1, shellIndex - 1)
   const executable = executableName(invocation[0] ?? "")
   if (executable !== "printf" && executable !== "echo") return
-  const argumentsStart = invocation.findIndex((token, index) => index > 0 && token === "--")
-  const source = invocation.slice(argumentsStart === -1 ? 1 : argumentsStart + 1).join(" ")
+  let producerArguments = invocation.slice(1)
+  if (executable === "echo") {
+    let interpretsEscapes = false
+    while (producerArguments[0] === "-n" || producerArguments[0] === "-e" || producerArguments[0] === "-E") {
+      if (producerArguments[0] === "-e") interpretsEscapes = true
+      if (producerArguments[0] === "-E") interpretsEscapes = false
+      producerArguments = producerArguments.slice(1)
+    }
+    if (producerArguments[0] === "--") producerArguments = producerArguments.slice(1)
+    const source = producerArguments.join(" ")
+    return interpretsEscapes ? expandPrintfEscapes(source) : source
+  }
+  if (producerArguments[0] === "--") producerArguments = producerArguments.slice(1)
+  const format = producerArguments.shift()
+  if (format === undefined) return
+  let argumentIndex = 0
+  const source = expandPrintfEscapes(format).replace(/%(%|s|b)/g, (_match, conversion) => {
+    if (conversion === "%") return "%"
+    const argument = producerArguments[argumentIndex++] ?? ""
+    return conversion === "b" ? expandPrintfEscapes(argument) : argument
+  })
   if (!source || /\$|`/.test(source)) return
   return source
+}
+
+function expandPrintfEscapes(value) {
+  return value.replace(/\\(\\|a|b|c|e|f|n|r|t|v|0[0-7]{0,2}|x[0-9A-Fa-f]{1,2})/g, (_match, escape) => {
+    if (escape === "c") return ""
+    if (escape.startsWith("0")) return String.fromCharCode(Number.parseInt(escape.slice(1) || "0", 8))
+    if (escape.startsWith("x")) return String.fromCharCode(Number.parseInt(escape.slice(1), 16))
+    return { "\\": "\\", a: "\u0007", b: "\b", e: "\u001B", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" }[escape]
+  })
 }
 
 function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
@@ -303,6 +338,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   let dataHereDocument
   let conditionalDepth = 0
   let functionDepth = 0
+  let pendingFunctionDeclaration = false
   for (const line of command.replaceAll(/\\\r?\n/g, "").split("\n")) {
     if (dataHereDocument) {
       if (line.trim() === dataHereDocument.delimiter) dataHereDocument = undefined
@@ -318,7 +354,8 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const tokens = shellTokens(line)
     const executableIndexes = commandIndexes(tokens)
     const { closes: closesConditional, opens: opensConditional } = conditionalCounts(tokens)
-    const { closes: closesFunction, opens: opensFunction } = functionScopeCounts(tokens)
+    const { closes: closesFunction, opens: opensFunction, pendingDeclaration }
+      = functionScopeCounts(tokens, pendingFunctionDeclaration)
     const activeConditionalDepth = Math.max(0, conditionalDepth - closesConditional)
     const activeFunctionDepth = Math.max(0, functionDepth - closesFunction)
     if (activeConditionalDepth === 0 && opensConditional === 0
@@ -383,6 +420,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       if (executable === "npx") {
         argumentsStart = index + 1
         acceptsPackageOptions = true
+        inspectsTerminatedCommand = true
       }
       else if (executable === "bunx" || executable === "pnpx") argumentsStart = index + 1
       else if (executable === "bun" && tokens[index + 1] === "x") argumentsStart = index + 2
@@ -417,6 +455,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       const packageSpecs = []
       const callCommands = []
       const terminatedCommands = []
+      const optionValueIndexes = new Set()
       if (acceptsPackageOptions) {
         for (let argumentIndex = 0; argumentIndex < invocation.length; argumentIndex++) {
           const argument = invocation[argumentIndex]
@@ -438,10 +477,15 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
           else if (argument === "--call" || argument === "-c") {
             callCommands.push(invocation[++argumentIndex] ?? "")
           }
+          else if (npmExecValueOptions.has(argument)) {
+            optionValueIndexes.add(argumentIndex + 1)
+            argumentIndex++
+          }
         }
       }
       if (packageSpecs.length === 0 && callCommands.length === 0) {
-        packageSpecs.push(invocation.find(candidate => candidate !== "--" && !candidate.startsWith("-")) ?? "(missing)")
+        packageSpecs.push(invocation.find((candidate, candidateIndex) => candidate !== "--"
+          && !candidate.startsWith("-") && !optionValueIndexes.has(candidateIndex)) ?? "(missing)")
       }
       specs.push(...packageSpecs.map(spec => resolvePackageSpec(spec, environment)))
       for (const callCommand of callCommands) {
@@ -453,6 +497,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     }
     conditionalDepth = Math.max(0, conditionalDepth + opensConditional - closesConditional)
     functionDepth = Math.max(0, functionDepth + opensFunction - closesFunction)
+    pendingFunctionDeclaration = pendingDeclaration
   }
   return specs
 }

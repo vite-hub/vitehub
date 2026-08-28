@@ -401,6 +401,7 @@ jobs:
     "npm --user-agent custom exec unpinned",
     "npm exec --package=safe@1.2.3 --package=unpinned -- cmd",
     "npm exec --package=semver@7.7.2 -- npx unpinned",
+    "npx --package=semver@7.7.2 -- npx unpinned",
     "npm exec --package=runner@1.2.3 -c 'npx unpinned'",
     "npm exec --package=runner@1.2.3 --call=\"npx unpinned\"",
     "version=$(npx unpinned --version)",
@@ -444,6 +445,8 @@ jobs:
     "eval -- 'npx unpinned'",
     "bash <<< 'npx unpinned'",
     "printf 'npx unpinned\\n' | bash",
+    "printf '%s\\n' 'npx unpinned' | bash",
+    "echo -e 'npx unpinned\\n' | bash",
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -532,6 +535,40 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
     ])
+  })
+
+  it("does not persist assignments from a multiline uncalled function declaration", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          set_version()",
+        "          {",
+        "            VERSION=1.2.3",
+        "          }",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it.each([
+    "npm exec -w packages/foo tool@1.2.3",
+    "npm exec --workspace packages/foo tool@1.2.3",
+    "npx -w packages/foo tool@1.2.3",
+  ])("allows a pinned workspace-scoped package executor: %s", async (command) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("inspects workflows whose complete jobs map is aliased", async () => {
