@@ -5,15 +5,19 @@ import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
+import { workspaceMetadataTarget } from "../storage/metadata-target.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
   WorkspaceDefinition,
   WorkspaceSession,
+  WorkspaceStore,
 } from "./types.ts"
 
 type WorkspaceWithDefinitionSync = Workspace & {
-  __syncWorkspaceDefinition?: () => Promise<void>
+  __workspaceDefinitionSyncKey?: object
+  __syncWorkspaceDefinition?: (abortSignal?: AbortSignal) => Promise<void>
 }
 
 function getStore(definition: WorkspaceDefinition) {
@@ -24,10 +28,11 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
   const store = getStore(definition)
   const files = createWorkspaceSourceView(definition, store)
 
-  const workspace: Workspace = {
+  const workspace: Workspace & { [workspaceMetadataTarget]: () => WorkspaceStore } = {
+    [workspaceMetadataTarget]: () => store,
     name: definition.name,
     async capabilities() {
-      return { conditionalWrites: typeof store.writeFileConditional === "function" }
+      return { conditionalWrites: hasRuntimeType(store.writeFileConditional, "function") }
     },
     async sync(options) {
       const { syncWorkspaceSources } = await import("../sources/sync.ts")
@@ -102,9 +107,12 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     forwardWorkspaceRevisionMaterializer(store, workspace)
   }
 
-  ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async () => {
+  // SAFETY: This module owns the private synchronization member attached to its Workspace facade.
+  const synchronizedWorkspace = workspace as WorkspaceWithDefinitionSync
+  synchronizedWorkspace.__workspaceDefinitionSyncKey = definition
+  synchronizedWorkspace.__syncWorkspaceDefinition = async (abortSignal) => {
     const { syncWorkspaceDefinition } = await import("../lifecycle.ts")
-    await syncWorkspaceDefinition(definition, store)
+    await syncWorkspaceDefinition(definition, store, abortSignal)
   }
 
   return attachWorkspaceSourceRequestExecution(workspace, createWorkspaceSourceRequestExecution(definition))

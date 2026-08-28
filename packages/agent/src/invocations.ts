@@ -70,6 +70,7 @@ export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">
 export interface AgentInvocationListResult {
   cursor?: string
   invocations: readonly AgentInvocationSummary[]
+  remainingStatuses?: readonly AgentInvocationRecordStatus[]
 }
 
 export type AgentInvocationStoreCreateInput = Omit<AgentInvocationRecord, "cursor">

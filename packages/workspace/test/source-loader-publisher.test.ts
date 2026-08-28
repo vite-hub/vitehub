@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -20,10 +20,11 @@ import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { materializeWorkspaceSources } from "../src/sources/materialization.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
+import type { RmOptions, WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 const ghAuthToken = vi.hoisted(() => vi.fn<(...args: unknown[]) => string>(() => {
   throw new Error("missing gh")
@@ -95,9 +96,9 @@ function createTarGz(files: Record<string, string>) {
 }
 
 function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
-  const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
-  const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
-  const defaultBranch = typeof options === "number" ? "main" : options.defaultBranch ?? "main"
+  const apiStatus = hasRuntimeType(options, "number") ? options : options.apiStatus ?? 200
+  const archiveStatus = hasRuntimeType(options, "number") ? options : options.archiveStatus ?? 200
+  const defaultBranch = hasRuntimeType(options, "number") ? "main" : options.defaultBranch ?? "main"
 
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
@@ -192,8 +193,12 @@ describe("sources, loaders, and publishers", () => {
 
   it("keeps Vite out of statically bundled workspace runtime output", async () => {
     const output = await readFile(join(import.meta.dirname, "../dist/index.js"), "utf8")
+    const githubRuntimeChunks = (await readdir(join(import.meta.dirname, "../dist")))
+      .filter(file => /^github-.*\.js$/.test(file))
+    const githubRuntimeOutput = (await Promise.all(githubRuntimeChunks.map(async file => await readFile(join(import.meta.dirname, "../dist", file), "utf8")))).join("\n")
 
     expect(output).not.toContain('import("vite")')
+    expect(githubRuntimeOutput).not.toMatch(/\bimport\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)?["']vite["']/)
     expect(output).not.toContain("createRequire(import.meta.url)")
     expect(output).not.toContain("node-fetch-native")
     expect(output).not.toContain("node:http")
@@ -312,6 +317,25 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.readFile("docs/.env")).resolves.toBeUndefined()
     const updatedReadme = await store.readFile("docs/README.md")
     expect(Buffer.from(updatedReadme?.content || "").toString("utf8")).toBe("# Updated docs\n")
+  })
+
+  it("removes unowned stale files from a complete mounted Source refresh", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/stale.md", { content: "# Stale\n", path: "docs/stale.md" })
+
+    await materializeWorkspaceSources({
+      name: "unowned-stale-source-files",
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Current\n", key } },
+          async getKeys() { return ["current.md"] },
+          materialize: "startup",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "# Current\n" })
   })
 
   it("resolves GitHub auth lazily from runtime env", async () => {
@@ -1055,6 +1079,99 @@ describe("sources, loaders, and publishers", () => {
       mediaType: "text/markdown",
       metadata: { source: "docs" },
     })
+  })
+
+  it("cancels bundled build source probes", async () => {
+    let probing!: () => void
+    const probeStarted = new Promise<void>((resolve) => { probing = resolve })
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          metadata: { source: "docs" },
+        },
+      }),
+    })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys(ctx) {
+            probing()
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
+            return []
+          },
+          async getItem() { throw new Error("unexpected item read") },
+        }),
+      },
+    }, createMemoryWorkspaceStore(), controller.signal)
+
+    await probeStarted
+    controller.abort(new Error("preparation stopped"))
+    await expect(syncing).rejects.toThrow("preparation stopped")
+  })
+
+  it("forwards cancellation through the default files loader", async () => {
+    let loading!: () => void
+    const loadingStarted = new Promise<void>((resolve) => { loading = resolve })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({
+      name: "support",
+      sources: {
+        docs: custom({
+          async getKeys(ctx) {
+            loading()
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
+            return []
+          },
+          async getItem() { throw new Error("unexpected item read") },
+        }),
+      },
+    }, createMemoryWorkspaceStore(), controller.signal)
+
+    await loadingStarted
+    controller.abort(new Error("preparation stopped"))
+    await expect(syncing).rejects.toThrow("preparation stopped")
+  })
+
+  it("waits for an accepted Store removal before cancellation settles", async () => {
+    const base = createMemoryWorkspaceStore()
+    await base.setMeta?.("workspace:build-sources", [{ key: "docs", mountPath: "docs" }])
+    let releaseRemoval!: () => void
+    const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
+    let removalStarted!: () => void
+    const removing = new Promise<void>((resolve) => { removalStarted = resolve })
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property, receiver) {
+        if (property !== "rm") {
+          const value = Reflect.get(target, property, receiver)
+          return hasRuntimeType(value, "function") ? value.bind(target) : value
+        }
+        return async (path: string, options?: RmOptions) => {
+          removalStarted()
+          await removalBlocked
+          await base.rm(path, options)
+        }
+      },
+    })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({ name: "support" }, store, controller.signal)
+
+    await removing
+    controller.abort(new Error("preparation stopped"))
+    await expect(Promise.race([syncing.then(() => "settled", () => "settled"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseRemoval()
+    await expect(syncing).rejects.toThrow("preparation stopped")
   })
 
   it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
