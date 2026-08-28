@@ -14,6 +14,7 @@ export interface ConsoleFixture {
   version: 1
 }
 const maximumAgentNameLength = 512
+const maximumInvocationIdLength = 512
 const invocationStatusSchema = v.picklist([
   "cancelled",
   "completed",
@@ -283,6 +284,11 @@ function invocationId(value: unknown, path: string): string {
     throw new TypeError(`[vitehub] Console fixture ${path} must not be a dot segment.`)
   }
   assertWellFormedUnicode(id, path)
+  if (id.length > maximumInvocationIdLength) {
+    throw new TypeError(
+      `[vitehub] Console fixture ${path} must be at most ${maximumInvocationIdLength} characters.`,
+    )
+  }
   return id
 }
 

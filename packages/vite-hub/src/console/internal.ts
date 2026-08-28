@@ -7,6 +7,7 @@ export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.
 export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
 export const consoleInvocationsBindingKey: unique symbol = Symbol.for("vitehub.console.invocations.binding")
 export const consoleInvocationsBindingRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.bindings")
+export const consoleInvocationsBindingRootRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.binding-roots")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
@@ -22,6 +23,7 @@ type ConsoleInvocationRegistry = Record<symbol, AgentInvocations | string | Cons
 
 type ConsoleInvocationIdentitiesByRoot = {
   delete(key: string): boolean
+  entries(): IterableIterator<[string, string]>
   get(key: string): string | undefined
   set(key: string, value: string): unknown
   values(): IterableIterator<string>
@@ -93,6 +95,7 @@ function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegist
 export function bindConsoleInvocationsIdentity(
   binding: string,
   identity: string,
+  projectRoot: string,
   scope: ConsoleInvocationScope = globalThis,
 ): void {
   const registry = processRegistry(scope)
@@ -101,8 +104,12 @@ export function bindConsoleInvocationsIdentity(
   const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
     ?? new Map<string, string>()
   const previousIdentity = bindings.get(binding)
+  const bindingRoots = registry[consoleInvocationsBindingRootRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+    ?? new Map<string, string>()
   bindings.set(binding, identity)
+  bindingRoots.set(binding, projectRoot)
   registry[consoleInvocationsBindingRegistryKey] = bindings
+  registry[consoleInvocationsBindingRootRegistryKey] = bindingRoots
   if (previousIdentity && previousIdentity !== identity) {
     retireConsoleInvocationsIdentity(registry, previousIdentity)
   }
@@ -119,6 +126,20 @@ export function releaseConsoleInvocationsBinding(
   const identity = bindings?.get(binding)
   if (!identity) return
   bindings?.delete(binding)
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindingRoots = registry[consoleInvocationsBindingRootRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const projectRoot = bindingRoots?.get(binding)
+  bindingRoots?.delete(binding)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const roots = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  if (projectRoot && roots?.get(projectRoot) === identity) {
+    let survivingIdentity: string | undefined
+    for (const [candidateBinding, candidateRoot] of bindingRoots?.entries() ?? []) {
+      if (candidateRoot === projectRoot) survivingIdentity = bindings?.get(candidateBinding)
+    }
+    if (survivingIdentity) roots.set(projectRoot, survivingIdentity)
+    else roots.delete(projectRoot)
+  }
   retireConsoleInvocationsIdentity(registry, identity)
 }
 

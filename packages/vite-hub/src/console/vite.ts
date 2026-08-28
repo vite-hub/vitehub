@@ -64,7 +64,7 @@ export function updateConsoleInvocationRootState(
   state.binding ??= randomUUID()
   state.identity = identity
   state.projectRoot = projectRoot
-  bindConsoleInvocationsIdentity(state.binding, identity)
+  bindConsoleInvocationsIdentity(state.binding, identity, projectRoot)
 }
 
 const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const

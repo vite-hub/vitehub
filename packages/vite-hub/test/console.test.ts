@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsBindingKey, consoleInvocationsBindingRegistryKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, createConsoleInvocationsIdentity, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { consoleInvocationsBindingKey, consoleInvocationsBindingRegistryKey, consoleInvocationsBindingRootRegistryKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, createConsoleInvocationsIdentity, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
@@ -39,7 +39,7 @@ const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocati
 
 function isPluginHookObject(value: unknown): value is { handler: unknown } {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin hooks are functions or hook objects at this test boundary.
-  return Boolean(value) && typeof value === "object" && "handler" in value
+  return value !== null && typeof value === "object" && "handler" in value
 }
 
 function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[] = []): unknown {
@@ -101,6 +101,7 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsIdentityRootKey)
   Reflect.deleteProperty(process, consoleInvocationsBindingKey)
   Reflect.deleteProperty(process, consoleInvocationsBindingRegistryKey)
+  Reflect.deleteProperty(process, consoleInvocationsBindingRootRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
@@ -257,6 +258,8 @@ describe("Agent invocation console", () => {
       version: 1,
     }).invocations[0]?.agentName).toBe(consoleFixtureFallbackAgentName)
     expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
+    expect(() => parseConsoleFixture(fixtureDocument("a".repeat(513))))
+      .toThrow("invocations[0].id must be at most 512 characters")
     expect(() => parseConsoleFixture({
       invocations: [0, 1].map(() => ({
         agentName: "support",
@@ -702,6 +705,44 @@ describe("Agent invocation console", () => {
     await callPluginHook(secondPlugin.closeBundle, {})
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
     expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(secondIdentity)).toBe(false)
+  })
+
+  it("retires the current fixture journal when its only runtime closes", async () => {
+    const projectRoot = "/project"
+    const identity = "fixture:/project:/fixture.json:revision"
+    const invocations = fakeInvocations("fixture")
+    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity, "revision")
+    const state = { identity, projectRoot }
+    updateConsoleInvocationRootState(state, projectRoot, identity)
+    const plugin = consoleInvocationRootPlugin(projectRoot, identity, state)
+
+    await callPluginHook(plugin.closeBundle, {})
+
+    expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).has(projectRoot)).toBe(false)
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(identity)).toBe(false)
+    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(identity)).toBe(false)
+  })
+
+  it("restores a surviving same-root runtime when the current runtime closes", async () => {
+    const projectRoot = "/project"
+    const firstIdentity = "fixture:/project:/fixture.json:first"
+    const secondIdentity = "fixture:/project:/fixture.json:second"
+    const first = fakeInvocations("first")
+    const second = fakeInvocations("second")
+    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
+    const firstState = { identity: firstIdentity, projectRoot }
+    updateConsoleInvocationRootState(firstState, projectRoot, firstIdentity)
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    const secondState = { identity: secondIdentity, projectRoot }
+    updateConsoleInvocationRootState(secondState, projectRoot, secondIdentity)
+    const secondPlugin = consoleInvocationRootPlugin(projectRoot, secondIdentity, secondState)
+
+    await callPluginHook(secondPlugin.closeBundle, {})
+
+    expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).get(projectRoot)).toBe(firstIdentity)
+    expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: projectRoot })).toBe(first)
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(firstIdentity)).toBe(true)
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
   })
 
   it("keeps persisted Agent names alongside discovered definitions", async () => {
