@@ -1,4 +1,4 @@
-import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
+import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, registerWorkspaceAccessWrapper, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
@@ -19,6 +19,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type {
+  GlobOptions,
   ListOptions,
   ReadonlyWorkspaceFacade,
   WorkspaceDefinition,
@@ -40,6 +41,7 @@ import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 type WorkspaceAccessRuntime = Pick<
   typeof import("@vite-hub/workspace/runtime") & typeof import("@vite-hub/workspace"),
   | "attachWorkspaceSourceRequestExecution"
+  | "assertModelWorkspaceGlobPattern"
   | "createWorkspaceSourceResolutionFacade"
   | "createWorkspaceTools"
   | "getWorkspaceSourceRequestExecution"
@@ -256,6 +258,14 @@ type AccessWorkspaceName<TWorkspace extends AnyAccessWorkspaceOptions> =
 type AccessWorkspaceInputContext<TWorkspace extends AnyAccessWorkspaceOptions> =
   AccessWorkspaceOptionsType<TWorkspace>["inputContext"]
 
+type AccessWorkspaceRuntimeConfig<TWorkspace> = TWorkspace extends { resolve?: infer TResolve }
+  ? Extract<TResolve, (...args: never[]) => unknown> extends (context: infer TContext) => unknown
+    ? TContext extends AccessWorkspaceResolverContext<infer TRuntimeConfig, infer _Name, infer _TInputContext>
+      ? TRuntimeConfig
+      : AgentRuntimeConfig
+    : AgentRuntimeConfig
+  : AgentRuntimeConfig
+
 interface ResolvedWorkspaceScope {
   all: boolean
   definition: AccessWorkspaceScopeDefinition
@@ -277,15 +287,11 @@ interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string>
   scope: string
 }
 
-function setWorkspaceOverride<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-  workspace: ReadonlyWorkspaceFacade<Name>,
+function setWorkspaceOverride<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentCapabilityRuntimeContext<TRuntimeConfig, WorkspaceName>,
+  workspace: ReadonlyWorkspaceFacade,
 ): void {
-  // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
-  const override = (context as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & Partial<WorkspaceOverrideRuntime<Name>>)[workspaceOverrideSymbol]
+  const override = (context as AgentCapabilityRuntimeContext<TRuntimeConfig, WorkspaceName> & Partial<WorkspaceOverrideRuntime<WorkspaceName>>)[workspaceOverrideSymbol]
   if (!override) {
     throw new Error("[vitehub] access() could not apply Workspace Scope.")
   }
@@ -300,9 +306,12 @@ async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
 }
 
 export function access<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, any, string, any> = AccessWorkspaceOptions<TRuntimeConfig>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+  TRuntimeConfig extends AgentRuntimeConfig,
+  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, any, any, any>,
+>(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+export function access<
+  const TWorkspace extends AccessWorkspaceOptions<any, any, any, any>,
+>(options: { chat?: undefined, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<AccessWorkspaceRuntimeConfig<TWorkspace>, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>
@@ -362,6 +371,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         ? workspaceForScope
         // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
         : createScopedWorkspaceFacade(workspaceForScope as ReadonlyWorkspaceFacade<WorkspaceName>, finalScope, workspaceRuntime)
+      const modelSafeWorkspace = createModelSafeWorkspaceFacade(scopedWorkspace as ReadonlyWorkspaceFacade<WorkspaceName>, workspaceRuntime)
       context.context.set("access", {
         workspaceScope: {
           all: finalScope.all,
@@ -372,12 +382,92 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         },
       })
       markTrustedWorkspaceAccessScope(context.context)
+      registerWorkspaceAccessWrapper(context.context, workspace => createModelSafeWorkspaceFacade(workspace, workspaceRuntime))
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
         markTrustedWorkspaceSourceResolutionDefinition(context.context)
       }
-      // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
-      setWorkspaceOverride(context, scopedWorkspace as ReadonlyWorkspaceFacade<WorkspaceName>)
+      setWorkspaceOverride(context, modelSafeWorkspace)
+    },
+  })
+}
+
+function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
+  workspace: ReadonlyWorkspaceFacade<Name>,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): ReadonlyWorkspaceFacade<Name> {
+  const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
+  const fsStarter = workspaceSessionStarter(workspace.fs)
+  const facadeStarter = workspaceSessionStarter(workspace as object)
+  const fs = workspaceRuntime.attachWorkspaceSourceRequestExecution(overridePrototypeMethods(workspace.fs, {
+    async glob(pattern: string | string[], options?: GlobOptions) {
+      workspaceRuntime.assertModelWorkspaceGlobPattern(pattern as string | string[])
+      return await workspace.fs.glob(pattern as never, options)
+    },
+    async search(query: WorkspaceSearchQuery) {
+      assertModelWorkspaceSearchQuery(query, workspaceRuntime)
+      return await workspace.fs.search(query)
+    },
+    ...(fsStarter
+      ? {
+          async startSession(options?: WorkspaceSessionOptions) {
+            return createModelSafeWorkspaceSession(await fsStarter.startSession(options), workspaceRuntime)
+          },
+        }
+      : {}),
+  }), sourceRequestExecution)
+  const facade = overridePrototypeMethods(workspace, {
+    fs,
+    ...(facadeStarter
+      ? {
+          async startSession(options?: WorkspaceSessionOptions) {
+            return createModelSafeWorkspaceSession(await facadeStarter.startSession(options), workspaceRuntime)
+          },
+        }
+      : {}),
+  }) as ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter>
+  return facade
+}
+
+function assertModelWorkspaceSearchQuery(
+  query: WorkspaceSearchQuery,
+  workspaceRuntime: WorkspaceAccessRuntime,
+) {
+  const roots = query.paths?.length ? query.paths : [query.cwd || ""]
+  workspaceRuntime.assertModelWorkspaceGlobPattern(
+    roots.map(root => root ? `${root}/**/*` : "**/*"),
+  )
+}
+
+function createModelSafeWorkspaceSession(
+  session: WorkspaceSession,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): WorkspaceSession {
+  return overridePrototypeMethods(session, {
+    async glob(pattern: string | string[], options?: GlobOptions) {
+      workspaceRuntime.assertModelWorkspaceGlobPattern(pattern)
+      return await session.glob(pattern, options)
+    },
+  })
+}
+
+function overridePrototypeMethods<T extends object>(target: T, overrides: Partial<T>): T {
+  return new Proxy(Object.create(Object.getPrototypeOf(target)) as T, {
+    get(_wrapper, property) {
+      if (Object.hasOwn(overrides, property)) return Reflect.get(overrides, property, overrides)
+      const value = Reflect.get(target, property, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+    has(_wrapper, property) {
+      return Object.hasOwn(overrides, property) || Reflect.has(target, property)
+    },
+    ownKeys() {
+      return [...new Set([...Reflect.ownKeys(target), ...Reflect.ownKeys(overrides)])]
+    },
+    getOwnPropertyDescriptor(_wrapper, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(overrides, property)
+        ?? Reflect.getOwnPropertyDescriptor(target, property)
+      return descriptor ? { ...descriptor, configurable: true } : undefined
     },
   })
 }
@@ -797,6 +887,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     async search(query) {
       const scopedQuery = scopedSearchQuery(scope, query)
       if (!scopedQuery) return []
+      assertModelWorkspaceSearchQuery(scopedQuery, workspaceRuntime)
       return filterHits(scope, await workspace.fs.search(scopedQuery))
     },
     async materializeSources(options = {}) {
@@ -943,7 +1034,7 @@ function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor[
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
   const query: Record<string, unknown> = {}
-  for (const key of new Set([...url.searchParams.keys()])) {
+  for (const key of new Set(url.searchParams.keys())) {
     const values = url.searchParams.getAll(key)
     query[key] = values.length > 1 ? values : values[0]
   }

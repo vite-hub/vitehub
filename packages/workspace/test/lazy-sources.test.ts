@@ -1689,6 +1689,52 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledTimes(2)
   })
 
+  it("waits for an active uncached Source refresh before reading its Store", async () => {
+    let releaseSecondFile!: () => void
+    let markSecondFileStarted!: () => void
+    const secondFileStarted = new Promise<void>((resolve) => { markSecondFileStarted = resolve })
+    const secondFileReleased = new Promise<void>((resolve) => { releaseSecondFile = resolve })
+    let version = 1
+    const definition = {
+      name: "lazy-uncached-refresh-boundary",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy" as const,
+          async getKeys() { return ["a.md", "b.md"] },
+          async getItem(key) {
+            if (version === 2 && key === "b.md") {
+              markSecondFileStarted()
+              await secondFileReleased
+            }
+            return { key, content: `version ${version}\n` }
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const priorView = createWorkspaceSourceView(definition, store)
+    await priorView.glob("docs/*.md")
+
+    version = 2
+    const refresh = createWorkspaceSourceView(definition, store).materializeSources({ sources: ["docs"] })
+    await secondFileStarted
+    let readSettled = false
+    const read = priorView.search({ pattern: "version 2", paths: ["docs"] }).then((hits) => {
+      readSettled = true
+      return hits
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(readSettled).toBe(false)
+
+    releaseSecondFile()
+    await refresh
+    await expect(read).resolves.toEqual([
+      expect.objectContaining({ path: "docs/a.md" }),
+      expect.objectContaining({ path: "docs/b.md" }),
+    ])
+  })
+
   it("retries a lazy fallback after joined preparation is cancelled", async () => {
     let releaseStarted!: () => void
     const started = new Promise<void>((resolve) => { releaseStarted = resolve })

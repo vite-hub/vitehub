@@ -1155,6 +1155,46 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("docs/private.md")).rejects.toThrow("Workspace file does not exist")
   })
 
+  it("does not serve root startup snapshots outside the selected scope", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["public.md", "private.md"] },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+      selectedWorkspaceScope: {
+        all: false,
+        name: "public",
+        paths: ["public.md"],
+        role: "reader",
+        sources: ["docs"],
+      },
+    })
+
+    await expect(workspace.fs.readFile("public.md")).resolves.toBe("public.md\n")
+    await expect(workspace.fs.readFile("private.md")).rejects.toThrow("Workspace file does not exist")
+    await expect(workspace.fs.exists("private.md")).resolves.toBe(false)
+    await expect(workspace.fs.list("", { recursive: true })).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "private.md" })]),
+    )
+    await expect(workspace.fs.glob("**/*.md")).resolves.toEqual([
+      expect.objectContaining({ path: "public.md" }),
+    ])
+    await expect(workspace.fs.search({ pattern: "private", paths: [""] })).resolves.toEqual([])
+  })
+
   it("does not serve parent startup snapshots through resolved child Sources", async () => {
     const childGetItem = vi.fn(async (key: string) => ({ key, content: "resolved\n" }))
     const definition: WorkspaceDefinition = {

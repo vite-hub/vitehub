@@ -312,11 +312,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
-    if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) return
-    if (completedSources.has(sourceKey)) {
-      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
-      completedSources.delete(sourceKey)
-    }
     const pending = pendingBySource.get(sourceKey)
     if (pending?.fullSource) {
       try {
@@ -330,6 +325,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (isUncachedLazySource) uncachedMaterializedSources.add(sourceKey)
         return
       }
+    }
+    if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) return
+    if (completedSources.has(sourceKey)) {
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
+      completedSources.delete(sourceKey)
     }
     await materializeSerialized({ sources: [sourceKey] })
   }
