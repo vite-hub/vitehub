@@ -13,7 +13,7 @@ import type { Plugin } from "vite"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
-import { createConsoleInvocationsIdentity } from "./internal.ts"
+import { createConsoleInvocationsIdentity, resolveConsoleInvocationsIdentity, resolveConsoleInvocationsRoot } from "./internal.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -295,9 +295,12 @@ export function consoleInvocationRootPlugin(configuredProjectRoot?: string, conf
     transform(code, id) {
       if (!frameworkAgentEntries.has(normalizeModuleId(id))) return
       if (!projectRoot) this.error("[vitehub] Could not resolve the project root for the Agent invocation console.")
+      const installedIdentity = resolveConsoleInvocationsRoot() === projectRoot
+        ? resolveConsoleInvocationsIdentity()
+        : undefined
       return [
         `globalThis[Symbol.for("vitehub.console.invocations.root")] = ${JSON.stringify(projectRoot)}`,
-        `globalThis[Symbol.for("vitehub.console.invocations.identity")] = ${JSON.stringify(identity)}`,
+        `globalThis[Symbol.for("vitehub.console.invocations.identity")] = ${JSON.stringify(installedIdentity ?? identity)}`,
         `globalThis[Symbol.for("vitehub.console.invocations.identity-root")] = ${JSON.stringify(projectRoot)}`,
         code,
       ].join("\n")

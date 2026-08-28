@@ -577,6 +577,28 @@ describe("Agent invocation console", () => {
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["review", "support"] })
   })
 
+  it("binds newly transformed Agent realms to a refreshed fixture revision", async () => {
+    const projectRoot = "/project"
+    const fixture = "/fixture.json"
+    const firstIdentity = createConsoleInvocationsIdentity(projectRoot, fixture, "first")
+    const secondIdentity = createConsoleInvocationsIdentity(projectRoot, fixture, "second")
+    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
+
+    const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity)
+    const resolved = { id: "/agent.ts" }
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
+    const buildStart = plugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
+    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
+    await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+
+    const transformed = transform("export {}", resolved.id)
+    expect(transformed).toContain(JSON.stringify(secondIdentity))
+  })
+
   it("keeps persisted Agent names alongside discovered definitions", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
