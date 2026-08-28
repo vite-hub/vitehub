@@ -5,29 +5,32 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
-import * as v from "valibot"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
-const packageManifestSchema = v.object({ name: v.string(), version: v.string() })
-const workerMetadataSchema = v.object({
-  inputs: v.record(v.string(), v.unknown()),
-  outputs: v.record(v.string(), v.object({
-    imports: v.optional(v.array(v.object({
-      external: v.optional(v.boolean()),
-      path: v.string(),
-    }))),
-  })),
-})
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
+}
+
+function parseRecord(value: string, label: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(value)
+  if (!isRecord(parsed)) throw new TypeError(`Expected ${label} to contain a JSON object`)
+  return parsed
+}
 
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
-    // SAFETY: Node exposes child-process failures as Error objects with optional captured output.
+    // SAFETY: execFile rejects with the documented Error shape carrying optional output streams.
     const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
     throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
   }
@@ -36,7 +39,13 @@ async function run(command: string, args: string[], cwd: string) {
 async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
   for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
-    const manifest = v.parse(packageManifestSchema, JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")))
+    const manifest = parseRecord(
+      await readFile(join(info.dir, "package.json"), "utf8"),
+      `${info.packageName} package.json`,
+    )
+    if (!isString(manifest.name) || !isString(manifest.version)) {
+      throw new TypeError(`Expected ${info.packageName} package.json to define name and version`)
+    }
     await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
     const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
     overrides[manifest.name] = `file:${join(packDir, tarball)}`
@@ -81,7 +90,24 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  return v.parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
+  const contents = parseRecord(await readFile(meta, "utf8"), `${name} worker metafile`)
+  if (!isRecord(contents.inputs) || !isRecord(contents.outputs)) {
+    throw new TypeError(`Expected ${name} worker metafile to define inputs and outputs`)
+  }
+  return { inputs: contents.inputs, outputs: contents.outputs }
+}
+
+function externalImports(outputs: Record<string, unknown>): string[] {
+  const paths: string[] = []
+  for (const output of Object.values(outputs)) {
+    if (!isRecord(output) || !Array.isArray(output.imports)) continue
+    for (const entry of output.imports) {
+      if (isRecord(entry) && entry.external === true && isString(entry.path)) {
+        paths.push(entry.path)
+      }
+    }
+  }
+  return paths
 }
 
 describe("packed Source capability closures", () => {
@@ -172,9 +198,8 @@ console.log(item.content)
 
       const mcp = await buildWorker(appDir, "src/mcp.ts", "mcp")
       expect(Object.keys(mcp.inputs).join("\n")).toContain("@vite-hub/source/dist/mcp.js")
-      const externalMcpImports = Object.values(mcp.outputs)
-        .flatMap(output => output.imports || [])
-        .filter(entry => entry.external && /@modelcontextprotocol|pkce-challenge/.test(entry.path))
+      const externalMcpImports = externalImports(mcp.outputs)
+        .filter(path => /@modelcontextprotocol|pkce-challenge/.test(path))
       expect(externalMcpImports).toEqual([])
 
       const runtime = await run("node", ["mcp-run.mjs"], appDir)

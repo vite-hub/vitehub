@@ -94,7 +94,7 @@ describe("Vercel Blob workspace store", () => {
       token: "token",
     }))
     blobMock.get.mockClear()
-    expect(await store.glob("**/*.md")).toEqual([
+    expect(await store.glob("**/*.{md,mdx}")).toEqual([
       expect.objectContaining({ path: "docs/readme.md", type: "file" }),
     ])
     expect(blobMock.get).not.toHaveBeenCalled()

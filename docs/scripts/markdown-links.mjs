@@ -505,7 +505,7 @@ function isStaticApplicationRoute(route) {
   return !route.split("/").some((segment) => segment.includes("[") || segment.includes("]"));
 }
 
-function applicationInventory(docsRoot, docsRoutes) {
+function applicationInventory(docsRoot, contentRoutes) {
   const appRoot = join(docsRoot, "app");
   const pagesRoot = join(docsRoot, "app/pages");
   const componentsRoot = join(docsRoot, "app/components");
@@ -545,7 +545,7 @@ function applicationInventory(docsRoot, docsRoutes) {
     const route = pageRoutes.get(path);
     const concreteRoutes = isStaticApplicationRoute(route)
       ? [normalizeRoute(`/${route}`)]
-      : docsRoutes.map(normalizeRoute).filter((candidate) => {
+      : contentRoutes.map(normalizeRoute).filter((candidate) => {
           const pattern = `/${route}`.replace(/\/\[\.\.\.[^\]]+\]$/, "(?:/.*)?").replace(/\[[^\]]+\]/g, "[^/]+");
           return new RegExp(`^${pattern}$`).test(candidate) && !staticPageRoutes.has(candidate);
         });
@@ -658,9 +658,13 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
   const publicRoot = join(docsRoot, "public");
   const contentFiles = walk(contentRoot, (path) => path.endsWith(".md"))
     .filter((path) => routeFromContentPath(contentRoot, path) !== undefined);
+  const contentRoutes = [...new Set([
+    ...contentFiles.map((path) => routeFromContentPath(contentRoot, path)),
+    ...docsRoutes,
+  ])];
   const readmes = publicReadmes(repoRoot);
   const markdownFiles = [...contentFiles, ...readmes];
-  const application = applicationInventory(docsRoot, docsRoutes);
+  const application = applicationInventory(docsRoot, contentRoutes);
   const applicationFiles = [...new Set([
     ...walk(join(docsRoot, "app"), (path) => path.endsWith(".vue")),
     ...application.importedFiles,

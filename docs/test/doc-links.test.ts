@@ -436,6 +436,20 @@ export const unused = [{ destination: "/missing-unused" }]
     expect(validateDocumentationLinks({ repoRoot, docsRoutes: ["/", "/guide"] }).errors).toEqual([]);
   });
 
+  it("associates dynamic application pages with every rendered content collection route", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/[slug].vue": '<template><section id="trust" /><NuxtLink to="#missing-trust" /></template>',
+      "docs/app/pages/blog/[...slug].vue": '<template><section id="post" /><NuxtLink to="#missing-blog" /></template>',
+      "docs/content/blog/post.md": "# Post",
+      "docs/content/trust/privacy.md": "# Privacy",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual(expect.arrayContaining([
+      expect.stringContaining('anchor #missing-blog does not exist for route "/blog/post"'),
+      expect.stringContaining('anchor #missing-trust does not exist for route "/privacy"'),
+    ]));
+  });
+
   it("does not invent a route for fragment-only links in unassociated components", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": '<template><section id="home" /></template>',
