@@ -135,7 +135,7 @@ describe("startup Source inspection", () => {
       source: "instructions",
       status: "ready",
     })])
-    expect(metadata.files[0]).not.toHaveProperty("materialize")
+    expect(metadata.files?.[0]).not.toHaveProperty("materialize")
   })
 
   it("represents every root-mounted startup Source", async () => {
