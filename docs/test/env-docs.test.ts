@@ -14,7 +14,9 @@ import {
   isPropertyAssignment,
   isSpreadAssignment,
   isStringLiteralLike,
+  isVariableDeclaration,
   type CallExpression,
+  type Expression,
   type Node,
   ScriptKind,
   ScriptTarget,
@@ -93,14 +95,51 @@ function envCalls(source: string) {
   }
 
   visit(sourceFile);
-  return calls;
+  return { calls, sourceFile };
 }
 
-function declarationSection(call: CallExpression): "define" | "public" | undefined {
+function sectionObjects(sourceFile: Node) {
+  const bindings = new Map<string, Expression>();
+  const sections = new Map<Node, "define" | "public">();
+
+  function collectBindings(node: Node) {
+    if (isVariableDeclaration(node) && isIdentifier(node.name) && node.initializer) {
+      bindings.set(node.name.text, node.initializer);
+    }
+    forEachChild(node, collectBindings);
+  }
+
+  function resolveObject(expression: Expression, seen = new Set<string>()) {
+    if (isObjectLiteralExpression(expression)) return expression;
+    if (!isIdentifier(expression) || seen.has(expression.text)) return;
+    seen.add(expression.text);
+    const initializer = bindings.get(expression.text);
+    return initializer ? resolveObject(initializer, seen) : undefined;
+  }
+
+  function collectSections(node: Node) {
+    if (isPropertyAssignment(node)) {
+      const section = propertyName(node.name);
+      if (section === "define" || section === "public") {
+        const object = resolveObject(node.initializer);
+        if (object) sections.set(object, section);
+      }
+    }
+    forEachChild(node, collectSections);
+  }
+
+  collectBindings(sourceFile);
+  collectSections(sourceFile);
+  return sections;
+}
+
+function declarationSection(
+  call: CallExpression,
+  sections: ReadonlyMap<Node, "define" | "public">,
+) {
   for (let node: Node | undefined = call.parent; node; node = node.parent) {
-    if (!isPropertyAssignment(node)) continue;
-    const name = propertyName(node.name);
-    if (name === "define" || name === "public") return name;
+    const section = sections.get(node);
+    if (section) return section;
   }
 }
 
@@ -125,12 +164,14 @@ function buildEnvCalls(source: string) {
     (match) => match[1] || "",
   );
 
-  return codeBlocks.flatMap((code) =>
-    envCalls(code).flatMap((call) => {
-      const section = declarationSection(call);
+  return codeBlocks.flatMap((code) => {
+    const { calls, sourceFile } = envCalls(code);
+    const sections = sectionObjects(sourceFile);
+    return calls.flatMap((call) => {
+      const section = declarationSection(call, sections);
       return section ? [{ call, section }] : [];
-    }),
-  );
+    });
+  });
 }
 
 function fixtureHasBuildMode(options: string) {
@@ -151,22 +192,33 @@ import * as envApi from "@vite-hub/env/vite"
 import * as unrelatedApi from "unrelated-env"
 import { env as unrelatedEnv } from "unrelated-env"
 
-const config = {
-  public: {
+const publicEnv = {
     appName: declareEnv({ source: declareEnv.source("APP_NAME"), mode: "build" }),
     region: declareEnv.variable({ mode: "build" }),
     target: envApi.env({ mode: "build" }),
     stage: envApi.env.variable({ mode: "build" }),
     ignoredNamespace: unrelatedApi.env({ mode: "runtime" }),
     ignored: unrelatedEnv({ mode: "runtime" }),
-  },
+}
+const defineEnv = {
+  __TARGET__: declareEnv({ mode: "build" }),
+}
+const config = {
+  public: publicEnv,
+  define: defineEnv,
 }
 // env({ mode: "runtime" })
 const example = "env({ mode: 'runtime' })"
 \`\`\`
     `);
 
-    expect(calls.map(({ section }) => section)).toEqual(["public", "public", "public", "public"]);
+    expect(calls.map(({ section }) => section)).toEqual([
+      "public",
+      "public",
+      "public",
+      "public",
+      "define",
+    ]);
     expect(calls.every(({ call }) => hasBuildMode(call))).toBe(true);
   });
 
