@@ -1,5 +1,6 @@
 import { getDeployStore, getStore } from "@vite-hub/netlify-blobs-runtime"
 import { toArray } from "@vite-hub/internal/arrays"
+import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { BlobDriverAdapter, BlobObject, BlobPutBody, BlobPutOptions, NetlifyBlobsStoreConfig } from "../types.ts"
 
@@ -61,9 +62,7 @@ function isString(value: unknown): value is string {
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
-  return typeof value === "object"
-    && value !== null
-    && !Array.isArray(value)
+  return isPlainObject(value)
     && Object.values(value).every(isString)
 }
 
