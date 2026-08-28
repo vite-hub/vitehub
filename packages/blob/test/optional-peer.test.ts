@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { filesSdkDriverPeers, getFilesSdkPeerInstall } from "../src/internal/files-sdk-peers.ts"
 import { importOptionalPeer } from "../src/internal/optional-peer.ts"
 import isBuffer from "../src/internal/vercel-is-buffer.ts"
+import retry from "../src/internal/vercel-retry.ts"
 
 async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<string[]> {
   if (seen.has(entry.href)) return []
@@ -89,6 +90,37 @@ describe("optional peer imports", () => {
     expect(closure).not.toContain('from "node:module"')
     expect(closure).toContain("globalThis.fetch")
     expect(closure).toContain("vercel-storage.com")
+  })
+
+  it("retries Vercel requests without a CommonJS runtime", async () => {
+    const attempts: number[] = []
+    await expect(retry((_, attempt) => {
+      attempts.push(attempt)
+      if (attempt === 1) throw new Error("retry")
+      return "done"
+    }, { minTimeout: 0, randomize: false, retries: 1 })).resolves.toBe("done")
+    expect(attempts).toEqual([1, 2])
+  })
+
+  it("stops Vercel retries when the request bails", async () => {
+    const error = new Error("stop")
+    let attempts = 0
+    await expect(retry((bail) => {
+      attempts++
+      bail(error)
+    }, { minTimeout: 0, retries: 2 })).rejects.toBe(error)
+    expect(attempts).toBe(1)
+  })
+
+  it("does not retry when Vercel supplies an invalid retry count", async () => {
+    const error = new Error("invalid retries")
+    let attempts = 0
+    await expect(retry(() => {
+      attempts++
+      if (attempts === 1) throw error
+      return "unexpected retry"
+    }, { minTimeout: 0, retries: Number.NaN })).rejects.toBe(error)
+    expect(attempts).toBe(1)
   })
 
   it("keeps the Netlify driver closure free of Node module loading", async () => {
