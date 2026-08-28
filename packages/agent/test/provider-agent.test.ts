@@ -276,6 +276,7 @@ cli_auth_credentials_store = "keyring"
   it.each([
     ["config", "config.toml", 'cli_auth_credentials_store = "file"\n'],
     ["auth", "auth.json", '{"OPENAI_API_KEY":"external"}\n'],
+    ["seed", ".vitehub-seed.sha256", "external\n"],
   ])("rejects a hard-linked named-profile %s without changing its target", async (kind, name, contents) => {
     const profile = `provider-${kind}-hard-link-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
@@ -2167,7 +2168,10 @@ cli_auth_credentials_store = "keyring"
       const threadId = "thread-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       provider.close.mockImplementationOnce(() => new Promise(() => {}))
-      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      const adapter = createProviderAgentAdapter({
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex",
+      })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const stream = await adapter.stream!(context(threadId) as never)
       const result = collect(stream)
@@ -2175,7 +2179,8 @@ cli_auth_credentials_store = "keyring"
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
-      const home = (runtimeCall![0] as { environment: { CODEX_HOME: string } }).environment.CODEX_HOME
+      // SAFETY: The mocked Codex runtime call records the credential homePath setting.
+      const home = (runtimeCall![0].settings as { homePath: string }).homePath
       await expect(access(home)).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10_000)
 
@@ -2200,12 +2205,14 @@ cli_auth_credentials_store = "keyring"
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
         provider: "codex" as const,
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const result = createProviderAgentAdapter(options).generate(context(threadId) as never)
 
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       await vi.advanceTimersByTimeAsync(10_000)
       await expect(result).resolves.toBeDefined()
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
     }
     finally {

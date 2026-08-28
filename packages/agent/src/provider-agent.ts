@@ -382,7 +382,10 @@ async function ensureCodexProfileHome(profile: string): Promise<string> {
 
 async function openCodexProfileHome(profile: string, credentials: string): Promise<string> {
   const homePath = await ensureCodexProfileHome(profile)
-  const seedHash = (await readFile(join(homePath, ".vitehub-seed.sha256"), "utf8").catch(() => "")).trim()
+  const seedPath = join(homePath, ".vitehub-seed.sha256")
+  const seed = await lstat(seedPath).catch(() => undefined)
+  if (seed && (!seed.isFile() || seed.isSymbolicLink() || seed.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile seed must be a singly linked file: ${seedPath}`)
+  const seedHash = seed ? (await readFile(seedPath, "utf8")).trim() : ""
   const authPath = join(homePath, "auth.json")
   const auth = await lstat(authPath).catch(() => undefined)
   if (auth && (!auth.isFile() || auth.isSymbolicLink() || auth.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile auth must be a singly linked file: ${authPath}`)
