@@ -835,7 +835,11 @@ import "real"
     await mkdir(join(outputDir, "server"), { recursive: true })
     await writeFile(
       join(outputDir, "server", "index.mjs"),
-      '//#region node_modules/.pnpm/sharp@9.9.9/node_modules/sharp/index.js\nvoid 0\n',
+      `//#region node_modules/.pnpm/sharp@9.9.9/node_modules/sharp/index.js
+import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+load("@img/sharp-linux-x64/sharp.node")
+`,
       "utf8",
     )
     await writeJson(join(rootDir, "package.json"), { private: true })

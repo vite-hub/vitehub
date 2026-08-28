@@ -563,7 +563,8 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   const copied = new Set<string>()
   const staged = new Set<string>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
-  for (const runtimePackage of options.packages) {
+  const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
+  for (const runtimePackage of packages) {
     await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, runtimePackage)
   }
 }
@@ -579,6 +580,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     }
   }
   packageJsonPath ??= await resolvePackageJson(name, resolver, fromDir)
+  packageJsonPath ??= await resolvePackageJson(name, createRequire(join(outputNodeModules, "package.json")), outputNodeModules)
   if (!packageJsonPath) {
     if (options.optional) return
     throw new Error("Could not resolve package.json for " + name + ".")
