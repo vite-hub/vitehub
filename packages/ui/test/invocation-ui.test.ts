@@ -284,6 +284,25 @@ describe("Agent Invocation UI", () => {
     wrapper.unmount();
   });
 
+  it("opens Done before restoring focus to an unselected terminal session", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      attachTo: document.body,
+      props: {
+        items: [{ id: "moving", status: "running", title: "Moving" }],
+      },
+    });
+    wrapper.get<HTMLButtonElement>('[data-invocation-id="moving"]').element.focus();
+
+    await wrapper.setProps({
+      items: [{ id: "moving", status: "completed", title: "Moving" }],
+    });
+    await nextTick();
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+    expect(document.activeElement).toBe(wrapper.get('[data-invocation-id="moving"]').element);
+    wrapper.unmount();
+  });
+
   it("keeps every session in the accessible navigation list", () => {
     const items = Array.from({ length: 100 }, (_, index) => ({
       description: index === 0 ? "The host stopped before this invocation finished." : undefined,
@@ -654,7 +673,8 @@ describe("Agent Invocation UI", () => {
     const payloads = thread.findAll(".vh-invocation-event__payload");
     expect(payloads[0]!.get("summary code").text()).toContain("Private query omitted.");
     expect(payloads[0]!.find(".vh-invocation-payload__content").exists()).toBe(false);
-    (payloads[0]!.element as HTMLDetailsElement).open = true;
+    if (!(payloads[0]!.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    payloads[0]!.element.open = true;
     await payloads[0]!.trigger("toggle");
     expect(payloads[0]!.findAll(".vh-invocation-payload__key").map(item => item.text())).toContain("summary");
     await payloads[0]!.get('button[aria-pressed="false"]').trigger("click");
@@ -687,7 +707,9 @@ describe("Agent Invocation UI", () => {
     await nextTick();
     const selectedEvent = selected.get(`[data-activity-id="${rows[0]!.attributes("data-activity-id")}"]`);
     expect(selectedEvent.attributes("data-selected")).toBe("true");
-    expect((selectedEvent.element.closest("details") as HTMLDetailsElement).open).toBe(true);
+    const selectedDetails = selectedEvent.element.closest("details");
+    if (!(selectedDetails instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    expect(selectedDetails.open).toBe(true);
     await selected.setProps({ selectedActivityId: undefined });
     await selected.setProps({ selectedActivityId: rows[0]!.attributes("data-activity-id") });
     await nextTick();
@@ -706,7 +728,8 @@ describe("Agent Invocation UI", () => {
     });
     await nextTick();
     const focusedEvent = regrouped.get(`[data-activity-id="${regroupedActivityId}"]`).element;
-    const focus = vi.spyOn(focusedEvent as HTMLElement, "focus");
+    if (!(focusedEvent instanceof HTMLElement)) throw new TypeError("Expected an HTML element");
+    const focus = vi.spyOn(focusedEvent, "focus");
     await regrouped.setProps({ invocation: { ...regroupedInvocation, status: "running" } });
     await nextTick();
     expect(focus).not.toHaveBeenCalled();
@@ -745,7 +768,8 @@ describe("Agent Invocation UI", () => {
     const payload = wrapper.findAll(".vh-invocation-event__payload")[0]!;
 
     expect(payload.find(".vh-invocation-payload__tree").exists()).toBe(false);
-    (payload.element as HTMLDetailsElement).open = true;
+    if (!(payload.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    payload.element.open = true;
     await payload.trigger("toggle");
     expect(payload.findAll("li")).toHaveLength(500);
     expect(payload.text()).toContain("More fields hidden");
@@ -766,7 +790,8 @@ describe("Agent Invocation UI", () => {
       status: "running" as const,
     } } });
     const deepPayload = deepWrapper.get(".vh-invocation-event__payload");
-    (deepPayload.element as HTMLDetailsElement).open = true;
+    if (!(deepPayload.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    deepPayload.element.open = true;
     await deepPayload.trigger("toggle");
     await deepPayload.get('input[type="search"]').setValue("visible boundary");
     expect(deepPayload.text()).toContain("$.nested");
@@ -781,7 +806,8 @@ describe("Agent Invocation UI", () => {
       status: "running" as const,
     } } });
     const searchPayload = searchWrapper.get(".vh-invocation-event__payload");
-    (searchPayload.element as HTMLDetailsElement).open = true;
+    if (!(searchPayload.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    searchPayload.element.open = true;
     await searchPayload.trigger("toggle");
     await searchPayload.get('input[type="search"]').setValue("empty");
     expect(searchPayload.text()).toContain("$.empty");

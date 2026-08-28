@@ -227,7 +227,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       ...("queued" in next ? ["pending" as const] : []),
       ...("done" in next ? ["cancelled" as const, "completed" as const, "failed" as const] : []),
       ...("history" in next
-        ? ["running" as const, "pending" as const, "cancelled" as const, "completed" as const, "failed" as const]
+        ? ["cancelled" as const, "completed" as const, "failed" as const]
         : []),
     ])],
   }

@@ -252,7 +252,12 @@ export const AgentInvocationList = defineComponent({
       await nextTick();
       const element = [...(viewport.value?.querySelectorAll<HTMLButtonElement>("[data-invocation-id]") ?? [])]
         .find(candidate => candidate.dataset.invocationId === focused.id);
-      if (element?.dataset.status !== focused.status) element?.focus({ preventScroll: true });
+      if (!element || element.dataset.status === focused.status) return;
+      if (element.dataset.status === "pending") queuedOpen.value = true;
+      else if (element.dataset.status !== "running") doneOpen.value = true;
+      const disclosure = element.closest("details");
+      if (disclosure) disclosure.open = true;
+      element.focus();
     };
     const renderRows = (group: (typeof groups.value)[number]) => h("ul", {
       class: "vh-invocation-list__group-items",

@@ -886,7 +886,7 @@ describe("Agent invocation console", () => {
     }))
   })
 
-  it("reports every lifecycle while the unfiltered history cursor remains", async () => {
+  it("reports only terminal lifecycles while the unfiltered history cursor remains", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [index, status] of (["running", "pending", "completed"] as const).entries()) {
       store.create({
@@ -909,8 +909,6 @@ describe("Agent invocation console", () => {
 
     expect(result.cursor).toBeDefined()
     expect(result.remainingStatuses).toEqual([
-      "running",
-      "pending",
       "cancelled",
       "completed",
       "failed",
