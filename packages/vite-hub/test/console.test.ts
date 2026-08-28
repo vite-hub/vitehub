@@ -695,6 +695,59 @@ describe("Agent invocation console", () => {
     expect(result.invocations).toHaveLength(6)
   })
 
+  it("preserves the earlier cursor when a transition occurs during the final refill", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 10; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let pendingReads = 0
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        pendingReads++
+        if (pendingReads === 2) {
+          for (const index of [6, 7, 8, 9]) {
+            await store.update(`pending-${index}`, {
+              status: index < 8 ? "running" : "completed",
+              timestamp: "2026-08-23T12:01:00.000Z",
+            })
+          }
+        }
+        if (pendingReads === 3) {
+          await store.update("pending-5", {
+            status: "running",
+            timestamp: "2026-08-23T12:02:00.000Z",
+          })
+        }
+        if (pendingReads === 4) {
+          await store.update("pending-4", {
+            status: "running",
+            timestamp: "2026-08-23T12:03:00.000Z",
+          })
+        }
+      }
+      return list(options)
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=6"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(6)
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "5" })
+    expect(result.remainingStatuses).toContain("pending")
+  })
+
   it("preserves an earlier lifecycle cursor when transitions consume its refill", async () => {
     const store = createMemoryAgentInvocationStore()
     for (let index = 0; index < 10; index++) {
