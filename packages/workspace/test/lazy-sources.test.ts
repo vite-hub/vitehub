@@ -1642,7 +1642,7 @@ describe("lazy sources", () => {
 
     await expect(view.exists("docs/stale.md")).resolves.toBe(false)
     await expect(view.stat("docs/stale.md")).rejects.toThrow("Workspace path does not exist")
-    expect(getKeys).toHaveBeenCalledOnce()
+    expect(getKeys).toHaveBeenCalledTimes(3)
   })
 
   it("rematerializes a nested startup Source after build synchronization resets its mount", async () => {
