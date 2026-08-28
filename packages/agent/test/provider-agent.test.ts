@@ -369,6 +369,100 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it.runIf(process.platform !== "win32")("persists case-only rename on case-sensitive Codex homes", async () => {
+    const threadId = "thread-case-rename-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const originalConfig = join(sharedHome, "Config.toml")
+    const renamedConfig = join(sharedHome, "config.toml")
+    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(originalConfig)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists independent deletion of case-distinct Codex home entries", async () => {
+    for (const [index, removedEntries] of [["State.toml"], ["State.toml", "state.toml"]].entries()) {
+      const threadId = `thread-case-delete-codex-state-${index}`
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+      await writeFile(join(sharedHome, "State.toml"), "upper = true\n")
+      await writeFile(join(sharedHome, "state.toml"), "lower = true\n")
+      createProviderRuntime.mockImplementationOnce(async (options) => {
+        const shadowHome = String(options.settings?.homePath)
+        for (const entry of removedEntries) await rm(join(shadowHome, entry))
+        return providerRuntimes.shift()
+      })
+
+      try {
+        const adapter = createProviderAgentAdapter({
+          credentials: '{"tokens":{"access_token":"secret"}}',
+          provider: "codex",
+          providerSettings: { homePath: sharedHome },
+        })
+        // SAFETY: This test fixture intentionally constructs the exact provider run context.
+        await adapter.generate(context(threadId) as never)
+
+        await expect(access(join(sharedHome, "State.toml"))).rejects.toMatchObject({ code: "ENOENT" })
+        if (removedEntries.length === 1) expect(await readFile(join(sharedHome, "state.toml"), "utf8")).toBe("lower = true\n")
+        else await expect(access(join(sharedHome, "state.toml"))).rejects.toMatchObject({ code: "ENOENT" })
+      }
+      finally {
+        await rm(sharedHome, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("replaces a tracked non-empty Codex home directory", async () => {
+    const threadId = "thread-replace-codex-state-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const sharedRules = join(sharedHome, "rules")
+    await mkdir(sharedRules)
+    await writeFile(join(sharedRules, "old.rules"), "allow old\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowRules = join(String(options.settings?.homePath), "rules")
+      await rm(shadowRules)
+      await mkdir(shadowRules)
+      await writeFile(join(shadowRules, "new.rules"), "allow new\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(join(sharedRules, "old.rules"))).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(join(sharedRules, "new.rules"), "utf8")).toBe("allow new\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
   it.runIf(process.platform !== "win32")("removes owned Codex home links without removing or replacing their referents", async () => {
     const threadId = "thread-delete-linked-codex-state"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

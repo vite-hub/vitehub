@@ -195,6 +195,7 @@ interface CodexCredentialOverlayEntry {
 
 interface CodexCredentialOverlay {
   entries: CodexCredentialOverlayEntry[]
+  sharedHomeCaseInsensitive: boolean
   shadowHomeCaseInsensitive: boolean
 }
 
@@ -391,7 +392,13 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !materializedEntries.has(comparableEntry)) throw error
     }
   }
-  return { entries: overlayEntries, shadowHomeCaseInsensitive }
+  return { entries: overlayEntries, sharedHomeCaseInsensitive, shadowHomeCaseInsensitive }
+}
+
+async function codexCredentialOverlayOwnsTarget(entry: CodexCredentialOverlayEntry, targetEntry: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
+  if (targetEntry.dev !== entry.dev || targetEntry.ino !== entry.ino) return false
+  if (entry.link !== undefined) return targetEntry.isSymbolicLink() && await readlink(entry.target) === entry.link
+  return !targetEntry.isSymbolicLink()
 }
 
 async function persistCodexCredentialOverlay(home: string, sharedHome: string, overlay: CodexCredentialOverlay | undefined): Promise<void> {
@@ -416,6 +423,9 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
       }
       if (!sourceEntry.isFile() && !sourceEntry.isDirectory()) return
       const target = join(sharedHome, entry)
+      const trackedTarget = overlay?.entries.find(candidate => overlay.sharedHomeCaseInsensitive
+        ? candidate.name.toLowerCase() === entry.toLowerCase()
+        : candidate.name === entry)
       const targetEntry = await lstat(target).catch((error) => {
         // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
@@ -437,7 +447,17 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
         await rename(temporary, target).catch(async (error) => {
           // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           const code = (error as NodeJS.ErrnoException).code
-          if (code !== "EEXIST" && code !== "EPERM") throw error
+          if (code !== "EEXIST" && code !== "ENOTEMPTY" && code !== "EPERM") throw error
+          const currentTarget = await lstat(target).catch((targetError) => {
+            // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+            if ((targetError as NodeJS.ErrnoException).code === "ENOENT") return undefined
+            throw targetError
+          })
+          if (!currentTarget) {
+            await rename(temporary, target)
+            return
+          }
+          if (!trackedTarget || !await codexCredentialOverlayOwnsTarget(trackedTarget, currentTarget)) throw error
           await rm(target, { force: true, recursive: true })
           await rename(temporary, target)
         })
@@ -452,9 +472,7 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
       throw error
     })
-    if (!targetEntry || targetEntry.dev !== entry.dev || targetEntry.ino !== entry.ino) return
-    if (entry.link !== undefined && (!targetEntry.isSymbolicLink() || await readlink(entry.target) !== entry.link)) return
-    if (entry.link === undefined && targetEntry.isSymbolicLink()) return
+    if (!targetEntry || !await codexCredentialOverlayOwnsTarget(entry, targetEntry)) return
     await rm(entry.target, { force: true, recursive: true })
   }))
 }
