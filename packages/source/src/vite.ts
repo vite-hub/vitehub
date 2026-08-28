@@ -12,6 +12,7 @@ import { findExportNames } from "mlly"
 import type { Plugin } from "vite"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
+const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 
@@ -201,6 +202,7 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
 async function writeCollectionArtifacts(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
   const collections = await discoverCollections(options)
   const output = resolve(options.projectRoot, collectionTypesEntry)
+  await rm(resolve(options.projectRoot, legacyCollectionTypesEntry), { force: true })
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
   if (collections.length === 0) {
     await Promise.all([rm(output, { force: true }), rm(routesDirectory, { force: true, recursive: true })])

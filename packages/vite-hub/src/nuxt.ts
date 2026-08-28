@@ -615,7 +615,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
-  const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.(async (handlers) => {
+  const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.(async (handlers: GeneratedSourceHandler[]) => {
     generatedSourceHandlers = handlers
     await nuxt.callHook?.("restart")
   })
