@@ -116,6 +116,36 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"))).toContain("[rendered](https://vitehub.dev/docs/rendered)");
   });
 
+  it("keeps contextual setext-like and malformed definition lines in paragraphs", () => {
+    for (const preceding of ["===", "--", "[broken]: /docs/no \"title"]) {
+      expect(toRawMarkdown([
+        preceding,
+        "<custom-tag>",
+        "[rendered](/docs/rendered)",
+      ].join("\n"))).toContain("[rendered](https://vitehub.dev/docs/rendered)");
+    }
+  });
+
+  it("validates inline-link suffixes before rewriting", () => {
+    expect(toRawMarkdown([
+      "[literal](/docs/x nope)",
+      "[titled](/docs/titled \"Title\")",
+    ].join("\n"))).toContain([
+      "[literal](/docs/x nope)",
+      "[titled](https://vitehub.dev/docs/titled \"Title\")",
+    ].join("\n"));
+  });
+
+  it("converts presentation directives after type-7-looking paragraph HTML", () => {
+    expect(toRawMarkdown([
+      "Paragraph",
+      "<custom-tag>",
+      "::warning",
+      "Rendered warning.",
+      "::",
+    ].join("\n"))).toContain("> **Warning**");
+  });
+
   it("starts type-7 HTML blocks after Markdown block boundaries", () => {
     expect(toRawMarkdown([
       "Paragraph",

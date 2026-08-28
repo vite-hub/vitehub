@@ -1,9 +1,16 @@
 import { parse } from "yaml";
+import { object, optional, safeParse, string } from "valibot";
 
 const frontmatterBoundary = "---";
 const siteOrigin = "https://vitehub.dev";
 
 type Frontmatter = Record<string, unknown>;
+const frontmatterSchema = object({ title: optional(string()) });
+const pageCardSchema = object({
+  description: optional(string()),
+  title: optional(string()),
+  to: optional(string()),
+});
 type Fence = {
   length: number;
   listIndent: number | null;
@@ -82,9 +89,8 @@ function splitFrontmatter(source: string): { body: string, frontmatter: Frontmat
   const end = frontmatterBoundary.length + 1 + closing.index;
 
   const parsed: unknown = parse(normalized.slice(frontmatterBoundary.length + 1, end));
-  const frontmatter: Frontmatter = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? parsed as Frontmatter
-    : {};
+  const result = safeParse(frontmatterSchema, parsed);
+  const frontmatter: Frontmatter = result.success ? result.output : {};
 
   return {
     body: normalized.slice(end + closing[0].length),
@@ -130,15 +136,41 @@ function rewriteInlineMarkdownLinks(line: string) {
         targetEnd += 1;
       }
     }
-    if (targetEnd === targetStart || !line.includes(")", targetEnd)) continue;
+    const suffixStart = targetEnd + (angleDestination ? 1 : 0);
+    const linkClosing = inlineLinkClosing(line, suffixStart);
+    if (targetEnd === targetStart || linkClosing === null) continue;
 
     const destinationStart = targetStart + (angleDestination ? 1 : 0);
     output += line.slice(cursor, destinationStart) + absoluteUrl(line.slice(destinationStart, targetEnd));
     cursor = targetEnd;
-    opening = line.indexOf(")", targetEnd);
+    opening = linkClosing;
   }
 
   return output + line.slice(cursor);
+}
+
+function inlineLinkClosing(line: string, suffixStart: number) {
+  if (line[suffixStart] === ")") return suffixStart;
+  let cursor = suffixStart;
+  while (cursor < line.length && /[ \t\n]/.test(line[cursor]!)) cursor += 1;
+  if (cursor === suffixStart) return null;
+
+  const opener = line[cursor];
+  const closer = opener === "(" ? ")" : opener === "\"" ? "\"" : opener === "'" ? "'" : null;
+  if (!closer) return null;
+  cursor += 1;
+  for (; cursor < line.length; cursor += 1) {
+    if (line[cursor] === "\\") {
+      cursor += 1;
+      continue;
+    }
+    if (line[cursor] === closer) break;
+    if (opener === "(" && line[cursor] === "(") return null;
+  }
+  if (line[cursor] !== closer) return null;
+  cursor += 1;
+  while (cursor < line.length && /[ \t\n]/.test(line[cursor]!)) cursor += 1;
+  return line[cursor] === ")" ? cursor : null;
 }
 
 function rewriteMarkdownLinks(line: string) {
@@ -266,6 +298,11 @@ function rawHtmlBlockEnd(line: string) {
   return null;
 }
 
+function isTypeSevenHtml(line: string, end: RegExp) {
+  return end.source === "^\\s*$"
+    && !/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(line);
+}
+
 function withoutMarkdownContainers(line: string) {
   const container = referenceContainer(line);
   return line.slice(container.length);
@@ -275,12 +312,18 @@ function htmlBlockContinues(end: RegExp, openingLine: string) {
   return end.source === "^\\s*$" || !end.test(openingLine);
 }
 
-function startsParagraph(line: string) {
+function startsParagraph(line: string, paragraphOpen: boolean) {
   const container = referenceContainer(line);
   if (/(?:^|[ \t])(?:[-+*]|\d{1,9}[.)])[ \t]+/.test(container)) return false;
   const content = line.slice(container.length);
-  if (/^[ \t]{0,3}(?:#{1,6}(?:[ \t]+|$)|(?:=+|-+)[ \t]*$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$|(?:-[ \t]*){3,}$)/.test(content)) return false;
-  if (/^[ \t]{0,3}\[((?:\\.|[^\\\]])+)\]:/.test(content)) return false;
+  if (/^[ \t]{0,3}#{1,6}(?:[ \t]+|$)/.test(content)) return false;
+  if (/^[ \t]{0,3}(?:=+|-+)[ \t]*$/.test(content)) return !paragraphOpen;
+  if (/^[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.test(content)) return false;
+  const definition = content.match(/^[ \t]{0,3}\[((?:\\.|[^\\\]])+)\]:[ \t]*(.*)$/);
+  if (definition && validReferenceLabel(definition[1]!)) {
+    const parsed = parseReferenceDestination(definition[2]!);
+    if (parsed && validReferenceSuffix(parsed.suffix)) return false;
+  }
   if (/^[ \t]*:{2,}/.test(content)) return false;
   return Boolean(content.trim());
 }
@@ -361,8 +404,7 @@ function rewriteLinks(source: string) {
 
     const htmlLine = withoutMarkdownContainers(line);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
-    const typeSevenHtml = nextHtmlEnd?.source === "^\\s*$"
-      && !/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(htmlLine);
+    const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
     const quoteDepth = leadingQuoteDepth(referenceContainer(line));
     if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
       output.push(rewriteOutside(), lineWithEnding);
@@ -433,7 +475,7 @@ function rewriteLinks(source: string) {
     }
 
     outsideFence += lineWithEnding;
-    paragraphOpen = startsParagraph(line);
+    paragraphOpen = startsParagraph(line, paragraphOpen);
     paragraphQuoteDepth = quoteDepth;
   }
 
@@ -472,12 +514,11 @@ function cardList(source: string) {
     const cardPattern = /^\s*:::u-page-card[^\n]*\n\s*---\n([\s\S]*?)\n\s*---\n\s*:::\s*$/gm;
     for (const match of cards.matchAll(cardPattern)) {
       const parsed: unknown = parse(match[1] || "");
-      const fields = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : {};
-      const title = typeof fields.title === "string" ? fields.title.trim() : null;
-      const to = typeof fields.to === "string" ? fields.to.trim() : null;
-      const description = typeof fields.description === "string" ? fields.description.trim() : null;
+      const result = safeParse(pageCardSchema, parsed);
+      const fields = result.success ? result.output : {};
+      const title = fields.title?.trim() || null;
+      const to = fields.to?.trim() || null;
+      const description = fields.description?.trim() || null;
       if (!title) continue;
       const label = to ? `[${title}](${absoluteUrl(to)})` : title;
       items.push(`${indent}- ${label}${description ? ` — ${description}` : ""}`);
@@ -493,6 +534,8 @@ function cardListsOutsideFences(source: string) {
   let htmlEnd: RegExp | null = null;
   let htmlListIndent: number | null = null;
   let htmlQuoteDepth = 0;
+  let paragraphOpen = false;
+  let paragraphQuoteDepth = 0;
   const directives: boolean[] = [];
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
@@ -521,7 +564,9 @@ function cardListsOutsideFences(source: string) {
 
     const htmlLine = withoutMarkdownContainers(line);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
-    if (!fence && nextHtmlEnd) {
+    const quoteDepth = leadingQuoteDepth(referenceContainer(line));
+    const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
+    if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
@@ -530,6 +575,7 @@ function cardListsOutsideFences(source: string) {
         htmlListIndent = htmlContainer.listIndent;
         htmlQuoteDepth = htmlContainer.quoteDepth;
       }
+      paragraphOpen = false;
       continue;
     }
 
@@ -542,6 +588,7 @@ function cardListsOutsideFences(source: string) {
         marker: parsedFence.run[0]!,
         quoteDepth: parsedFence.quoteDepth,
       };
+      paragraphOpen = false;
       continue;
     }
 
@@ -559,6 +606,13 @@ function cardListsOutsideFences(source: string) {
     }
 
     outsideFence += lineWithEnding;
+
+    if (!line.trim()) {
+      paragraphOpen = false;
+      continue;
+    }
+    paragraphOpen = startsParagraph(line, paragraphOpen);
+    paragraphQuoteDepth = quoteDepth;
 
     if (/^\s*:{2,}\s*$/.test(deindented)) {
       directives.pop();
@@ -610,6 +664,8 @@ function stripPresentationDirectives(source: string) {
   let htmlEnd: RegExp | null = null;
   let htmlListIndent: number | null = null;
   let htmlQuoteDepth = 0;
+  let paragraphOpen = false;
+  let paragraphQuoteDepth = 0;
   for (const originalLine of source.split("\n")) {
     const leadingColumns = indentationColumns(originalLine);
     const structuralDepth = directives.filter(Boolean).length;
@@ -668,7 +724,9 @@ function stripPresentationDirectives(source: string) {
 
     const htmlLine = withoutMarkdownContainers(deindented);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
-    if (nextHtmlEnd) {
+    const quoteDepth = leadingQuoteDepth(referenceContainer(deindented));
+    const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
+    if (nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
       output.push(deindented);
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
         const htmlContainer = markdownContainer(deindented);
@@ -676,7 +734,14 @@ function stripPresentationDirectives(source: string) {
         htmlListIndent = htmlContainer.listIndent;
         htmlQuoteDepth = htmlContainer.quoteDepth;
       }
+      paragraphOpen = false;
       continue;
+    }
+
+    if (!deindented.trim()) paragraphOpen = false;
+    else {
+      paragraphOpen = startsParagraph(deindented, paragraphOpen);
+      paragraphQuoteDepth = quoteDepth;
     }
 
     if (/^\s*:{2,}\s*$/.test(deindented)) {
@@ -707,7 +772,8 @@ function stripPresentationDirectives(source: string) {
 
 export function toRawMarkdown(source: string) {
   const { body, frontmatter } = splitFrontmatter(source);
-  const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : undefined;
+  const titleResult = safeParse(string(), frontmatter.title);
+  const title = titleResult.success ? titleResult.output.trim() : undefined;
   const content = stripPresentationDirectives(cardListsOutsideFences(body)).replace(/^\n+|\n+$/g, "");
   const document = title && !content.startsWith("# ") ? `# ${title}\n\n${content}` : content;
   return `${document}\n`;

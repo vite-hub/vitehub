@@ -6,6 +6,7 @@ import {
   literal,
   number,
   object,
+  optional,
   safeParse,
   string,
 } from "valibot";
@@ -27,6 +28,7 @@ const docsManifestSchema = object({
   ),
   version: literal(docsManifestVersion),
 });
+const fileSystemErrorSchema = object({ code: optional(string()) });
 
 function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) {
   const segments = relative(contentRoot, absolutePath)
@@ -41,26 +43,43 @@ function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) 
 
 function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
   const rawOutputDir = resolve(outputDir, "raw");
-  const expectedPaths = new Set<string>();
-
-  for (const [directory, prefix] of [["docs", "docs"], ["blog", "blog"], ["trust", ""]] as const) {
-    const contentRoot = resolve(docsRoot, "content", directory);
-    for (const absolutePath of listFiles(contentRoot, ".md")) {
-      const destination = resolve(rawOutputDir, rawPagePath(contentRoot, absolutePath, prefix));
-      expectedPaths.add(destination);
-      mkdirSync(resolve(destination, ".."), { recursive: true });
-      const temporaryPath = `${destination}.${process.pid}.${randomUUID()}.tmp`;
-      try {
-        writeFileSync(temporaryPath, toRawMarkdown(readFileSync(absolutePath, "utf8")));
-        renameSync(temporaryPath, destination);
-      } finally {
-        rmSync(temporaryPath, { force: true });
-      }
+  const lockDir = resolve(outputDir, ".raw-artifacts.lock");
+  mkdirSync(outputDir, { recursive: true });
+  const deadline = Date.now() + 30_000;
+  while (true) {
+    try {
+      mkdirSync(lockDir);
+      break;
+    } catch (error) {
+      const parsedError = safeParse(fileSystemErrorSchema, error);
+      if (!parsedError.success || parsedError.output.code !== "EEXIST" || Date.now() >= deadline) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
     }
   }
 
-  for (const existingPath of listFiles(rawOutputDir, ".md")) {
-    if (!expectedPaths.has(existingPath)) rmSync(existingPath, { force: true });
+  try {
+    const expectedPaths = new Set<string>();
+    for (const [directory, prefix] of [["docs", "docs"], ["blog", "blog"], ["trust", ""]] as const) {
+      const contentRoot = resolve(docsRoot, "content", directory);
+      for (const absolutePath of listFiles(contentRoot, ".md")) {
+        const destination = resolve(rawOutputDir, rawPagePath(contentRoot, absolutePath, prefix));
+        expectedPaths.add(destination);
+        mkdirSync(resolve(destination, ".."), { recursive: true });
+        const temporaryPath = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+        try {
+          writeFileSync(temporaryPath, toRawMarkdown(readFileSync(absolutePath, "utf8")));
+          renameSync(temporaryPath, destination);
+        } finally {
+          rmSync(temporaryPath, { force: true });
+        }
+      }
+    }
+
+    for (const existingPath of listFiles(rawOutputDir, ".md")) {
+      if (!expectedPaths.has(existingPath)) rmSync(existingPath, { force: true });
+    }
+  } finally {
+    rmSync(lockDir, { recursive: true });
   }
 }
 
