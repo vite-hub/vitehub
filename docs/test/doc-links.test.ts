@@ -668,6 +668,19 @@ description: |
     ]);
   });
 
+  it("excludes navigation metadata while retaining YAML docs routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/docs/[...slug].vue": "<template><ContentRenderer /></template>",
+      "docs/content/docs/index.md": "# Docs\n\n[Guide](/docs/guide)\n[Metadata](/docs/reference/.navigation)\n",
+      "docs/content/docs/guide.yaml": "title: Guide\n",
+      "docs/content/docs/reference/.navigation.yml": "title: Reference\n",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/docs/reference/.navigation" does not exist'),
+    ]);
+  });
+
   it("maps only configured content collections to routes", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><h1>Home</h1></template>",

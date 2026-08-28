@@ -542,6 +542,7 @@ function routeFromContentPath(contentRoot, path) {
   const parts = relative(contentRoot, path).split(sep);
   const collection = parts.shift();
   if (!contentCollectionPrefixes.has(collection)) return undefined;
+  if (/^\.navigation\.ya?ml$/.test(parts.at(-1))) return undefined;
   const clean = collection === "docs" ? parts : parts.map((part) => part.replace(/^\d+\./, ""));
   clean[clean.length - 1] = clean.at(-1).replace(/\.(?:md|ya?ml)$/, "");
   if (clean.at(-1) === "index") clean.pop();
