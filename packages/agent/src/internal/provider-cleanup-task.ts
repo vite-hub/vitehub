@@ -3,11 +3,12 @@ export const agentProviderCleanupTask: unique symbol = Symbol("vitehub.agent.pro
 export function createAgentProviderCredentialCleanup(
   persist: () => Promise<void>,
   remove: () => Promise<void>,
+  release: () => void = () => undefined,
 ): { cleanup: () => Promise<void>, forceRemove: () => Promise<void> } {
   let cleanup: Promise<void> | undefined
   let removal: Promise<void> | undefined
   let forced = false
-  const removeOnce = () => removal ??= remove()
+  const removeOnce = () => removal ??= remove().finally(release)
 
   return {
     cleanup: () => cleanup ??= (async () => {

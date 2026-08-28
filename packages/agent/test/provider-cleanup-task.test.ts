@@ -20,6 +20,21 @@ describe("Provider Agent cleanup retention", () => {
     expect(remove).toHaveBeenCalledOnce()
   })
 
+  it("releases credential custody when removal fails", async () => {
+    const failure = new Error("credential removal failed")
+    const release = vi.fn()
+    const cleanup = createAgentProviderCredentialCleanup(
+      async () => undefined,
+      async () => { throw failure },
+      release,
+    )
+
+    await expect(cleanup.forceRemove()).rejects.toBe(failure)
+    expect(release).toHaveBeenCalledOnce()
+    await expect(cleanup.forceRemove()).rejects.toBe(failure)
+    expect(release).toHaveBeenCalledOnce()
+  })
+
   it("waits for every cleanup before propagating a failure", async () => {
     const failure = new Error("credential cleanup failed")
     let finishRootCleanup!: () => void

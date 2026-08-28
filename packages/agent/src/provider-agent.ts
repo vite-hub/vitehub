@@ -1224,8 +1224,8 @@ async function* runProvider<
     },
     async () => {
       if (credentialHome) await rm(credentialHome, { force: true, recursive: true })
-      releaseCredentialOverlayLock()
     },
+    releaseCredentialOverlayLock,
   )
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
