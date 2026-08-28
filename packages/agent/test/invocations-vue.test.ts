@@ -246,7 +246,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("interrupts stalled duplicate-page replay when polling resumes", async () => {
+  it("lets pagination finish across repeated poll intervals", async () => {
     vi.useFakeTimers();
     const { calls, request } = controlledRequester();
     const scope = effectScope();
@@ -260,17 +260,20 @@ describe("Agent Invocation Vue composables", () => {
     await settle();
     expect(calls[2]!.path).toContain("cursor=page-3");
 
-    await vi.advanceTimersByTimeAsync(100);
-    await replay;
-    expect(calls).toHaveLength(4);
-    expect(calls[2]!.options.signal?.aborted).toBe(true);
-    expect(resource.loadMoreError.value).toEqual(
-      new Error("Loading older Agent Invocations was interrupted."),
-    );
-    expect(calls[3]!.path).toBe("/api/invocations");
+    for (let poll = 0; poll < 3; poll++) {
+      await vi.advanceTimersByTimeAsync(100);
+      expect(calls).toHaveLength(3);
+      expect(calls[2]!.options.signal?.aborted).toBe(false);
+      expect(resource.loadMoreError.value).toBeNull();
+    }
 
-    calls[3]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
-    await settle();
+    calls[2]!.resolve({ invocations: [record("inv-0")] });
+    await replay;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-2", "inv-1", "inv-0"]);
+    expect(resource.loadMoreError.value).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls[3]!.path).toBe("/api/invocations");
     scope.stop();
   });
 
