@@ -40,8 +40,6 @@ catalogs:
     drizzle-orm: ^0.45.2
   effect:
     effect: 4.0.0-beta.99
-  email:
-    unemail: 0.5.0
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:
@@ -116,6 +114,7 @@ catalogs:
     vite-plus: ^0.1.24
     vitest: ^4.1.4
     vue-tsc: ^3.3.7
+    yaml: ^2.9.0
   ui:
     "@iconify-json/lucide": ^1.2.117
     "@iconify-json/ph": ^1.2.2
@@ -153,7 +152,7 @@ catalogs:
     workflow: 5.0.0-beta.35
   workspace:
     isomorphic-git: ^1.38.7
-    minimatch: ^10.2.5
+    minimatch: ^10.2.6
     mountx: 0.0.2
     mrmime: ^2.0.1
     picomatch: ^4.0.5

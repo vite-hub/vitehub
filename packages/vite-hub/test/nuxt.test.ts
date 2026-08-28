@@ -729,6 +729,9 @@ describe("ViteHub Nuxt integration", () => {
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
       },
+      replace: {
+        __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt"),
+      },
       rollupConfig: {
         plugins: [expect.objectContaining({ name: "vite-hub/nuxt-markdown-templates" })],
       },
@@ -961,7 +964,7 @@ describe("ViteHub Nuxt integration", () => {
     ])
     const { nuxt, runNitroConfigHook } = createNuxt()
 
-    await viteHubNuxtModule({ email: { driver: "unemail/driver/resend" }, preset: "node" }, nuxt)
+    await viteHubNuxtModule({ email: { driver: "resend" }, preset: "node" }, nuxt)
     const nitroConfig: Record<string, unknown> = {}
     await runNitroConfigHook(nitroConfig)
 

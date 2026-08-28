@@ -7,6 +7,7 @@ import {
   notFoundMarkdown,
   withVary,
 } from "../server/utils/markdown-negotiation";
+import { rawMarkdownUrl, rewriteLlmsRawLinks } from "../modules/vitehub-docs/runtime/utils/llms-links";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const trustPages = ["about", "contact", "privacy"];
@@ -29,6 +30,54 @@ describe("agent-ready HTTP contracts", () => {
     expect(workspace).toContain("docus: https://pkg.pr.new/docus@986a334");
     expect(config).not.toContain("routeRules:");
     expect(config).not.toContain("run_worker_first");
+    expect(config).toContain("contentRawMarkdown: false");
+  });
+
+  it("serves ViteHub-owned raw Markdown artifacts", () => {
+    const module = readFileSync(resolve(docsRoot, "modules/vitehub-docs/index.ts"), "utf8");
+
+    expect(module).toContain('baseURL: "/raw"');
+    expect(module).toContain('dir: resolve(outputDir, "raw")');
+    expect(module).toContain("config.plugins.push(llmsRawLinksPlugin)");
+    expect(module).toContain("const manifest = writeDocsArtifacts({ docsRoot, outputDir });");
+  });
+
+  it("keeps the compact index routed to raw Markdown", () => {
+    expect(rawMarkdownUrl("https://vitehub.dev/docs", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
+    expect(rawMarkdownUrl("https://vitehub.dev/docs/", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
+    expect(rawMarkdownUrl("/docs/server-primitives/kv#runtime", "https://vitehub.dev")).toBe(
+      "https://vitehub.dev/raw/docs/server-primitives/kv.md#runtime",
+    );
+    expect(rawMarkdownUrl("/blog/agents", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/blog/agents.md");
+    expect(rawMarkdownUrl("https://vitehub.dev/privacy?source=llms", "https://vitehub.dev")).toBe(
+      "https://vitehub.dev/raw/privacy.md?source=llms",
+    );
+    expect(rawMarkdownUrl("/blog", "https://vitehub.dev")).toBe("/blog");
+    expect(rawMarkdownUrl("/pricing", "https://vitehub.dev")).toBe("/pricing");
+    expect(rawMarkdownUrl("https://example.com/docs", "https://vitehub.dev")).toBe("https://example.com/docs");
+
+    const options = {
+      domain: "https://vitehub.dev",
+      sections: [{ links: [
+        { href: "https://vitehub.dev/docs/agents" },
+        { href: "https://vitehub.dev/blog/server-primitives" },
+        { href: "https://vitehub.dev/about" },
+        { href: "https://vitehub.dev/contact" },
+        { href: "https://vitehub.dev/privacy" },
+        { href: "https://vitehub.dev/" },
+        { href: "https://www.npmjs.com/package/vite-hub" },
+      ] }],
+    };
+    rewriteLlmsRawLinks(options);
+    expect(options.sections[0]?.links).toEqual([
+      { href: "https://vitehub.dev/raw/docs/agents.md" },
+      { href: "https://vitehub.dev/raw/blog/server-primitives.md" },
+      { href: "https://vitehub.dev/raw/about.md" },
+      { href: "https://vitehub.dev/raw/contact.md" },
+      { href: "https://vitehub.dev/raw/privacy.md" },
+      { href: "https://vitehub.dev/" },
+      { href: "https://www.npmjs.com/package/vite-hub" },
+    ]);
   });
 
   it("pins the patched Nuxt toolchain and disables DevTools", () => {

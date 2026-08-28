@@ -104,9 +104,24 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"ask"`. Set `"allow-all"` explicitly to run provider actions without approval. |
 | `output` | Optional structured Agent output contract. |
-| `capacity` | Optional process-local concurrency and queue limits. |
+| `capacity` | Optional process-local static or adaptive concurrency and queue limits. |
 
 Provider Drivers do not accept Agent Boxes, model-specific Provider Tool contributions, Cloudflare Agents, or Deno. Provider Workspaces are also unsupported on Windows. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
+
+## Adaptive process capacity
+
+Self-hosted Node applications can admit new work according to current machine pressure instead of relying on a fixed schedule. Keep one shared capacity object in an application module and reuse it across the Agent Definitions that compete for the same host resources:
+
+```ts [server/agent-capacity.ts]
+import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+
+export const agentCapacity = createProcessAgentCapacity({
+  concurrency: 6,
+  queue: { maxPending: 100, timeout: 30 * 60_000 },
+})
+```
+
+`concurrency` is always the hard maximum. The adapter lowers only new admissions when CPU or memory is under pressure; active invocations continue, queued invocations remain FIFO, and admission resumes after recovery. Linux uses cgroup v2 limits, memory events, and pressure stall information when available. Other hosts fall back to Node's available-memory and parallelism signals. Failed samples or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. `vitehub agent info` reports the current admitted limit, hard maximum, queue depth, and sampling reason.
 
 ## Use a custom run Driver
 

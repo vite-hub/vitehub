@@ -85,10 +85,6 @@ catalogs:
     effect:
       specifier: 4.0.0-beta.99
       version: 4.0.0-beta.99
-  email:
-    unemail:
-      specifier: 0.5.0
-      version: 0.5.0
   esbuild-v27:
     esbuild:
       specifier: ^0.27.7
@@ -288,6 +284,9 @@ catalogs:
     vue-tsc:
       specifier: ^3.3.7
       version: 3.3.7
+    yaml:
+      specifier: ^2.9.0
+      version: 2.9.0
   ui:
     '@iconify-json/lucide':
       specifier: ^1.2.117
@@ -378,7 +377,7 @@ catalogs:
       specifier: ^1.38.7
       version: 1.38.7
     minimatch:
-      specifier: ^10.2.5
+      specifier: ^10.2.6
       version: 10.2.6
     mountx:
       specifier: 0.0.2
@@ -413,6 +412,10 @@ patchedDependencies:
 importers:
 
   .:
+    dependencies:
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.0
     devDependencies:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
@@ -567,6 +570,9 @@ importers:
       nuxt-schema-org:
         specifier: catalog:nuxt
         version: 6.3.0(@nuxt/schema@4.5.2)(@unhead/vue@3.4.0(@oxc-project/types@0.144.0)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(lightningcss@1.33.0)(oxc-parser@0.143.0)(rolldown@1.2.4)(rollup@4.62.2)(vue@3.5.40(typescript@6.0.3)))(@voidzero-dev/vite-plus-core@0.1.24)(magic-string@1.2.2)(magicast@0.5.4)(nuxt@4.5.2(9b66e1a03366d827b9f619fd900b9460))(oxc-parser@0.143.0)(rolldown@1.2.4)(unhead@3.4.0(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(rolldown@1.2.4)(rollup@4.62.2))(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(rolldown@1.2.4)(rollup@4.62.2))(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.0
     devDependencies:
       '@iconify-json/lucide':
         specifier: catalog:ui
@@ -720,6 +726,28 @@ importers:
       '@ai-sdk/vue':
         specifier: catalog:ai
         version: 4.0.38(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)
+
+  packages/agent/examples/vite:
+    dependencies:
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../..
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22))
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
+        version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
+      '@vite-hub/cli':
+        specifier: workspace:*
+        version: link:../../../cli
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.1.24(5d15fef75f428e841044fb19409e0e71)
 
   packages/auth:
     dependencies:
@@ -1056,9 +1084,6 @@ importers:
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1
-      unemail:
-        specifier: catalog:email
-        version: 0.5.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -14189,10 +14214,6 @@ packages:
   undici@8.9.0:
     resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
     engines: {node: '>=22.19.0'}
-
-  unemail@0.5.0:
-    resolution: {integrity: sha512-pTzgIYsCzYULYk1uoFEYL4GLQl9mCYLUQSZUvAt3DOBzR/QxoTkcDVB2qlvtY/80pOFU+KFQRlcT2NFjaAoz/g==}
-    engines: {node: '>=20.11.1'}
 
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
@@ -32235,8 +32256,6 @@ snapshots:
   undici@8.10.0: {}
 
   undici@8.9.0: {}
-
-  unemail@0.5.0: {}
 
   unenv@2.0.0-rc.24:
     dependencies:

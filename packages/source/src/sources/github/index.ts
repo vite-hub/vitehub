@@ -84,7 +84,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
 
   function shouldInclude(key: string) {
     if (options.include && !matchesAny(key, options.include)) return false
-    if (options.exclude && matchesAny(key, options.exclude)) return false
+    if (options.ignore && matchesAny(key, options.ignore)) return false
     return true
   }
 
@@ -331,7 +331,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
   function cacheKey(kind: string, token: string | undefined, key = "", resolvedRef?: string) {
     return createGitHubCacheKey({
       authScope: githubAuthenticationScope(token),
-      exclude: options.exclude,
+      ignore: options.ignore,
       include: options.include,
       key,
       kind,
@@ -344,7 +344,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
   return {
     cache: options.cache,
     fingerprint: {
-      exclude: options.exclude,
+      ignore: options.ignore,
       include: options.include,
       ref: configuredRef || "default",
       repo: options.repo,
