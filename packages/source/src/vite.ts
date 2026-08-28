@@ -392,11 +392,14 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     }).catch(() => {})
     return preparation
   }
-  const refresh = async () => {
-    if (!latestProjectRoot) return
+  const refresh = async (viteRoot?: string) => {
+    const projectRoot = viteRoot
+      ? resolveViteHubProjectRoot(viteRoot)
+      : latestProjectRoot
+    if (!projectRoot) return
     await prepareSources({
-      projectRoot: latestProjectRoot,
-      serverDirs: configuredStateByRoot.get(latestProjectRoot)?.serverDirs,
+      projectRoot,
+      serverDirs: configuredStateByRoot.get(projectRoot)?.serverDirs,
     })
   }
   const onGeneratedHandlersChanged = (
@@ -624,8 +627,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       server.watcher.on("change", refreshHost)
       server.watcher.on("unlink", refreshHost)
     },
-    buildStart: refresh,
-    buildEnd: refresh,
+    buildStart() {
+      return refresh(this.environment?.config.root)
+    },
+    buildEnd() {
+      return refresh(this.environment?.config.root)
+    },
     closeBundle() {
       closeHostRefreshByEnvironment.get(this.environment)?.()
       closeHostRefreshByEnvironment.delete(this.environment)

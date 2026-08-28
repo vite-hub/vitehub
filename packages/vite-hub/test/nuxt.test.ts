@@ -1326,13 +1326,20 @@ describe("ViteHub Nuxt integration", () => {
       listener = value
       return removeListener
     })
-    mocks.vitehub.mockReturnValue([{
-      api: {
-        onGeneratedHandlersChanged,
-        prepareSources: vi.fn(async () => [first]),
+    const prepareTypes = vi.fn(async () => {})
+    mocks.vitehub.mockReturnValue([
+      {
+        api: {
+          onGeneratedHandlersChanged,
+          prepareSources: vi.fn(async () => [first]),
+        },
+        name: "@vite-hub/source/vite",
       },
-      name: "@vite-hub/source/vite",
-    }])
+      {
+        api: { prepareTypes, setPrepareSources: vi.fn() },
+        name: "vite-hub/types",
+      },
+    ])
     const { closeHooks, nuxt, runNitroConfigHook } = createNuxt(true)
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
@@ -1348,6 +1355,8 @@ describe("ViteHub Nuxt integration", () => {
 
     await listener?.([second])
     expect(nuxt.callHook).toHaveBeenCalledWith("restart")
+    expect(prepareTypes).toHaveBeenLastCalledWith({ projectRoot: "/tmp/vitehub-nuxt" })
+    expect(prepareTypes.mock.invocationCallOrder.at(-1)).toBeLessThan(nuxt.callHook.mock.invocationCallOrder.at(-1)!)
 
     const nitroConfig: Record<string, unknown> = {}
     await runNitroConfigHook(nitroConfig)

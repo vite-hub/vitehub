@@ -805,6 +805,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
+  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+    api?: {
+      prepareTypes?: (options: { projectRoot: string }) => Promise<void>
+      setPrepareSources?: (prepareSources: ((options: {
+        projectRoot: string
+        serverDirs?: string[]
+      }) => Promise<GeneratedSourceHandler[]>) | undefined) => void
+    }
+  } | undefined
   let generatedSourceRestart = Promise.resolve()
   let generatedSourceRestartClosed = false
   const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.((handlers: GeneratedSourceHandler[]) => {
@@ -813,6 +822,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       const previousHandlers = generatedSourceHandlers
       generatedSourceHandlers = handlers
       try {
+        await typesPlugin?.api?.prepareTypes?.({ projectRoot })
         await nuxt.callHook?.("restart")
       }
       catch (error) {
@@ -829,15 +839,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       removeGeneratedHandlersListener()
     })
   }
-  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
-    api?: {
-      prepareTypes?: (options: { projectRoot: string }) => Promise<void>
-      setPrepareSources?: (prepareSources: ((options: {
-        projectRoot: string
-        serverDirs?: string[]
-      }) => Promise<GeneratedSourceHandler[]>) | undefined) => void
-    }
-  } | undefined
   typesPlugin?.api?.setPrepareSources?.(sourcePlugin?.api?.prepareSources)
   await typesPlugin?.api?.prepareTypes?.({ projectRoot })
 

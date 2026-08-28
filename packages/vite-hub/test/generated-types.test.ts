@@ -1597,6 +1597,32 @@ describe("framework generated types", () => {
     )
   })
 
+  it("keeps build lifecycle refreshes scoped across interleaved project roots", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const firstCollection = join(first.root, "server/collections/meals.ts")
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await Promise.all([
+      mkdir(dirname(firstCollection), { recursive: true }),
+      mkdir(dirname(secondCollection), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(firstCollection, collectionModule("meals")),
+      writeFile(secondCollection, collectionModule("drinks")),
+    ])
+    const plugin = sourcePlugin()
+    await configResolved(plugin)({ root: first.viteRoot })
+    await configResolved(plugin)({ root: second.viteRoot })
+    await rm(firstCollection)
+
+    await buildStart(plugin).call({ environment: { config: { root: first.viteRoot } } })
+
+    await expect(readFile(join(first.root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(second.root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
+      JSON.stringify(secondCollection),
+    )
+  })
+
   it("prepares Source declarations before lifecycle aggregation without a global hook barrier", async () => {
     const { root, viteRoot } = await createNestedProject()
     const generatedDeclaration = join(root, ".vitehub/source/delayed.d.ts")
