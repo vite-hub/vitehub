@@ -407,9 +407,13 @@ describe("framework generated types", () => {
 
   it("registers server Collections by filename", async () => {
     const { root, viteRoot } = await createNestedProject()
-    await mkdir(join(root, "server/collections/admin"), { recursive: true })
+    await Promise.all([
+      mkdir(join(root, "server/collections/admin"), { recursive: true }),
+      mkdir(join(root, "server/collections/*"), { recursive: true }),
+    ])
     await mkdir(join(root, ".vitehub/source"), { recursive: true })
     await Promise.all([
+      writeFile(join(root, "server/collections/*/specials.ts"), collectionModule("specials")),
       writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
       writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
       writeFile(join(root, ".vitehub/source/collections.d.ts"), "interface ViteHubCollectionMap { stale: never }\n"),
@@ -424,6 +428,7 @@ describe("framework generated types", () => {
       [
         `declare global {`,
         `  interface ViteHubCollectionMap {`,
+        `    "*/specials": typeof import(${JSON.stringify(join(root, "server/collections/*/specials.ts"))})["specials"]`,
         `    "admin/history": typeof import(${JSON.stringify(join(root, "server/collections/admin/history.ts"))})["history"]`,
         `    "meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
         `  }`,
@@ -437,6 +442,11 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.not.toContain(`./source/collections.d.ts`)
     await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
     expect(handlers).toEqual([
+      {
+        handler: join(root, ".vitehub/source/routes/*/specials.mjs"),
+        method: "get",
+        route: "/api/%2A/specials",
+      },
       {
         handler: join(root, ".vitehub/source/routes/admin/history.mjs"),
         method: "get",

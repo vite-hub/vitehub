@@ -250,7 +250,11 @@ async function writeCollectionArtifacts(
       "export default defineCollectionHandler(collection)",
       "",
     ].join("\n"))
-    return { handler, method: "get" as const, route: `/api/${name.split("/").map(encodeURIComponent).join("/")}` }
+    return {
+      handler,
+      method: "get" as const,
+      route: `/api/${name.split("/").map(segment => encodeURIComponent(segment).replaceAll("*", "%2A")).join("/")}`,
+    }
   }))
 }
 
