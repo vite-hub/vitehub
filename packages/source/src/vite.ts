@@ -12,7 +12,7 @@ import { findExportNames } from "mlly"
 import type { Plugin } from "vite"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
-const collectionTypesPackageEntry = ".vitehub/types/source/index.d.ts"
+const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
 const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
@@ -333,7 +333,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let serverDirs: string[] | undefined
   let configuredHandlerKey = generatedHandlerKey([])
   let refreshQueue = Promise.resolve()
-  let closeHostRefresh: (() => void) | undefined
+  const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
     prepareSourceGeneration({ ...input, importBase: options.importBase })
@@ -390,9 +390,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         if (hostRefreshRetry) clearTimeout(hostRefreshRetry)
         hostRefreshRetry = undefined
       }
-      closeHostRefresh = () => {
+      const closeHostRefresh = () => {
         serverClosed = true
         clearHostRefreshRetry()
+      }
+      for (const environment of Object.values(server.environments)) {
+        closeHostRefreshByEnvironment.set(environment, closeHostRefresh)
       }
       const queueHostRefresh = (file: string) => {
         if (serverClosed || !root || !sourceDefinitionPath(file, root, serverDirs)) return
@@ -450,8 +453,8 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     buildStart: refresh,
     buildEnd: refresh,
     closeBundle() {
-      closeHostRefresh?.()
-      closeHostRefresh = undefined
+      closeHostRefreshByEnvironment.get(this.environment)?.()
+      closeHostRefreshByEnvironment.delete(this.environment)
     },
   }
 }

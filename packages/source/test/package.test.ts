@@ -10,13 +10,14 @@ import { verifyBuiltPackageExports } from "../../internal/test-utils/built-packa
 
 describe("@vite-hub/source package contract", () => {
   it("includes generated Collection types through its TypeScript config", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-source-tsconfig-"))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-source-tsconfig-"))
+    const root = join(workspaceRoot, "apps/web")
     const generatedTypes = join(root, ".vitehub/types/source/collections.d.ts")
-    const generatedTypesEntry = join(root, ".vitehub/types/source/index.d.ts")
-    const nodeTypes = join(root, "node_modules/@types/node/index.d.ts")
+    const generatedTypesEntry = join(root, ".vitehub/types/source/vitehub-source-registry.d.ts")
+    const nodeTypes = join(workspaceRoot, "node_modules/@types/node/index.d.ts")
     const applicationEntry = join(root, "src/index.ts")
-    const configEntry = resolve(import.meta.dirname, "../tsconfig.vite.d.ts")
-    const emptyEntry = resolve(import.meta.dirname, "../types/source/index.d.ts")
+    const configEntry = resolve(import.meta.dirname, "../types/source/index.d.ts")
+    const fallbackEntry = resolve(import.meta.dirname, "../types/source/fallback.d.ts")
     try {
       await Promise.all([
         mkdir(dirname(applicationEntry), { recursive: true }),
@@ -55,9 +56,9 @@ describe("@vite-hub/source package contract", () => {
       if (!clean) throw new TypeError("Expected clean Source TypeScript config.")
       expect(clean?.errors).toEqual([])
       expect(diagnostics(clean)).toEqual([])
-      expect(new Set(clean?.fileNames)).toEqual(new Set([applicationEntry, configEntry]))
+      expect(new Set(clean?.fileNames)).toEqual(new Set([applicationEntry, configEntry, fallbackEntry]))
       expect(sourceFiles(clean)).toContain(nodeTypes)
-      expect(sourceFiles(clean)).toContain(emptyEntry)
+      expect(sourceFiles(clean)).not.toContain(generatedTypes)
 
       await mkdir(dirname(generatedTypes), { recursive: true })
       await Promise.all([
@@ -67,19 +68,18 @@ describe("@vite-hub/source package contract", () => {
       const generated = parse()
       if (!generated) throw new TypeError("Expected generated Source TypeScript config.")
       expect(generated?.errors).toEqual([])
-      expect(new Set(generated?.fileNames)).toEqual(new Set([applicationEntry, configEntry]))
+      expect(new Set(generated?.fileNames)).toEqual(new Set([applicationEntry, configEntry, fallbackEntry]))
       expect(sourceFiles(generated)).toContain(generatedTypes)
-      expect(sourceFiles(generated)).not.toContain(emptyEntry)
 
       await Promise.all([rm(generatedTypes), rm(generatedTypesEntry)])
       const removed = parse()
       if (!removed) throw new TypeError("Expected cleaned Source TypeScript config.")
       expect(removed?.errors).toEqual([])
-      expect(new Set(removed?.fileNames)).toEqual(new Set([applicationEntry, configEntry]))
-      expect(sourceFiles(removed)).toContain(emptyEntry)
+      expect(new Set(removed?.fileNames)).toEqual(new Set([applicationEntry, configEntry, fallbackEntry]))
+      expect(sourceFiles(removed)).not.toContain(generatedTypes)
     }
     finally {
-      await rm(root, { force: true, recursive: true })
+      await rm(workspaceRoot, { force: true, recursive: true })
     }
   })
 

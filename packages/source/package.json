@@ -21,7 +21,6 @@
   "files": [
     "dist",
     "types",
-    "tsconfig.vite.d.ts",
     "tsconfig.vite.json",
     "package.json"
   ],

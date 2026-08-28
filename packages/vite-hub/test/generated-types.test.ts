@@ -105,25 +105,38 @@ function buildEnd(plugin: Plugin) {
   return plugin.buildEnd as () => Promise<void>
 }
 
-function closeBundle(plugin: Plugin) {
+interface TestPluginEnvironment {
+  id: symbol
+}
+
+function closeBundle(plugin: Plugin, environment: TestPluginEnvironment) {
   if (plugin.closeBundle && !(plugin.closeBundle instanceof Function)) {
-    // SAFETY: This fixture invokes the documented Vite closeBundle hook signature.
-    return plugin.closeBundle.handler as () => Promise<void> | void
+    const hook = plugin.closeBundle.handler
+    return () => {
+      // SAFETY: This fixture invokes the documented Vite closeBundle hook with its owning environment.
+      return hook.call({ environment } as never)
+    }
   }
   // SAFETY: This fixture invokes the documented Vite closeBundle hook signature.
-  return plugin.closeBundle as () => Promise<void> | void
+  return () => (plugin.closeBundle as (() => Promise<void> | void)).call({ environment })
 }
 
 function configureServer(plugin: Plugin) {
   // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
-  return plugin.configureServer as (server: {
+  const hook = plugin.configureServer as (server: {
     config: { logger: { error: (message: string) => void } }
+    environments: Record<string, TestPluginEnvironment>
     restart: () => Promise<void>
     watcher: {
       add: (paths: string[]) => void
       on: (event: string, callback: (file: string) => void) => void
     }
   }) => void
+  return (server: Omit<Parameters<typeof hook>[0], "environments">) => {
+    const environment = { id: Symbol("test-plugin-environment") }
+    hook({ ...server, environments: { client: environment } })
+    return environment
+  }
 }
 
 function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
@@ -244,7 +257,7 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
     )
-    await expect(readFile(join(root, ".vitehub/types/source/index.d.ts"), "utf8")).resolves.toBe(
+    await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).resolves.toBe(
       '/// <reference path="./collections.d.ts" />\n',
     )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
@@ -689,7 +702,7 @@ describe("framework generated types", () => {
       const listeners = new Map<string, (file: string) => Promise<void> | void>()
       const restart = vi.fn(async () => {})
 
-      configureServer(plugin)({
+      const environment = configureServer(plugin)({
         config: { logger: { error: vi.fn() } },
         restart,
         watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
@@ -699,7 +712,7 @@ describe("framework generated types", () => {
       await listeners.get("unlink")?.(collection)
       expect(restartHost).toHaveBeenCalledOnce()
 
-      await closeBundle(plugin)()
+      await closeBundle(plugin, environment)()
       await vi.runAllTimersAsync()
       expect(restartHost).toHaveBeenCalledOnce()
       expect(restart).not.toHaveBeenCalled()
@@ -725,7 +738,7 @@ describe("framework generated types", () => {
     const listeners = new Map<string, (file: string) => Promise<void> | void>()
     const restart = vi.fn(async () => {})
 
-    configureServer(plugin)({
+    const environment = configureServer(plugin)({
       config: { logger: { error: vi.fn() } },
       restart,
       watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
@@ -737,12 +750,53 @@ describe("framework generated types", () => {
 
     await writeFile(collection, collectionModule("meals"))
     const queuedRefresh = listeners.get("add")?.(collection)
-    await closeBundle(plugin)()
+    await closeBundle(plugin, environment)()
     finishObserver?.()
     await Promise.all([inFlightRefresh, queuedRefresh])
 
     expect(observer).toHaveBeenCalledOnce()
     expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("keeps replacement Source refreshes active when the old Vite server closes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    let finishObserver: (() => void) | undefined
+    const observerFinished = new Promise<void>((resolve) => {
+      finishObserver = resolve
+    })
+    const observer = vi.fn().mockImplementationOnce(() => observerFinished)
+    plugin.api.onGeneratedHandlersChanged(observer)
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const replacementListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    const replacementRestart = vi.fn(async () => {})
+    const oldEnvironment = configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    const oldRefresh = oldListeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledOnce())
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: replacementRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => replacementListeners.set(event, callback) },
+    })
+    await closeBundle(plugin, oldEnvironment)()
+    finishObserver?.()
+    await oldRefresh
+
+    await replacementListeners.get("unlink")?.(collection)
+    expect(oldRestart).not.toHaveBeenCalled()
+    expect(replacementRestart).toHaveBeenCalledOnce()
   })
 
   it("watches custom Source directories and recovers after refresh errors", async () => {
@@ -799,7 +853,7 @@ describe("framework generated types", () => {
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
       await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
-      await expect(readFile(join(root, ".vitehub/types/source/index.d.ts"), "utf8")).rejects.toThrow()
+      await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).rejects.toThrow()
       await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     },
   )

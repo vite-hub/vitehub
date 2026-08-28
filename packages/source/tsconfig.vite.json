@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "typeRoots": ["${configDir}/.vitehub/types", "${configDir}/node_modules/@types", "./types"]
+    "rootDirs": ["${configDir}/.vitehub/types/source", "./types/source"]
   },
-  "files": ["./tsconfig.vite.d.ts"]
+  "files": ["./types/source/index.d.ts", "./types/source/fallback.d.ts"]
 }

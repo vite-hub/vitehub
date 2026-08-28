@@ -1,1 +1,1 @@
-export {}
+import "./vitehub-source-registry.js"
