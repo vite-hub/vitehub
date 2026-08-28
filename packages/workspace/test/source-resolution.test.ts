@@ -990,7 +990,7 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("docs/README.md")).resolves.toBe("# Docs\n")
   })
 
-  it("serves fresh direct lazy source output instead of stale base files in overlays", async () => {
+  it("does not serve stale base files as lazy source output in overlays", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     await base.writeFile("ingestion/acme/old.sql", "stale\n")
     const definition: WorkspaceDefinition = {
@@ -1003,7 +1003,7 @@ describe("Workspace Source Resolution", () => {
             return ["models/orders.sql"]
           },
           async getItem(key) {
-            return { key, path: key, content: "select 1\n" }
+            return key === "models/orders.sql" ? { key, path: key, content: "select 1\n" } : await Promise.reject(new Error(`Workspace file does not exist: ${key}`))
           },
         }),
       },
@@ -1015,7 +1015,7 @@ describe("Workspace Source Resolution", () => {
     })
 
     await expect(workspace.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select 1\n")
-    await expect(workspace.fs.readFile("ingestion/acme/old.sql")).resolves.toBe("select 1\n")
+    await expect(workspace.fs.readFile("ingestion/acme/old.sql")).rejects.toThrow("does not exist")
   })
 
   it("keeps source-backed paths read-only in writable overlays", async () => {
@@ -1229,9 +1229,9 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
     await expect(workspace.fs.readFile("private/secret.md")).resolves.toBe("secret\n")
-    const session = await ((workspace.fs as unknown) as {
-      startSession(options?: { paths?: string[] }): Promise<{ close(): Promise<void>, readFile(path: string): Promise<string> }>
-    }).startSession({ paths: ["docs"] })
+    // SAFETY: the source-resolution facade installs startSession on its fs facade above.
+    const sessionFs = workspace.fs as typeof workspace.fs & Pick<ReturnType<typeof createWorkspace>, "startSession">
+    const session = await sessionFs.startSession({ paths: ["docs"] })
 
     try {
       await expect(session.readFile("docs/guide.md")).resolves.toBe("needle\n")
