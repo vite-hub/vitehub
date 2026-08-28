@@ -78,12 +78,30 @@ describe("built-in Agent Driver selection", () => {
     });
   });
 
-  it("reports explicit Codex credentials as provisioned without resolving them", async () => {
+  it("reports public Codex settings and credential presence without resolving credentials", async () => {
     const credentials = vi.fn(() => "{}")
-    const agent = defineAgent({ driver: { credentialProfile: "support", credentials, kind: "codex" } })
+    const agent = defineAgent({
+      driver: {
+        credentialProfile: "support",
+        credentials,
+        kind: "codex",
+        reasoningEffort: "high",
+        reasoningSummary: "detailed",
+      },
+    })
 
     expect(createAgentInspectionMetadata(agent).config?.driver.executionAuthority.credentials).toBe("provisioned")
     expect((await resolveAgentInspectionMetadata(agent)).config?.driver.executionAuthority.credentials).toBe("provisioned")
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider).toMatchObject({
+      credentialProfile: "support",
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
+    expect((await resolveAgentInspectionMetadata(agent)).config?.driver.provider).toMatchObject({
+      credentialProfile: "support",
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
     expect(credentials).not.toHaveBeenCalled()
   })
 

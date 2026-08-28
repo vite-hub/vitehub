@@ -1840,9 +1840,12 @@ export interface AgentInspectionModelExecutionMetadata {
 }
 
 export interface AgentInspectionProviderMetadata {
+  credentialProfile?: string
   model?: string
   permissions: AgentProviderPermissions
   provider?: string
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
 }
 
 export interface AgentInspectionDriverMetadata {

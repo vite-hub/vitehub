@@ -737,11 +737,21 @@ function capabilityInspectionMetadataProjection(
   return metadata.length ? { capabilities: metadata } : {}
 }
 
-function providerMetadata(driver: { model?: string, permissions: AgentInspectionProviderMetadata["permissions"], provider: string }): AgentInspectionProviderMetadata {
+function providerMetadata(driver: {
+  credentialProfile?: string
+  model?: string
+  permissions: AgentInspectionProviderMetadata["permissions"]
+  provider: string
+  reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
+  reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
+}): AgentInspectionProviderMetadata {
   return {
+    ...(driver.credentialProfile ? { credentialProfile: driver.credentialProfile } : {}),
     ...(driver.model ? { model: driver.model } : {}),
     permissions: driver.permissions,
     provider: driver.provider,
+    ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
+    ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
   }
 }
 
