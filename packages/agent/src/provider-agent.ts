@@ -171,7 +171,21 @@ const codexSharedHomeDirectories = [
 const codexSharedHomeFiles = ["history.jsonl"] as const
 const codexPrivateHomeEntries = new Set(["auth.json", "models_cache.json"])
 const codexLocalHomeEntries = new Set(["log", "memories", "tmp"])
-const codexSharedHomeLocks = new Map<string, Promise<void>>()
+interface CodexSharedHomeLockWaiter {
+  abort?: () => void
+  exclusive: boolean
+  reject: (reason: unknown) => void
+  resolve: (release: () => void) => void
+  signal?: AbortSignal
+}
+
+interface CodexSharedHomeLockState {
+  readers: number
+  waiters: CodexSharedHomeLockWaiter[]
+  writer: boolean
+}
+
+const codexSharedHomeLocks = new Map<string, CodexSharedHomeLockState>()
 const providerHostPlatform = process.platform
 const restrictWindowsCodexCredentialHomeScript = String.raw`
 $ErrorActionPreference = "Stop"
@@ -538,6 +552,52 @@ async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key
     throw error
   }
   return releaseLock
+}
+
+async function acquireCodexSharedHomeLock(key: string, exclusive: boolean, signal?: AbortSignal): Promise<() => void> {
+  signal?.throwIfAborted()
+  const state = codexSharedHomeLocks.get(key) || { readers: 0, waiters: [], writer: false }
+  codexSharedHomeLocks.set(key, state)
+  return await new Promise<() => void>((resolve, reject) => {
+    const waiter: CodexSharedHomeLockWaiter = { exclusive, reject, resolve, signal }
+    const drain = () => {
+      if (state.writer) return
+      if (!state.waiters.length) {
+        if (!state.readers && codexSharedHomeLocks.get(key) === state) codexSharedHomeLocks.delete(key)
+        return
+      }
+      if (state.waiters[0]!.exclusive) {
+        if (state.readers) return
+        grant(state.waiters.shift()!)
+        return
+      }
+      while (state.waiters.length && !state.waiters[0]!.exclusive) grant(state.waiters.shift()!)
+    }
+    const grant = (next: CodexSharedHomeLockWaiter) => {
+      if (next.abort) next.signal?.removeEventListener("abort", next.abort)
+      if (next.exclusive) state.writer = true
+      else state.readers += 1
+      let released = false
+      next.resolve(() => {
+        if (released) return
+        released = true
+        if (next.exclusive) state.writer = false
+        else state.readers -= 1
+        drain()
+      })
+    }
+    const abort = () => {
+      const index = state.waiters.indexOf(waiter)
+      if (index === -1) return
+      state.waiters.splice(index, 1)
+      reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"))
+      drain()
+    }
+    waiter.abort = abort
+    signal?.addEventListener("abort", abort, { once: true })
+    state.waiters.push(waiter)
+    drain()
+  })
 }
 
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
@@ -1461,7 +1521,7 @@ async function* runProvider<
     for (const [key, value] of Object.entries(options.providerSettings || {})) {
       if (value !== undefined) providerSettings[key] = value
     }
-    if (credentialHome) {
+    if (options.provider === "codex") {
       const configuredSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
       const sharedHome = await waitForProviderOperation(
         (async () => {
@@ -1475,18 +1535,20 @@ async function* runProvider<
       )
       credentialSharedHome = sharedHome.home
       const sharedHomeKey = sharedHome.caseInsensitive ? credentialSharedHome.toLowerCase() : credentialSharedHome
-      releaseCredentialHomeLock = await acquireProviderSessionLock(codexSharedHomeLocks, sharedHomeKey, effectiveSignal)
-      await waitForProviderOperation(
-        materializeCodexCredentialOverlay(credentialHome, credentialSharedHome, sharedHome.caseInsensitive),
-        effectiveSignal,
-        () => undefined,
-        (cleanup) => {
-          deferCredentialOverlayLockRelease(cleanup)
-          observeLateCleanup(cleanup)
-        },
-      )
-      providerSettings.homePath = credentialHome
-      delete providerSettings.shadowHomePath
+      releaseCredentialHomeLock = await acquireCodexSharedHomeLock(sharedHomeKey, Boolean(credentialHome), effectiveSignal)
+      if (credentialHome) {
+        await waitForProviderOperation(
+          materializeCodexCredentialOverlay(credentialHome, credentialSharedHome, sharedHome.caseInsensitive),
+          effectiveSignal,
+          () => undefined,
+          (cleanup) => {
+            deferCredentialOverlayLockRelease(cleanup)
+            observeLateCleanup(cleanup)
+          },
+        )
+        providerSettings.homePath = credentialHome
+        delete providerSettings.shadowHomePath
+      }
     }
     const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = Object.keys(providerSettings).length
       ? { ...runtimeOptions, settings: providerSettings }

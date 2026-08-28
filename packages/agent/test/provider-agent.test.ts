@@ -694,6 +694,45 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
+  it("serializes direct Codex runs with credential overlays that share a home", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let releaseCredentialRun!: () => void
+    const credentialRunBlocked = new Promise<void>(resolve => releaseCredentialRun = resolve)
+    const credentialRuntime = runtime("thread-shared-home-credential", [event("turn.completed", "thread-shared-home-credential", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => credentialRunBlocked,
+    })
+    runtime("thread-shared-home-direct", [event("turn.completed", "thread-shared-home-direct", { state: "completed" }, { turnId: "turn-1" })])
+    const credentialAdapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const directAdapter = createProviderAgentAdapter({
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const credentialInvocation = credentialAdapter.generate(context("thread-shared-home-credential") as never)
+      await vi.waitFor(() => expect(credentialRuntime.sendTurn).toHaveBeenCalledOnce())
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const directInvocation = directAdapter.generate(context("thread-shared-home-direct") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseCredentialRun()
+      await expect(credentialInvocation).resolves.toBeDefined()
+      await expect(directInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseCredentialRun()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
   it("aborts stalled Codex shared-home materialization and retains its lock until settlement", async () => {
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
@@ -2561,8 +2600,12 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
 
       const runtimeCalls = createProviderRuntime.mock.calls.length
-      const sameSessionProvider = runtime("thread-after-stalled-session", [event("turn.completed", "thread-after-stalled-session", { state: "completed" }, { turnId: "turn-1" })])
-      const sameHomeProvider = runtime("thread-after-stalled-home", [event("turn.completed", "thread-after-stalled-home", { state: "completed" }, { turnId: "turn-1" })])
+      const concurrentEvents = [
+        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+        event("turn.completed", "thread-after-stalled-home", { state: "completed" }, { turnId: "turn-1" }),
+      ]
+      const sameSessionProvider = runtime(threadId, concurrentEvents)
+      const sameHomeProvider = runtime("thread-after-stalled-home", concurrentEvents)
       const otherHomeAdapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
@@ -2600,6 +2643,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const threadId = "thread-cancel-provider-startup"
       const runtimeCalls = createProviderRuntime.mock.calls.length
       const lateProvider = runtime(threadId, [])
+      providerRuntimes.pop()
       createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => finishStartup = () => resolve(lateProvider)))
       const controller = new AbortController()
       const adapter = createProviderAgentAdapter({
