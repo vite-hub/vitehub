@@ -492,7 +492,7 @@ describe("ViteHub Nuxt integration", () => {
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
 
       const concurrent = createNuxt(true)
-      await viteHubNuxtModule({ console: true, preset: "node" }, concurrent.nuxt)
+      await viteHubNuxtModule({ agent: true, console: true, preset: "node" }, concurrent.nuxt)
       const concurrentGeneratedPlugin = nitroPlugins(concurrent.nuxt)[0] ?? ""
       expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
       await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(startupRefreshed)
@@ -593,7 +593,7 @@ describe("ViteHub Nuxt integration", () => {
     development.nuxt.options.serverDir = resolve(root, "server")
 
     try {
-      await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+      await viteHubNuxtModule({ agent: true, console: true, preset: "node" }, development.nuxt)
       const generatedPlugin = nitroPlugins(development.nuxt)[0] ?? ""
       await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("failed-vite-startup")
       expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(true)

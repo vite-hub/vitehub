@@ -691,7 +691,7 @@ describe("Agent invocation console", () => {
       expect(add).toHaveBeenCalledWith(fixture)
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
 
-      const concurrentPlugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
+      const concurrentPlugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: ["agents"] })
       const concurrentConfig: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(concurrentPlugin.config, {}, [concurrentConfig, { command: "serve", mode: "development" }])
       await callPluginHook(concurrentPlugin.configResolved, {}, [{ root }])
