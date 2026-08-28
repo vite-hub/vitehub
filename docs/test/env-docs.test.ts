@@ -10,6 +10,7 @@ import {
   isCallExpression,
   isConditionalExpression,
   isExportAssignment,
+  isFunctionDeclaration,
   isFunctionExpression,
   isIdentifier,
   isImportDeclaration,
@@ -29,6 +30,7 @@ import {
   isVariableDeclaration,
   type CallExpression,
   type Expression,
+  type FunctionDeclaration,
   type Node,
   type ObjectLiteralExpression,
   ScriptKind,
@@ -112,7 +114,7 @@ function envCalls(source: string) {
 }
 
 function sectionObjects(sourceFile: Node) {
-  const bindings = new Map<Node, Map<string, Expression>>();
+  const bindings = new Map<Node, Map<string, Expression | FunctionDeclaration>>();
   const configBindings = new Set(["defineConfig"]);
   const configNamespaces = new Set<string>();
   const sections = new Map<Node, "define" | "public">();
@@ -148,11 +150,18 @@ function sectionObjects(sourceFile: Node) {
       scopeBindings.set(node.name.text, node.initializer);
       bindings.set(scope, scopeBindings);
     }
+    if (isFunctionDeclaration(node) && node.name) {
+      const scope = bindingScope(node);
+      const scopeBindings =
+        bindings.get(scope) ?? new Map<string, Expression | FunctionDeclaration>();
+      scopeBindings.set(node.name.text, node);
+      bindings.set(scope, scopeBindings);
+    }
     forEachChild(node, collectBindings);
   }
 
   function resolveObjects(
-    expression: Expression,
+    expression: Expression | FunctionDeclaration,
     seen = new Set<string>(),
   ): ObjectLiteralExpression[] {
     if (
@@ -170,7 +179,12 @@ function sectionObjects(sourceFile: Node) {
       ];
     }
     if (isObjectLiteralExpression(expression)) return [expression];
-    if (isArrowFunction(expression) || isFunctionExpression(expression)) {
+    if (
+      isArrowFunction(expression) ||
+      isFunctionExpression(expression) ||
+      isFunctionDeclaration(expression)
+    ) {
+      if (!expression.body) return [];
       if (!isBlock(expression.body)) return resolveObjects(expression.body, seen);
 
       const body = expression.body;
@@ -189,7 +203,7 @@ function sectionObjects(sourceFile: Node) {
       return returned.flatMap((value) => resolveObjects(value, new Set(seen)));
     }
     if (!isIdentifier(expression) || seen.has(expression.text)) return [];
-    let initializer: Expression | undefined;
+    let initializer: Expression | FunctionDeclaration | undefined;
     for (let current: Node | undefined = expression; current; current = current.parent) {
       if (!isBlock(current) && !isSourceFile(current)) continue;
       initializer = bindings.get(current)?.get(expression.text);
@@ -402,6 +416,20 @@ defineConfig(({ mode }) =>
       "public",
       "define",
     ]);
+  });
+
+  it("follows configs returned by named function declarations", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+function config() {
+  return { env: { public: { appName: env({ mode: "runtime" }) } } }
+}
+defineConfig(config)
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.call)).toBe(false);
   });
 
   it("follows objects spread into build-backed sections", () => {

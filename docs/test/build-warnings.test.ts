@@ -41,6 +41,12 @@ describe("docs build warning budget", () => {
     expect(() => assertBuildWarningBudget(warnings)).not.toThrow()
   })
 
+  it("rejects non-timeout loading failures for known icons", () => {
+    expect(() => assertBuildWarningBudget(
+      "[warn] [Icon] loading icon `vscode-icons:file-type-css` failed because the provider returned corrupt data",
+    )).toThrow(/unbudgeted warning/)
+  })
+
   it("ignores warning words in filenames and wrapped warning details", () => {
     const output = [
       "- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.",

@@ -41,9 +41,10 @@ export function assertBuildWarningBudget(output) {
       continue;
     }
     if (!/^\s*(?:\[warn(?:ing)?\]|warn(?:ing)?\b|\(node:\d+\)\s+(?:\[[a-z\d_]+\]\s+)?[a-z]*warning:|[a-z]*warning:)/i.test(line)) continue;
-    const iconMatch = /\[Icon] (?:failed to load icon|loading icon) [`'"]?([^`'"\s]+)[`'"]?/i.exec(line);
+    const iconMatch = /\[Icon] (?:failed to load icon [`'"]?([^`'"\s]+)[`'"]?|loading icon [`'"]?([^`'"\s]+)[`'"]? timed out after 1500ms)$/i.exec(line);
     if (iconMatch) {
-      if (!allowedMissingIcons.includes(iconMatch[1])) newMissingIcons.add(iconMatch[1]);
+      const icon = iconMatch[1] || iconMatch[2];
+      if (!allowedMissingIcons.includes(icon)) newMissingIcons.add(icon);
       continue;
     }
     const budget = buildWarningBudget.find(entry => normalizedLine.includes(normalizeWarningText(entry.text)));
