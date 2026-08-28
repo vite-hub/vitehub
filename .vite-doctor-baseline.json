@@ -219,6 +219,11 @@
     {
       "ruleId": "typescript/evidence/no-chained-type-assertions",
       "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "52e7826790a0f2e9829281b3b864a80e96f468fccce42bc26c6080ce5016f689"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
       "fingerprint": "5fba619994124ef16ac1c574bd67a0a3e24630f12d86c17770c3a89836ce8673"
     },
     {
