@@ -14,6 +14,7 @@ import {
   isFunctionDeclaration,
   isFunctionExpression,
   isIdentifier,
+  isIfStatement,
   isImportDeclaration,
   isNamedImports,
   isNamespaceImport,
@@ -28,12 +29,14 @@ import {
   isSpreadAssignment,
   isStringLiteralLike,
   isSatisfiesExpression,
+  isSwitchStatement,
   isVariableDeclaration,
   type CallExpression,
   type Expression,
   type FunctionDeclaration,
   type Node,
   type ObjectLiteralExpression,
+  type Statement,
   ScriptKind,
   ScriptTarget,
 } from "typescript";
@@ -43,7 +46,10 @@ const docsRoot = resolve(import.meta.dirname, "..");
 const envDeclarationModules = new Set(["@vite-hub/env", "@vite-hub/env/vite", "vite-hub/env"]);
 
 function propertyName(node: Node) {
-  return isIdentifier(node) || isStringLiteralLike(node) ? node.text : undefined;
+  if (isIdentifier(node) || isStringLiteralLike(node)) return node.text;
+  if (isComputedPropertyName(node) && isStringLiteralLike(node.expression)) {
+    return node.expression.text;
+  }
 }
 
 function isEnvDeclaration(
@@ -212,6 +218,7 @@ function sectionObjects(sourceFile: Node) {
 
       const body = expression.body;
       const returned: Expression[] = [];
+      let hasEmptyReturn = false;
       function collectReturns(node: Node) {
         if (
           node !== body &&
@@ -221,14 +228,39 @@ function sectionObjects(sourceFile: Node) {
         }
         if (isReturnStatement(node)) {
           if (node.expression) returned.push(node.expression);
+          else hasEmptyReturn = true;
           return;
         }
         forEachChild(node, collectReturns);
       }
       collectReturns(body);
       const resolutions = returned.map((value) => resolveObjectsDetailed(value, new Set(seen)));
+
+      function alwaysReturns(statement: Statement): boolean {
+        if (isReturnStatement(statement)) return true;
+        if (isBlock(statement)) return statement.statements.some(alwaysReturns);
+        if (isIfStatement(statement)) {
+          return Boolean(
+            statement.elseStatement &&
+            alwaysReturns(statement.thenStatement) &&
+            alwaysReturns(statement.elseStatement),
+          );
+        }
+        if (isSwitchStatement(statement)) {
+          return (
+            statement.caseBlock.clauses.some((clause) => !("expression" in clause)) &&
+            statement.caseBlock.clauses.every((clause) => clause.statements.some(alwaysReturns))
+          );
+        }
+        return false;
+      }
+
       return {
-        complete: resolutions.length > 0 && resolutions.every(({ complete }) => complete),
+        complete:
+          !hasEmptyReturn &&
+          body.statements.some(alwaysReturns) &&
+          resolutions.length > 0 &&
+          resolutions.every(({ complete }) => complete),
         objects: resolutions.flatMap(({ objects }) => objects),
       };
     }
@@ -250,76 +282,67 @@ function sectionObjects(sourceFile: Node) {
     return resolveObjectsDetailed(expression).objects;
   }
 
-  function resolveSpreadObjects(expression: Expression) {
-    const objects: ObjectLiteralExpression[] = [];
-    const seen = new Set<ObjectLiteralExpression>();
-
-    function collect(value: Expression) {
-      for (const object of resolveObjects(value)) {
-        if (seen.has(object)) continue;
-        seen.add(object);
-        objects.push(object);
-        for (const property of object.properties) {
-          if (isSpreadAssignment(property)) collect(property.expression);
-        }
-      }
-    }
-
-    collect(expression);
-    return objects;
-  }
-
-  function propertyValue(object: ObjectLiteralExpression, name: string) {
-    for (const property of [...object.properties].reverse()) {
-      if (isPropertyAssignment(property) && propertyName(property.name) === name) {
-        return property.initializer;
-      }
-      if (isShorthandPropertyAssignment(property) && property.name.text === name) {
-        return property.name;
-      }
-    }
-  }
-
   collectBindings(sourceFile);
 
-  function collectEffectiveSectionProperties(expression: Expression, section: "define" | "public") {
-    function effectiveProperties(
-      object: ObjectLiteralExpression,
-      seen = new Set<ObjectLiteralExpression>(),
-    ) {
-      if (seen.has(object)) return new Map<string, Node>();
+  type EffectiveProperties = Map<string | Node, Node>;
+
+  function effectiveProperties(
+    expression: Expression,
+    seen = new Set<ObjectLiteralExpression>(),
+  ): EffectiveProperties[] {
+    return resolveObjects(expression).flatMap((object) => {
+      if (seen.has(object)) return [];
       const nextSeen = new Set(seen).add(object);
-      const effective = new Map<string, Node>();
+      let alternatives: EffectiveProperties[] = [new Map()];
       for (const property of object.properties) {
         if (isSpreadAssignment(property)) {
-          for (const spreadObject of resolveObjects(property.expression)) {
-            for (const [name, spreadProperty] of effectiveProperties(spreadObject, nextSeen)) {
-              effective.set(name, spreadProperty);
-            }
+          const spreads = effectiveProperties(property.expression, nextSeen);
+          alternatives = alternatives.flatMap((effective) =>
+            spreads.map((spread) => {
+              const merged = new Map(effective);
+              for (const [name, spreadProperty] of spread) {
+                merged.set(name, spreadProperty);
+              }
+              return merged;
+            }),
+          );
+        } else if (isPropertyAssignment(property) || isShorthandPropertyAssignment(property)) {
+          const name = propertyName(property.name) ?? property.name;
+          for (const effective of alternatives) {
+            effective.set(name, property);
           }
-        } else if (
-          (isPropertyAssignment(property) || isShorthandPropertyAssignment(property)) &&
-          propertyName(property.name)
-        ) {
-          effective.set(propertyName(property.name)!, property);
         }
       }
-      return effective;
-    }
+      return alternatives;
+    });
+  }
 
-    for (const object of resolveObjects(expression)) {
-      for (const property of effectiveProperties(object).values()) sections.set(property, section);
+  function propertyValue(property: Node) {
+    if (isPropertyAssignment(property)) return property.initializer;
+    if (isShorthandPropertyAssignment(property)) return property.name;
+  }
+
+  function namedValues(expression: Expression, name: string) {
+    return effectiveProperties(expression).flatMap((properties) => {
+      const property = properties.get(name);
+      const value = property && propertyValue(property);
+      return value ? [value] : [];
+    });
+  }
+
+  function collectEffectiveSectionProperties(expression: Expression, section: "define" | "public") {
+    for (const effective of effectiveProperties(expression)) {
+      for (const property of effective.values()) sections.set(property, section);
     }
   }
 
   function collectConfig(expression: Expression) {
-    for (const config of resolveSpreadObjects(expression)) {
-      const env = propertyValue(config, "env");
-      const envConfigs = env ? resolveSpreadObjects(env) : [];
-      for (const envConfig of envConfigs) {
+    for (const env of namedValues(expression, "env")) {
+      for (const envConfig of resolveObjects(env)) {
         for (const section of ["define", "public"] as const) {
-          const value = propertyValue(envConfig, section);
-          if (value) collectEffectiveSectionProperties(value, section);
+          for (const value of namedValues(envConfig, section)) {
+            collectEffectiveSectionProperties(value, section);
+          }
         }
       }
     }
@@ -342,7 +365,29 @@ function sectionObjects(sourceFile: Node) {
   }
 
   collectSections(sourceFile);
-  return { resolveObjectsDetailed, sections };
+  function resolveString(expression: Expression, seen = new Set<string>()): string | undefined {
+    if (
+      isParenthesizedExpression(expression) ||
+      isAsExpression(expression) ||
+      isSatisfiesExpression(expression) ||
+      isNonNullExpression(expression)
+    ) {
+      return resolveString(expression.expression, seen);
+    }
+    if (isStringLiteralLike(expression)) return expression.text;
+    if (!isIdentifier(expression) || seen.has(expression.text)) return undefined;
+    let initializer: Expression | FunctionDeclaration | undefined;
+    for (let current: Node | undefined = expression; current; current = current.parent) {
+      if (!isBlock(current) && !isSourceFile(current)) continue;
+      initializer = bindings.get(current)?.get(expression.text);
+      if (initializer) break;
+    }
+    return initializer && !isFunctionDeclaration(initializer)
+      ? resolveString(initializer, new Set(seen).add(expression.text))
+      : undefined;
+  }
+
+  return { resolveObjectsDetailed, resolveString, sections };
 }
 
 function declarationSection(
@@ -355,7 +400,10 @@ function declarationSection(
   }
 }
 
-function objectHasBuildMode(options: ObjectLiteralExpression): boolean {
+function objectHasBuildMode(
+  options: ObjectLiteralExpression,
+  resolveString: (expression: Expression) => string | undefined,
+): boolean {
   let isBuildMode = false;
   for (const property of options.properties) {
     if (
@@ -364,8 +412,9 @@ function objectHasBuildMode(options: ObjectLiteralExpression): boolean {
     ) {
       isBuildMode = false;
     } else if (isPropertyAssignment(property) && propertyName(property.name) === "mode") {
-      isBuildMode =
-        isStringLiteralLike(property.initializer) && property.initializer.text === "build";
+      isBuildMode = resolveString(property.initializer) === "build";
+    } else if (isShorthandPropertyAssignment(property) && property.name.text === "mode") {
+      isBuildMode = resolveString(property.name) === "build";
     }
   }
   return isBuildMode;
@@ -374,9 +423,12 @@ function objectHasBuildMode(options: ObjectLiteralExpression): boolean {
 function hasBuildMode(options: {
   complete: boolean;
   objects: readonly ObjectLiteralExpression[];
+  resolveString: (expression: Expression) => string | undefined;
 }): boolean {
   return (
-    options.complete && options.objects.length > 0 && options.objects.every(objectHasBuildMode)
+    options.complete &&
+    options.objects.length > 0 &&
+    options.objects.every((object) => objectHasBuildMode(object, options.resolveString))
   );
 }
 
@@ -387,7 +439,7 @@ function buildEnvCalls(source: string) {
 
   return codeBlocks.flatMap((code) => {
     const { calls, sourceFile } = envCalls(code);
-    const { resolveObjectsDetailed, sections } = sectionObjects(sourceFile);
+    const { resolveObjectsDetailed, resolveString, sections } = sectionObjects(sourceFile);
     return calls.flatMap((call) => {
       const section = declarationSection(call, sections);
       const argument = call.arguments[0];
@@ -396,8 +448,8 @@ function buildEnvCalls(source: string) {
             {
               call,
               options: argument
-                ? resolveObjectsDetailed(argument)
-                : { complete: false, objects: [] },
+                ? { ...resolveObjectsDetailed(argument), resolveString }
+                : { complete: false, objects: [], resolveString },
               section,
             },
           ]
@@ -590,6 +642,29 @@ defineConfig({ env: { public: publicEnv } })
     expect(hasBuildMode(calls[0]!.options)).toBe(true);
   });
 
+  it("checks every conditional spread branch", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const runtimeEntries = { appName: env({ mode: "runtime" }) }
+const buildEntries = { appName: env({ mode: "build" }) }
+defineConfig({ env: { public: { ...(flag ? runtimeEntries : buildEntries) } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([false, true]);
+  });
+
+  it("checks computed section entries", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+defineConfig({ env: { public: { ["appName"]: env({ mode: "runtime" }) } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
   it("follows objects spread into Env configurations", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -600,6 +675,29 @@ defineConfig({ env: { ...shared } })
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("honors overrides at config and Env boundaries", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const inheritedConfig = {
+  env: { public: { ignoredConfig: env({ mode: "runtime" }) } },
+}
+const inheritedEnv = {
+  public: { ignoredEnv: env({ mode: "runtime" }) },
+}
+defineConfig({
+  ...inheritedConfig,
+  env: {
+    ...inheritedEnv,
+    public: { appName: env({ mode: "build" }) },
+  },
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(true);
   });
 
   it("follows aliased Vite config helpers", () => {
@@ -696,8 +794,24 @@ defineConfig({
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, false]);
   });
 
+  it("resolves shorthand mode bindings", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const mode = "build"
+defineConfig({ env: { public: { appName: env({ mode }) } } })
+\`\`\`
+    `);
+
+    expect(hasBuildMode(calls[0]!.options)).toBe(true);
+  });
+
   it("rejects declaration options with an unresolved conditional branch", () => {
     expect(fixtureHasBuildMode("flag ? { mode: 'build' } : getOptions()")).toBe(false);
+  });
+
+  it("rejects declaration option factories with incomplete returns", () => {
+    expect(fixtureHasBuildMode("() => { if (flag) return { mode: 'build' } }")).toBe(false);
+    expect(fixtureHasBuildMode("() => { if (flag) return { mode: 'build' }; return }")).toBe(false);
   });
 
   it("marks every documented build-backed Env declaration as build-time", async () => {
