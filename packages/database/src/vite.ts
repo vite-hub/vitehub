@@ -197,15 +197,16 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const contributionProviderOutput = providerOutput
         await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
         artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
+        const contributionArtifactDir = artifactDir
         const contributionArtifacts = await prepareProviderOutputs({
           appRootDir: contributionResolved.root,
-          artifactDir,
+          artifactDir: contributionArtifactDir,
           providerOutput: contributionProviderOutput,
           rootDir: databaseRoot(),
           runtimeConfig: contributionRuntimeConfig,
         })
         contributeProviderDeploymentOutput(contributionProviderOutput, {
-          discard: async () => await rm(artifactDir, { force: true, recursive: true }),
+          discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
           owner: "database",
           rootDir: contributionResolved.root,
           write: async ({ write }) => {

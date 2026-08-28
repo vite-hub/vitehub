@@ -22,6 +22,7 @@ export const schedulePackageName = "@vite-hub/schedule"
 const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const productName = "schedule"
 const cloudflareOutputStateFileName = "cloudflare-output.json"
+const cloudflareScheduleWorkerMarker = "vitehub-schedule-provider-output"
 const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
@@ -609,6 +610,7 @@ async function writeCloudflareScheduleOutput(options: {
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
       alias: options.bundleAlias,
+      banner: `// ${cloudflareScheduleWorkerMarker}`,
       conditions: ["workerd", "worker", "browser", "default"],
       external: [cloudflareRuntimeExternal, "node:*"],
       format: "esm",
@@ -651,6 +653,14 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
   if (!state) return
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   const configFile = resolve(outputRoot, "wrangler.json")
+  const workerFile = resolve(outputRoot, state.main)
+  let ownsWorker = false
+  try {
+    ownsWorker = (await readFile(workerFile, "utf8")).includes(cloudflareScheduleWorkerMarker)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
   let configSource: string | undefined
   try {
     configSource = await readFile(configFile, "utf8")
@@ -673,7 +683,7 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
     await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8")
   }
   await Promise.all([
-    rm(resolve(outputRoot, state.main), { force: true }),
+    ...(ownsWorker ? [rm(workerFile, { force: true })] : []),
     rm(stateFile, { force: true }),
   ])
 }
