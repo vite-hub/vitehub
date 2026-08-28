@@ -33,6 +33,7 @@ import {
   isStringLiteralLike,
   isSatisfiesExpression,
   isSwitchStatement,
+  isTypeAssertionExpression,
   isVariableDeclaration,
   type CallExpression,
   type Expression,
@@ -308,6 +309,17 @@ function sectionObjects(sourceFile: Node) {
 
   type EffectiveProperties = Map<string | Node, Node>;
 
+  function isConfigCombinatorCall(expression: Expression): expression is CallExpression {
+    return (
+      isCallExpression(expression) &&
+      ((isIdentifier(expression.expression) && configCombinators.has(expression.expression.text)) ||
+        (isPropertyAccessExpression(expression.expression) &&
+          isIdentifier(expression.expression.expression) &&
+          configNamespaces.has(expression.expression.expression.text) &&
+          expression.expression.name.text === "mergeConfig"))
+    );
+  }
+
   function effectiveProperties(
     expression: Expression,
     seen = new Set<ObjectLiteralExpression>(),
@@ -348,6 +360,72 @@ function sectionObjects(sourceFile: Node) {
     if (isShorthandPropertyAssignment(property)) return property.name;
   }
 
+  type ConfigSections = Map<"define" | "public", EffectiveProperties>;
+
+  function mergeProperties(
+    earlier: EffectiveProperties | undefined,
+    later: EffectiveProperties,
+  ): EffectiveProperties {
+    const merged = new Map(earlier);
+    for (const [name, property] of later) merged.set(name, property);
+    return merged;
+  }
+
+  function configSectionAlternatives(expression: Expression): ConfigSections[] {
+    if (
+      isParenthesizedExpression(expression) ||
+      isAsExpression(expression) ||
+      isSatisfiesExpression(expression) ||
+      isTypeAssertionExpression(expression) ||
+      isNonNullExpression(expression)
+    ) {
+      return configSectionAlternatives(expression.expression);
+    }
+    if (isConfigCombinatorCall(expression)) {
+      return expression.arguments.reduce<ConfigSections[]>(
+        (configs, argument) => {
+          const laterConfigs = configSectionAlternatives(argument) || [];
+          const effectiveLaterConfigs = laterConfigs.length > 0 ? laterConfigs : [new Map()];
+          return configs.flatMap((config) =>
+            effectiveLaterConfigs.map((later) => {
+              const merged = new Map(config);
+              for (const [section, properties] of later) {
+                merged.set(section, mergeProperties(merged.get(section), properties));
+              }
+              return merged;
+            }),
+          );
+        },
+        [new Map()],
+      );
+    }
+
+    return resolveObjects(expression).flatMap((config) =>
+      effectiveProperties(config).flatMap((configProperties) => {
+        const envProperty = configProperties.get("env");
+        const envValue = envProperty && propertyValue(envProperty);
+        if (!envValue) return [];
+        return effectiveProperties(envValue).flatMap((envProperties) => {
+          let alternatives: ConfigSections[] = [new Map()];
+          for (const section of ["define", "public"] as const) {
+            const sectionProperty = envProperties.get(section);
+            const sectionValue = sectionProperty && propertyValue(sectionProperty);
+            if (!sectionValue) continue;
+            const sectionAlternatives = effectiveProperties(sectionValue);
+            alternatives = alternatives.flatMap((configSections) =>
+              sectionAlternatives.map((properties) => {
+                const next = new Map(configSections);
+                next.set(section, properties);
+                return next;
+              }),
+            );
+          }
+          return alternatives;
+        });
+      }),
+    );
+  }
+
   function namedValues(expression: Expression, name: string) {
     return effectiveProperties(expression).flatMap((properties) => {
       const property = properties.get(name);
@@ -363,13 +441,9 @@ function sectionObjects(sourceFile: Node) {
   }
 
   function collectConfig(expression: Expression) {
-    for (const env of namedValues(expression, "env")) {
-      for (const envConfig of resolveObjects(env)) {
-        for (const section of ["define", "public"] as const) {
-          for (const value of namedValues(envConfig, section)) {
-            collectEffectiveSectionProperties(value, section);
-          }
-        }
+    for (const configSections of configSectionAlternatives(expression)) {
+      for (const [section, properties] of configSections) {
+        for (const property of properties.values()) sections.set(property, section);
       }
     }
   }
@@ -848,6 +922,27 @@ defineConfig(combineConfig(base, {
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
+  it("applies Vite config combinator override semantics", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig, mergeConfig } from "vite"
+defineConfig(mergeConfig(
+  { env: { public: {
+    replaced: env({ mode: "runtime" }),
+    retained: env({ mode: "build" }),
+  } } },
+  { env: { public: { replaced: env({ mode: "build" }) } } },
+))
+defineConfig(mergeConfig(
+  { env: { public: { rejected: env({ mode: "build" }) } } },
+  { env: { public: { rejected: env({ mode: "runtime" }) } } },
+))
+\`\`\`
+    `);
+
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, true, false]);
+  });
+
   it("resolves configuration objects through lexical bindings", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -876,10 +971,13 @@ defineConfig({
 defineConfig(({ env: {
   define: { __CAST__: env({ mode: "runtime" }) },
 } } as UserConfig)!)
+defineConfig(<UserConfig>{
+  env: { public: { asserted: env({ mode: "runtime" }) } },
+})
 \`\`\`
     `);
 
-    expect(calls.map(({ section }) => section)).toEqual(["public", "public", "define"]);
+    expect(calls.map(({ section }) => section)).toEqual(["public", "public", "define", "public"]);
     expect(calls.every(({ options }) => !hasBuildMode(options))).toBe(true);
   });
 
