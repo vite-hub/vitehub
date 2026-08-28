@@ -1,6 +1,5 @@
 import { stat } from "node:fs/promises"
-import { dirname, relative, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import {
@@ -235,7 +234,7 @@ function resolveProviderModules(providers: Record<string, string> | undefined, r
       throw new TypeError(`[vitehub] Env provider ${JSON.stringify(name)} requires a non-empty module specifier.`)
     }
     const normalized = specifier.trim()
-    output[name] = normalized.startsWith(".") ? pathToFileURL(resolve(root, normalized)).href : normalized
+    output[name] = normalized.startsWith(".") ? resolve(root, normalized) : normalized
   }
   return output
 }
@@ -277,7 +276,10 @@ async function refreshEnvGeneratedFiles(
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
-    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports, providerModules)),
+    writeFileIfChanged(
+      viteHubEnvServerModulePath(root),
+      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root)),
+    ),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ])
 }
@@ -299,7 +301,10 @@ function packageEnvModuleWrites(
   return [
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
-    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry, runtimeImports, providerModules)),
+    writeFileIfChanged(
+      viteHubEnvServerModulePath(root),
+      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root)),
+    ),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ]
 }
@@ -352,12 +357,13 @@ function createServerEnvModule(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
+  outputPath?: string,
 ): string {
   const referenced = referencedProviderNames(serverRegistry)
   const providers = Object.entries(providerModules).filter(([name]) => referenced.has(name))
   return [
     `import { inspectServerEnv as inspectRegistry, loadServerEnv as loadRegistry, resolveServerEnv } from ${JSON.stringify(runtimeImports.server)};`,
-    ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(specifier)};`),
+    ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(providerImportSpecifier(specifier, outputPath))};`),
     `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
     `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
     "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
@@ -366,6 +372,13 @@ function createServerEnvModule(
     "export async function runWithServerEnv(event, callback, options) { return await callback(await loadServerEnv(event, options)); }",
     "",
   ].join("\n")
+}
+
+function providerImportSpecifier(specifier: string, outputPath: string | undefined): string {
+  if (!isAbsolute(specifier)) return specifier
+  if (!outputPath) return specifier.replace(/\\/g, "/")
+  const target = relative(dirname(outputPath), specifier).replace(/\\/g, "/")
+  return target.startsWith(".") ? target : `./${target}`
 }
 
 function referencedProviderNames(registry: EnvRuntimeRegistry): Set<string> {

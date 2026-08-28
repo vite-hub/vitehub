@@ -379,7 +379,7 @@ describe("Vite plugin", () => {
     await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
-    expect(serverModule).toContain(`import envProvider0 from ${JSON.stringify(pathToFileURL(providerPath).href)}`)
+    expect(serverModule).toContain(`import envProvider0 from "../../server/env/secrets.mjs"`)
     expect(serverModule).not.toContain("unused.mjs")
     expect(serverModule).toContain("export async function loadServerEnv")
     expect(serverModule).toContain("export async function inspectServerEnv")
@@ -466,8 +466,11 @@ describe("Vite plugin", () => {
     await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
-    expect(serverModule).toContain(`from ${JSON.stringify(pathToFileURL(join(root, "server", "env", "provider.mjs")).href)}`)
+    expect(serverModule).toContain(`from "../../server/env/provider.mjs"`)
     expect(serverModule).toContain(`from "@example/env-provider"`)
+
+    const virtualModule = await (plugin.load as (id: string) => string)("\0#vitehub/env/server")
+    expect(virtualModule).toContain(`from ${JSON.stringify(join(root, "server", "env", "provider.mjs").replace(/\\/g, "/"))}`)
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
