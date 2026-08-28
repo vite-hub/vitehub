@@ -3971,7 +3971,8 @@ async function resultWithStreamedTextAndUsage(
   if (result instanceof Response) return result
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result)
-    || (streamedUsageRecord !== undefined && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))))) {
+    || hasTraceableStreamResult(result)
+    || (streamedUsageRecord !== undefined && isUIMessageStreamResult(result)))) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
     const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
     const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
@@ -4783,6 +4784,11 @@ async function finishAgentInvocation<
         }
       }
     }
+    if (!failed && usage) {
+      assignResolvedUsageRecord(result, usage)
+      const raw = toAgentRunResult(result).raw
+      if (raw !== result) assignResolvedUsageRecord(raw, usage)
+    }
     if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
@@ -5335,7 +5341,6 @@ async function executeAgentInvocationWithCapacityLease<
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
               }
-              assignResolvedUsageRecord(preserved, finishUsageRecord)
             })()
             return await finishTask
           }
@@ -5422,9 +5427,6 @@ async function executeAgentInvocationWithCapacityLease<
           )
           throw error
         }
-        if (options.holdCapacity === true) {
-          for (const stream of streamPropertyValues.values()) preservedSources.set(stream, undefined)
-        }
         const streamProperties = [...streamPropertyValues.keys()]
         let finishTask: Promise<void> | undefined
         let finishing = false
@@ -5437,6 +5439,15 @@ async function executeAgentInvocationWithCapacityLease<
           preservedSources.set(stream, source)
           return source
         }
+        if (options.holdCapacity === true) {
+          try {
+            for (const stream of streamPropertyValues.values()) preservedSource(stream)
+          }
+          catch (error) {
+            await Promise.allSettled([...preservedSources.values()].flatMap(source => source ? [source.cancel(error)] : []))
+            throw error
+          }
+        }
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
           if (options.holdCapacity !== true) return outcome
           const cancellations = await Promise.allSettled(
@@ -5446,7 +5457,6 @@ async function executeAgentInvocationWithCapacityLease<
           return rejected ? { error: rejected.reason, failed: true } : outcome
         }
         const onAbort = () => {
-          if ([...preservedSources.values()].some(Boolean)) return
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
           finishing = true
           finishTask ||= (async () => {
@@ -5484,7 +5494,6 @@ async function executeAgentInvocationWithCapacityLease<
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
               }
-              assignResolvedUsageRecord(preserved, finishUsageRecord)
             })()
             return await finishTask
           }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
@@ -5711,10 +5720,8 @@ async function executeAgentInvocationWithCapacityLease<
             value: preserved,
           }
         }
-        if (!streamProperties.length) {
-          if (invocation.input.abortSignal?.aborted) onAbort()
-          else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
-        }
+        if (invocation.input.abortSignal?.aborted) onAbort()
+        else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
         return {
           deferFinish: true,
           finishResult: preserved,

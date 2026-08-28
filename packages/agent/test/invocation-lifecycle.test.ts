@@ -366,6 +366,34 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "Final answer." } })
   })
 
+  it("finishes eager direct stream cleanup when aborted before consumption", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const controller = new AbortController()
+    const close = vi.fn()
+    const finish = vi.fn()
+    let returned = false
+    const stream: AsyncIterableIterator<never> = {
+      [Symbol.asyncIterator]: () => stream,
+      next: () => new Promise<IteratorResult<never>>(() => {}),
+      async return() {
+        returned = true
+        return { done: true, value: undefined }
+      },
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({ close, id: "cleanup" })],
+      driver: { run: () => ({ stream }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, createInvocationRuntime(), { abortSignal: controller.signal, prompt: "hello" })
+    controller.abort(new DOMException("stop", "AbortError"))
+
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+    expect(returned).toBe(true)
+    expect(finish).not.toHaveBeenCalled()
+  })
+
   it("wraps raw streams when their text property cannot be replaced", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
