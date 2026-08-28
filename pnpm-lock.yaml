@@ -76,7 +76,7 @@ catalogs:
       specifier: ^1.1.0
       version: 1.1.0
     '@t3tools/provider-runtime':
-      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d679424e4965fb222e6c1c876a037444fb20b52e
+      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41
       version: 0.0.33
     vite-doctor:
       specifier: https://pkg.pr.new/vite-doctor@db34a0d
@@ -634,7 +634,7 @@ importers:
         version: 1.1.0
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d679424e4965fb222e6c1c876a037444fb20b52e(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ioredis@5.11.1)(zod@4.4.3)
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41(ioredis@5.11.1)
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
@@ -7537,14 +7537,14 @@ packages:
   '@swc/types@0.1.27':
     resolution: {integrity: sha512-K6h3iUlqeM946U4sXFYeahefR1YBbXJvko+hv8WS8/0BNJ4OHiHRywMnQUJCqkR7Y9+hqQ1TvEpiKqUhz7NEFg==}
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d679424e4965fb222e6c1c876a037444fb20b52e':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d679424e4965fb222e6c1c876a037444fb20b52e}
-    version: 0.0.33
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@72bf93e63efec0b95fef3880265d68ab6569ac41':
+    resolution: {integrity: sha512-E5MNW2kOq2suxXDHjyJcRToZX0z9xuNB2Av3lEGjm+up/L2VeH8t9j9SdnlkxAL2TifCdquT2CSeQusocw0Q+A==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@72bf93e63efec0b95fef3880265d68ab6569ac41}
+    version: 0.0.35
     peerDependencies:
       effect: 4.0.0-beta.103
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d679424e4965fb222e6c1c876a037444fb20b52e':
-    resolution: {integrity: sha512-vPphA4NCLo4VN2xqI7/iQPlM97okTM5IsUAGYMoKqTXn8tIlcZuVZrWfqbC+0Vjj1AJBrbNCd8e8DsSHZwMS3g==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d679424e4965fb222e6c1c876a037444fb20b52e}
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41':
+    resolution: {integrity: sha512-cGHtHOG7nc9wNMGHeruJgX2LXBUq0b/MVHRQrG/AbFVt3wg37HJabQmOwHjnPFwvP4mveKmVeWyDXZy5f+h/Dw==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
@@ -15381,6 +15381,7 @@ snapshots:
       '@anthropic-ai/claude-agent-sdk-linux-x64-musl': 0.3.238
       '@anthropic-ai/claude-agent-sdk-win32-arm64': 0.3.238
       '@anthropic-ai/claude-agent-sdk-win32-x64': 0.3.238
+    optional: true
 
   '@anthropic-ai/sdk@0.120.0(zod@4.4.3)':
     dependencies:
@@ -15388,6 +15389,7 @@ snapshots:
       standardwebhooks: 1.0.0
     optionalDependencies:
       zod: 4.4.3
+    optional: true
 
   '@apidevtools/json-schema-ref-parser@14.2.1(@types/json-schema@7.0.15)':
     dependencies:
@@ -21893,7 +21895,8 @@ snapshots:
 
   '@sqlite.org/sqlite-wasm@3.50.4-build1': {}
 
-  '@stablelib/base64@1.0.1': {}
+  '@stablelib/base64@1.0.1':
+    optional: true
 
   '@standard-schema/spec@1.0.0': {}
 
@@ -21988,23 +21991,19 @@ snapshots:
     dependencies:
       '@swc/counter': 0.1.3
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d679424e4965fb222e6c1c876a037444fb20b52e(effect@4.0.0-beta.103)':
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@72bf93e63efec0b95fef3880265d68ab6569ac41(effect@4.0.0-beta.103)':
     dependencies:
       effect: 4.0.0-beta.103
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d679424e4965fb222e6c1c876a037444fb20b52e(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ioredis@5.11.1)(zod@4.4.3)':
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41(ioredis@5.11.1)':
     dependencies:
-      '@anthropic-ai/claude-agent-sdk': 0.3.238(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(zod@4.4.3)
       '@effect/platform-node': 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
-      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d679424e4965fb222e6c1c876a037444fb20b52e(effect@4.0.0-beta.103)
+      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@72bf93e63efec0b95fef3880265d68ab6569ac41(effect@4.0.0-beta.103)
       effect: 4.0.0-beta.103
     transitivePeerDependencies:
-      - '@anthropic-ai/sdk'
-      - '@modelcontextprotocol/sdk'
       - bufferutil
       - ioredis
       - utf-8-validate
-      - zod
 
   '@tailwindcss/node@4.3.3':
     dependencies:
@@ -26747,7 +26746,8 @@ snapshots:
 
   fast-safe-stringify@2.1.1: {}
 
-  fast-sha256@1.3.0: {}
+  fast-sha256@1.3.0:
+    optional: true
 
   fast-string-truncated-width@3.0.3: {}
 
@@ -27999,6 +27999,7 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.29.7
       ts-algebra: 2.0.0
+    optional: true
 
   json-schema-to-typescript-lite@15.0.0:
     dependencies:
@@ -32477,6 +32478,7 @@ snapshots:
     dependencies:
       '@stablelib/base64': 1.0.1
       fast-sha256: 1.3.0
+    optional: true
 
   statuses@2.0.2: {}
 
@@ -32808,7 +32810,8 @@ snapshots:
 
   trough@2.2.0: {}
 
-  ts-algebra@2.0.0: {}
+  ts-algebra@2.0.0:
+    optional: true
 
   ts-api-utils@2.5.0(typescript@6.0.3):
     dependencies:
