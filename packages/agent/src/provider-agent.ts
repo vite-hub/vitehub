@@ -254,6 +254,7 @@ function codexFileCredentialStoreConfig(config: string): string {
         return lines.join("")
       }
     }
+    let quoted: `'` | `"` | undefined
     for (let offset = 0; offset < line.length - 2; offset++) {
       const delimiter = line.slice(offset, offset + 3)
       if (multiline) {
@@ -262,9 +263,18 @@ function codexFileCredentialStoreConfig(config: string): string {
         offset += 2
         continue
       }
-      if (delimiter !== '"""' && delimiter !== "'''") continue
-      multiline = delimiter
-      offset += 2
+      const character = line[offset]
+      if (quoted) {
+        if (character === quoted && (quoted === `'` || !/(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, offset)))) quoted = undefined
+        continue
+      }
+      if (character === "#") break
+      if (delimiter === '"""' || delimiter === "'''") {
+        multiline = delimiter
+        offset += 2
+        continue
+      }
+      if (character === `"` || character === `'`) quoted = character
     }
   }
   const newline = config.includes("\r\n") ? "\r\n" : "\n"

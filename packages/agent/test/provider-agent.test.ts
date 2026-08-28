@@ -222,6 +222,31 @@ trust_level = "trusted"
     }
   })
 
+  it("ignores multiline delimiters in TOML comments", async () => {
+    const profile = `provider-commented-multiline-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `# A documentation example may use """ here.
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-commented-multiline-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(config.replace('"keyring"', '"file"'))
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
   it("rejects a symlinked named-profile config without changing its target", async () => {
     const profile = `provider-config-symlink-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
