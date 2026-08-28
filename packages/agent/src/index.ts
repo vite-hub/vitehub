@@ -5452,7 +5452,7 @@ async function executeAgentInvocationWithCapacityLease<
           )
           throw error
         }
-        if (options.holdCapacity === true) {
+        if (streamPropertyValues.size) {
           try {
             for (const stream of new Set(streamPropertyValues.values())) {
               preservedSources.set(stream, textStreamDescriptor || isUIMessageStreamResult(rendered)
@@ -5479,25 +5479,16 @@ async function executeAgentInvocationWithCapacityLease<
           preservedSources.set(stream, source)
           return source
         }
-        if (options.holdCapacity === true) {
-          try {
-            for (const stream of streamPropertyValues.values()) preservedSource(stream)
-          }
-          catch (error) {
-            await Promise.allSettled([...preservedSources.values()].flatMap(source => source ? [source.cancel(error)] : []))
-            throw error
-          }
-        }
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
-          if (options.holdCapacity !== true) return outcome
-          const cancellations = await Promise.allSettled(
-            [...preservedSources.keys()].map(async stream => await preservedSource(stream).cancel(outcome.failed ? outcome.error : undefined)),
-          )
+          const reason = outcome.failed ? outcome.error : undefined
+          const cancellations = await Promise.allSettled(options.holdCapacity === true
+            ? [...preservedSources.keys()].map(async stream => await preservedSource(stream).cancel(reason))
+            : [...preservedSources.values()].flatMap(source => source ? [source.cancel(reason)] : []))
+          if (!cancellations.length) return outcome
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           return rejected ? { error: rejected.reason, failed: true } : outcome
         }
         const onAbort = () => {
-          if (preservedStreams.size) return
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
           finishing = true
           finishTask ||= (async () => {
