@@ -493,6 +493,9 @@ describe("ViteHub Nuxt integration", () => {
       await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
 
+      await development.runBuilderWatchHook()
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
       const production = createNuxt(false)
       await expect(viteHubNuxtModule({ console: { exposure: "host-managed" }, preset: "node" }, production.nuxt))
         .rejects.toThrow("Console fixture mode is development-only")
