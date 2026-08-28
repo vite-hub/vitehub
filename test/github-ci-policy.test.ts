@@ -79,8 +79,10 @@ describe("GitHub CI input policy", () => {
         "      - run: npx --package=tool@1.2.3 -- tool --package unpinned",
         "      - run: pnpx tool@1.2.3 --help",
         "      - run: corepack pnpm dlx tool@1.2.3 --help",
+        "      - run: corepack pnpm@10.16.1 dlx tool@1.2.3 --help",
         "      - run: corepack pnpx tool@1.2.3 --help",
         "      - run: corepack yarn dlx tool@1.2.3 --help",
+        "      - run: corepack yarnpkg@4.10.3 dlx tool@1.2.3 --help",
         "      - run: bun x tool@1.2.3 --help",
         "      - run: npm exec --package=runner@1.2.3 --call=\"npx nested@2.3.4\"",
         "      - run: npm exec -c 'echo ok'",
@@ -399,8 +401,10 @@ jobs:
     "bun x tool --help",
     "pnpx tool --help",
     "corepack pnpm dlx tool --help",
+    "corepack pnpm@10.16.1 dlx tool --help",
     "corepack pnpx tool --help",
     "corepack yarn dlx tool --help",
+    "corepack yarnpkg@4.10.3 dlx tool --help",
     "npm exec -- tool --help",
     "vp dlx tool@latest --help",
     "npx pinned@1.2.3 && npx unpinned",
@@ -417,6 +421,7 @@ jobs:
     "npm exec --package=runner@1.2.3 --call=\"npx unpinned\"",
     "version=$(npx unpinned --version)",
     "echo \"$(npx unpinned --version)\"",
+    "echo \"$(npx unpinned $(echo foo))\"",
     'echo "`npx unpinned --version`"',
     "VERSION=latest npx tool@$VERSION",
     "npx tool@$UNRESOLVED_VERSION",
@@ -547,6 +552,44 @@ jobs:
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it.each(["true &&", "false ||"])("applies an export after %s", async (condition) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          " + condition + " export VERSION=latest",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("does not trust a value after a conditional export", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          command -v optional && export VERSION=latest",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
     ])
   })
 
