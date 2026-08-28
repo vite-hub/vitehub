@@ -285,9 +285,10 @@ function codexFileCredentialStoreConfig(config: string): string {
   const lines = config.match(/.*(?:\r?\n|$)/g)?.filter(Boolean) || []
   const assignment = 'cli_auth_credentials_store = "file"'
   let multiline: `'''` | `"""` | undefined
+  let arrayDepth = 0
   for (const [index, line] of lines.entries()) {
     if (!multiline) {
-      if (/^\s*\[/.test(line)) break
+      if (arrayDepth === 0 && /^\s*\[/.test(line)) break
       const assignmentMatch = line.match(/^\s*(cli_auth_credentials_store|'cli_auth_credentials_store'|"(?:\\.|[^"\\])*")\s*=/)
       const [, key = ""] = assignmentMatch || []
       const decodedKey = key.startsWith('"')
@@ -328,6 +329,8 @@ function codexFileCredentialStoreConfig(config: string): string {
         continue
       }
       if (character === `"` || character === `'`) quoted = character
+      else if (character === "[") arrayDepth++
+      else if (character === "]" && arrayDepth > 0) arrayDepth--
     }
   }
   const newline = config.includes("\r\n") ? "\r\n" : "\n"
@@ -1639,7 +1642,7 @@ async function* runProvider<
     }
     const cleanupTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
-        ? Promise.resolve(undefined)
+        ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
         : Promise.resolve().then(() => runtime?.close()).finally(() => runtimeCleanupSettled = true)
       const runtimeAndToolCleanup = await Promise.allSettled([
         runtimeCleanup,

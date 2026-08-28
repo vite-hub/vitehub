@@ -222,6 +222,33 @@ trust_level = "trusted"
     }
   })
 
+  it("updates a credential-store setting after a multiline TOML array", async () => {
+    const profile = `provider-multiline-array-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `models = [
+  ["gpt-5.6"],
+]
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-multiline-array-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(config.replace('"keyring"', '"file"'))
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
   it("ignores multiline delimiters in TOML comments", async () => {
     const profile = `provider-commented-multiline-config-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
@@ -2333,11 +2360,12 @@ cli_auth_credentials_store = "keyring"
   it("quarantines a named credential profile while deferred runtime and Capability cleanup stall", async () => {
     vi.useFakeTimers()
     let client: McpClient | undefined
+    let resolveExecute: (() => void) | undefined
     try {
       const threadId = "thread-profile-deferred-runtime-tool-timeout"
       let resolveTurn!: () => void
       const turnPending = new Promise<void>(resolve => resolveTurn = resolve)
-      const execute = vi.fn(() => new Promise(() => {}))
+      const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
       const provider = runtime(threadId, [], {
         async onSendTurn(mcp) {
           client = new McpClient({ name: "provider-test", version: "1" })
@@ -2363,14 +2391,16 @@ cli_auth_credentials_store = "keyring"
       }) as never)
 
       await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+      const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
       controller.abort(new DOMException("cancelled", "AbortError"))
       await vi.advanceTimersByTimeAsync(10_000)
-      await expect(result).rejects.toMatchObject({ name: "AbortError" })
+      await rejected
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
       resolveTurn()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      resolveExecute?.()
     }
     finally {
       await client?.close().catch(() => undefined)
