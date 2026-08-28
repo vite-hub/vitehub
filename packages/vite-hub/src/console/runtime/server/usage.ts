@@ -36,6 +36,7 @@ interface UsageTotal {
   cachedInputTokensAvailable: boolean
   cachedInputTokens: number
   costAvailable: boolean
+  costEstimated: boolean
   cost: Decimal
   inputTokensAvailable: boolean
   inputTokens: number
@@ -59,6 +60,7 @@ interface PublicUsageTotals {
   cachedInputTokensAvailable: boolean
   cachedInputTokens: number
   costAvailable: boolean
+  costEstimated: boolean
   costUsd: string
   inputTokensAvailable: boolean
   inputTokens: number
@@ -272,6 +274,7 @@ function emptyTotals(): UsageTotal {
     cachedInputTokensAvailable: true,
     cachedInputTokens: 0,
     costAvailable: true,
+    costEstimated: false,
     cost: { scale: 0, units: 0n },
     inputTokensAvailable: true,
     inputTokens: 0,
@@ -301,6 +304,7 @@ function addUsage(total: UsageTotal, usage: ConsoleInvocationUsage): void {
   total.reasoningTokens += usage.reasoningTokens ?? 0
   const cost = decimal(usage.cost?.usd)
   total.costAvailable &&= cost !== undefined
+  total.costEstimated ||= usage.cost?.estimated === true
   if (cost) total.cost = addDecimal(total.cost, cost)
 }
 
@@ -323,6 +327,7 @@ function publicTotals(total: UsageTotal, complete = true): PublicUsageTotals {
     cachedInputTokensAvailable: hasEvidence && total.cachedInputTokensAvailable,
     cachedInputTokens: total.cachedInputTokens,
     costAvailable: hasEvidence && total.costAvailable,
+    costEstimated: total.costEstimated,
     costUsd: decimalString(total.cost),
     inputTokensAvailable: hasEvidence && total.inputTokensAvailable,
     inputTokens: total.inputTokens,

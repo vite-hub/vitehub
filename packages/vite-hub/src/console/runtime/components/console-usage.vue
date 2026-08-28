@@ -12,6 +12,7 @@ const usageTotalsEntries = {
   cachedInputTokens: v.number(),
   cachedInputTokensAvailable: v.boolean(),
   costAvailable: v.boolean(),
+  costEstimated: v.boolean(),
   costUsd: v.string(),
   inputTokens: v.number(),
   inputTokensAvailable: v.boolean(),
@@ -83,22 +84,23 @@ function formatTokens(value: number): string {
   }).format(value)
 }
 
-function formatCost(value: string | number): string {
+function formatCost(value: string, estimated = false): string {
   const resolved = Number(value) || 0
-  if (typeof value === "string" && resolved > 0 && resolved < 0.01 && /^0\.\d+$/.test(value)) {
-    return `$${value}`
+  if (resolved > 0 && resolved < 0.01 && /^0\.\d+$/.test(value)) {
+    return `${estimated ? "~" : ""}$${value}`
   }
-  return new Intl.NumberFormat("en", {
+  const display = new Intl.NumberFormat("en", {
     currency: "USD",
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
     style: "currency",
   }).format(resolved)
+  return estimated ? `~${display}` : display
 }
 
 function formatValue(totals: UsageTotals): string {
   if (!metricAvailable(totals)) return "Unavailable"
-  return metric.value === "cost" ? formatCost(totals.costUsd) : formatTokens(totals.totalTokens)
+  return metric.value === "cost" ? formatCost(totals.costUsd, totals.costEstimated) : formatTokens(totals.totalTokens)
 }
 
 function formatPeriod(value: string, resolution: "day" | "hour"): string {
@@ -308,7 +310,7 @@ onBeforeUnmount(() => request?.abort())
                       {{ model.totalTokensAvailable ? formatTokens(model.totalTokens) : "—" }}
                     </td>
                     <td class="px-4 py-3 text-right tabular-nums sm:px-5">
-                      {{ model.costAvailable ? formatCost(model.costUsd) : "—" }}
+                      {{ model.costAvailable ? formatCost(model.costUsd, model.costEstimated) : "—" }}
                     </td>
                   </tr>
                 </tbody>

@@ -1987,6 +1987,7 @@ describe("Agent invocation console", () => {
       buckets: expect.arrayContaining([
         expect.objectContaining({
           costAvailable: false,
+          costEstimated: true,
           costUsd: "0.03",
           invocations: 2,
           start: "2026-08-27T10:00:00.000Z",
@@ -1996,13 +1997,14 @@ describe("Agent invocation console", () => {
       ]),
       costAvailable: false,
       models: [
-        { costUsd: "0.01", invocations: 1, model: "model-a", totalTokens: 15 },
-        { costUsd: "0.02", invocations: 1, model: "model-b", totalTokens: 15 },
+        { costEstimated: false, costUsd: "0.01", invocations: 1, model: "model-a", totalTokens: 15 },
+        { costEstimated: true, costUsd: "0.02", invocations: 1, model: "model-b", totalTokens: 15 },
       ],
       partial: false,
       resolution: "hour",
       totals: {
         costAvailable: false,
+        costEstimated: true,
         costUsd: "0.03",
         inputTokens: 18,
         inputTokensAvailable: false,
@@ -2013,17 +2015,21 @@ describe("Agent invocation console", () => {
         totalTokensAvailable: false,
       },
     })
-    const summary = await createUsageSummary(invocations, {
+    await expect(createUsageSummary(invocations, {
       now: "2026-08-27T12:00:00.000Z",
       window: "24h",
-    }) as { buckets: Array<Record<string, unknown>> }
-    expect(summary.buckets).toContainEqual(expect.objectContaining({
-      costAvailable: true,
-      costUsd: "0",
-      invocations: 0,
-      start: "2026-08-27T11:00:00.000Z",
-      totalTokensAvailable: true,
-    }))
+    })).resolves.toMatchObject({
+      buckets: expect.arrayContaining([
+        expect.objectContaining({
+          costAvailable: true,
+          costEstimated: false,
+          costUsd: "0",
+          invocations: 0,
+          start: "2026-08-27T11:00:00.000Z",
+          totalTokensAvailable: true,
+        }),
+      ]),
+    })
     expect(invocationUsage((await invocations.get("usage-invocation"))!)).toMatchObject({
       cost: { estimated: true, source: "mixed", usd: "0.03" },
       inputTokens: 18,
@@ -2143,6 +2149,9 @@ describe("Agent invocation console", () => {
 
   it("does not synthesize complete parent evidence across raw-only calls", async () => {
     const record = {
+      completedAt: "2026-08-27T10:00:00.000Z",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      id: "raw-only-usage",
       observations: [{
         attributes: {
           "usage.record": {
@@ -2156,8 +2165,14 @@ describe("Agent invocation console", () => {
           },
         },
         name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-27T10:00:00.000Z",
+        type: "lifecycle" as const,
       }],
-    } as unknown as Parameters<typeof invocationUsage>[0]
+      status: "completed" as const,
+      traceId: "trace-raw-only-usage",
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    } satisfies Parameters<typeof invocationUsage>[0]
 
     const projected = invocationUsage(record)
     expect(projected).not.toHaveProperty("cost")
