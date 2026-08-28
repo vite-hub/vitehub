@@ -1625,7 +1625,7 @@ describe("lazy sources", () => {
   })
 
   it("materializes startup Sources before stat and exists trust stored paths", async () => {
-    const getKeys = vi.fn(async () => [] as string[])
+    const getKeys = vi.fn(async (): Promise<string[]> => [])
     const definition = {
       name: "startup-stale-stat",
       sources: {
@@ -1689,7 +1689,7 @@ describe("lazy sources", () => {
           materialize: "startup" as const,
           mount: "docs/generated",
           prepare,
-          async getKeys() { return [] as string[] },
+          async getKeys(): Promise<string[]> { return [] },
           async getItem(key) { return { key, content: "unused" } },
         }),
       },
