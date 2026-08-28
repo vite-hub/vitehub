@@ -200,6 +200,7 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
       return {
         kvlistValue: {
           values: [
+            { key: "type", value: { stringValue: "DOMException" } },
             { key: "name", value: { stringValue: value.name } },
             { key: "message", value: { stringValue: value.message } },
             { key: "code", value: { intValue: String(value.code) } },

@@ -220,6 +220,7 @@ describe("Agent telemetry", () => {
           {
             key: "domException",
             value: { kvlistValue: { values: [
+              { key: "type", value: { stringValue: "DOMException" } },
               { key: "name", value: { stringValue: "AbortError" } },
               { key: "message", value: { stringValue: "stopped" } },
               { key: "code", value: { intValue: "20" } },
