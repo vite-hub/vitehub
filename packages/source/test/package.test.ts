@@ -12,9 +12,10 @@ describe("@vite-hub/source package contract", () => {
   it("includes generated Collection types through its TypeScript config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-source-tsconfig-"))
     const generatedTypes = join(root, ".vitehub/types/source/collections.d.ts")
+    const generatedTypesEntry = join(root, ".vitehub/types/source/index.d.ts")
     const applicationEntry = join(root, "src/index.ts")
     const configEntry = resolve(import.meta.dirname, "../tsconfig.vite.d.ts")
-    const emptyEntry = resolve(import.meta.dirname, "../tsconfig.empty.d.ts")
+    const emptyEntry = resolve(import.meta.dirname, "../types/source/index.d.ts")
     try {
       await mkdir(dirname(applicationEntry), { recursive: true })
       await Promise.all([
@@ -22,6 +23,11 @@ describe("@vite-hub/source package contract", () => {
         writeFile(join(root, "tsconfig.json"), JSON.stringify({
           extends: [resolve(import.meta.dirname, "../tsconfig.vite.json")],
           include: ["src"],
+          compilerOptions: {
+            paths: {
+              "#application/*": ["./src/*"],
+            },
+          },
         })),
       ])
 
@@ -43,7 +49,10 @@ describe("@vite-hub/source package contract", () => {
       expect(sourceFiles(clean)).toContain(emptyEntry)
 
       await mkdir(dirname(generatedTypes), { recursive: true })
-      await writeFile(generatedTypes, "interface ViteHubCollectionMap { meals: unknown }\n")
+      await Promise.all([
+        writeFile(generatedTypes, "interface ViteHubCollectionMap { meals: unknown }\n"),
+        writeFile(generatedTypesEntry, '/// <reference path="./collections.d.ts" />\n'),
+      ])
       const generated = parse()
       if (!generated) throw new TypeError("Expected generated Source TypeScript config.")
       expect(generated?.errors).toEqual([])
@@ -51,7 +60,7 @@ describe("@vite-hub/source package contract", () => {
       expect(sourceFiles(generated)).toContain(generatedTypes)
       expect(sourceFiles(generated)).not.toContain(emptyEntry)
 
-      await rm(generatedTypes)
+      await Promise.all([rm(generatedTypes), rm(generatedTypesEntry)])
       const removed = parse()
       if (!removed) throw new TypeError("Expected cleaned Source TypeScript config.")
       expect(removed?.errors).toEqual([])

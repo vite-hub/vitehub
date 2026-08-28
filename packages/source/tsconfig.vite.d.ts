@@ -1,1 +1,1 @@
-import "#vitehub/source/collections"
+/// <reference types="source" />

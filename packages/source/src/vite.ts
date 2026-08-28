@@ -12,6 +12,7 @@ import { findExportNames } from "mlly"
 import type { Plugin } from "vite"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
+const collectionTypesPackageEntry = ".vitehub/types/source/index.d.ts"
 const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
@@ -208,11 +209,13 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
 async function writeCollectionArtifacts(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
   const collections = await discoverCollections(options)
   const output = resolve(options.projectRoot, collectionTypesEntry)
+  const packageOutput = resolve(options.projectRoot, collectionTypesPackageEntry)
   await rm(resolve(options.projectRoot, legacyCollectionTypesEntry), { force: true })
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
   if (collections.length === 0) {
     await Promise.all([
       rm(output, { force: true }),
+      rm(packageOutput, { force: true }),
       rm(routesDirectory, { force: true, recursive: true }),
     ])
     return []
@@ -229,6 +232,7 @@ async function writeCollectionArtifacts(options: SourceGenerationOptions): Promi
     "export {}",
     "",
   ].join("\n"))
+  await writeFileIfChanged(packageOutput, '/// <reference path="./collections.d.ts" />\n')
 
   const expectedRoutes = new Set(collections.map(({ name }) => resolve(routesDirectory, `${name}.mjs`)))
   const existingRoutes = await collectCollectionFiles(routesDirectory)
