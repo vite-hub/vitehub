@@ -5398,7 +5398,7 @@ async function executeAgentInvocationWithCapacityLease<
                     toReadableAsyncIterableStream(renderedStream),
                     async (outcome) => {
                       if (!outcome.failed && !outcome.completed) {
-                        void source.settleCancellation().then(
+                        void (rendererSource ?? source).settleCancellation().then(
                           async () => await finishPreserved(outcome),
                           async error => await finishPreserved({ error, failed: true }),
                         ).catch(() => {})
@@ -5837,8 +5837,8 @@ async function executeAgentInvocationWithCapacityLease<
       const projection = hasRuntimeType(definition?.uiMessageStream, "function")
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
-      let uiMessageSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
-      const uiMessageSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+      let uiMessageSource: ReturnType<typeof nonBlockingPendingAsyncIterableSource> | undefined
+      const uiMessageSources = new Map<AsyncIterable<unknown>, ReturnType<typeof nonBlockingPendingAsyncIterableSource>>()
       let capacityRendered = rendered
       if (options.holdCapacity === true) {
         if (isUIMessageStreamResult(rendered)) {
@@ -5854,7 +5854,7 @@ async function executeAgentInvocationWithCapacityLease<
               if ("get" in descriptor) continue
               const candidate = descriptor.value
               if (!isAsyncIterable(candidate)) continue
-              uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? cancellableAsyncIterableSource(candidate))
+              uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? nonBlockingPendingAsyncIterableSource(candidate))
             }
           }
           catch (error) {
@@ -5868,7 +5868,7 @@ async function executeAgentInvocationWithCapacityLease<
               value: (...args: unknown[]) => {
                 try {
                   const stream = toUIMessageStream.apply(rendered, args)
-                  uiMessageSource = uiMessageSources.get(stream) ?? cancellableAsyncIterableSource(stream)
+                  uiMessageSource = uiMessageSources.get(stream) ?? nonBlockingPendingAsyncIterableSource(stream)
                   uiMessageSources.set(stream, uiMessageSource)
                   return toReadableAsyncIterableStream(uiMessageSource.stream)
                 }
@@ -5885,10 +5885,25 @@ async function executeAgentInvocationWithCapacityLease<
           })
         }
         else if (isAsyncIterable(rendered)) {
-          uiMessageSource = cancellableAsyncIterableSource(rendered)
+          uiMessageSource = nonBlockingPendingAsyncIterableSource(rendered)
           uiMessageSources.set(rendered, uiMessageSource)
           capacityRendered = uiMessageSource.stream
         }
+      }
+      else if (isUIMessageStreamResult(rendered)) {
+        const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+        capacityRendered = cloneWithPropertyDescriptors(rendered, {
+          toUIMessageStream: {
+            configurable: true,
+            enumerable: false,
+            value: (...args: unknown[]) => {
+              const stream = toUIMessageStream.apply(rendered, args)
+              uiMessageSource = uiMessageSources.get(stream) ?? nonBlockingPendingAsyncIterableSource(stream)
+              uiMessageSources.set(stream, uiMessageSource)
+              return toReadableAsyncIterableStream(uiMessageSource.stream)
+            },
+          },
+        })
       }
       const enrichedRendered = isUIMessageStreamResult(capacityRendered)
         ? withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
@@ -5898,7 +5913,7 @@ async function executeAgentInvocationWithCapacityLease<
       const shouldWrapOutput = shouldHoldInvocationOutput()
       const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
       const finishUiMessageStream = async (outcome: CapabilityCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => {
-        const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
+        const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(source => source.settleCancellation(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
         const resolveUsage = !outcome.failed && outcome.completed === true
