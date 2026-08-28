@@ -1745,7 +1745,7 @@ export interface AgentInspectionFileTreeItem {
   children?: AgentInspectionFileTreeItem[]
   kind: "directory" | "file"
   label?: string
-  materialize?: "build" | "lazy"
+  materialize?: "build" | "startup" | "lazy"
   materialized?: boolean
   materializedAt?: string
   path: string

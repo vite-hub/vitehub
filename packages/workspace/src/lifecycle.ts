@@ -100,10 +100,10 @@ async function waitForFencedSync(operation: Promise<void>, signal: AbortSignal, 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal): Promise<void> {
   if (!abortSignal) return await syncWorkspaceDefinitionInternal(definition, store)
   const { fenced, idle } = createAbortFencedStore(store, abortSignal)
-  await waitForFencedSync(syncWorkspaceDefinitionInternal(definition, fenced, abortSignal), abortSignal, idle)
+  await waitForFencedSync(syncWorkspaceDefinitionInternal(definition, fenced, abortSignal, store), abortSignal, idle)
 }
 
-async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal): Promise<void> {
+async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal, materializationStore = store): Promise<void> {
   abortSignal?.throwIfAborted()
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
   const hasExplicitLoaders = !!definition.loaders?.length
@@ -112,7 +112,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const buildSources = sources
     .filter(source => source.materialize === "build")
   const startupSources = sources.filter(source => source.materialize === "startup")
-  const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, buildSources, startupSources, abortSignal)
+  const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
   const bundledBuildSources = !hasExplicitLoaders
     ? await syncRuntimeBuildAssets(definition, store, buildSources, abortSignal)
@@ -149,7 +149,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
 }
 
-async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
+async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
   abortSignal?.throwIfAborted()
   const previousSources = await readSyncedBuildSources(store)
   abortSignal?.throwIfAborted()
@@ -162,7 +162,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
     const affected = startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))
-    await invalidateWorkspaceSourceMaterialization(definition, store, affected.map(source => source.key))
+    await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
     for (const source of affected) await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
@@ -172,7 +172,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     abortSignal?.throwIfAborted()
     const removedPaths = await rootBuildSourceFilePaths(store, source)
     const affected = startupSources.filter(startup => removedPaths.some(path => sourceMountIntersectsPath(startup, path)))
-    await invalidateWorkspaceSourceMaterialization(definition, store, affected.map(startup => startup.key))
+    await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
     for (const startup of affected) await store.setMeta?.(sourceSnapshotMetaKey(startup.key), {})
     abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, removedPaths)

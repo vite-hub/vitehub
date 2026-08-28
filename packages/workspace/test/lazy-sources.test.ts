@@ -1553,7 +1553,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView(definition, store)
 
     await view.materializeSources({ sources: ["generated"] })
-    await syncWorkspaceDefinition(definition, store)
+    await syncWorkspaceDefinition(definition, store, new AbortController().signal)
 
     await expect(view.readFile("docs/generated/result.md")).resolves.toBe("version 2\n")
     expect(getItem).toHaveBeenCalledTimes(2)
