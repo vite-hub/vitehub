@@ -255,6 +255,35 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["message.content"]).toBe("persisted")
   })
 
+  it("keeps omission markers when selected metadata content cannot be captured", async () => {
+    const invocations = defineAgentInvocations({
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("uncaptured-metadata-content"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const accessorAttributes: Record<string, unknown> = {}
+    Object.defineProperty(accessorAttributes, "message.content", {
+      enumerable: true,
+      get: () => "accessor content",
+    })
+
+    await journal.context.traceLog?.append({ attributes: accessorAttributes, name: "accessor", type: "run" })
+    await journal.context.traceLog?.append({
+      attributes: { "message.content": () => "uncloneable content" },
+      name: "uncloneable",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("uncaptured-metadata-content"))?.observations
+    for (const name of ["accessor", "uncloneable"]) {
+      const observation = observations?.find(entry => entry.name === name)
+      expect(observation?.attributes?.["content.omitted"]).toEqual(["message.content"])
+      expect(observation?.attributes).not.toHaveProperty("message.content")
+    }
+  })
+
   it("marks bounded Agent configuration as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-configuration"))

@@ -762,7 +762,7 @@ function journalTraceLog(
         safeEntry.timestamp = entry.timestamp
         if (content === "metadata" && safeEntry.attributes) {
           const omitted = Array.isArray(safeEntry.attributes["content.omitted"])
-            ? safeEntry.attributes["content.omitted"].filter(key => !metadataContent.has(String(key)))
+            ? safeEntry.attributes["content.omitted"].filter(key => !metadataContentValues.has(String(key)))
             : undefined
           for (const [key, value] of metadataContentValues) {
             safeEntry.attributes[key] = value

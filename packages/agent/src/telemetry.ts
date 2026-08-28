@@ -26,6 +26,7 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
+    if (Object.is(value, -0)) return { stringValue: "-0" }
     return Number.isSafeInteger(value) ? { intValue: String(value) } : { doubleValue: value }
   }
   if (hasRuntimeType(value, "bigint")) {

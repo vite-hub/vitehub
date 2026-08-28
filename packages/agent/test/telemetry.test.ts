@@ -39,7 +39,7 @@ describe("Agent telemetry", () => {
       spans: [{
         attributes: { "usage.record": { usage: { totalTokens: 12 } } },
         endTime: "2026-01-01T00:00:00.010Z",
-        events: [{ attributes: { state: "ready" }, name: "agent.ready", time: "2026-01-01T00:00:00.001Z" }],
+        events: [{ attributes: { "vitehub.payload.value": -0, state: "ready" }, name: "agent.ready", time: "2026-01-01T00:00:00.001Z" }],
         name: "vitehub.run",
         spanId: "0123456789abcdef",
         startTime: "2026-01-01T00:00:00.000Z",
@@ -71,7 +71,10 @@ describe("Agent telemetry", () => {
       traceId: "0123456789abcdef0123456789abcdef",
     })
     expect(span.events).toEqual([{
-      attributes: [{ key: "state", value: { stringValue: "ready" } }],
+      attributes: [
+        { key: "vitehub.payload.value", value: { stringValue: "-0" } },
+        { key: "state", value: { stringValue: "ready" } },
+      ],
       name: "agent.ready",
       timeUnixNano: String(BigInt(Date.parse("2026-01-01T00:00:00.001Z")) * 1_000_000n),
     }])
@@ -148,6 +151,7 @@ describe("Agent telemetry", () => {
             date: new Date("2026-01-01T00:00:00.000Z"),
             invalidDate: new Date(Number.NaN),
             map: new Map<unknown, string>([[1, "number"], ["1", "string"]]),
+            negativeZero: -0,
             set: new Set(["first", "second"]),
             undefined,
           },
@@ -181,6 +185,7 @@ describe("Agent telemetry", () => {
               },
             },
           },
+          { key: "negativeZero", value: { stringValue: "-0" } },
           { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
           { key: "undefined", value: { stringValue: "undefined" } },
         ],
