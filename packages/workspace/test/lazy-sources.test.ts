@@ -676,7 +676,50 @@ describe("lazy sources", () => {
 
     await expect(materialization).rejects.toThrow("Canceled")
     await expect(listing).resolves.toEqual([
-      { path: "docs/guide.md", type: "file" },
+      expect.objectContaining({ path: "docs/guide.md", type: "file" }),
+    ])
+    expect(prepare).toHaveBeenCalledOnce()
+  })
+
+  it("does not expose later materialization cancellation to active Source preparation", async () => {
+    let releasePreparation!: () => void
+    let observePreparation!: () => void
+    const preparationPending = new Promise<void>((resolve) => {
+      releasePreparation = resolve
+    })
+    const preparationObserved = new Promise<void>((resolve) => {
+      observePreparation = resolve
+    })
+    const prepare = vi.fn(async () => {
+      observePreparation()
+      await preparationPending
+    })
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      prepare,
+      async getKeys() {
+        return ["guide.md"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "# Guide\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({
+      name: "preparation-cancellation-isolation",
+      sources: { docs: source },
+    }, createMemoryWorkspaceStore())
+    const abort = new AbortController()
+
+    const listing = view.list("docs", { recursive: true })
+    await preparationObserved
+    const materialization = view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })
+    abort.abort(new DOMException("Canceled", "AbortError"))
+    releasePreparation()
+
+    await expect(materialization).rejects.toThrow("Canceled")
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guide.md", type: "file" }),
     ])
     expect(prepare).toHaveBeenCalledOnce()
   })
@@ -1149,9 +1192,38 @@ describe("lazy sources", () => {
       bytes: 7,
       files: 1,
       items: {
-        "docs/b.md": expect.objectContaining({ sourcePath: "b.md" }),
+        "docs/a.md": expect.objectContaining({ sourcePath: "a.md" }),
       },
     })
+  })
+
+  it("retries a covered path after an explicit refresh fails", async () => {
+    let attempt = 0
+    const getKeys = vi.fn(async () => {
+      attempt++
+      if (attempt === 2) throw new Error("temporary refresh failure")
+      return ["a.md"]
+    })
+    const view = createWorkspaceSourceView({
+      name: "failed-covered-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          getKeys,
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ path: "docs", sources: ["docs"] })
+    await expect(view.materializeSources({ path: "docs", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+    await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md\n")
+    expect(getKeys).toHaveBeenCalledTimes(3)
   })
 
   it("compares bulk source contents when reporting file deltas", async () => {

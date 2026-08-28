@@ -65,6 +65,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const pending = materializationQueue.then(async () => {
       started = true
       options?.abortSignal?.throwIfAborted()
+      await Promise.all(sources
+        .filter(source => !options?.sources?.length || options.sources.includes(source.key))
+        .map(async source => await prepareBySource.get(source.key)?.catch(() => undefined)))
+      options?.abortSignal?.throwIfAborted()
       return await materializeWorkspaceSources(definition, store, options, getSourceContext, (source) => {
         prepareBySource.set(source.key, Promise.resolve())
       })
@@ -109,7 +113,18 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       : await pending
     const path = normalizeWorkspacePath(options?.path || "")
     for (const source of result.sources) {
-      if (source.status !== "ready") continue
+      if (source.status !== "ready") {
+        const paths = materializedPathsBySource.get(source.source)
+        if (paths) {
+          for (const materializedPath of paths) {
+            if (!path || !materializedPath || path === materializedPath || path.startsWith(`${materializedPath}/`) || materializedPath.startsWith(`${path}/`)) {
+              paths.delete(materializedPath)
+            }
+          }
+          if (!paths.size) materializedPathsBySource.delete(source.source)
+        }
+        continue
+      }
       let paths = materializedPathsBySource.get(source.source)
       if (!paths) {
         paths = new Set()
