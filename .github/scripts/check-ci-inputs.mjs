@@ -39,6 +39,7 @@ const stdbufValueOptions = new Set(["--error", "--input", "--output", "-e", "-i"
 const assignmentBuiltins = new Set(["declare", "export", "readonly", "typeset"])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 const commandVariablePattern = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$/
+const commandVariableReferencePattern = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g
 const quotedCommandVariablePrefix = "\0quoted-command-variable:"
 const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
 
@@ -352,8 +353,10 @@ function resolveCommandVariable(token, environment) {
   const source = quoted ? token.slice(quotedCommandVariablePrefix.length) : token
   const variable = commandVariablePattern.exec(source)
   const value = variable ? environment.get(variable[1] ?? variable[2]) : undefined
-  if (value === undefined) return [source]
-  return quoted ? [value] : value.split(/\s+/).filter(Boolean)
+  if (value !== undefined) return quoted ? [value] : value.split(/\s+/).filter(Boolean)
+  return [source.replace(commandVariableReferencePattern, (reference, bracedName, bareName) => {
+    return environment.get(bracedName ?? bareName) ?? reference
+  })]
 }
 
 function corepackDelegateName(token) {
@@ -558,6 +561,10 @@ function assignedVariableNames(tokens) {
       if (shellOperatorPattern.test(argument)) break
       if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(argument)) names.add(argument)
     }
+  }
+  for (const index of commandIndexes(tokens)) {
+    if (executableName(tokens[index]) !== "printf" || tokens[index + 1] !== "-v") continue
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens[index + 2] ?? "")) names.add(tokens[index + 2])
   }
   return names
 }
@@ -832,6 +839,18 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
           if (shellOperatorPattern.test(argument) || redirectionPattern.test(argument)) break
           if (argument === "--" || argument.startsWith("-")) continue
           if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(argument)) environment.delete(argument)
+        }
+        continue
+      }
+
+      if (executable === "printf" && tokens[index + 1] === "-v") {
+        if (activeFunctionDepth > 0 || opensFunction > 0 || runsInChildShell(tokens, index)) continue
+        const execution = activeConditionalDepth === 0 && opensConditional === 0
+          ? conditionalCommandExecution(tokens, index)
+          : "maybe"
+        const variable = tokens[index + 2]
+        if (execution !== "never" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable ?? "")) {
+          environment.delete(variable)
         }
         continue
       }

@@ -826,6 +826,16 @@ jobs:
     ])
   })
 
+  it("invalidates variables assigned by printf -v", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: printf -v VERSION latest; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
   it("does not persist assignments from non-final pipeline commands", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "env:\n  VERSION: latest\njobs:\n  test:\n    steps:\n      - run: export VERSION=1.2.3 | cat; npx tool@$VERSION\n",
@@ -1057,6 +1067,16 @@ jobs:
   ])("resolves a statically assigned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: '${command}'\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("must use an exact version") }),
+    ])
+  })
+
+  it("resolves a statically assigned variable embedded in an executable word", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: PREFIX=n; ${PREFIX}px unpinned\n",
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
