@@ -209,7 +209,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: vp dlx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
+        run: ./.github/ci-tools/node_modules/.bin/wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
 
       - name: Build playground (vercel)
         if: matrix.provider == 'vercel'
@@ -262,7 +262,7 @@ jobs:
           WORKER_NAME="vitehub-playground-vite"
           DEPLOY_DIR="playground/vite/dist/vite"
 
-          vp dlx wrangler --cwd "$DEPLOY_DIR" deploy --config wrangler.json --name "$WORKER_NAME"
+          ./.github/ci-tools/node_modules/.bin/wrangler --cwd "$DEPLOY_DIR" deploy --config wrangler.json --name "$WORKER_NAME"
           echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
           echo "worker=$WORKER_NAME" >> "$GITHUB_OUTPUT"
 

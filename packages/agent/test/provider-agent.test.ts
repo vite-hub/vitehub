@@ -11,10 +11,12 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
-const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
+const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
+  ? "/app/node_modules/@openai/codex/bin/codex.js"
+  : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
-vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
+vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -172,6 +174,32 @@ describe("Provider Agent Driver", () => {
     })
     expect(calls[0]?.[0].environment).not.toHaveProperty("OPENAI_API_KEY")
     await rm(homes[0], { force: true, recursive: true })
+  })
+
+  it("rejects a symlinked named-profile config without changing its target", async () => {
+    const profile = `provider-config-symlink-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const externalRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-config-target-"))
+    const externalConfig = join(externalRoot, "config.toml")
+    await mkdir(homePath, { recursive: true })
+    await writeFile(externalConfig, 'cli_auth_credentials_store = "file"\n', { mode: 0o644 })
+    await symlink(externalConfig, join(homePath, "config.toml"))
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context("thread-symlinked-profile-config") as never)).rejects.toThrow("profile config must not be a symbolic link")
+
+      expect((await stat(externalConfig)).mode & 0o777).toBe(0o644)
+      await expect(readFile(externalConfig, "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\n')
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+      await rm(externalRoot, { force: true, recursive: true })
+    }
   })
 
   it("serializes a named Codex credential profile across Agent Drivers", async () => {
@@ -380,12 +408,24 @@ describe("Provider Agent Driver", () => {
   it("keeps the host Codex executable fallback when the package is absent", async () => {
     const threadId = "thread-host-codex"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    resolveInstalledCodexExecutable.mockReturnValueOnce(undefined)
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
+  })
+
+  it("uses the installed Claude SDK executable", async () => {
+    const threadId = "thread-project-claude"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: { binaryPath: "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude" },
+    }))
   })
 
   it("does not request another provider event after the turn completes", async () => {

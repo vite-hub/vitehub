@@ -452,7 +452,8 @@ describe("hubWorkspace", () => {
 
     const { env, hubEnv } = await import("@vite-hub/env/vite")
     const envPlugin = hubEnv()
-    const envConfig = envPlugin.config as (config: { env?: unknown, root: string }, env: { command: "build", mode: string }) => Promise<unknown>
+    // SAFETY: this focused test preserves the Env config hook's private state for configResolved.
+    const envConfig = envPlugin.config as (config: { env?: unknown, root: string }, env: { command: "build", mode: string }) => Promise<Record<string, unknown>>
     const envConfigResolved = envPlugin.configResolved as unknown as (config: { logger: { info: () => void }, root: string }) => Promise<void>
 
     const envConfigResult = await envConfig({
@@ -464,8 +465,7 @@ describe("hubWorkspace", () => {
       root,
     }, { command: "build", mode: "production" })
     await envConfigResolved({
-      // SAFETY: this config hook returns the private state marker consumed by configResolved.
-      ...envConfigResult as object,
+      ...envConfigResult,
       logger: { info: vi.fn() },
       root,
     })

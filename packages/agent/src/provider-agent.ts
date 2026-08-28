@@ -17,7 +17,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
-import { resolveInstalledCodexExecutable } from "./internal/codex-runtime-package.ts"
+import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
@@ -258,6 +258,8 @@ function codexFileCredentialStoreConfig(config: string): string {
 async function configureCodexCredentialHome(homePath: string): Promise<void> {
   await chmod(homePath, 0o700)
   const configPath = join(homePath, "config.toml")
+  const configEntry = await lstat(configPath).catch(() => undefined)
+  if (configEntry?.isSymbolicLink()) throw new Error(`[vitehub] Codex Driver profile config must not be a symbolic link: ${configPath}`)
   const config = await readFile(configPath, "utf8").catch((error) => {
     if (hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ENOENT") return ""
     throw error
@@ -1378,10 +1380,10 @@ async function* runProvider<
       await workspaceCleanup
       await cleanupRoot()
     }
-    const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
+    const providerExecutable = resolveInstalledProviderExecutable(options.provider)
     const launchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const settings = Object.fromEntries(Object.entries({
-      binaryPath: codexExecutable,
+      binaryPath: providerExecutable,
       homePath: codexCredentialHome?.homePath,
       launchArgs,
     }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))

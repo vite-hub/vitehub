@@ -4,6 +4,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import type { MCPClientConfig as AiSdkMcpClientConfig } from "@ai-sdk/mcp"
 
 export interface McpClient {
   close: () => MaybePromise<void>
@@ -11,8 +12,12 @@ export interface McpClient {
   tools: () => MaybePromise<Record<string, unknown>>
 }
 
-export interface McpClientConfig {
-  transport: unknown
+export interface McpClientConfig extends AiSdkMcpClientConfig {
+  initializationOptions?: {
+    signal?: AbortSignal
+    timeout?: number
+  }
+  protocolVersionDiscovery?: boolean
 }
 
 export type McpServerConfig<
