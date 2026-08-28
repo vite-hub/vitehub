@@ -53,7 +53,7 @@ describe("agent public types", () => {
       servers: {
         disabled: enabled ? remoteMcpServer({ url: "https://example.com/mcp" }) : false,
         initializeFirst: {
-          initializationOptions: { protocolVersionDiscovery: false },
+          protocolVersionDiscovery: false,
           transport: { type: "http", url: "https://legacy.example.com/mcp" },
         },
         nullable: () => null,

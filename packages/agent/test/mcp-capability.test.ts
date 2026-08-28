@@ -157,7 +157,7 @@ describe("mcp capability", () => {
     try {
       const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
       const { mcp } = await import("../src/capabilities.ts")
-      const endpoint = new URL("https://user:password@example.com/mcp?token=secret#private")
+      const endpoint = "https://user:password@example.com/mcp?token=secret#private"
       const resolved = await resolveAgentCapabilities({
         capabilities: [mcp({
           servers: { private: { transport: { type: "http", url: endpoint } } },
