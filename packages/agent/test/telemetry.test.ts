@@ -147,7 +147,7 @@ describe("Agent telemetry", () => {
             cyclic,
             date: new Date("2026-01-01T00:00:00.000Z"),
             invalidDate: new Date(Number.NaN),
-            map: new Map([["status", "ready"]]),
+            map: new Map<unknown, string>([[1, "number"], ["1", "string"]]),
             set: new Set(["first", "second"]),
           },
         },
@@ -169,7 +169,17 @@ describe("Agent telemetry", () => {
           { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
           { key: "date", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
           { key: "invalidDate", value: { stringValue: "Invalid Date" } },
-          { key: "map", value: { kvlistValue: { values: [{ key: "status", value: { stringValue: "ready" } }] } } },
+          {
+            key: "map",
+            value: {
+              arrayValue: {
+                values: [
+                  { kvlistValue: { values: [{ key: "key", value: { intValue: "1" } }, { key: "value", value: { stringValue: "number" } }] } },
+                  { kvlistValue: { values: [{ key: "key", value: { stringValue: "1" } }, { key: "value", value: { stringValue: "string" } }] } },
+                ],
+              },
+            },
+          },
           { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
         ],
       },

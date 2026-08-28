@@ -61,8 +61,15 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
     }
     if (value instanceof Map) {
       return {
-        kvlistValue: {
-          values: [...value].map(([key, child]) => ({ key: String(key), value: otlpAnyValue(child, nextAncestors) })),
+        arrayValue: {
+          values: [...value].map(([key, child]) => ({
+            kvlistValue: {
+              values: [
+                { key: "key", value: otlpAnyValue(key, nextAncestors) },
+                { key: "value", value: otlpAnyValue(child, nextAncestors) },
+              ],
+            },
+          })),
         },
       }
     }
