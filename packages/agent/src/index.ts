@@ -1235,9 +1235,8 @@ async function applyChannelDeliveryEffectIntents<
         }, async () => {
           await verifyOwnership?.()
           await handler(deliveryEffectContext)
-          const deliveredContent = intent.kind === "reply"
-            ? messageChannelDeliveredReplyBody(deliveryEffectContext) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
-            : undefined
+          const deliveredContent = messageChannelDeliveredReplyBody(deliveryEffectContext)
+            ?? (intent.kind === "reply" ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }) : undefined)
           const deliveredContentTruncated = streamedReplyContentTruncated
             || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
           const deferredTrace = intent.kind === "reply" && registerMessageChannelDeferredReplyTrace(deliveryEffectContext, async (capture) => {
@@ -1277,9 +1276,8 @@ async function applyChannelDeliveryEffectIntents<
           await delivery?.event({ error: agentErrorMessage(error), type: "outbound.failed", runId: context.run?.runId })
         }
         catch {}
-        const deliveredContent = intent.kind === "reply"
-          ? messageChannelDeliveredReplyBody(deliveryEffectContext) ?? (streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }))
-          : undefined
+        const deliveredContent = messageChannelDeliveredReplyBody(deliveryEffectContext)
+          ?? (intent.kind === "reply" ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }) : undefined)
         await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
           ...metadata,
           "error.message": agentErrorMessage(error),

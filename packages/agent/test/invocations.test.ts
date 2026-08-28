@@ -910,7 +910,7 @@ describe("Agent Invocations", () => {
 
       const record = await invocations.getByRunId("terminal-delivery-ambiguous-success")
       expect(record?.observations.filter(observation => observation.name === "agent.channel.delivery.effect")).toHaveLength(1)
-      expect(deliveryUpdates).toBe(1)
+      expect(deliveryUpdates).toBe(2)
     }
     finally {
       vi.useRealTimers()

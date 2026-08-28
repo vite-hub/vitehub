@@ -795,7 +795,7 @@ describe("agent channels", () => {
   })
 
   it("rewrites published image references in GitHub PR reviews", async () => {
-    const { github } = await import("../src/channels.ts")
+    const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -818,7 +818,7 @@ describe("agent channels", () => {
     if (!hasRuntimeType(reviewEffect, "function")) throw new Error("Missing GitHub review effect.")
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
-    await reviewEffect({
+    const reviewContext = {
       channel,
       effect: {
         artifacts: [{
@@ -853,7 +853,12 @@ describe("agent channels", () => {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
-    } as never)
+    } as never
+    await reviewEffect(reviewContext)
+
+    expect(messageChannelDeliveredReplyBody(reviewContext)).toBe(
+      "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+    )
 
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/pulls/42/reviews",
