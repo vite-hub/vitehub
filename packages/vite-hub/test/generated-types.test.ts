@@ -580,6 +580,20 @@ describe("framework generated types", () => {
     expect(removed).not.toHaveProperty("nitro")
   })
 
+  it("does not contribute duplicate Nitro handlers when Source is composed twice", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    const viteConfig = { root } as { nitro?: Record<string, unknown>; root: string }
+
+    const first = await config(sourcePlugin())(viteConfig)
+    viteConfig.nitro = first?.nitro
+    const second = await config(sourcePlugin())(viteConfig)
+
+    expect(Reflect.get(Object(first?.nitro), "handlers")).toHaveLength(1)
+    expect(second).not.toHaveProperty("nitro")
+  })
+
   it("restarts the Vite host when Source refresh changes Nitro handlers", async () => {
     const { root } = await createNestedProject()
     const collection = join(root, "server/collections/meals.ts")

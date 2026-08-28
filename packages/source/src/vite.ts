@@ -310,6 +310,23 @@ function generatedHandlerKey(handlers: GeneratedSourceHandler[]): string {
   return JSON.stringify(handlers)
 }
 
+function generatedSourceNitroContribution(
+  value: unknown,
+  generatedHandlers: GeneratedSourceHandler[],
+): NitroGeneratedConfig | undefined {
+  const existing = Object(value) === value && !Array.isArray(value)
+    ? value as NitroGeneratedConfig
+    : {}
+  const merged = mergeGeneratedSourceNitroConfig(existing, generatedHandlers)
+  const handlers = merged.handlers?.slice(Array.isArray(existing.handlers) ? existing.handlers.length : 0)
+  const modules = merged.modules?.slice(Array.isArray(existing.modules) ? existing.modules.length : 0)
+  if (!handlers?.length && !modules?.length) return
+  return {
+    ...(handlers?.length ? { handlers } : {}),
+    ...(modules?.length ? { modules } : {}),
+  }
+}
+
 function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
   const directories = serverDirs === undefined ? [resolve(projectRoot, "server")] : serverDirs
   return directories.some((directory) => {
@@ -358,10 +375,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
       configuredHandlerKey = generatedHandlerKey(handlers)
-      mergeGeneratedSourceNitroConfig(viteConfig.nitro, handlers)
+      const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
       const contribution: SourcePluginConfig = {
         define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
-        ...(handlers.length > 0 ? { nitro: mergeGeneratedSourceNitroConfig(undefined, handlers) } : {}),
+        ...(nitro ? { nitro } : {}),
       }
       return contribution
     },
