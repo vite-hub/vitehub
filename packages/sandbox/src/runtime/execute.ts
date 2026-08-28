@@ -162,6 +162,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   context?: Record<string, unknown>,
   signal?: AbortSignal,
   deadline?: number,
+  onExecutionStart?: () => void,
 ) {
   const bundle = normalizeSandboxDefinitionBundle(source)
 
@@ -212,6 +213,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     let execution: Awaited<ReturnType<SandboxExecutionBox['exec']>> | undefined
 
     try {
+      onExecutionStart?.()
       execution = await executeLauncher(sandbox, launcher.command, execArgs, {
         cwd: bundle.project
           ? resolveSandboxModulePath(bundleBaseDir, bundle.project.packagePath)
@@ -274,6 +276,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
   source: SandboxDefinitionSource,
   payload?: TPayload,
   context?: Record<string, unknown>,
+  onExecutionStart?: () => void,
 ): Promise<TResult> {
   const timeout = definitionOptions?.timeout
   if (typeof timeout !== 'number' || timeout <= 0) {
@@ -284,6 +287,9 @@ export async function executeSandboxDefinition<TPayload, TResult>(
       source,
       payload,
       context,
+      undefined,
+      undefined,
+      onExecutionStart,
     )
   }
 
@@ -302,6 +308,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
         context,
         abortController.signal,
         deadline,
+        onExecutionStart,
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {

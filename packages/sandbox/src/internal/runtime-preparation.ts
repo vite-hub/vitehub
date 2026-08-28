@@ -6,7 +6,7 @@ import { VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
 import { detectHosting } from '@vite-hub/internal/hosting'
 import { isPlainObject } from '@vite-hub/internal/object'
-import { resolve } from 'pathe'
+import { basename, dirname, resolve } from 'pathe'
 
 import { discoverSandboxDefinitions } from '../discovery'
 import { createSandboxFeaturePlan, resolveSandboxFeatureConfig } from '../feature'
@@ -243,11 +243,12 @@ async function writeSandboxArtifacts(
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
   await mkdir(generatedDir, { recursive: true })
-  return await withSandboxRuntimeGenerationLock(generatedDir, async () => await writeSandboxArtifactsLocked(
+  return await withSandboxRuntimeGenerationLock(generatedDir, async assertOwnership => await writeSandboxArtifactsLocked(
     plan,
     createFacadeContents,
     generatedDir,
     platform,
+    assertOwnership,
   ))
 }
 
@@ -256,6 +257,7 @@ async function writeSandboxArtifactsLocked(
   createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
   generatedDir: string,
   platform: NodeJS.Platform,
+  assertOwnership: () => Promise<void>,
 ) {
   const generationsDir = resolve(generatedDir, '.runtime-generations')
   await mkdir(generationsDir, { recursive: true })
@@ -300,9 +302,21 @@ async function writeSandboxArtifactsLocked(
         generationDir,
       ),
     )
+    await assertOwnership()
     if (platform === 'win32') {
       await mkdir(runtimeDir, { recursive: true })
+      const stableDefinitions = [...emitted.values()].filter(artifact => artifact.key.startsWith('sandbox-definition:'))
+      for (const artifact of stableDefinitions) {
+        await assertOwnership()
+        await mkdir(dirname(artifact.stableDst), { recursive: true })
+        const stagedDefinition = resolve(
+          generatedDir,
+          `.runtime-definition-${generationDir.slice(generationsDir.length + 1)}-${basename(artifact.stableDst)}`,
+        )
+        await activateSandboxRuntimeFile(artifact.dst, artifact.stableDst, stagedDefinition)
+      }
       if (typeTemplate) {
+        await assertOwnership()
         const relativePath = typeTemplate.filename.replace(/^runtime\//, '')
         const stagedType = resolve(generatedDir, `.runtime-types-${generationDir.slice(generationsDir.length + 1)}.d.ts`)
         await activateSandboxRuntimeFile(
@@ -311,11 +325,20 @@ async function writeSandboxArtifactsLocked(
           stagedType,
         )
       }
+      await assertOwnership()
       const stagedFacade = resolve(generatedDir, `.runtime-facade-${generationDir.slice(generationsDir.length + 1)}.mjs`)
       await activateSandboxRuntimeFile(generationFacadeFile, resolve(runtimeDir, 'sandbox.mjs'), stagedFacade)
       activated = true
+      const stableDefinitionDir = resolve(runtimeDir, 'sandbox-definitions')
+      const retainedDefinitions = new Set(stableDefinitions.map(artifact => artifact.stableDst))
+      for (const entry of await readdir(stableDefinitionDir).catch(() => [])) {
+        const path = resolve(stableDefinitionDir, entry)
+        if (!retainedDefinitions.has(path))
+          await pruneSandboxRuntimeGeneration(path)
+      }
     }
     else {
+      await assertOwnership()
       await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(platform))
 
       try {
@@ -359,6 +382,7 @@ async function writeSandboxArtifactsLocked(
     previousGeneration && resolve(generatedDir, previousGeneration),
     previousWindowsGeneration,
   ].filter(Boolean))
+  await assertOwnership()
   for (const entry of await readdir(generationsDir)) {
     const path = resolve(generationsDir, entry)
     if (!retained.has(path))
@@ -373,6 +397,7 @@ export async function prepareSandboxRuntime(options: {
   userConfig: Record<string, unknown>
   env: ConfigEnv
   resolvedConfig?: ResolvedConfig
+  platform?: NodeJS.Platform
   writeArtifacts?: boolean
 }) {
   const resolvedRoot = options.resolvedConfig?.root || resolve(process.cwd(), typeof options.userConfig.root === 'string' ? options.userConfig.root : '.')
@@ -418,7 +443,7 @@ export async function prepareSandboxRuntime(options: {
       serverImports: { presets: [] },
     },
   )
-  const aliases = createGeneratedAliasMap(rootDir, plan)
+  const aliases = createGeneratedAliasMap(rootDir, plan, options.platform)
   if (options.writeArtifacts === false) {
     return {
       aliases,
@@ -441,6 +466,7 @@ export async function prepareSandboxRuntime(options: {
       registryFile,
       providerLoaderFile,
     ),
+    options.platform,
   )
   return {
     aliases,

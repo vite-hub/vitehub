@@ -178,10 +178,15 @@ describe("Sandbox runtime lifecycle", () => {
   it("does not replay Cloudflare definitions whose handler errors look transient", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
-    runtimeMocks.executeSandboxDefinition.mockRejectedValue(sandboxError("aborted", {
-      code: "SANDBOX_HANDLER_ERROR",
-      provider: "cloudflare",
-    }))
+    runtimeMocks.executeSandboxDefinition.mockImplementation(async (...args: unknown[]) => {
+      const onExecutionStart = args[6]
+      if (typeof onExecutionStart === "function")
+        onExecutionStart()
+      throw sandboxError("aborted", {
+        code: "SANDBOX_HANDLER_ERROR",
+        provider: "cloudflare",
+      })
+    })
 
     const result = await runSandboxRuntime("example")
 
@@ -190,6 +195,22 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
+  })
+
+  it("retries transient Cloudflare failures during pre-handler preparation", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxDefinition
+      .mockRejectedValueOnce(new Error("network connection lost while staging"))
+      .mockResolvedValueOnce({ ok: true })
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result[0]).toBeNull()
+    expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
+    expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledTimes(2)
+    expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
+    expect(runtimeMocks.close).toHaveBeenCalledTimes(2)
   })
 
   it("retries transient Cloudflare failures before Definition execution starts", async () => {
@@ -275,6 +296,7 @@ describe("Sandbox runtime lifecycle", () => {
       packageDefinition.bundle,
       undefined,
       undefined,
+      expect.any(Function),
     )
   })
 })

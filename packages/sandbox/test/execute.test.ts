@@ -73,13 +73,13 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
         const source = normalize(args[2] || "")
         const destination = normalize(args[3] || "")
         if (directories.has(destination)) return { ok: false, stdout: "", stderr: "exists", code: 1 }
-        for (const directory of [...directories]) {
+        for (const directory of directories) {
           if (directory === source || directory.startsWith(`${source}/`)) {
             directories.delete(directory)
             directories.add(`${destination}${directory.slice(source.length)}`)
           }
         }
-        for (const [path, content] of [...files]) {
+        for (const [path, content] of files) {
           if (path === source || path.startsWith(`${source}/`)) {
             files.delete(path)
             files.set(`${destination}${path.slice(source.length)}`, content)
@@ -137,8 +137,8 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
         files.delete(target)
         directories.delete(target)
         if (removeOptions?.recursive) {
-          for (const file of [...files.keys()]) if (file.startsWith(`${target}/`)) files.delete(file)
-          for (const directory of [...directories]) if (directory.startsWith(`${target}/`)) directories.delete(directory)
+          for (const file of files.keys()) if (file.startsWith(`${target}/`)) files.delete(file)
+          for (const directory of directories) if (directory.startsWith(`${target}/`)) directories.delete(directory)
         }
       },
       async write(path: string, content: Uint8Array, writeOptions?: { signal?: AbortSignal }) {
@@ -218,6 +218,7 @@ describe("executeSandboxDefinition", () => {
 
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
+    const onExecutionStart = vi.fn()
     let finishSetup: (() => void) | undefined
     sandbox.mkdir = async () => await new Promise<void>((resolve) => {
       finishSetup = resolve
@@ -233,6 +234,9 @@ describe("executeSandboxDefinition", () => {
           "definition.mjs": "export default { run() { return { ok: true } } }",
         },
       },
+      undefined,
+      undefined,
+      onExecutionStart,
     )).rejects.toMatchObject({
       code: "SANDBOX_TIMEOUT",
       details: { provider: "cloudflare", timeout: 10 },
@@ -241,6 +245,29 @@ describe("executeSandboxDefinition", () => {
     finishSetup?.()
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(execCalls.some(call => call.cmd === "node")).toBe(false)
+    expect(onExecutionStart).not.toHaveBeenCalled()
+  })
+
+  it("marks execution started only when the handler launcher begins", async () => {
+    const { sandbox } = createFakeSandbox()
+    const onExecutionStart = vi.fn()
+
+    await executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+      undefined,
+      undefined,
+      onExecutionStart,
+    )
+
+    expect(onExecutionStart).toHaveBeenCalledOnce()
   })
 
   it("imports the generated entry once with the default Node launcher", async () => {

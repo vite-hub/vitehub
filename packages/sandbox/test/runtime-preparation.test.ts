@@ -101,6 +101,39 @@ describe("Sandbox runtime preparation", () => {
     expect(order).toEqual(["first-start", "first-end", "second"])
   })
 
+  it("renews a remote writer lease before a contender can reclaim it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    let releaseFirst!: () => void
+    let markFirstStarted!: () => void
+    const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve })
+    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let secondStarted = false
+
+    const first = withSandboxRuntimeGenerationLock(root, async () => {
+      const stale = new Date(Date.now() - 301_000)
+      await utimes(join(root, ".runtime-generation.lock/.heartbeat"), stale, stale)
+      markFirstStarted()
+      await firstReleased
+    }, {
+      heartbeatIntervalMs: 5,
+      host: "remote-host",
+      remove: rm,
+      writeOwner: async (path, value) => await writeFile(path, value),
+    })
+    await firstStarted
+    await new Promise(resolve => setTimeout(resolve, 25))
+    const second = withSandboxRuntimeGenerationLock(root, async () => {
+      secondStarted = true
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(secondStarted).toBe(false)
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(secondStarted).toBe(true)
+  })
+
   it("releases the generation lock when a writer fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)
@@ -108,6 +141,19 @@ describe("Sandbox runtime preparation", () => {
     await expect(withSandboxRuntimeGenerationLock(root, async () => {
       throw new Error("generation failed")
     })).rejects.toThrow("generation failed")
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "recovered")).resolves.toBe("recovered")
+  })
+
+  it("marks a lock released when filesystem cleanup fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "generated", {
+      remove: async () => {
+        throw Object.assign(new Error("busy"), { code: "EBUSY" })
+      },
+      writeOwner: async (path, value) => await writeFile(path, value),
+    })).resolves.toBe("generated")
     await expect(withSandboxRuntimeGenerationLock(root, async () => "recovered")).resolves.toBe("recovered")
   })
 
@@ -130,13 +176,14 @@ describe("Sandbox runtime preparation", () => {
     tempDirs.push(root)
     const lockDir = join(root, ".runtime-generation.lock")
     await mkdir(lockDir)
-    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+    const ownerPath = join(lockDir, "owner.json")
+    await writeFile(ownerPath, JSON.stringify({
       host: "remote-host",
       pid: 42,
       token: "stale",
     }))
     const stale = new Date(Date.now() - 301_000)
-    await utimes(lockDir, stale, stale)
+    await utimes(ownerPath, stale, stale)
 
     await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
   })
@@ -147,7 +194,8 @@ describe("Sandbox runtime preparation", () => {
     const lockDir = join(root, ".runtime-generation.lock")
     const claimPath = join(lockDir, ".reclaim")
     await mkdir(lockDir)
-    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+    const ownerPath = join(lockDir, "owner.json")
+    await writeFile(ownerPath, JSON.stringify({
       host: "remote-host",
       pid: 42,
       token: "stale",
@@ -155,7 +203,7 @@ describe("Sandbox runtime preparation", () => {
     await writeFile(claimPath, "")
     const staleLock = new Date(Date.now() - 301_000)
     const staleClaim = new Date(Date.now() - 61_000)
-    await utimes(lockDir, staleLock, staleLock)
+    await utimes(ownerPath, staleLock, staleLock)
     await utimes(claimPath, staleClaim, staleClaim)
 
     await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")

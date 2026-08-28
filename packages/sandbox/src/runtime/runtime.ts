@@ -109,7 +109,6 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
             try {
               const session = await box.open({ id: cloudflareSandboxId })
               sandbox = createSandboxExecutionBox(session, provider.provider)
-              definitionExecutionStarted = true
               const result = await executeSandboxDefinition<TPayload, TResult>(
                 sandbox,
                 context.name,
@@ -117,6 +116,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
                 context.definition.bundle,
                 payload,
                 options.context,
+                () => { definitionExecutionStarted = true },
               )
               return result
             }

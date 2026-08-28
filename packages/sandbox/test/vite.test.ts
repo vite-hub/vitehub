@@ -196,19 +196,19 @@ describe("hubSandbox", () => {
     const unrelatedFile = await realpath(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__unrelated.mjs"))
     const unrelatedContents = await readFile(unrelatedFile, "utf8")
     const loadedMarker = "__vitehubSandboxUnrelatedDefinitionLoaded"
-    delete (globalThis as Record<string, unknown>)[loadedMarker]
+    Reflect.deleteProperty(globalThis, loadedMarker)
     await writeFile(unrelatedFile, [
       `globalThis.${loadedMarker} = true`,
       unrelatedContents,
     ].join("\n"))
 
     const registryModule: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(registryFile).href)
-    expect((globalThis as Record<string, unknown>)[loadedMarker]).toBeUndefined()
+    expect(Reflect.get(globalThis, loadedMarker)).toBeUndefined()
     await expect(registryModule.default["tools/release-notes"]?.()).resolves.toBeDefined()
-    expect((globalThis as Record<string, unknown>)[loadedMarker]).toBeUndefined()
+    expect(Reflect.get(globalThis, loadedMarker)).toBeUndefined()
     await expect(registryModule.default["tools/unrelated"]?.()).resolves.toBeDefined()
-    expect((globalThis as Record<string, unknown>)[loadedMarker]).toBe(true)
-    delete (globalThis as Record<string, unknown>)[loadedMarker]
+    expect(Reflect.get(globalThis, loadedMarker)).toBe(true)
+    Reflect.deleteProperty(globalThis, loadedMarker)
   })
 
   it("accepts direct integration options", async () => {
@@ -1376,6 +1376,41 @@ describe("hubSandbox", () => {
 
     await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__next.mjs"), "utf8")).resolves.toContain("next")
+  })
+
+  it("keeps Windows definition fallbacks in the active runtime", async () => {
+    const rootDir = await createViteRoot()
+    const { prepareSandboxRuntime } = await import("../src/internal/runtime-preparation.ts")
+    const options = {
+      env: { command: "serve" as const, mode: "development" },
+      platform: "win32" as const,
+      userConfig: { root: rootDir },
+    }
+
+    await prepareSandboxRuntime(options)
+    const stableDefinition = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const generationsDir = join(rootDir, ".vitehub/sandbox/.runtime-generations")
+    const [previousGeneration] = (await readdir(generationsDir)).filter(entry => entry.startsWith("runtime-"))
+    if (!previousGeneration)
+      throw new Error("Expected the initial Windows runtime generation to exist.")
+    const previousDefinition = join(generationsDir, previousGeneration, "sandbox-definitions/tools__release-notes.mjs")
+    const previousRegistryModule: { default: Record<string, () => Promise<unknown>> } = await import(
+      pathToFileURL(join(generationsDir, previousGeneration, "sandbox-registry.mjs")).href,
+    )
+    const loadPreviousDefinition = previousRegistryModule.default["tools/release-notes"]
+    if (!loadPreviousDefinition)
+      throw new Error("Expected the previous Windows registry to contain tools/release-notes.")
+    await expect(readFile(stableDefinition, "utf8")).resolves.toContain("release-notes")
+
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    await prepareSandboxRuntime(options)
+    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await prepareSandboxRuntime(options)
+
+    await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(stableDefinition, "utf8")).resolves.toContain("latest")
+    await expect(loadPreviousDefinition()).resolves.toBeDefined()
   })
 
   it("keeps the last valid generated bundles when regeneration fails", async () => {
