@@ -778,6 +778,7 @@ async function readRuntimePackages(
           break
         }
         catch (error) {
+          // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
         }
       }
@@ -814,6 +815,7 @@ async function readRuntimePackages(
           await access(resolvedPackageJsonPath)
         }
         catch (error) {
+          // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
           resolvedPackageJsonPath = undefined
         }
@@ -824,7 +826,7 @@ async function readRuntimePackages(
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
-        optional: resolvedPackageJsonPath ? false : existing?.optional ?? false,
+        optional: existing?.optional ?? false,
         packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
       })
     }
@@ -1007,6 +1009,7 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
     await access(outputDir)
   }
   catch (error) {
+    // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     outputExists = false
   }
@@ -1020,6 +1023,7 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
       if (activeDenoDeploymentStages.has(stageRoot)) return
       const previousOutputDir = join(stageRoot, "previous")
       const previous = await stat(previousOutputDir).catch((error) => {
+        // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return
         throw error
       })
@@ -1147,7 +1151,12 @@ async function finalizeStagedDenoDeploymentOutput(
     rootDir: options.rootDir,
   })
 
-  const denoConfig = {
+  const denoConfig: {
+    compilerOptions?: { types: string[] }
+    deploy: { runtime: { cwd: string, entrypoint: string, mode: string } }
+    nodeModulesDir: string
+    tasks: { start: string }
+  } = {
     deploy: {
       runtime: {
         mode: "dynamic",
@@ -1156,9 +1165,9 @@ async function finalizeStagedDenoDeploymentOutput(
       },
     },
     nodeModulesDir: "manual",
-    ...(hasNodeTypes ? { compilerOptions: { types: ["npm:@types/node"] } } : {}),
     tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
+  if (hasNodeTypes) denoConfig.compilerOptions = { types: ["npm:@types/node"] }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
   await writeFile(
     join(serverDir, "index.ts"),
