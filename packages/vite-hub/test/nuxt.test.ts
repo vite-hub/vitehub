@@ -1200,7 +1200,10 @@ describe("ViteHub Nuxt integration", () => {
     const { closeHooks, nuxt, runNitroConfigHook } = createNuxt(true)
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
-    expect(onGeneratedHandlersChanged).toHaveBeenCalledWith(expect.any(Function), { handlesHostRestart: true })
+    expect(onGeneratedHandlersChanged).toHaveBeenCalledWith(expect.any(Function), {
+      handlesHostRestart: true,
+      projectRoot: "/tmp/vitehub-nuxt",
+    })
     nuxt.callHook.mockRejectedValueOnce(new Error("restart failed"))
     await expect(listener?.([second])).rejects.toThrow("restart failed")
     const failedNitroConfig: Record<string, unknown> = {}
