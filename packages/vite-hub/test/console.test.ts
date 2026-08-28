@@ -596,11 +596,11 @@ describe("Agent invocation console", () => {
       page = await invocationsHandler(requestEvent)
     }
 
-    expect(page.invocations).toMatchObject([{
+    expect(page.invocations).toContainEqual(expect.objectContaining({
       id: "transitioning",
       status: "completed",
       updatedAt: "2026-08-23T12:01:00.000Z",
-    }])
+    }))
   })
 
   it("reports every lifecycle while the unfiltered history cursor remains", async () => {

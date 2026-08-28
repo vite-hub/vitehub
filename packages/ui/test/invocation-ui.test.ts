@@ -1416,6 +1416,34 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
+  it("continues automatic pagination when the cursor advances without new sessions", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [{ id: "working", status: "running", title: "Working" }],
+        remainingStatuses: ["running", "pending", "completed"],
+        retryKey: "page-2",
+      },
+    });
+    const viewport = wrapper.get("nav");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await viewport.trigger("scroll");
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({ loading: true });
+    await wrapper.setProps({ loading: false, retryKey: "page-4" });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+
+    await wrapper.setProps({ loading: true });
+    await wrapper.setProps({ loading: false, retryKey: "page-6" });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+  });
+
   it("requests another page when the loaded sessions do not fill the viewport", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
