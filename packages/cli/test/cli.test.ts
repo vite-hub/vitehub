@@ -281,6 +281,55 @@ describe("ViteHub CLI", () => {
     }
   })
 
+  it.runIf(process.platform !== "win32")("suspends the wrapper after forwarding SIGTSTP and resumes the child group", async () => {
+    const signals: Array<[number, Parameters<typeof process.kill>[1]]> = []
+    const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      signals.push([pid, signal])
+      return true
+    })
+
+    try {
+      const exitCode = await runViteHubCli({
+        args: ["test", "spawn"],
+        loadConfig: async () => ({
+          plugins: [{
+            vitehub: {
+              cli: {
+                namespaces: [{
+                  features: [{
+                    name: "spawn",
+                    run: async (_args: string[], context: ViteHubCliContext) => {
+                      const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 20)"])
+                      await vi.waitFor(() => expect(process.listenerCount("SIGTSTP")).toBeGreaterThan(0))
+                      process.emit("SIGTSTP")
+                      process.emit("SIGCONT")
+                      return (await result).exitCode
+                    },
+                  }],
+                  name: "test",
+                }],
+              },
+            },
+          }],
+          root: "/repo",
+        }),
+      })
+
+      expect(exitCode).toBe(0)
+      expect(signals).toEqual(expect.arrayContaining([
+        [expect.any(Number), "SIGTSTP"],
+        [process.pid, "SIGSTOP"],
+        [expect.any(Number), "SIGCONT"],
+      ]))
+      expect(signals.filter(([pid]) => pid < 0)).toHaveLength(2)
+      expect(process.listenerCount("SIGTSTP")).toBe(0)
+      expect(process.listenerCount("SIGCONT")).toBe(0)
+    }
+    finally {
+      kill.mockRestore()
+    }
+  })
+
   it("routes package-contributed CLI features", async () => {
     const stdout = stream()
     const stderr = stream()

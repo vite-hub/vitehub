@@ -90,6 +90,13 @@ export function configureConsoleFixtureLifecycle(
   }
 }
 
+export async function closeConsoleInvocationRootState(state: ConsoleInvocationRootState): Promise<void> {
+  if (state.closed) return
+  state.closed = true
+  if (state.binding) releaseConsoleInvocationsBinding(state.binding)
+  await state.fixtureLifecycle?.close()
+}
+
 export function updateConsoleInvocationRootState(
   state: ConsoleInvocationRootState,
   projectRoot: string,
@@ -365,9 +372,7 @@ export function consoleInvocationRootPlugin(
   async function closeEnvironment(environment: object | undefined): Promise<void> {
     if (environment) activeEnvironments.delete(environment)
     if (activeEnvironments.size > 0) return
-    state.closed = true
-    if (state.binding) releaseConsoleInvocationsBinding(state.binding)
-    await state.fixtureLifecycle?.close()
+    await closeConsoleInvocationRootState(state)
   }
 
   return {

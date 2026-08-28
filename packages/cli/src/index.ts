@@ -123,7 +123,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
     })
     const forwardedSignals = process.platform === "win32"
       ? []
-      : ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const
+      : ["SIGHUP", "SIGCONT", "SIGINT", "SIGQUIT", "SIGTERM", "SIGTSTP"] as const
     const handlers = new Map<NodeJS.Signals, () => void>()
     const cleanup = () => {
       for (const [signal, handler] of handlers) process.off(signal, handler)
@@ -139,6 +139,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
             if (Reflect.get(Object(error), "code") !== "ESRCH") throw error
           }
         }
+        if (signal === "SIGTSTP") process.kill(process.pid, "SIGSTOP")
       }
       handlers.set(signal, handler)
       process.on(signal, handler)

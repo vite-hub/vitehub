@@ -18,7 +18,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleProductionAccess, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleProductionAccess, closeConsoleInvocationRootState, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -35,7 +35,10 @@ type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"
 }
 
 type NuxtLike = {
-  hook?: (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) => void
+  hook?: (
+    name: "close" | "nitro:config",
+    callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
+  ) => void
   options: {
     alias?: Record<string, string>
     app?: {
@@ -277,6 +280,8 @@ async function installConsole(
   })
   if (fixture && invocationRootState) {
     configureConsoleFixtureLifecycle(invocationRootState, plugin, refreshAgentDefinitions)
+    // Nuxt closes after Vite startup failures that happen before buildStart can own this fixture binding.
+    nuxt.hook?.("close", async () => closeConsoleInvocationRootState(invocationRootState))
   }
   if (writeGeneratedPlugin) await refreshAgentDefinitions()
   if (nuxt.options.dev && writeGeneratedPlugin) {

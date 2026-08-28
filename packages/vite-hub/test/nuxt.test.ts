@@ -109,12 +109,14 @@ import viteHubNuxtModule from "../src/nuxt.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
+  const closeHooks: Array<() => Promise<void>> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
   const nuxt = {
-    hook(name: "builder:watch" | "nitro:config" | "pages:extend", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
+    hook(name: "builder:watch" | "close" | "nitro:config" | "pages:extend", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
       if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
+      else if (name === "close") closeHooks.push(callback as () => Promise<void>)
       else pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
     },
     options: {
@@ -143,6 +145,9 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     nuxt,
     async runBuilderWatchHook(path = "/tmp/vitehub-nuxt/console.fixture.json", event = "change") {
       for (const hook of builderWatchHooks) await hook(event, path)
+    },
+    async runCloseHook() {
+      for (const hook of closeHooks) await hook()
     },
     async runNitroConfigHook(config: Record<string, unknown>) {
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
@@ -513,6 +518,36 @@ describe("ViteHub Nuxt integration", () => {
         .rejects.toThrow("type preparation failed")
       expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
       expect(nitroOptions(development.nuxt).plugins).toBeUndefined()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("releases Console fixture state when Nuxt closes before Vite buildStart", async () => {
+    const root = "/tmp/vitehub-nuxt-fixture-vite-startup-failure"
+    const fixture = resolve(root, "console.fixture.json")
+    await rm(root, { force: true, recursive: true })
+    await mkdir(root, { recursive: true })
+    await writeFile(resolve(root, "package.json"), "{}\n")
+    await writeFile(fixture, JSON.stringify(fixtureDocument("failed-vite-startup")))
+    vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+    const development = createNuxt(true)
+    development.nuxt.options.rootDir = root
+    development.nuxt.options.buildDir = resolve(root, ".nuxt")
+    development.nuxt.options.serverDir = resolve(root, "server")
+
+    try {
+      await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+      const generatedPlugin = nitroPlugins(development.nuxt)[0] ?? ""
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("failed-vite-startup")
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(true)
+
+      await development.runCloseHook()
+
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     }
     finally {
       vi.unstubAllEnvs()
