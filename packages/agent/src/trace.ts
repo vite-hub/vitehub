@@ -314,9 +314,11 @@ export async function traceAgentInvocationFinish<TRuntimeConfig extends AgentRun
 export async function traceAgentInvocationError<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   error: unknown,
+  activity?: TraceActivityContext,
 ): Promise<void> {
   const details = agentErrorDetails(error)
   await traceAgentEvent(context, {
+    ...(activity ? { activity } : {}),
     attributes: invocationAttributes(context, {
       "error.message": details.message,
       "error.name": details.name,

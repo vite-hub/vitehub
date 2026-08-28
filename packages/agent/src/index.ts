@@ -3375,7 +3375,7 @@ async function createAgentInvocationContext<
       invoker,
       run: context.run,
       runtime: runtimeContext,
-    }, error)
+    }, error, { owner: "vitehub", phase: "setup" })
     scheduleAgentTelemetry(failureTelemetry, runtimeContext, invocationContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
   }

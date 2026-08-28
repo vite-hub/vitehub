@@ -546,6 +546,42 @@ describe("@vite-hub/runtime", () => {
     expect(log.entries()[0]?.attributes?.callback).toBe(callback)
   })
 
+  it("keeps content events when custom attributes cannot be inspected safely", async () => {
+    const getter = vi.fn(() => {
+      throw new Error("attribute getter must not be read")
+    })
+    const accessorAttributes = Object.defineProperties({ safe: "kept" }, {
+      unsafe: { enumerable: true, get: getter },
+    })
+    const hostileAttributes = new Proxy({}, {
+      ownKeys() {
+        throw new Error("attributes must not break the event")
+      },
+    })
+    const log = createTraceEventLog({ content: "content" })
+
+    await expect(log.append({ attributes: accessorAttributes, name: "accessor", type: "lifecycle" })).resolves.toBeDefined()
+    await expect(log.append({
+      activity: { owner: "agent", phase: "execution" },
+      attributes: hostileAttributes,
+      name: "proxy",
+      type: "lifecycle",
+    })).resolves.toBeDefined()
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()).toEqual([
+      expect.objectContaining({ attributes: { safe: "kept" }, name: "accessor" }),
+      expect.objectContaining({
+        activity: { owner: "agent", phase: "execution" },
+        attributes: {
+          "vitehub.activity.owner": "agent",
+          "vitehub.activity.phase": "execution",
+        },
+        name: "proxy",
+      }),
+    ])
+  })
+
   it("falls back to private when a public payload contains shared memory", async () => {
     const log = createTraceEventLog()
     const buffer = new SharedArrayBuffer(1)

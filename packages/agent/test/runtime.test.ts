@@ -941,9 +941,12 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.error",
     ])
+    expect(traceLog.entries()[0]!.activity).toEqual({ owner: "vitehub", phase: "setup" })
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "agent.invoker.kind": "anonymous",
       "error.message": "setup failed",
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
     })
   })
 

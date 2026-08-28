@@ -540,7 +540,17 @@ function traceEventAttributes(
 ): Record<string, unknown> | undefined {
   const activity = normalized ? event.activity : normalizedTraceActivity(event.activity)
   const payload = normalized ? event.payload : normalizedTracePayload(event.payload)
-  const source = { ...event.attributes }
+  let source: Record<string, unknown> = {}
+  try {
+    for (const key of Reflect.ownKeys(event.attributes || {})) {
+      if (!hasRuntimeType(key, "string")) continue
+      const descriptor = Object.getOwnPropertyDescriptor(event.attributes!, key)
+      if (descriptor?.enumerable && "value" in descriptor) source[key] = descriptor.value
+    }
+  }
+  catch {
+    source = {}
+  }
   delete source["vitehub.activity.owner"]
   delete source["vitehub.activity.phase"]
   delete source["vitehub.payload.summary"]
