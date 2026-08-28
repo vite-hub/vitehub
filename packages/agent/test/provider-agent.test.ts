@@ -1,4 +1,4 @@
-import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -286,8 +286,10 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
       expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
       await expect(access(join(shadowHome, "Auth.json"))).rejects.toMatchObject({ code: "ENOENT" })
-      expect(await readlink(join(shadowHome, "Sessions"))).toBe(join(sharedHome, "Sessions"))
-      await expect(access(join(shadowHome, "sessions"))).rejects.toMatchObject({ code: "ENOENT" })
+      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions")
+      expect(sessionEntries).toHaveLength(1)
+      const sessionEntry = sessionEntries[0]!
+      expect(await readlink(join(shadowHome, sessionEntry))).toBe(join(sharedHome, sessionEntry))
       return providerRuntimes.shift()
     })
 

@@ -308,7 +308,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
 }
 
 async function persistCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {
-  await Promise.all((await readdir(home))
+  await settleAgentProviderCleanups((await readdir(home))
     .filter((entry) => {
       const comparableEntry = entry.toLowerCase()
       return !codexPrivateHomeEntries.has(comparableEntry) && !codexLocalHomeEntries.has(comparableEntry)
