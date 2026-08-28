@@ -341,7 +341,6 @@ async function* iterateMaterializationEntries(
 ): AsyncGenerator<MaterializationEntry> {
   const directKey = directMaterializationSourceKey(source, options)
   if (directKey) {
-    if (!(await source.source.getKeys(ctx)).includes(directKey)) return
     const entry = createMaterializationEntry(source, await source.source.getItem(directKey, ctx), undefined)
     if (materializationPathMatches(entry.path, options)) yield entry
     return
