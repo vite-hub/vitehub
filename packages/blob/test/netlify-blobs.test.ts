@@ -7,13 +7,17 @@ const store = vi.hoisted(() => ({
   list: vi.fn(),
   set: vi.fn(),
 }))
+const netlifyStores = vi.hoisted(() => ({
+  getDeployStore: vi.fn(() => store),
+  getStore: vi.fn(() => store),
+}))
 
 vi.mock("@vite-hub/internal/arrays", () => ({
   toArray: (value: unknown) => Array.isArray(value) ? value : [value],
 }))
 vi.mock("@vite-hub/netlify-blobs-runtime", () => ({
-  getDeployStore: () => store,
-  getStore: () => store,
+  getDeployStore: netlifyStores.getDeployStore,
+  getStore: netlifyStores.getStore,
 }))
 
 import { createDriver } from "../src/drivers/netlify-blobs.ts"
@@ -41,6 +45,10 @@ describe("Netlify Blobs driver", () => {
 
     await createDriver({ driver: "netlify-blobs", name: "vitehub-blob" }).list()
 
+    expect(netlifyStores.getStore).toHaveBeenCalledWith(expect.objectContaining({
+      siteID: "environment-site",
+      token: "environment-token",
+    }))
     const [input, init] = vi.mocked(fetch).mock.calls[0]!
     expect(new URL(input.toString()).pathname).toBe("/api/v1/blobs/environment-site/site:vitehub-blob")
     expect(init).toMatchObject({ headers: { authorization: "Bearer environment-token" } })
@@ -63,9 +71,38 @@ describe("Netlify Blobs driver", () => {
 
     await createDriver({ driver: "netlify-blobs", name: "vitehub-blob", ...explicitOptions }).list()
 
+    expect(netlifyStores.getStore).toHaveBeenCalledWith(expect.objectContaining({
+      siteID: expectedSiteID,
+      token: expectedToken,
+    }))
     const [input, init] = vi.mocked(fetch).mock.calls[0]!
     expect(new URL(input.toString()).pathname).toBe(`/api/v1/blobs/${expectedSiteID}/site:vitehub-blob`)
     expect(init).toMatchObject({ headers: { authorization: `Bearer ${expectedToken}` } })
+  })
+
+  it("uses one credential pair for deploy-scoped SDK and list requests", async () => {
+    const encodedContext = Buffer.from(JSON.stringify({
+      deployID: "deployid",
+      siteID: "environment-site",
+      token: "environment-token",
+    })).toString("base64")
+    vi.stubEnv("NETLIFY_BLOBS_CONTEXT", encodedContext)
+    mockListPages({ first: { blobs: [], directories: [] } })
+
+    await createDriver({
+      deployScoped: true,
+      driver: "netlify-blobs",
+      name: "vitehub-blob",
+      token: "explicit-token",
+    }).list()
+
+    expect(netlifyStores.getDeployStore).toHaveBeenCalledWith(expect.objectContaining({
+      siteID: "environment-site",
+      token: "explicit-token",
+    }))
+    const [input, init] = vi.mocked(fetch).mock.calls[0]!
+    expect(new URL(input.toString()).pathname).toBe("/api/v1/blobs/environment-site/deploy:deployid:vitehub-blob")
+    expect(init).toMatchObject({ headers: { authorization: "Bearer explicit-token" } })
   })
 
   it("decodes context and resumes cursors without Buffer", async () => {

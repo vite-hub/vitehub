@@ -48,9 +48,13 @@ function decodeBase64(value: string) {
   return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
 }
 
-function encodeBase64Url(value: string) {
+function encodeBase64(value: string) {
   const binary = Array.from(new TextEncoder().encode(value), byte => String.fromCharCode(byte)).join("")
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+  return btoa(binary)
+}
+
+function encodeBase64Url(value: string) {
+  return encodeBase64(value).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
 function decodeCursor(cursor: string | undefined): FoldedCursor {
@@ -110,14 +114,25 @@ async function fetchWithRetry(url: URL, options: RequestInit, attemptsLeft = MAX
   }
 }
 
-function createListPageFetcher(options: NetlifyBlobsStoreConfig) {
-  const hasExplicitCredentials = !options.deployScoped && options.siteID && options.token
-  const context = hasExplicitCredentials ? {} : getEnvironmentContext()
+interface ResolvedNetlifyConnection {
+  context: NetlifyEnvironmentContext
+  siteID: string
+  token: string
+}
+
+function resolveNetlifyConnection(options: NetlifyBlobsStoreConfig): ResolvedNetlifyConnection {
+  const hasExplicitCredentials = Boolean(options.siteID && options.token)
+  const context = options.deployScoped || !hasExplicitCredentials ? getEnvironmentContext() : {}
   const siteID = options.siteID ?? context.siteID
   const token = options.token ?? context.token
   if (!siteID || !token) {
     throw new Error("The environment has not been configured to use Netlify Blobs. Supply siteID and token when creating the store.")
   }
+  return { context, siteID, token }
+}
+
+function createListPageFetcher(options: NetlifyBlobsStoreConfig, connection: ResolvedNetlifyConnection) {
+  const { context, siteID, token } = connection
   const storeName = options.deployScoped
     ? `deploy:${context.deployID}${options.name ? `:${options.name}` : ""}`
     : `site:${options.name}`
@@ -171,15 +186,26 @@ function encodeCursor(cursor: FoldedCursor) {
   return encodeBase64Url(JSON.stringify(cursor))
 }
 
-function createStore(options: NetlifyBlobsStoreConfig) {
+function createStore(options: NetlifyBlobsStoreConfig, connection: ResolvedNetlifyConnection) {
+  const { context, siteID, token } = connection
   const clientOptions = {
+    apiURL: context.apiURL,
     consistency: options.consistency,
-    siteID: options.siteID,
-    token: options.token,
+    edgeURL: context.edgeURL,
+    siteID,
+    token,
+    uncachedEdgeURL: context.uncachedEdgeURL,
   }
-  return options.deployScoped
-    ? getDeployStore({ ...clientOptions, name: options.name })
-    : getStore({ ...clientOptions, name: options.name })
+  if (!options.deployScoped) return getStore({ ...clientOptions, name: options.name })
+
+  const previousContext = globalThis.netlifyBlobsContext
+  globalThis.netlifyBlobsContext = encodeBase64(JSON.stringify({ ...context, siteID, token }))
+  try {
+    return getDeployStore({ ...clientOptions, name: options.name })
+  }
+  finally {
+    globalThis.netlifyBlobsContext = previousContext
+  }
 }
 
 function toBlobObject(pathname: string, etag: string | undefined, metadata: StoredMetadata = {}): BlobObject {
@@ -207,8 +233,9 @@ async function normalizeBody(body: BlobPutBody) {
 }
 
 export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapter<NetlifyBlobsStoreConfig> {
-  const store = createStore(options)
-  const fetchListPage = createListPageFetcher(options)
+  const connection = resolveNetlifyConnection(options)
+  const store = createStore(options, connection)
+  const fetchListPage = createListPageFetcher(options, connection)
   return {
     name: options.driver,
     options,

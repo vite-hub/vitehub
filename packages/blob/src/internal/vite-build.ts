@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { builtinModules } from "node:module"
 import { dirname, resolve } from "pathe"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
@@ -23,6 +24,8 @@ const vercelBlobOutputMarker = ".vitehub-blob-output"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
+const nodeBuiltinExternals = [...new Set(builtinModules.flatMap(name => name.startsWith("node:") ? [name] : [name, `node:${name}`]))]
+const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())]
 const BLOB_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const BLOB_ENTRY_NAMES_PRIORITIZED = ["server.blob.ts", "server.blob.mts", "server.blob.js", "server.blob.mjs", ...BLOB_ENTRY_NAMES_DEFAULT] as const
 
@@ -401,13 +404,9 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
         "default",
       ],
       external: [
-        "@aws-sdk/client-s3",
-        "@aws-sdk/s3-presigned-post",
-        "@aws-sdk/s3-request-presigner",
         "files-sdk",
         "files-sdk/r2",
-        "node:async_hooks",
-        "node:module",
+        ...nodeBuiltinExternals,
         "#vitehub/blob/config",
       ],
       format: "esm",
@@ -493,6 +492,7 @@ function createVercelOutput(
       },
       conditions: databaseRuntime ? ["vitehub-hosted", "node", "default"] : undefined,
       external: [
+        ...filesSdkProviderPeers,
         "files-sdk",
         "files-sdk/akamai",
         "files-sdk/azure",
