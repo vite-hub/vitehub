@@ -1508,10 +1508,11 @@ function createInspectionMetadataRuntime<
   const runtime = resolution.runtime || {}
   return {
     ...runtime,
+    capabilities: runtime.capabilities || {},
     memo: runtime.memo || ((_key, create) => create()),
     runtime: runtime.runtime || "unknown",
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-    runtimeConfig: (runtime.runtimeConfig || {}) as TRuntimeConfig,
+    runtimeConfig: (runtime.runtimeConfig ?? {}) as TRuntimeConfig,
     waitUntil: runtime.waitUntil || (() => {}),
   }
 }

@@ -4,6 +4,7 @@ import type { Mock } from "vitest"
 import type { JSONRPCMessage, MCPClient, MCPTransport } from "@ai-sdk/mcp"
 
 const runtime = () => ({
+  capabilities: {},
   memo: vi.fn(),
   runtime: "unknown" as const,
   runtimeConfig: {},

@@ -14,7 +14,18 @@ export function createAgentProviderCredentialCleanup(
     released = true
     release()
   }
-  const removeOnce = () => removal ??= remove().finally(releaseOnce)
+  const removeOnce = () => {
+    if (removal) return removal
+    let attempt!: Promise<void>
+    attempt = remove()
+      .catch((error) => {
+        if (removal === attempt) removal = undefined
+        throw error
+      })
+      .finally(releaseOnce)
+    removal = attempt
+    return attempt
+  }
 
   return {
     cleanup: () => cleanup ??= (async () => {

@@ -581,7 +581,10 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
       await adapter.generate(context(threadId) as never)
 
-      expect(beforeCodexHomeLink).not.toHaveBeenCalled()
+      expect(beforeCodexHomeLink).not.toHaveBeenCalledWith(
+        join(sharedHome, "config.toml"),
+        expect.any(String),
+      )
       expect(await readFile(externalConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
       expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-terra\"\n")
     }

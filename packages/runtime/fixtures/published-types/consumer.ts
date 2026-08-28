@@ -1,4 +1,110 @@
-import { ViteHubError, type ViteHubErrorShape } from "@vite-hub/runtime"
+import {
+  createExecutionContext,
+  ViteHubError,
+  type ExecutionContext,
+  type RuntimeCapabilities,
+  type ViteHubErrorShape,
+} from "@vite-hub/runtime"
+
+type RuntimeExports = typeof import("@vite-hub/runtime")
+const hasNoResolveExecutionContext: "resolveExecutionContext" extends keyof RuntimeExports ? false : true = true
+const hasNoResolveRuntimeContext: "resolveRuntimeContext" extends keyof RuntimeExports ? false : true = true
+
+void hasNoResolveExecutionContext
+void hasNoResolveRuntimeContext
+
+const defaultContext = createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  waitUntil: () => {},
+})
+
+defaultContext satisfies ExecutionContext
+defaultContext.capabilities satisfies RuntimeCapabilities
+defaultContext.runtimeConfig satisfies Record<string, unknown>
+
+const capabilities: RuntimeCapabilities = {}
+const runtimeConfig = { region: "local" }
+const configuredContext = createExecutionContext({
+  capabilities,
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig,
+  waitUntil: () => {},
+})
+
+configuredContext.capabilities satisfies RuntimeCapabilities
+configuredContext.runtimeConfig satisfies { region: string }
+
+const explicitlyUndefinedContext = createExecutionContext({
+  capabilities: undefined,
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig: undefined,
+  source: "host" as const,
+  waitUntil: () => {},
+})
+
+explicitlyUndefinedContext.capabilities satisfies RuntimeCapabilities
+explicitlyUndefinedContext.runtimeConfig satisfies Record<string, unknown>
+explicitlyUndefinedContext.source satisfies "host"
+
+const explicitlyNullContext = createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig: null,
+  waitUntil: () => {},
+})
+
+explicitlyNullContext.runtimeConfig satisfies Record<string, unknown>
+
+const createMaybeConfiguredContext = (
+  capabilities: RuntimeCapabilities | undefined,
+  runtimeConfig: { region: string } | undefined,
+) => createExecutionContext({
+    capabilities,
+    memo: (_key, create) => create(),
+    runtime: "node",
+    runtimeConfig,
+    waitUntil: () => {},
+  })
+const maybeConfiguredContext = createMaybeConfiguredContext(undefined, undefined)
+
+maybeConfiguredContext.capabilities satisfies RuntimeCapabilities
+maybeConfiguredContext.runtimeConfig satisfies Record<string, unknown>
+
+const createPrimitiveConfiguredContext = (runtimeConfig: string | undefined) => createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig,
+  waitUntil: () => {},
+})
+const primitiveConfiguredContext = createPrimitiveConfiguredContext("local")
+
+primitiveConfiguredContext.runtimeConfig satisfies string | Record<string, unknown>
+
+const createNullableConfiguredContext = (runtimeConfig: string | null) => createExecutionContext({
+  memo: (_key, create) => create(),
+  runtime: "node",
+  runtimeConfig,
+  waitUntil: () => {},
+})
+const nullableConfiguredContext = createNullableConfiguredContext("local")
+
+nullableConfiguredContext.runtimeConfig satisfies string | Record<string, unknown>
+
+type RuntimeContextVariant =
+  | { kind: "configured", memo: ExecutionContext["memo"], runtime: string, runtimeConfig: string, waitUntil: ExecutionContext["waitUntil"] }
+  | { kind: "default", memo: ExecutionContext["memo"], runtime: string, waitUntil: ExecutionContext["waitUntil"] }
+declare const runtimeContextVariant: RuntimeContextVariant
+const variantContext = createExecutionContext(runtimeContextVariant)
+
+if (variantContext.kind === "configured") {
+  variantContext.runtimeConfig satisfies string
+}
+else {
+  variantContext.runtimeConfig satisfies Record<string, unknown>
+}
 
 const error = new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
   details: { provider: "fixture" },
