@@ -502,7 +502,7 @@ export default {
     })).resolves.toBe(0)
   })
 
-  it("marks Nuxt module loading as CLI discovery", async () => {
+  it("loads development-only Nuxt contributors during CLI discovery", async () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, "node_modules"))
     await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
@@ -515,6 +515,7 @@ export default {
     await writeFile(join(rootDir, "discovery-module.ts"), `
 export default function (_options, nuxt) {
   if (nuxt.options.vitehubCliDiscovery !== true) throw new Error("fixture state was consumed during CLI discovery")
+  if (!nuxt.options.dev) return
   nuxt.options.vite.plugins ||= []
   nuxt.options.vite.plugins.push({
     name: "fixture-discovery-test",

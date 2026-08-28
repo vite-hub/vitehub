@@ -18,7 +18,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleProductionAccess, consoleInvocationRootPlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleProductionAccess, consoleInvocationRootPlugin, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -145,8 +145,8 @@ function addTypeScriptDefaults(options: Record<string, unknown>, includes: strin
   }
 }
 
-function configuredProjectRoots(options: object, rootDir: string, viteRoot: string): string[] {
-  return Object.entries(options as Record<string, unknown>)
+function configuredProjectRoots(options: Parameters<typeof vitehub>[0], rootDir: string, viteRoot: string): string[] {
+  return Object.entries(options)
     .filter((entry): entry is [string, { projectRoot: string }] => {
       const value = entry[1]
       return Boolean(value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string")
@@ -255,8 +255,9 @@ async function installConsole(
   for (const handler of additions) {
     if (!handlers.some(candidate => candidate.route === handler.route)) handlers.push(handler)
   }
-  const plugins = (nitro.plugins ??= [])
-  const plugin = join(projectRoot, ".vitehub/nitro/console/plugin.mjs")
+  const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
+  nitro.plugins = plugins
+  const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     const identity = await writeConsoleNitroPlugin(
       plugin,

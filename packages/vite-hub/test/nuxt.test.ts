@@ -158,6 +158,14 @@ function nitroOptions(nuxt: ReturnType<typeof createNuxt>["nuxt"]): Record<strin
   return (nuxt.options as typeof nuxt.options & { nitro: Record<string, unknown> }).nitro
 }
 
+function nitroPlugins(nuxt: ReturnType<typeof createNuxt>["nuxt"]): string[] {
+  const plugins = nitroOptions(nuxt).plugins
+  if (!Array.isArray(plugins) || !plugins.every(plugin => typeof plugin === "string")) {
+    throw new TypeError("Expected string-valued Nitro plugins.")
+  }
+  return plugins
+}
+
 describe("ViteHub Nuxt integration", () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
@@ -414,37 +422,46 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
       await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
 
-      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      const generatedPlugin = nitroPlugins(development.nuxt)[0] ?? ""
+      const generated = await readFile(generatedPlugin, "utf8")
       expect(generated).toContain(`installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `)
       expect(generated).toContain("JSON.parse(")
       expect(development.nuxt.options.watch).toContain(fixture)
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
+
+      const concurrent = createNuxt(true)
+      await viteHubNuxtModule({ console: true, preset: "node" }, concurrent.nuxt)
+      const concurrentGeneratedPlugin = nitroPlugins(concurrent.nuxt)[0] ?? ""
+      expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(generated)
+      await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
+
       await development.runBuilderWatchHook()
-      const refreshed = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      const refreshed = await readFile(generatedPlugin, "utf8")
       expect(refreshed).not.toBe(generated)
 
       const agent = "/tmp/vitehub-nuxt/custom-server/agents/fixture-refresh.ts"
       await mkdir(resolve(agent, ".."), { recursive: true })
       await writeFile(agent, "export default { name: 'Fixture refresh' }\n")
       await development.runBuilderWatchHook(agent)
-      const refreshedWithAgent = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      const refreshedWithAgent = await readFile(generatedPlugin, "utf8")
       expect(refreshedWithAgent).toContain("fixture-refresh.ts")
 
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
       await writeFile(fixture, "not json")
       await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
       await expect(development.runBuilderWatchHook(agent)).resolves.toBeUndefined()
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshedWithAgent)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshedWithAgent)
       expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
       await rm(agent)
 
       await rm(fixture)
       await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshedWithAgent)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshedWithAgent)
 
       await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
       await development.runBuilderWatchHook()
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toBe(refreshed)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
 
       const production = createNuxt(false)
       await expect(viteHubNuxtModule({ console: { exposure: "host-managed" }, preset: "node" }, production.nuxt))

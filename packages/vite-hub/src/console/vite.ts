@@ -30,6 +30,17 @@ const consoleRuntimeRoot = resolveConsoleRuntimeRoot()
 const consolePublicRoot = join(consoleRuntimeRoot, "public/console")
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 
+export function resolveGeneratedConsolePlugin(
+  root: string,
+  fixture: string | undefined,
+  state: ConsoleInvocationRootState | undefined,
+): string {
+  if (!fixture) return resolve(root, generatedConsolePlugin)
+  const binding = state?.binding ?? randomUUID()
+  if (state) state.binding = binding
+  return resolve(root, ".vitehub/nitro/console", `plugin-${binding}.mjs`)
+}
+
 type ConsoleNitroConfig = {
   handlers?: Array<{ handler: string, route: string }>
   plugins?: string[]
@@ -150,8 +161,10 @@ export function discoverConsoleAgentNames(
   return discoverAgentDefinitionEntries(root, serverDirs).map(agent => agent.name)
 }
 
-function generatedRegistration(value: string, path: string): boolean {
-  return value === path || value.replaceAll("\\", "/").endsWith(`/${path}`)
+export function generatedConsolePluginRegistration(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/")
+  return normalized === generatedConsolePlugin
+    || /\/\.vitehub\/nitro\/console\/plugin(?:-[^/]+)?\.mjs$/.test(normalized)
 }
 
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
@@ -207,7 +220,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         fixture = resolve(projectRoot, configuredFixture)
         readConsoleFixture(fixture)
       }
-      generatedPlugin = resolve(root, generatedConsolePlugin)
+      generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
       if (!cliDiscovery) {
         await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root), fixture)
       }
@@ -235,7 +248,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
       const plugins = Array.isArray(nitro.plugins)
-        ? nitro.plugins.filter(candidate => !generatedRegistration(candidate, generatedConsolePlugin))
+        ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
       plugins.push(generatedPlugin)
       const publicAssets = Array.isArray(nitro.publicAssets)
@@ -248,7 +261,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     async configResolved(config) {
       root = config.root
       projectRoot ||= resolveViteHubProjectRoot(config.root)
-      generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
+      generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       if (!cliDiscovery) await refreshAgentDefinitions()

@@ -537,7 +537,8 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
 
-      const generated = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
+      const generatedPlugin = config.nitro?.plugins?.[0] ?? ""
+      const generated = await readFile(generatedPlugin, "utf8")
       expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)}, `)
       expect(generated).toContain("JSON.parse(")
       const generatedInstallation = generated.split("\n").find(line => line.startsWith("const vitehubConsoleInvocations"))
@@ -565,23 +566,32 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configureServer, {}, [{ config: { logger }, watcher: { add, on: (event: string, callback: () => Promise<void>) => listeners.set(event, callback) } }])
       expect(add).toHaveBeenCalledWith(fixture)
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
+
+      const concurrentPlugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
+      const concurrentConfig: { nitro?: { plugins?: string[] }, root: string } = { root }
+      await callPluginHook(concurrentPlugin.config, {}, [concurrentConfig, { command: "serve", mode: "development" }])
+      const concurrentGeneratedPlugin = concurrentConfig.nitro?.plugins?.[0] ?? ""
+      expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(generated)
+      await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
+
       await listeners.get("change")?.()
-      const refreshed = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
+      const refreshed = await readFile(generatedPlugin, "utf8")
       expect(refreshed).not.toBe(generated)
 
       await writeFile(fixture, "not json")
       await expect(listeners.get("change")?.()).resolves.toBeUndefined()
-      await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.toBe(refreshed)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshed)
       expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
 
       await rm(fixture)
       await expect(listeners.get("unlink")?.()).resolves.toBeUndefined()
-      await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.toBe(refreshed)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshed)
       expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
 
       await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
       await listeners.get("add")?.()
-      await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.not.toBe(refreshed)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
 
       await expect(Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }]))
         .rejects.toThrow("Console fixture mode is development-only")
@@ -882,6 +892,24 @@ describe("Agent invocation console", () => {
       "second",
     )
     expect(definition.invocations).toBe(second)
+  })
+
+  it("rebinds Console-owned direct Agent journals while preserving later user assignments", () => {
+    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const explicit = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const definition: { invocations?: AgentInvocations, name: string } = { name: "support" }
+    const entries = [{ definition: { default: definition }, fallbackName: "help" }]
+
+    installConsoleAgentDefinitions(entries, first)
+    expect(definition.invocations).toBe(first)
+
+    installConsoleAgentDefinitions(entries, second)
+    expect(definition.invocations).toBe(second)
+
+    definition.invocations = explicit
+    installConsoleAgentDefinitions(entries, first)
+    expect(definition.invocations).toBe(explicit)
   })
 
   it("preserves an explicitly configured Agent invocation journal", () => {

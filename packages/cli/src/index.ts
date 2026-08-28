@@ -82,8 +82,9 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly 
   // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's Nuxt module during config loading.
   const nuxt = await loadNuxt({
     cwd: rootDir,
-    dev: false,
+    dev: true,
     overrides: { vitehubCliDiscovery: true },
+    ready: true,
   } as Parameters<typeof loadNuxt>[0])
   try {
     const { resolveConfig } = await import("vite")
