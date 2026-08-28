@@ -52,6 +52,14 @@ const MAX_FETCH_RETRIES = 5
 const MIN_RETRY_DELAY = 1_000
 const RATE_LIMIT_HEADER = "X-RateLimit-Reset"
 
+function isNumber(value: unknown): value is number {
+  return Number(value) === value
+}
+
+function isString(value: unknown): value is string {
+  return String(value) === value
+}
+
 function decodeBase64(value: string) {
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
@@ -68,8 +76,8 @@ function encodeBase64Url(value: string) {
 }
 
 function readProperty(value: unknown, key: string) {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? Reflect.get(value, key)
+  return value === Object(value) && !Array.isArray(value)
+    ? Reflect.get(Object(value), key)
     : undefined
 }
 
@@ -82,9 +90,9 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
     const providerCursor = readProperty(parsed, "providerCursor")
     return {
       directoriesConsumed: readProperty(parsed, "directoriesConsumed") === true,
-      index: typeof index === "number" && index >= 0 ? index : 0,
-      page: typeof page === "number" && page >= 0 ? page : undefined,
-      providerCursor: typeof providerCursor === "string" ? providerCursor : undefined,
+      index: isNumber(index) && index >= 0 ? index : 0,
+      page: isNumber(page) && page >= 0 ? page : undefined,
+      providerCursor: isString(providerCursor) ? providerCursor : undefined,
     }
   }
   catch {
@@ -102,13 +110,13 @@ function getEnvironmentContext(): NetlifyEnvironmentContext {
     || runtime.Netlify?.env?.get?.("NETLIFY_BLOBS_CONTEXT")
     || runtime.Deno?.env?.get?.("NETLIFY_BLOBS_CONTEXT")
     || runtime.process?.env?.NETLIFY_BLOBS_CONTEXT
-  if (typeof encoded !== "string" || !encoded) return {}
+  if (!isString(encoded) || !encoded) return {}
   try {
     const parsed: unknown = JSON.parse(decodeBase64(encoded))
     const context: NetlifyEnvironmentContext = {}
     for (const key of ["apiURL", "deployID", "edgeURL", "primaryRegion", "siteID", "token", "uncachedEdgeURL"] as const) {
       const value = readProperty(parsed, key)
-      if (typeof value === "string") context[key] = value
+      if (isString(value)) context[key] = value
     }
     return context
   }
@@ -213,21 +221,21 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
       ? blobs.flatMap((value): NetlifyListBlob[] => {
           const etag = readProperty(value, "etag")
           const key = readProperty(value, "key")
-          if (typeof etag !== "string" || typeof key !== "string") return []
+          if (!isString(etag) || !isString(key)) return []
           const blob: NetlifyListBlob = { etag, key }
           const size = readProperty(value, "size")
-          if (typeof size === "number" && Number.isFinite(size) && size >= 0) blob.size = size
+          if (isNumber(size) && Number.isFinite(size) && size >= 0) blob.size = size
           for (const field of ["last_modified", "lastModified", "uploaded_at", "uploadedAt"] as const) {
             const timestamp = readProperty(value, field)
-            if (typeof timestamp === "string") blob[field] = timestamp
+            if (isString(timestamp)) blob[field] = timestamp
           }
           return [blob]
         })
       : [],
     directories: Array.isArray(directories)
-      ? directories.filter((value): value is string => typeof value === "string")
+      ? directories.filter(isString)
       : [],
-    next_cursor: typeof nextCursor === "string" ? nextCursor : undefined,
+    next_cursor: isString(nextCursor) ? nextCursor : undefined,
   }
 }
 
