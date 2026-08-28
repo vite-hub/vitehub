@@ -29,7 +29,7 @@ export default defineConfig({
   plugins: [hubEnv()],
   env: {
     public: {
-      appName: env({ default: 'Acme' }),
+      appName: env({ default: 'Acme', mode: 'build' }),
     },
   },
 })
@@ -75,10 +75,10 @@ export default defineConfig({
   plugins: [hubEnv()],
   env: {
     public: {
-      appName: env({ default: 'Acme' }),
+      appName: env({ default: 'Acme', mode: 'build' }),
     },
     define: {
-      __BUILD_TARGET__: env({ default: 'preview' }),
+      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
     },
     server: {
       github: {

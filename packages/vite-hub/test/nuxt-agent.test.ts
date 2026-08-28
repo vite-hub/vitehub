@@ -26,7 +26,7 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
   const nuxt = {
     hook(
       name: "close" | "nitro:config",
-      callback: (() => void) | ((config: Record<string, unknown>) => Promise<void>),
+      callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>),
     ) {
       if (name === "nitro:config") {
         // SAFETY: Nuxt passes the nitro:config callback for this hook name.
