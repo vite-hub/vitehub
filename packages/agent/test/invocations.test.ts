@@ -191,6 +191,81 @@ describe("Agent Invocations", () => {
     expect(record.observationsTruncated).toBe(true)
   })
 
+  it("does not reserve lifecycle capacity for failure evidence alone", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const failures = Array.from({ length: 256 }, (_, index) => ({
+      attributes: {
+        "error.message": `failure ${index}`,
+        "vitehub.observation.id": `journal:failure:${index}`,
+      },
+      name: "run.error",
+      sequence: index,
+      timestamp: createdAt,
+      type: "error" as const,
+    }))
+
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "failure-evidence-at-capacity",
+      observations: failures,
+      status: "failed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:late-delivery" },
+        name: "agent.channel.delivery.effect",
+        sequence: 256,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .toEqual(failures.map(observation => observation.attributes["vitehub.observation.id"]))
+    expect(record.observationsTruncated).toBe(true)
+  })
+
+  it("restores recovered same-priority outcomes to trace order", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "recovered-outcome-order",
+      observations: [{
+        attributes: { "error.message": "later fatal", "vitehub.observation.id": "journal:later" },
+        name: "agent.stream.error",
+        sequence: 2,
+        timestamp: createdAt,
+        type: "error",
+      }, {
+        attributes: { "vitehub.observation.id": "journal:terminal" },
+        name: "agent.invocation.finish",
+        sequence: 3,
+        timestamp: createdAt,
+        type: "run",
+      }],
+      status: "failed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "error.message": "earliest fatal", "vitehub.observation.id": "journal:earliest" },
+        name: "agent.stream.error",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "error",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .toEqual(["journal:earliest", "journal:later", "journal:terminal"])
+  })
+
   it("keeps unidentified observations that share a locally assigned sequence", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const record = applyAgentInvocationStoreUpdate({

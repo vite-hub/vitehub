@@ -425,12 +425,12 @@ function retainedPriorityOutcomes(
     else identified.set(identity, observation)
   }
   const candidates = [...identified.values(), ...unidentified]
-  const hasTerminal = candidates.some(terminalObservation)
+  const hasLifecycleTerminal = candidates.some(observation => outcomeObservationPriority(observation) === 1)
   const retained: TraceEventLogEntry[] = []
   for (const priority of [0, 1, 2]) {
     const remaining = limit - retained.length
     if (remaining === 0) break
-    const available = priority === 0 && hasTerminal ? Math.max(0, remaining - 1) : remaining
+    const available = priority === 0 && hasLifecycleTerminal ? Math.max(0, remaining - 1) : remaining
     const matching = candidates.filter(observation => outcomeObservationPriority(observation) === priority)
     if (available > 0) retained.push(...matching.slice(-available))
   }
@@ -476,7 +476,9 @@ export function applyAgentInvocationStoreUpdate(
           const priority = outcomeObservationPriority(observation)
           const insertAt = record.observations.findIndex((candidate) => {
             const candidatePriority = outcomeObservationPriority(candidate)
-            return candidatePriority !== undefined && (priority === undefined || candidatePriority > priority)
+            return candidatePriority !== undefined && (priority === undefined
+              || candidatePriority > priority
+              || (candidatePriority === priority && candidate.sequence > observation.sequence))
           })
           return insertAt < 0
             ? [...record.observations, observation]
