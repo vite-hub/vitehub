@@ -161,25 +161,32 @@ function sectionObjects(sourceFile: Node) {
     forEachChild(node, collectBindings);
   }
 
-  function resolveObjects(
+  type ObjectResolution = {
+    complete: boolean;
+    objects: ObjectLiteralExpression[];
+  };
+
+  function resolveObjectsDetailed(
     expression: Expression | FunctionDeclaration,
     seen = new Set<string>(),
-  ): ObjectLiteralExpression[] {
+  ): ObjectResolution {
     if (
       isParenthesizedExpression(expression) ||
       isAsExpression(expression) ||
       isSatisfiesExpression(expression) ||
       isNonNullExpression(expression)
     ) {
-      return resolveObjects(expression.expression, seen);
+      return resolveObjectsDetailed(expression.expression, seen);
     }
     if (isConditionalExpression(expression)) {
-      return [
-        ...resolveObjects(expression.whenTrue, new Set(seen)),
-        ...resolveObjects(expression.whenFalse, new Set(seen)),
-      ];
+      const whenTrue = resolveObjectsDetailed(expression.whenTrue, new Set(seen));
+      const whenFalse = resolveObjectsDetailed(expression.whenFalse, new Set(seen));
+      return {
+        complete: whenTrue.complete && whenFalse.complete,
+        objects: [...whenTrue.objects, ...whenFalse.objects],
+      };
     }
-    if (isObjectLiteralExpression(expression)) return [expression];
+    if (isObjectLiteralExpression(expression)) return { complete: true, objects: [expression] };
     if (
       isCallExpression(expression) &&
       isIdentifier(expression.expression) &&
@@ -191,15 +198,17 @@ function sectionObjects(sourceFile: Node) {
         factory = bindings.get(current)?.get(expression.expression.text);
         if (factory) break;
       }
-      return factory ? resolveObjects(factory, new Set(seen).add(expression.expression.text)) : [];
+      return factory
+        ? resolveObjectsDetailed(factory, new Set(seen).add(expression.expression.text))
+        : { complete: false, objects: [] };
     }
     if (
       isArrowFunction(expression) ||
       isFunctionExpression(expression) ||
       isFunctionDeclaration(expression)
     ) {
-      if (!expression.body) return [];
-      if (!isBlock(expression.body)) return resolveObjects(expression.body, seen);
+      if (!expression.body) return { complete: false, objects: [] };
+      if (!isBlock(expression.body)) return resolveObjectsDetailed(expression.body, seen);
 
       const body = expression.body;
       const returned: Expression[] = [];
@@ -217,16 +226,28 @@ function sectionObjects(sourceFile: Node) {
         forEachChild(node, collectReturns);
       }
       collectReturns(body);
-      return returned.flatMap((value) => resolveObjects(value, new Set(seen)));
+      const resolutions = returned.map((value) => resolveObjectsDetailed(value, new Set(seen)));
+      return {
+        complete: resolutions.length > 0 && resolutions.every(({ complete }) => complete),
+        objects: resolutions.flatMap(({ objects }) => objects),
+      };
     }
-    if (!isIdentifier(expression) || seen.has(expression.text)) return [];
+    if (!isIdentifier(expression) || seen.has(expression.text)) {
+      return { complete: false, objects: [] };
+    }
     let initializer: Expression | FunctionDeclaration | undefined;
     for (let current: Node | undefined = expression; current; current = current.parent) {
       if (!isBlock(current) && !isSourceFile(current)) continue;
       initializer = bindings.get(current)?.get(expression.text);
       if (initializer) break;
     }
-    return initializer ? resolveObjects(initializer, new Set(seen).add(expression.text)) : [];
+    return initializer
+      ? resolveObjectsDetailed(initializer, new Set(seen).add(expression.text))
+      : { complete: false, objects: [] };
+  }
+
+  function resolveObjects(expression: Expression | FunctionDeclaration) {
+    return resolveObjectsDetailed(expression).objects;
   }
 
   function resolveSpreadObjects(expression: Expression) {
@@ -249,7 +270,7 @@ function sectionObjects(sourceFile: Node) {
   }
 
   function propertyValue(object: ObjectLiteralExpression, name: string) {
-    for (const property of object.properties) {
+    for (const property of [...object.properties].reverse()) {
       if (isPropertyAssignment(property) && propertyName(property.name) === name) {
         return property.initializer;
       }
@@ -260,6 +281,37 @@ function sectionObjects(sourceFile: Node) {
   }
 
   collectBindings(sourceFile);
+
+  function collectEffectiveSectionProperties(expression: Expression, section: "define" | "public") {
+    function effectiveProperties(
+      object: ObjectLiteralExpression,
+      seen = new Set<ObjectLiteralExpression>(),
+    ) {
+      if (seen.has(object)) return new Map<string, Node>();
+      const nextSeen = new Set(seen).add(object);
+      const effective = new Map<string, Node>();
+      for (const property of object.properties) {
+        if (isSpreadAssignment(property)) {
+          for (const spreadObject of resolveObjects(property.expression)) {
+            for (const [name, spreadProperty] of effectiveProperties(spreadObject, nextSeen)) {
+              effective.set(name, spreadProperty);
+            }
+          }
+        } else if (
+          (isPropertyAssignment(property) || isShorthandPropertyAssignment(property)) &&
+          propertyName(property.name)
+        ) {
+          effective.set(propertyName(property.name)!, property);
+        }
+      }
+      return effective;
+    }
+
+    for (const object of resolveObjects(expression)) {
+      for (const property of effectiveProperties(object).values()) sections.set(property, section);
+    }
+  }
+
   function collectConfig(expression: Expression) {
     for (const config of resolveSpreadObjects(expression)) {
       const env = propertyValue(config, "env");
@@ -267,8 +319,7 @@ function sectionObjects(sourceFile: Node) {
       for (const envConfig of envConfigs) {
         for (const section of ["define", "public"] as const) {
           const value = propertyValue(envConfig, section);
-          const objects = value ? resolveSpreadObjects(value) : [];
-          for (const object of objects) sections.set(object, section);
+          if (value) collectEffectiveSectionProperties(value, section);
         }
       }
     }
@@ -291,7 +342,7 @@ function sectionObjects(sourceFile: Node) {
   }
 
   collectSections(sourceFile);
-  return { resolveObjects, sections };
+  return { resolveObjectsDetailed, sections };
 }
 
 function declarationSection(
@@ -320,8 +371,13 @@ function objectHasBuildMode(options: ObjectLiteralExpression): boolean {
   return isBuildMode;
 }
 
-function hasBuildMode(options: readonly ObjectLiteralExpression[]): boolean {
-  return options.length > 0 && options.every(objectHasBuildMode);
+function hasBuildMode(options: {
+  complete: boolean;
+  objects: readonly ObjectLiteralExpression[];
+}): boolean {
+  return (
+    options.complete && options.objects.length > 0 && options.objects.every(objectHasBuildMode)
+  );
 }
 
 function buildEnvCalls(source: string) {
@@ -331,11 +387,21 @@ function buildEnvCalls(source: string) {
 
   return codeBlocks.flatMap((code) => {
     const { calls, sourceFile } = envCalls(code);
-    const { resolveObjects, sections } = sectionObjects(sourceFile);
+    const { resolveObjectsDetailed, sections } = sectionObjects(sourceFile);
     return calls.flatMap((call) => {
       const section = declarationSection(call, sections);
       const argument = call.arguments[0];
-      return section ? [{ call, options: argument ? resolveObjects(argument) : [], section }] : [];
+      return section
+        ? [
+            {
+              call,
+              options: argument
+                ? resolveObjectsDetailed(argument)
+                : { complete: false, objects: [] },
+              section,
+            },
+          ]
+        : [];
     });
   });
 }
@@ -511,6 +577,19 @@ defineConfig({ env: { public: { ...nested, appName: env({ mode: "build" }) } } }
     expect(calls.map(({ section }) => section)).toEqual(["public", "public", "public"]);
   });
 
+  it("ignores section entries overwritten after a spread", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const inherited = { appName: env({ mode: "runtime" }) }
+const publicEnv = { ...inherited, appName: env({ mode: "build" }) }
+defineConfig({ env: { public: publicEnv } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(true);
+  });
+
   it("follows objects spread into Env configurations", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -615,6 +694,10 @@ defineConfig({
     `);
 
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, false]);
+  });
+
+  it("rejects declaration options with an unresolved conditional branch", () => {
+    expect(fixtureHasBuildMode("flag ? { mode: 'build' } : getOptions()")).toBe(false);
   });
 
   it("marks every documented build-backed Env declaration as build-time", async () => {

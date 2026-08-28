@@ -1,46 +1,63 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-import { allowedMissingIcons, assertBuildWarningBudget, buildWarningBudget } from "../scripts/build.mjs"
+import {
+  allowedMissingIcons,
+  assertBuildWarningBudget,
+  buildWarningBudget,
+} from "../scripts/build.mjs";
 
 describe("docs build warning budget", () => {
   it("accepts every explicitly budgeted warning and known missing icon", () => {
     const warnings = [
-      ...buildWarningBudget.flatMap(entry => Array.from({ length: entry.maximum }, () => entry.warningTokenRequired === false ? entry.text : `[warn] ${entry.text}`)),
-      ...allowedMissingIcons.map(icon => `WARN [Icon] failed to load icon ${icon}`),
-    ].join("\n")
+      ...buildWarningBudget.flatMap((entry) =>
+        Array.from({ length: entry.maximum }, () =>
+          entry.warningTokenRequired === false ? entry.text : `[warn] ${entry.text}`,
+        ),
+      ),
+      ...allowedMissingIcons.map((icon) => `WARN [Icon] failed to load icon ${icon}`),
+    ].join("\n");
 
-    expect(() => assertBuildWarningBudget(warnings)).not.toThrow()
-  })
+    expect(() => assertBuildWarningBudget(warnings)).not.toThrow();
+  });
 
   it("accepts timeouts for explicitly allowed icons", () => {
-    expect(() => assertBuildWarningBudget([
-      "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms",
-      "[warn] [Icon] failed to load icon `vscode-icons:file-type-vue` (repeated 12 times)",
-      "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms (repeated 5 times)",
-    ].join("\n"))).not.toThrow()
-  })
+    expect(() =>
+      assertBuildWarningBudget(
+        [
+          "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms",
+          "[warn] [Icon] failed to load icon `vscode-icons:file-type-vue` (repeated 12 times)",
+          "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms (repeated 5 times)",
+        ].join("\n"),
+      ),
+    ).not.toThrow();
+  });
 
   it("rejects non-timeout loading warnings for allowed icons", () => {
-    expect(() => assertBuildWarningBudget(
-      "[warn] [Icon] loading icon `vscode-icons:file-type-css` returned malformed data",
-    )).toThrow("unbudgeted warning")
-  })
+    expect(() =>
+      assertBuildWarningBudget(
+        "[warn] [Icon] loading icon `vscode-icons:file-type-css` returned malformed data",
+      ),
+    ).toThrow("unbudgeted warning");
+  });
 
   it("rejects an exceeded warning budget and an unbudgeted warning", () => {
-    const timing = buildWarningBudget.find(entry => entry.name === "build plugin timings")
-    if (!timing) throw new Error("missing plugin timing budget")
+    const timing = buildWarningBudget.find((entry) => entry.name === "build plugin timings");
+    if (!timing) throw new Error("missing plugin timing budget");
     const warnings = [
       ...Array.from({ length: timing.maximum + 1 }, () => `[warn] ${timing.text}`),
       "WARN an unexpected docs build warning",
-    ].join("\n")
+    ].join("\n");
 
-    expect(() => assertBuildWarningBudget(warnings)).toThrow(/warning budget exceeded.*unbudgeted warning/s)
-  })
+    expect(() => assertBuildWarningBudget(warnings)).toThrow(
+      /warning budget exceeded.*unbudgeted warning/s,
+    );
+  });
 
   it("rejects a new missing icon", () => {
-    expect(() => assertBuildWarningBudget("WARN [Icon] failed to load icon custom:new-release-icon"))
-      .toThrow("new missing icon: custom:new-release-icon")
-  })
+    expect(() =>
+      assertBuildWarningBudget("WARN [Icon] failed to load icon custom:new-release-icon"),
+    ).toThrow("new missing icon: custom:new-release-icon");
+  });
 
   it("accepts the normalized warning and quoted icon formats emitted by the docs build", () => {
     const warnings = [
@@ -50,26 +67,28 @@ describe("docs build warning budget", () => {
       "[warn] [Icon] failed to load icon `simple-icons:pnpm`",
       "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms",
       "[warn] [nitro] [cloudflare] Wrangler config `assets`set by config or modules is overridden and will be ignored.",
-    ].join("\n")
+    ].join("\n");
 
-    expect(() => assertBuildWarningBudget(warnings)).not.toThrow()
-  })
+    expect(() => assertBuildWarningBudget(warnings)).not.toThrow();
+  });
 
   it("rejects non-timeout loading failures for known icons", () => {
-    expect(() => assertBuildWarningBudget(
-      "[warn] [Icon] loading icon `vscode-icons:file-type-css` failed because the provider returned corrupt data",
-    )).toThrow(/unbudgeted warning/)
-  })
+    expect(() =>
+      assertBuildWarningBudget(
+        "[warn] [Icon] loading icon `vscode-icons:file-type-css` failed because the provider returned corrupt data",
+      ),
+    ).toThrow(/unbudgeted warning/);
+  });
 
   it("ignores warning words in filenames and wrapped warning details", () => {
     const output = [
       "- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.",
       "node_modules/.cache/nuxt/Warning-f4QGoboQ.js 1.74 kB",
       "├─ .output/server/chunks/build/Warning-f4QGoboQ.mjs (1.06 kB)",
-    ].join("\n")
+    ].join("\n");
 
-    expect(() => assertBuildWarningBudget(output)).not.toThrow()
-  })
+    expect(() => assertBuildWarningBudget(output)).not.toThrow();
+  });
 
   it("rejects lowercase logger warnings and standard Node warnings", () => {
     const warnings = [
@@ -78,8 +97,10 @@ describe("docs build warning budget", () => {
       "(node:123) [DEP0040] DeprecationWarning: deprecated docs API",
       "(node:123) DeprecationWarning: deprecated docs integration",
       "ExperimentalWarning: experimental docs integration",
-    ].join("\n")
+    ].join("\n");
 
-    expect(() => assertBuildWarningBudget(warnings)).toThrow(/unbudgeted warning.*Warning: unexpected.*\[DEP0040].*DeprecationWarning.*ExperimentalWarning/s)
-  })
-})
+    expect(() => assertBuildWarningBudget(warnings)).toThrow(
+      /unbudgeted warning.*Warning: unexpected.*\[DEP0040].*DeprecationWarning.*ExperimentalWarning/s,
+    );
+  });
+});
