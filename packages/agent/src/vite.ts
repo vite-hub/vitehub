@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, extname, join, relative, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -2946,9 +2946,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const contributionArtifactDir = artifactDir
         const retainedDefinitions = contributionArtifactDir
           ? await Promise.all(definitions.map(async (definition, index) => {
-              const handler = resolve(contributionArtifactDir, `${index}${extname(definition.handler) || ".ts"}`)
-              await mkdir(dirname(handler), { recursive: true })
-              await cp(definition.handler, handler)
+              const sourceDir = dirname(definition.handler)
+              const retainedSourceDir = resolve(contributionArtifactDir, String(index))
+              const handler = resolve(retainedSourceDir, relative(sourceDir, definition.handler))
+              await cp(sourceDir, retainedSourceDir, { recursive: true })
               return { ...definition, handler }
             }))
           : definitions

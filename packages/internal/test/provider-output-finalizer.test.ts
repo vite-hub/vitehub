@@ -1217,6 +1217,34 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(netlifyRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ version: 1 })
   })
 
+  it("does not let a disabled owner remove Cloudflare output written by a peer", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: { files: { "index.js": "current\n" } },
+        rootDir,
+      }),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workflow",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cleanup: { cloudflare: { fileNames: ["index.js"] } },
+        rootDir,
+      }),
+    })
+
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    await expect(readFile(join(cloudflareRoot, "index.js"), "utf8")).resolves.toBe("current\n")
+  })
+
   it("preserves client files when Cloudflare cleanup shares the client directory", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

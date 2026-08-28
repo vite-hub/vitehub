@@ -612,6 +612,7 @@ async function writeProviderDeploymentOutputsNow(
     }, signal))
   }
   await settleWrites(writes)
+  if (options.cloudflare && transaction) transaction.cloudflareWritten = true
   signal?.throwIfAborted()
   await options.afterWrite?.(signal)
   signal?.throwIfAborted()
@@ -624,6 +625,7 @@ async function writeProviderDeploymentOutputsNow(
       : options.cleanup.cloudflare
     const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
     if (resolve(outputRoot) === clientDir) cleanup = { ...cleanup, fileNames: [] }
+    else if (transaction?.cloudflareWritten) cleanup = { ...cleanup, fileNames: [] }
     cleanupPaths.push(outputRoot)
     cleanups.push(async () => await cleanupCloudflareDeploymentOutput(options.rootDir, cleanup, signal))
   }
@@ -678,6 +680,7 @@ interface ProviderDeploymentOutputSnapshot {
 }
 
 interface ProviderDeploymentOutputRootTransaction {
+  cloudflareWritten: boolean
   snapshot: (paths: string[], preservedPaths?: string[]) => Promise<void>
 }
 
@@ -736,6 +739,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
   const snapshots = new Map<string, ProviderDeploymentOutputSnapshot>()
   let snapshotIndex = 0
   const transaction: ProviderDeploymentOutputRootTransaction = {
+    cloudflareWritten: false,
     async snapshot(paths, preservedPaths = []) {
       const resolvedPreservedPaths = [...new Set(preservedPaths.map(path => resolve(path)))]
       for (const snapshot of snapshots.values()) {
