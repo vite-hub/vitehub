@@ -100,7 +100,9 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
 }
 
 function otlpAttributes(attributes: Record<string, unknown> | undefined) {
-  return Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined ? [] : [{ key, value: otlpAnyValue(value) }])
+  return Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined && key !== "vitehub.payload.value"
+    ? []
+    : [{ key, value: otlpAnyValue(value) }])
 }
 
 function unixNanos(value: string | undefined, fallback: string): string {

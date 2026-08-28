@@ -188,6 +188,33 @@ describe("Agent telemetry", () => {
     })
   })
 
+  it("preserves undefined public payload values in OTLP/HTTP JSON", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: {
+          "ordinary.undefined": undefined,
+          "vitehub.payload.value": undefined,
+          "vitehub.payload.visibility": "public",
+        },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+    const attributes = body.resourceLogs[0].scopeLogs[0].logRecords[0].attributes
+    expect(attributes).not.toContainEqual(expect.objectContaining({ key: "ordinary.undefined" }))
+    expect(attributes).toContainEqual({ key: "vitehub.payload.value", value: { stringValue: "undefined" } })
+  })
+
   it("does not encode inherited sparse-array values as public OTLP data", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
