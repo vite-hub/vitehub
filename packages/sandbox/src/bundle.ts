@@ -39,11 +39,12 @@ function hasProjectAssetReference(
   modules: Record<string, string>,
   file: string,
   project: SandboxProject,
+  source: string,
 ) {
   const projectPaths = new Set(Object.keys(project.files).map(path => normalize(path)))
   const packagePath = project.packagePath === '.' ? '' : normalize(project.packagePath)
   const definitionPath = findDefinitionProjectPath(file, project)
-  return Object.entries(modules).some(([modulePath, contents]) => {
+  return [[file, source], ...Object.entries(modules)].some(([modulePath, contents]) => {
     return findFilesystemPathReferences(contents, modulePath).some((reference) => {
       if (!isRelativeFilesystemPath(reference.path))
         return false
@@ -151,7 +152,7 @@ export async function bundleSandboxDefinition(
   })
   const requiresProject = hasRuntimeModuleResolution
     || externalImports.some(specifier => !builtinModuleSet.has(specifier))
-    || (!!options.project && hasProjectAssetReference(bundle.modules, file, options.project))
+    || (!!options.project && hasProjectAssetReference(bundle.modules, file, options.project, source))
   if (!options.project || !requiresProject) {
     return {
       ...bundle,

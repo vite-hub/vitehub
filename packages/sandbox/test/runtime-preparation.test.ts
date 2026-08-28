@@ -498,6 +498,27 @@ describe("Sandbox runtime preparation", () => {
     expect(successorStarted).toBe(true)
   })
 
+  it("reclaims an abandoned remote publication after its lease expires", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    await mkdir(lockDir)
+    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+      host: "remote-host",
+      pid: 42,
+      token: "abandoned-publication",
+    }))
+    await writeFile(join(lockDir, "lease"), "abandoned-publication")
+    await writeFile(join(lockDir, "publication"), "abandoned-publication")
+    const stale = new Date(Date.now() - 301_000)
+    await utimes(join(lockDir, "lease"), stale, stale)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed", {
+      pollMs: 5,
+      waitMs: 250,
+    })).resolves.toBe("reclaimed")
+  })
+
   it("recovers an aged malformed generation lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)

@@ -106,6 +106,39 @@ describe("bundleSandboxDefinition assets", () => {
     expect(bundle.modules[bundle.entry]).toContain('from "node:fs/promises"')
   })
 
+  it.each([
+    [
+      "CommonJS require",
+      "/fixture/run.sandbox.cjs",
+      "const { readFile } = require('node:fs/promises')\nmodule.exports = { run: async () => await readFile('./prompt.md', 'utf8') }\n",
+    ],
+    [
+      "TypeScript import equals",
+      "/fixture/run.sandbox.cts",
+      "import fs = require('node:fs/promises')\nexport default { run: async () => await fs.readFile('./prompt.md', 'utf8') }\n",
+    ],
+  ])("keeps project assets used through %s filesystem bindings", async (_name, id, source) => {
+    const project: SandboxProject = {
+      digest: "commonjs-fixture",
+      files: {
+        "prompt.md": {
+          contents: Buffer.from("Project prompt\n").toString("base64"),
+          encoding: "base64",
+        },
+      },
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+
+    const bundle = await bundleSandboxDefinition(source, id, {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project?.files).toHaveProperty("prompt.md")
+    expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
   it("keeps project files below a directory read by the Definition", async () => {
     const project: SandboxProject = {
       digest: "directory-asset-fixture",

@@ -163,7 +163,44 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
   const namespaceBindings = new Set<string>()
   const references: FilesystemPathReference[] = []
 
+  function filesystemRequireSpecifier(expression: ts.Expression | undefined): string | undefined {
+    if (expression && (typescript.isPropertyAccessExpression(expression) || typescript.isElementAccessExpression(expression)))
+      return filesystemRequireSpecifier(expression.expression)
+    if (!expression
+      || !typescript.isCallExpression(expression)
+      || !typescript.isIdentifier(expression.expression)
+      || expression.expression.text !== 'require') {
+      return
+    }
+    const [specifier] = expression.arguments
+    return specifier
+      && typescript.isStringLiteralLike(specifier)
+      && filesystemModuleSpecifiers.has(specifier.text)
+      ? specifier.text
+      : undefined
+  }
+
+  function addCommonJSBinding(name: ts.BindingName) {
+    if (typescript.isIdentifier(name)) {
+      directBindings.add(name.text)
+      namespaceBindings.add(name.text)
+      return
+    }
+    for (const element of name.elements) {
+      if (!typescript.isOmittedExpression(element)) addCommonJSBinding(element.name)
+    }
+  }
+
   for (const statement of sourceFile.statements) {
+    if (typescript.isImportEqualsDeclaration(statement)
+      && !statement.isTypeOnly
+      && typescript.isExternalModuleReference(statement.moduleReference)
+      && statement.moduleReference.expression
+      && typescript.isStringLiteralLike(statement.moduleReference.expression)
+      && filesystemModuleSpecifiers.has(statement.moduleReference.expression.text)) {
+      namespaceBindings.add(statement.name.text)
+      continue
+    }
     if (!typescript.isImportDeclaration(statement)
       || !typescript.isStringLiteralLike(statement.moduleSpecifier)
       || !filesystemModuleSpecifiers.has(statement.moduleSpecifier.text)
@@ -184,12 +221,23 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
     }
   }
 
+  function collectCommonJSBindings(node: ts.Node) {
+    if (typescript.isVariableDeclaration(node) && filesystemRequireSpecifier(node.initializer))
+      addCommonJSBinding(node.name)
+    typescript.forEachChild(node, collectCommonJSBindings)
+  }
+
+  collectCommonJSBindings(sourceFile)
+
   function visit(node: ts.Node) {
     if (typescript.isCallExpression(node) || typescript.isNewExpression(node)) {
       const direct = typescript.isIdentifier(node.expression) && directBindings.has(node.expression.text)
       const root = propertyAccessRoot(node.expression).current
       const namespaced = typescript.isIdentifier(root) && namespaceBindings.has(root.text)
-      if (direct || namespaced) {
+      const inlineRequire = (typescript.isPropertyAccessExpression(node.expression)
+        || typescript.isElementAccessExpression(node.expression))
+        && Boolean(filesystemRequireSpecifier(node.expression))
+      if (direct || namespaced || inlineRequire) {
         const reference = readFilesystemPathReference(node.arguments?.[0])
         if (reference)
           references.push(reference)

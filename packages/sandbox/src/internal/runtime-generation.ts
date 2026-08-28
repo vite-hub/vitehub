@@ -8,6 +8,7 @@ const generationMarker = '// vitehub-sandbox-generation: '
 const generationLockClaimStaleMs = 60_000
 const generationLockInitializationStaleMs = 5_000
 const generationLockName = '.runtime-generation.lock'
+const generationLockPublicationStaleMs = 300_000
 const generationLockWaitMs = 60_000
 const generationLockStaleMs = 300_000
 const generationLockHeartbeatMs = 30_000
@@ -132,8 +133,10 @@ function isSandboxRuntimeGenerationLockStale(
     return true
   if (owner?.host === hostname())
     return !isLocalProcessAlive(owner.pid)
-  if (owner && observation.publicationValue === owner.token)
-    return false
+  if (owner && observation.publicationValue === owner.token) {
+    return Date.now() - observation.leaseMtimeMs
+      > Math.max(staleMs, generationLockPublicationStaleMs)
+  }
   if (!owner || observation.leaseIno === undefined) {
     return Date.now() - observation.leaseMtimeMs
       > Math.min(staleMs, generationLockInitializationStaleMs)

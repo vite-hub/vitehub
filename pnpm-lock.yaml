@@ -574,6 +574,9 @@ importers:
       nuxt-schema-org:
         specifier: catalog:nuxt
         version: 6.3.0(f32e2ef3e44ee3f96bd6769623ef216e)
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.0
     devDependencies:
       '@iconify-json/lucide':
         specifier: catalog:ui
