@@ -364,22 +364,29 @@ function functionScopeCounts(tokens, pendingDeclaration) {
 
 function applyLeadingPersistentAssignments(tokens, environment) {
   let command = []
-  for (const token of tokens) {
-    if (token === ";" || token === "&&") {
-      if (command.length === 0) continue
-      const assignments = []
-      for (const candidate of command) {
-        const assignment = assignmentPattern.exec(candidate)
-        if (!assignment) return
-        assignments.push(assignment)
-      }
-      for (const assignment of assignments) environment.set(assignment[1], assignment[2])
+  let commandIndex = 0
+  const applyCommand = () => {
+    if (command.length === 0) return
+    const assignments = command.map(candidate => assignmentPattern.exec(candidate))
+    if (assignments.some(assignment => !assignment)) return
+    const execution = conditionalCommandExecution(tokens, commandIndex)
+    for (const assignment of assignments) {
+      if (execution === "always") environment.set(assignment[1], assignment[2])
+      else if (execution === "maybe") environment.delete(assignment[1])
+    }
+  }
+  for (const [index, token] of tokens.entries()) {
+    if (token === ";" || token === "&&" || token === "||") {
+      applyCommand()
       command = []
+      commandIndex = index + 1
       continue
     }
     if (shellOperatorPattern.test(token)) return
+    if (command.length === 0) commandIndex = index
     command.push(token)
   }
+  applyCommand()
 }
 
 function commandRunsUnconditionally(tokens, commandIndex) {
@@ -499,9 +506,12 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         environment.set(assignment[1], assignment[2])
       }
     }
-    const hereDocument = /(?:^|\s)<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
+    const hereDocument = /(?:^|\s)<<-?\s*(?:'([^']+)'|"([^"]+)"|([^\s'";&|()<>`]+))/.exec(line)
     if (hereDocument && !executableIndexes.some(index => isShellCommand(tokens[index]))) {
-      dataHereDocument = { delimiter: hereDocument[2], expand: hereDocument[1] === "" }
+      dataHereDocument = {
+        delimiter: hereDocument[1] ?? hereDocument[2] ?? hereDocument[3],
+        expand: hereDocument[3] !== undefined,
+      }
     }
     for (const index of executableIndexes) {
       let argumentsStart

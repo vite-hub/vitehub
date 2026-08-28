@@ -618,6 +618,21 @@ jobs:
     ])
   })
 
+  it("tracks assignment-only commands after ordinary same-line commands", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: VERSION=1.2.3; echo ok; VERSION=latest; npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
   it.each([
     ["an untaken conditional containing a substitution", ["if false; then", "echo $(true)", "VERSION=1.2.3", "fi"]],
     ["a zero-iteration for loop", ["for item in", "do", "VERSION=1.2.3", "done"]],
@@ -806,6 +821,18 @@ jobs:
         "          EOF",
       ].join("\n"),
     })
+    const punctuatedDelimiterRoot = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          cat <<END-MARKER",
+        "          npx is-just-data",
+        "          END-MARKER",
+        "          npx unpinned",
+      ].join("\n"),
+    })
 
     await expect(checkGitHubCIInputs(dataRoot)).resolves.toEqual([])
     await expect(checkGitHubCIInputs(shellRoot)).resolves.toEqual([
@@ -818,6 +845,9 @@ jobs:
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
     await expect(checkGitHubCIInputs(expandingDataRoot)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+    await expect(checkGitHubCIInputs(punctuatedDelimiterRoot)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
   })
