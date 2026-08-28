@@ -37,6 +37,9 @@ export interface LazyMaterializedMetadata {
   sha?: string
   digest?: string
   ref?: string
+  materializedAttributes?: true
+  materializedMediaType?: string
+  materializedMetadata?: Record<string, unknown>
 }
 
 interface SourceSnapshotMetadata extends Omit<
@@ -130,12 +133,19 @@ function observableFileMetadata(metadata: Record<string, unknown> | undefined) {
 
 function fileAttributesEqual(
   previous: { mediaType?: string, metadata?: Record<string, unknown> },
+  previousSnapshot: LazyMaterializedMetadata | undefined,
   mediaType: string | undefined,
   metadata: Record<string, unknown>,
 ) {
-  return (!Object.hasOwn(previous, "mediaType") || previous.mediaType === undefined || previous.mediaType === mediaType)
-    && (!Object.hasOwn(previous, "metadata") || previous.metadata === undefined
-      || isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata)))
+  const previousMediaType = previousSnapshot?.materializedAttributes
+    ? previousSnapshot.materializedMediaType
+    : previous.mediaType
+  const previousMetadata = previousSnapshot?.materializedAttributes
+    ? previousSnapshot.materializedMetadata
+    : previous.metadata
+  return previousMediaType === undefined || previousMediaType === mediaType
+    ? previousMetadata === undefined || isDeepStrictEqual(observableFileMetadata(previousMetadata), observableFileMetadata(metadata))
+    : false
 }
 
 function compareContentStream(
@@ -489,7 +499,7 @@ export async function materializeWorkspaceSources(
       }
       throwIfAborted(options.abortSignal)
       if (!lifecycle?.isPrepared(source)) {
-        await prepareWorkspaceSource(source.source, ctx)
+        await prepareWorkspaceSource(source.source, ctx, { refreshRevision: true })
         lifecycle?.onPrepared(source)
       }
       throwIfAborted(options.abortSignal)
@@ -509,7 +519,8 @@ export async function materializeWorkspaceSources(
         if (entry.reused) {
           itemMetadata[path] = entry.metadata
           sourceFiles++
-          sourceBytes += entry.reused.size || 0
+          const reusedFile = entry.reused.size === undefined ? await store.readFile(path) : undefined
+          sourceBytes += entry.reused.size ?? (reusedFile ? contentSize(reusedFile.content) : 0)
           counts.unchanged++
           paths.push({ path, status: "unchanged" })
           if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
@@ -544,14 +555,20 @@ export async function materializeWorkspaceSources(
           metadata: fileMetadata,
         })
         const tracked = Object.hasOwn(itemMetadata, path)
-        itemMetadata[path] = entry.metadata
+        const previousItemMetadata = itemMetadata[path]
+        itemMetadata[path] = {
+          ...entry.metadata,
+          materializedAttributes: true,
+          materializedMediaType: item.mediaType,
+          materializedMetadata: observableFileMetadata(fileMetadata) as Record<string, unknown>,
+        }
         sourceFiles++
         sourceBytes += written.size || 0
         persistedBytesDelta += (written.size || 0) - (previousFile && tracked ? contentSize(previousFile.content) : 0)
         const unchanged = previousFile && (comparedStream
           ? comparedStream.unchanged()
           : contentEquals(previousFile.content, entry.content ?? ""))
-          && fileAttributesEqual(previousFile, item.mediaType, fileMetadata)
+          && fileAttributesEqual(previousFile, previousItemMetadata, item.mediaType, fileMetadata)
         const status = unchanged
           ? "unchanged" as const
           : previousFile ? "updated" as const : "added" as const

@@ -2,7 +2,15 @@ import type { SourceContext, WorkspaceSource } from "../core/types.ts"
 
 const revisionResolutionByContext = new WeakMap<SourceContext, Promise<void>>()
 
-export async function prepareWorkspaceSource(source: WorkspaceSource, ctx: SourceContext): Promise<void> {
+export async function prepareWorkspaceSource(
+  source: WorkspaceSource,
+  ctx: SourceContext,
+  options: { refreshRevision?: boolean } = {},
+): Promise<void> {
+  if (options.refreshRevision) {
+    revisionResolutionByContext.delete(ctx)
+    ctx.revision = undefined
+  }
   let revisionResolution = revisionResolutionByContext.get(ctx)
   if (!revisionResolution) {
     revisionResolution = ctx.revision

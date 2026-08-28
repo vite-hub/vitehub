@@ -1333,10 +1333,44 @@ describe("lazy sources", () => {
     })
   })
 
+  it("measures reused files when the Store stat omits size", async () => {
+    const store = createMemoryWorkspaceStore()
+    const stat = store.stat.bind(store)
+    store.stat = async (path) => {
+      const result = await stat(path)
+      if (!result) return result
+      return { ...result, size: undefined }
+    }
+    const view = createWorkspaceSourceView({
+      name: "size-less-reused-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getMeta() {
+            return { etag: "same" }
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Same\n" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 7,
+      sources: [{ bytes: 7, counts: { added: 0, removed: 0, unchanged: 1, updated: 0 } }],
+    })
+  })
+
   it("reports materialized file attribute changes as updates", async () => {
     vi.useFakeTimers()
     vi.setSystemTime("2026-01-01T00:00:00.000Z")
-    let mediaType = "text/plain"
+    let mediaType: string | undefined
     let metadata = { category: "draft" }
     const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({
