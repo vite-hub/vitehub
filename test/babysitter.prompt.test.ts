@@ -75,6 +75,10 @@ test('uses Pullfrog exact-head evidence without blocking on terminal service fai
 
   assert.match(prompt, /Pullfrog is review evidence, not an optional check/)
   assert.match(prompt, /successful Pullfrog run must submit a review for the expected head/)
+  assert.match(prompt, /successful exact-head run finishes without a review/)
+  assert.match(prompt, /prior `@pullfrog` review request naming the expected head/)
+  assert.match(prompt, /post exactly one `@pullfrog Please review this PR at exact head <expected-head> and submit a GitHub review\.` comment/)
+  assert.match(prompt, /stop without repeating it/)
   assert.match(prompt, /review for another head blocks the merge/)
   assert.match(prompt, /terminal Pullfrog quota, error, or unavailable result is non-blocking/)
   assert.match(prompt, /Existing actionable Pullfrog findings remain feedback and must be repaired/)
