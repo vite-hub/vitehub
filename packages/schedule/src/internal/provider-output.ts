@@ -659,6 +659,7 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
     ownsWorker = (await readFile(workerFile, "utf8")).includes(cloudflareScheduleWorkerMarker)
   }
   catch (error) {
+    // SAFETY: Node.js filesystem rejections expose errno codes through NodeJS.ErrnoException.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   let configSource: string | undefined
