@@ -135,6 +135,7 @@ function envOptionTokens(source: string): EnvOptionToken[] {
 function hasBuildMode(options: string): boolean {
   const tokens = envOptionTokens(options);
   let depth = 0;
+  let isBuildMode = false;
 
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!;
@@ -146,18 +147,23 @@ function hasBuildMode(options: string): boolean {
       depth -= 1;
       continue;
     }
+    if (depth !== 1) continue;
+
     if (
-      depth === 1 &&
-      token.value === "mode" &&
-      tokens[index + 1]?.value === ":" &&
-      tokens[index + 2]?.kind === "string" &&
-      tokens[index + 2]?.value === "build"
+      token.value === "." &&
+      tokens[index + 1]?.value === "." &&
+      tokens[index + 2]?.value === "."
     ) {
-      return true;
+      isBuildMode = false;
+      continue;
+    }
+
+    if (token.value === "mode" && tokens[index + 1]?.value === ":") {
+      isBuildMode = tokens[index + 2]?.kind === "string" && tokens[index + 2]?.value === "build";
     }
   }
 
-  return false;
+  return isBuildMode;
 }
 
 function buildEnvCalls(source: string) {
@@ -215,6 +221,9 @@ describe("Env documentation", () => {
     expect(hasBuildMode("{ default: \"mode: 'build'\" }")).toBe(false);
     expect(hasBuildMode("{ default: 'preview' /* mode: 'build' */ }")).toBe(false);
     expect(hasBuildMode("{ defaults: { mode: 'build' } }")).toBe(false);
+    expect(hasBuildMode("{ mode: 'build', mode: 'runtime' }")).toBe(false);
+    expect(hasBuildMode("{ mode: 'build', ...defaults }")).toBe(false);
+    expect(hasBuildMode("{ ...defaults, mode: 'build' }")).toBe(true);
   });
 
   it("marks every documented build-backed Env declaration as build-time", async () => {
