@@ -15,6 +15,9 @@ const netlifyStores = vi.hoisted(() => ({
 vi.mock("@vite-hub/internal/arrays", () => ({
   toArray: (value: unknown) => Array.isArray(value) ? value : [value],
 }))
+vi.mock("@vite-hub/internal/object", () => ({
+  isPlainObject: (value: unknown) => value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype,
+}))
 vi.mock("@vite-hub/netlify-blobs-runtime", () => ({
   getDeployStore: netlifyStores.getDeployStore,
   getStore: netlifyStores.getStore,
@@ -263,6 +266,17 @@ describe("Netlify Blobs driver", () => {
     expect(put.contentType).toBe("application/octet-stream")
     expect(get?.type).toBe("application/octet-stream")
     expect(head?.contentType).toBe("application/octet-stream")
+  })
+
+  it("preserves the provider content type when reading external blobs", async () => {
+    store.getWithMetadata.mockResolvedValue({
+      data: new Blob(["content"], { type: "application/json" }),
+      metadata: { owner: "external-client" },
+    })
+
+    const result = await createDriver(options).get("external.json")
+
+    expect(result?.type).toBe("application/json")
   })
 
   it("preserves direct Netlify custom metadata without exposing provider fields", async () => {

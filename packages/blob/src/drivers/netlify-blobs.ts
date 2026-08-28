@@ -381,7 +381,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       const contentType = envelope === "files-sdk"
         ? metadata.__contentType
         : envelope === "legacy" ? metadata.contentType : undefined
-      return new Blob([result.data], { type: contentType })
+      return new Blob([result.data], { type: contentType ?? result.data.type })
     },
     async getArrayBuffer(pathname) {
       const result = await store.getWithMetadata(pathname, { consistency: options.consistency, type: "arrayBuffer" })
