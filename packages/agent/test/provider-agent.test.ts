@@ -21,6 +21,7 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 const readCodexSharedHome = vi.hoisted(() => vi.fn())
 const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
 const beforeCodexCredentialChmod = vi.hoisted(() => vi.fn())
+const beforeCodexHomeCopyFile = vi.hoisted(() => vi.fn())
 const beforeCodexHomeSymlink = vi.hoisted(() => vi.fn())
 const beforeCodexHomeLink = vi.hoisted(() => vi.fn())
 const readCodexHomeStat = vi.hoisted(() => vi.fn())
@@ -34,6 +35,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     chmod: async (...args: Parameters<typeof original.chmod>) => {
       await beforeCodexCredentialChmod(...args)
       return await original.chmod(...args)
+    },
+    copyFile: async (...args: Parameters<typeof original.copyFile>) => {
+      await beforeCodexHomeCopyFile(...args)
+      return await original.copyFile(...args)
     },
     link: async (...args: Parameters<typeof original.link>) => {
       await beforeCodexHomeLink(...args)
@@ -3153,9 +3158,19 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     const threadId = "thread-completed-state-stalled-close"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     providerRuntimes.pop()
-    provider.close.mockImplementationOnce(() => new Promise(() => undefined))
+    let finishClose!: () => void
+    provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
+    let shadowHome: string | undefined
+    let finishPersistenceCopy: (() => void) | undefined
+    let persistenceCopies = 0
+    beforeCodexHomeCopyFile.mockImplementation(async (source) => {
+      if (String(source) !== join(String(shadowHome), "completed-state.json")) return
+      persistenceCopies += 1
+      await new Promise<void>(resolve => finishPersistenceCopy = resolve)
+    })
     createProviderRuntime.mockImplementationOnce(async (options) => {
-      await writeFile(join(String(options.settings?.homePath), "completed-state.json"), "persist me\n")
+      shadowHome = String(options.settings?.homePath)
+      await writeFile(join(shadowHome, "completed-state.json"), "persist me\n")
       return provider
     })
     const adapter = createProviderAgentAdapter({
@@ -3169,16 +3184,25 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const stream = await adapter.stream!(context(threadId) as never)
       const result = collect(stream)
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
-      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
       await vi.advanceTimersByTimeAsync(10_000)
+      await vi.waitFor(() => expect(finishPersistenceCopy).toBeDefined())
+
+      finishClose()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(persistenceCopies).toBe(1)
+      finishPersistenceCopy?.()
 
       await expect(result).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ recoverable: true, type: "error" }),
       ]))
-      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      await vi.waitFor(async () => await expect(access(shadowHome!)).rejects.toMatchObject({ code: "ENOENT" }))
       expect(await readFile(join(sharedHome, "completed-state.json"), "utf8")).toBe("persist me\n")
+      expect(persistenceCopies).toBe(1)
     }
     finally {
+      finishClose?.()
+      finishPersistenceCopy?.()
+      beforeCodexHomeCopyFile.mockReset()
       vi.useRealTimers()
       await rm(sharedHome, { force: true, recursive: true })
     }

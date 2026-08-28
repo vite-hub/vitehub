@@ -1882,7 +1882,7 @@ async function* runProvider<
       if (cleanupTimedOut) {
         if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanupTask)
         if (completed && credentialHome && credentialSharedHome) {
-          const persistence = persistCredentialOverlay()
+          const persistence = credentialCleanup.cleanup()
           if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(persistence)
           const persistenceCleanup = createProviderCleanupSignal(undefined)
           try {
