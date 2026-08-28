@@ -426,6 +426,16 @@ export const unused = [{ destination: "/missing-unused" }]
     );
   });
 
+  it("does not associate catch-all sources with routes owned by static pages", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/[...slug].vue": '<template><CatchAllNavigation /><section id="guide" /></template>',
+      "docs/app/pages/index.vue": '<template><section id="home" /></template>',
+      "docs/app/components/CatchAllNavigation.vue": '<template><NuxtLink to="#guide" /></template>',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot, docsRoutes: ["/", "/guide"] }).errors).toEqual([]);
+  });
+
   it("does not invent a route for fragment-only links in unassociated components", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": '<template><section id="home" /></template>',

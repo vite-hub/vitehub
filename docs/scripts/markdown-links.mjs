@@ -520,6 +520,12 @@ function applicationInventory(docsRoot, docsRoutes) {
   const importedFiles = new Set();
   const importedNames = new Map();
   const importedProperties = new Map();
+  const pageFiles = walk(pagesRoot, (path) => path.endsWith(".vue"));
+  const pageRoutes = new Map(pageFiles.map((path) => [path, relative(pagesRoot, path)
+    .split(sep).join("/").replace(/\.vue$/, "").replace(/\/index$/, "").replace(/^index$/, "")]));
+  const staticPageRoutes = new Set([...pageRoutes.values()]
+    .filter(isStaticApplicationRoute)
+    .map(route => normalizeRoute(`/${route}`)));
   function resolveImport(sourcePath, specifier) {
     if (!specifier.startsWith(".") && !specifier.startsWith("~/")) return undefined;
     const unresolved = specifier.startsWith("~/")
@@ -535,14 +541,13 @@ function applicationInventory(docsRoot, docsRoutes) {
     return candidates.find((candidate) => candidate.startsWith(`${appRoot}${sep}`)
       && existsSync(candidate) && statSync(candidate).isFile());
   }
-  const routeAnchors = new Map(walk(pagesRoot, (path) => path.endsWith(".vue")).flatMap((path) => {
-    const route = relative(join(docsRoot, "app/pages"), path)
-      .split(sep).join("/").replace(/\.vue$/, "").replace(/\/index$/, "").replace(/^index$/, "");
+  const routeAnchors = new Map(pageFiles.flatMap((path) => {
+    const route = pageRoutes.get(path);
     const concreteRoutes = isStaticApplicationRoute(route)
       ? [normalizeRoute(`/${route}`)]
       : docsRoutes.map(normalizeRoute).filter((candidate) => {
           const pattern = `/${route}`.replace(/\/\[\.\.\.[^\]]+\]$/, "(?:/.*)?").replace(/\[[^\]]+\]/g, "[^/]+");
-          return new RegExp(`^${pattern}$`).test(candidate);
+          return new RegExp(`^${pattern}$`).test(candidate) && !staticPageRoutes.has(candidate);
         });
     if (!concreteRoutes.length) return [];
     const anchors = new Set();
