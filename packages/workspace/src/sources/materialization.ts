@@ -133,8 +133,9 @@ function fileAttributesEqual(
   mediaType: string | undefined,
   metadata: Record<string, unknown>,
 ) {
-  return previous.mediaType === mediaType
-    && isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata))
+  return (!Object.hasOwn(previous, "mediaType") || previous.mediaType === mediaType)
+    && (!Object.hasOwn(previous, "metadata")
+      || isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata)))
 }
 
 function compareContentStream(

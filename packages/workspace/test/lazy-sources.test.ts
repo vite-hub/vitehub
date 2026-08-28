@@ -1335,6 +1335,44 @@ describe("lazy sources", () => {
     })
   })
 
+  it("reports unchanged files when the Store omits optional file attributes", async () => {
+    const store = createMemoryWorkspaceStore()
+    const readFile = store.readFile.bind(store)
+    store.readFile = async (path) => {
+      const file = await readFile(path)
+      return file && { path: file.path, content: file.content }
+    }
+    const view = createWorkspaceSourceView({
+      name: "attribute-less-materialization-deltas",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              path: key,
+              content: "# Same\n",
+              mediaType: "text/markdown",
+              metadata: { category: "published" },
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
+        paths: [{ path: "docs/a.md", status: "unchanged" }],
+      }],
+    })
+  })
+
   it("reports file deltas when the Store omits snapshot metadata", async () => {
     let content = "# Same\n"
     const store = createMemoryWorkspaceStore()
