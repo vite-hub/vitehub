@@ -1018,6 +1018,7 @@ describe("Vite provider outputs", () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-user-provider-import-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
     await writeFile(join(rootDir, "src", "server.ts"), [
       'import { BlobServiceClient } from "@azure/storage-blob"',
       "export default async () => new Response(BlobServiceClient.name)",
