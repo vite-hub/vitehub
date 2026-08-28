@@ -3,14 +3,41 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 
-import { createGeneratedSandboxModuleSpecifier, createGeneratedSandboxRuntimeRegistry } from "../src/runtime/state.ts"
+import {
+  createGeneratedSandboxModuleSpecifier,
+  createGeneratedSandboxRuntimeRegistry,
+  resetSandboxRuntimeState,
+  setSandboxRuntimeRegistry,
+} from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
+  resetSandboxRuntimeState()
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+it("keeps the activated registry when a retained generation evaluates later", async () => {
+  const scope = join(tmpdir(), "vitehub-sandbox-active-runtime", "sandbox.mjs")
+  const loadRetained = vi.fn(async () => ({ default: { bundle: { entry: "retained.mjs", modules: {} } } }))
+  const loadCurrent = vi.fn(async () => ({ default: { bundle: { entry: "current.mjs", modules: {} } } }))
+  const currentRegistry = createGeneratedSandboxRuntimeRegistry(scope, {
+    example: { load: loadCurrent, stablePath: "current.mjs" },
+  })
+  setSandboxRuntimeRegistry(currentRegistry)
+
+  createGeneratedSandboxRuntimeRegistry(scope, {
+    example: { load: loadRetained, stablePath: "retained.mjs" },
+  })
+
+  const loadCurrentDefinition = currentRegistry.example
+  if (typeof loadCurrentDefinition !== "function")
+    throw new TypeError("Expected a generated Sandbox Definition loader.")
+  await expect(loadCurrentDefinition()).resolves.toMatchObject({ default: { bundle: { entry: "current.mjs" } } })
+  expect(loadCurrent).toHaveBeenCalledOnce()
+  expect(loadRetained).not.toHaveBeenCalled()
 })
 
 it("resolves the active Windows generation when a retained registry generation was pruned", async () => {
@@ -37,6 +64,7 @@ it("resolves the active Windows generation when a retained registry generation w
       stablePath: missingStableDefinition.replaceAll("/", "\\"),
     },
   })
+  setSandboxRuntimeRegistry(registry)
   const loadRetainedDefinition = registry.example
   if (typeof loadRetainedDefinition !== "function")
     throw new TypeError("Expected a generated Sandbox Definition loader.")

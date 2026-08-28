@@ -18,6 +18,7 @@ type GeneratedSandboxRuntimeRegistry = Record<string, GeneratedSandboxRuntimeReg
 let sandboxConfig: false | AgentSandboxConfig | undefined
 let sandboxRegistry: SandboxRuntimeRegistry | undefined
 const generatedRegistries = new Map<string, GeneratedSandboxRuntimeRegistry>()
+const generatedRegistryOwnership = new WeakMap<SandboxRuntimeRegistry, { registry: GeneratedSandboxRuntimeRegistry, scope: string }>()
 let generatedRegistryRecoveryId = 0
 
 function isMissingGeneratedSandboxModule(error: unknown) {
@@ -45,9 +46,8 @@ export function createGeneratedSandboxRuntimeRegistry(
   scope: string,
   registry: GeneratedSandboxRuntimeRegistry,
 ): SandboxRuntimeRegistry {
-  generatedRegistries.set(scope, registry)
-  return Object.fromEntries(Object.keys(registry).map(name => [name, async () => {
-    const entry = generatedRegistries.get(scope)?.[name]
+  const runtimeRegistry = Object.fromEntries(Object.keys(registry).map(name => [name, async () => {
+    const entry = generatedRegistries.get(scope)?.[name] ?? registry[name]
     if (!entry)
       throw new Error(`[vitehub] Sandbox definition "${name}" is no longer generated.`)
     try {
@@ -66,6 +66,8 @@ export function createGeneratedSandboxRuntimeRegistry(
       }
     }
   }]))
+  generatedRegistryOwnership.set(runtimeRegistry, { registry, scope })
+  return runtimeRegistry
 }
 
 export function getSandboxRuntimeConfig() {
@@ -82,9 +84,13 @@ export function setSandboxRuntimeConfig(config: false | AgentSandboxConfig | und
 
 export function setSandboxRuntimeRegistry(registry: SandboxRuntimeRegistry | undefined) {
   sandboxRegistry = registry
+  const generated = registry && generatedRegistryOwnership.get(registry)
+  if (generated)
+    generatedRegistries.set(generated.scope, generated.registry)
 }
 
 export function resetSandboxRuntimeState() {
   sandboxConfig = undefined
   sandboxRegistry = undefined
+  generatedRegistries.clear()
 }
