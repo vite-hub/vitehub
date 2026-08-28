@@ -367,29 +367,26 @@ describe("hubBlob", () => {
       expect(runtimeSource).not.toContain("/drivers/fs")
       expect(runtimeSource).not.toContain("/drivers/vercel")
 
-      const netlifyBlobsStub = join(root, "netlify-blobs.mjs")
       const entryFile = join(root, "entry.mjs")
       const artifactFile = join(artifactRoot, "server.mjs")
-      await writeFile(netlifyBlobsStub, [
-        "const values = new Map()",
-        "function createStore() { return {",
-        "  async set(key, body, options = {}) {",
-        "    const bytes = new Uint8Array(await new Response(body).arrayBuffer())",
-        "    values.set(key, { bytes, metadata: options.metadata })",
-        "    return { etag: 'netlify-etag', modified: true }",
-        "  },",
-        "  async getMetadata(key) { const value = values.get(key); return value ? { etag: 'netlify-etag', metadata: value.metadata } : null },",
-        "  async getWithMetadata(key, options = {}) { const value = values.get(key); return value ? { data: options.type === 'blob' ? new Blob([value.bytes]) : value.bytes.buffer, etag: 'netlify-etag', metadata: value.metadata } : null },",
-        "  async delete(key) { values.delete(key) },",
-        "  list() { return { async *[Symbol.asyncIterator]() { yield { blobs: [...values.keys()].map(key => ({ etag: 'netlify-etag', key })), directories: [] } } } },",
-        "} }",
-        "export const getStore = createStore",
-        "export const getDeployStore = createStore",
-        "",
-      ].join("\n"), "utf8")
       await writeFile(entryFile, [
-        "import './.vitehub/nitro/blob/runtime.mjs'",
-        `import { blob } from ${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))}`,
+        "const values = new Map()",
+        "globalThis.fetch = async (input, init = {}) => {",
+        "  const url = new URL(input.toString())",
+        "  const method = init.method || 'GET'",
+        "  if (url.hostname === 'api.netlify.com') return Response.json({ url: 'https://signed.blobs.example.test/netlify.txt' })",
+        "  if (method === 'PUT') {",
+        "    const bytes = await new Response(init.body).arrayBuffer()",
+        "    values.set(url.pathname, { bytes, metadata: new Headers(init.headers).get('x-amz-meta-user') })",
+        "    return new Response(null, { headers: { etag: 'netlify-etag' }, status: 200 })",
+        "  }",
+        "  const value = values.get(url.pathname)",
+        "  return value",
+        "    ? new Response(value.bytes, { headers: { etag: 'netlify-etag', 'x-amz-meta-user': value.metadata } })",
+        "    : new Response(null, { status: 404 })",
+        "}",
+        "await import('./.vitehub/nitro/blob/runtime.mjs')",
+        `const { blob } = await import(${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))})`,
         "const [putError] = await blob.put('netlify.txt', 'netlify-store', { contentType: 'text/plain' })",
         "if (putError) throw putError",
         "const [getError, object] = await blob.get('netlify.txt')",
@@ -405,12 +402,6 @@ describe("hubBlob", () => {
         metafile: true,
         outfile: artifactFile,
         platform: "node",
-        plugins: [{
-          name: "netlify-sdk-stubs",
-          setup(build) {
-            build.onResolve({ filter: /^@vite-hub\/netlify-blobs-runtime$/ }, () => ({ path: netlifyBlobsStub }))
-          },
-        }],
         target: "node24",
       })
       const artifactSource = await readFile(artifactFile, "utf8")

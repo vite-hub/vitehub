@@ -248,6 +248,39 @@ describe("Netlify Blobs driver", () => {
     expect(result.size).toBe(8)
   })
 
+  it("preserves the default content type across untyped writes and reads", async () => {
+    store.set.mockResolvedValue({ etag: "etag" })
+    const driver = createDriver(options)
+    const put = await driver.put("untyped.txt", "content")
+    const metadata = store.set.mock.calls[0]?.[2].metadata
+    store.getWithMetadata.mockResolvedValue({ data: new Blob(["content"]), metadata })
+    store.getMetadata.mockResolvedValue({ etag: "etag", metadata })
+
+    const get = await driver.get("untyped.txt")
+    const head = await driver.head("untyped.txt")
+
+    expect(metadata.__contentType).toBe("application/octet-stream")
+    expect(put.contentType).toBe("application/octet-stream")
+    expect(get?.type).toBe("application/octet-stream")
+    expect(head?.contentType).toBe("application/octet-stream")
+  })
+
+  it("preserves direct Netlify custom metadata without exposing provider fields", async () => {
+    store.getMetadata.mockResolvedValue({
+      etag: "etag",
+      metadata: {
+        contentType: "text/plain",
+        owner: "external-client",
+        size: 7,
+        uploadedAt: "2026-08-27T12:34:56.000Z",
+      },
+    })
+
+    const result = await createDriver(options).head("external.txt")
+
+    expect(result?.customMetadata).toEqual({ owner: "external-client" })
+  })
+
   it("uses provider list attributes when custom metadata has no object details", async () => {
     mockListPages({
       first: {
@@ -265,6 +298,7 @@ describe("Netlify Blobs driver", () => {
     const result = await createDriver(options).list()
 
     expect(result.blobs).toEqual([expect.objectContaining({
+      customMetadata: { owner: "external-client" },
       httpEtag: "listed-etag",
       pathname: "legacy.txt",
       size: 42,

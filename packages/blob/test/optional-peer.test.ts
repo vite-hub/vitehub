@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { filesSdkDriverPeers, getFilesSdkPeerInstall } from "../src/internal/files-sdk-peers.ts"
 import { importOptionalPeer } from "../src/internal/optional-peer.ts"
+import isBuffer from "../src/internal/vercel-is-buffer.ts"
 
 async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<string[]> {
   if (seen.has(entry.href)) return []
@@ -16,6 +17,12 @@ async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<s
 }
 
 describe("optional peer imports", () => {
+  it("detects Node buffers without importing Node modules", () => {
+    expect(isBuffer(Buffer.from("buffer"))).toBe(true)
+    expect(isBuffer(new Uint8Array())).toBe(false)
+    expect(isBuffer(null)).toBe(false)
+  })
+
   it("explains how to install a missing adapter peer", async () => {
     const missingPeer = Object.assign(new Error("missing"), { code: "ERR_MODULE_NOT_FOUND" })
     await expect(importOptionalPeer(() => Promise.reject(missingPeer), "__vitehub_missing_peer__", "s3", "files-sdk"))

@@ -12,6 +12,7 @@ type StoredMetadata = {
   customMetadata?: Record<string, string>
   size?: number
   uploadedAt?: string
+  [key: string]: unknown
 }
 
 type FoldedCursor = {
@@ -51,6 +52,16 @@ const METADATA_CONCURRENCY = 16
 const MAX_FETCH_RETRIES = 5
 const MIN_RETRY_DELAY = 1_000
 const RATE_LIMIT_HEADER = "X-RateLimit-Reset"
+const providerMetadataFields = new Set([
+  "__contentType",
+  "__lastModified",
+  "__size",
+  "__user",
+  "contentType",
+  "customMetadata",
+  "size",
+  "uploadedAt",
+])
 
 function isNumber(value: unknown): value is number {
   return Number(value) === value
@@ -58,6 +69,12 @@ function isNumber(value: unknown): value is number {
 
 function isString(value: unknown): value is string {
   return String(value) === value
+}
+
+function rawCustomMetadata(metadata: StoredMetadata): Record<string, string> {
+  return Object.fromEntries(Object.entries(metadata).flatMap(([key, value]): [string, string][] =>
+    !providerMetadataFields.has(key) && isString(value) ? [[key, value]] : [],
+  ))
 }
 
 function decodeBase64(value: string) {
@@ -284,7 +301,7 @@ function toBlobObject(
   listed?: Pick<NetlifyListBlob, "last_modified" | "lastModified" | "size" | "uploaded_at" | "uploadedAt">,
 ): BlobObject {
   const contentType = metadata.__contentType || metadata.contentType
-  const customMetadata = metadata.__user || metadata.customMetadata || {}
+  const customMetadata = metadata.__user || metadata.customMetadata || rawCustomMetadata(metadata)
   const size = metadata.__size ?? listed?.size ?? metadata.size ?? 0
   const listedUploadTime = listed?.uploaded_at ?? listed?.uploadedAt ?? listed?.last_modified ?? listed?.lastModified
   const uploadedAt = metadata.__lastModified
@@ -390,7 +407,9 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
       const normalizedBody = await normalizeBody(body)
-      const contentType = putOptions.contentType || (normalizedBody instanceof Blob ? normalizedBody.type : undefined)
+      const contentType = putOptions.contentType
+        || (normalizedBody instanceof Blob ? normalizedBody.type : undefined)
+        || "application/octet-stream"
       const size = typeof normalizedBody === "string"
         ? new TextEncoder().encode(normalizedBody).byteLength
         : normalizedBody instanceof Blob
