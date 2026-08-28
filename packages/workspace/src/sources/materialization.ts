@@ -378,8 +378,11 @@ export async function materializeWorkspaceSources(
   definition: WorkspaceDefinition,
   store: WorkspaceStore,
   options: WorkspaceMaterializeSourcesOptions = {},
-  getSourceContext?: (source: ResolvedWorkspaceSource) => SourceContext,
-  onSourcePrepared?: (source: ResolvedWorkspaceSource) => void,
+  lifecycle?: {
+    getContext(source: ResolvedWorkspaceSource): SourceContext
+    isPrepared(source: ResolvedWorkspaceSource): boolean
+    onPrepared(source: ResolvedWorkspaceSource): void
+  },
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const started = Date.now()
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => shouldMaterializeSource(source, options))
@@ -469,7 +472,7 @@ export async function materializeWorkspaceSources(
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
-    const ctx = getSourceContext?.(source) || createSourceContext(definition, source, store)
+    const ctx = lifecycle?.getContext(source) || createSourceContext(definition, source, store)
     const previousAbortSignal = ctx.abortSignal
     ctx.abortSignal = options.abortSignal
     try {
@@ -485,8 +488,10 @@ export async function materializeWorkspaceSources(
         })
       }
       throwIfAborted(options.abortSignal)
-      await prepareWorkspaceSource(source.source, ctx)
-      onSourcePrepared?.(source)
+      if (!lifecycle?.isPrepared(source)) {
+        await prepareWorkspaceSource(source.source, ctx)
+        lifecycle?.onPrepared(source)
+      }
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
         await store.mkdir(source.mountPath, { recursive: true })
@@ -538,10 +543,11 @@ export async function materializeWorkspaceSources(
           mediaType: item.mediaType,
           metadata: fileMetadata,
         })
+        const tracked = Object.hasOwn(itemMetadata, path)
         itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
-        persistedBytesDelta += (written.size || 0) - (previousFile ? contentSize(previousFile.content) : 0)
+        persistedBytesDelta += (written.size || 0) - (previousFile && tracked ? contentSize(previousFile.content) : 0)
         const unchanged = previousFile && (comparedStream
           ? comparedStream.unchanged()
           : contentEquals(previousFile.content, entry.content ?? ""))

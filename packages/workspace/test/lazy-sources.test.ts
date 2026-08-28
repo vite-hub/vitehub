@@ -15,7 +15,7 @@ const globSource = glob
 const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
-import type { SourceContext, WorkspaceMaterializeSourcesProgressEvent } from "../src/core/types.ts"
+import type { SourceContext, WorkspaceDefinition, WorkspaceMaterializeSourcesProgressEvent } from "../src/core/types.ts"
 
 const tempDirs: string[] = []
 
@@ -97,7 +97,7 @@ describe("lazy sources", () => {
   })
 
   it("exposes source-backed behavior through the source view seam", async () => {
-    const definition = {
+    const definition: WorkspaceDefinition = {
       name: "source-view",
       sources: {
         docs: custom({
@@ -936,6 +936,40 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/guides/untracked.md")).resolves.toBeUndefined()
   })
 
+  it("excludes replaced untracked files from scoped snapshot byte deltas", async () => {
+    const store = createMemoryWorkspaceStore()
+    let files = ["reference/b.md"]
+    const view = createWorkspaceSourceView({
+      name: "materialization-scoped-untracked-replacement",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return files
+          },
+          async getItem(key) {
+            return { key, path: key, content: key.endsWith("a.md") ? "# A\n" : "# BB\n" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    await store.writeFile("docs/guides/a.md", {
+      path: "docs/guides/a.md",
+      content: "untracked content longer than the source file",
+    })
+    files = ["guides/a.md", "reference/b.md"]
+    await view.materializeSources({ path: "docs/guides", sources: ["docs"] })
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 9,
+      files: 2,
+      sources: [{ bytes: 9, cacheStatus: "hit", files: 2 }],
+    })
+  })
+
   it("composes concurrent scoped materialization snapshots", async () => {
     const files = new Map([
       ["a.md", "# A\n"],
@@ -1222,7 +1256,9 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ path: "docs", sources: ["docs"] })).resolves.toMatchObject({
       sources: [expect.objectContaining({ status: "error" })],
     })
-    await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md\n")
+    await expect(view.glob("docs/**")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/a.md", type: "file" }),
+    ]))
     expect(getKeys).toHaveBeenCalledTimes(3)
   })
 
@@ -1335,14 +1371,9 @@ describe("lazy sources", () => {
     })
   })
 
-  it("reports unchanged files when the Store omits optional file attributes", async () => {
-    const store = createMemoryWorkspaceStore()
-    const readFile = store.readFile.bind(store)
-    store.readFile = async (path) => {
-      const file = await readFile(path)
-      return file && { path: file.path, content: file.content }
-    }
-    const view = createWorkspaceSourceView({
+  it("reports unchanged files after a Local Store restart omits optional file attributes", async () => {
+    const root = await createRoot()
+    const definition = {
       name: "attribute-less-materialization-deltas",
       sources: {
         docs: custom({
@@ -1362,10 +1393,11 @@ describe("lazy sources", () => {
           },
         }),
       },
-    }, store)
+    }
 
-    await view.materializeSources({ sources: ["docs"] })
-    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+    await createWorkspaceSourceView(definition, createLocalWorkspaceStore(root)).materializeSources({ sources: ["docs"] })
+    const restarted = createWorkspaceSourceView(definition, createLocalWorkspaceStore(root))
+    await expect(restarted.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
       sources: [{
         counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
         paths: [{ path: "docs/a.md", status: "unchanged" }],

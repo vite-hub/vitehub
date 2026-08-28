@@ -54,6 +54,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
+  const preparedSources = new Set<string>()
   const materializationPreparationBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   const materializeBySource = new Map<string, Promise<void>>()
@@ -69,8 +70,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         .filter(source => !options?.sources?.length || options.sources.includes(source.key))
         .map(async source => await prepareBySource.get(source.key)?.catch(() => undefined)))
       options?.abortSignal?.throwIfAborted()
-      return await materializeWorkspaceSources(definition, store, options, getSourceContext, (source) => {
-        prepareBySource.set(source.key, Promise.resolve())
+      return await materializeWorkspaceSources(definition, store, options, {
+        getContext: getSourceContext,
+        isPrepared: source => preparedSources.has(source.key),
+        onPrepared(source) {
+          preparedSources.add(source.key)
+          prepareBySource.set(source.key, Promise.resolve())
+        },
       })
     })
     materializationQueue = pending.then(() => undefined, () => undefined)
@@ -214,7 +220,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await materializationPreparationBySource.get(sourceKey)
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
-      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)
+      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(
+        () => {
+          preparedSources.add(sourceKey)
+        },
+        (error) => {
+          prepareBySource.delete(sourceKey)
+          throw error
+        },
+      )
       prepareBySource.set(sourceKey, pending)
     }
     await pending

@@ -237,9 +237,6 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
 
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
   const overrides = Object.entries({
-    // Workflow's broad Nest peers must stay on one major when pnpm resolves the packed graph.
-    "@nestjs/common": "11.2.3",
-    "@nestjs/core": "11.2.3",
     ...specs,
     ...additionalOverrides,
   })
