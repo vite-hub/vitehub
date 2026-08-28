@@ -1098,7 +1098,10 @@ function withCapturedStreamUsage<T extends {
   result: T,
   captures: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
-  const wrap = (getStream: () => AsyncIterable<unknown>): ReadableStream<unknown> => {
+  const wrap = (getStream: () => AsyncIterable<unknown>): {
+    cancel: (reason?: unknown) => Promise<IteratorResult<unknown>>
+    stream: ReadableStream<unknown>
+  } => {
     let reader: ReadableStreamDefaultReader<unknown> | undefined
     let iterator: AsyncIterator<unknown> | undefined
     let directCancel: ((reason?: unknown) => unknown) | undefined
@@ -1208,7 +1211,7 @@ function withCapturedStreamUsage<T extends {
       // SAFETY: drain always buffers the terminal iterator result before it resolves.
       return buffered.shift()!
     }
-    return new ReadableStream({
+    const stream = new ReadableStream({
       pull(controller) {
         primaryCapture?.start(drain)
         void next().then(
@@ -1228,6 +1231,7 @@ function withCapturedStreamUsage<T extends {
         void Promise.resolve(wrapped.return?.(reason)).catch(() => undefined)
       },
     }, { highWaterMark: 0 })
+    return { cancel: cancelSource, stream }
   }
   const toUIMessageStream = result.toUIMessageStream
   const hasStream = "stream" in result
@@ -1237,10 +1241,11 @@ function withCapturedStreamUsage<T extends {
   const wrappedStream = hasStream ? wrap(() => result.stream!) : undefined
   const wrappedFullStream = hasFullStream ? wrap(() => result.fullStream!) : undefined
   const wrappedTextStream = hasTextStream ? wrap(() => result.textStream!) : undefined
+  const cancelUiMessageSource = wrappedFullStream?.cancel ?? wrappedStream?.cancel ?? wrappedTextStream?.cancel
   return cloneStreamTextResult(result, {
-    ...(wrappedStream ? { stream: wrappedStream } : {}),
-    ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
-    ...(wrappedTextStream ? { textStream: wrappedTextStream } : {}),
+    ...(wrappedStream ? { stream: wrappedStream.stream } : {}),
+    ...(wrappedFullStream ? { fullStream: wrappedFullStream.stream } : {}),
+    ...(wrappedTextStream ? { textStream: wrappedTextStream.stream } : {}),
     ...(toUIMessageStream
       ? {
           toUIMessageStream(this: typeof result, ...args: unknown[]) {
@@ -1300,6 +1305,7 @@ function withCapturedStreamUsage<T extends {
                 const primaryCapture = captures()[0]
                 primaryCapture?.start()
                 try {
+                  void cancelUiMessageSource?.(reason).catch(() => undefined)
                   await getReader().cancel(reason)
                 }
                 finally {
