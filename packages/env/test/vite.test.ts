@@ -11,7 +11,7 @@ import {
   ModuleResolutionKind,
   ScriptTarget,
 } from "typescript"
-import { build } from "vite"
+import { build, resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
@@ -538,43 +538,29 @@ describe("Vite plugin", () => {
     expect(secondModule).not.toContain(`${firstRoot}/server/provider.mjs`)
   })
 
-  it("keeps server registries scoped to same-root Vite configurations", async () => {
+  it("rejects incompatible Env configurations that generate into the same project root", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-same-root-"))
     const plugin = hubEnv()
-    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
-    const firstEnvironmentConfig = { root }
-    const secondEnvironmentConfig = { root }
-    const firstConfig = {
-      env: { server: { first: env({ source: env.source("FIRST_TOKEN") }) } },
-      environments: { client: firstEnvironmentConfig },
-      logger: { info: vi.fn() },
-      mode: "production",
+    const resolve = (key: string) => resolveConfig({
+      configFile: false,
+      env: { server: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) } },
+      logLevel: "silent",
+      plugins: [plugin],
       root,
-    }
-    const secondConfig = {
-      env: { server: { second: env({ source: env.source("SECOND_TOKEN") }) } },
-      environments: { client: secondEnvironmentConfig },
-      logger: { info: vi.fn() },
-      mode: "production",
-      root,
-    }
+    }, "serve", "development")
 
-    const [firstResult, secondResult] = await Promise.all([
-      configHook(firstConfig, { command: "build", mode: "production" }),
-      configHook(secondConfig, { command: "build", mode: "production" }),
-    ])
-    Object.assign(firstConfig, firstResult)
-    Object.assign(secondConfig, secondResult)
-    await Promise.all([configResolvedHook(firstConfig), configResolvedHook(secondConfig)])
+    const results = await Promise.allSettled([resolve("first"), resolve("second")])
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    const rejected = results.find(result => result.status === "rejected")
+    expect(rejected).toMatchObject({
+      reason: expect.objectContaining({
+        message: expect.stringContaining("cannot resolve incompatible Env configurations for the same project root"),
+      }),
+      status: "rejected",
+    })
 
-    const loadHook = plugin.load as (this: unknown, id: string) => string
-    const firstModule = loadHook.call({ environment: { config: firstEnvironmentConfig } }, "\0#vitehub/env/server")
-    const secondModule = loadHook.call({ environment: { config: secondEnvironmentConfig } }, "\0#vitehub/env/server")
-    expect(firstModule).toContain("FIRST_TOKEN")
-    expect(firstModule).not.toContain("SECOND_TOKEN")
-    expect(secondModule).toContain("SECOND_TOKEN")
-    expect(secondModule).not.toContain("FIRST_TOKEN")
+    const generated = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    expect(generated.includes("FIRST_TOKEN")).not.toBe(generated.includes("SECOND_TOKEN"))
   })
 
   it("applies prefixes to inferred Vite env names", async () => {

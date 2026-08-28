@@ -87,6 +87,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   const resolvedStates = new Map<string, ResolvedEnvState>()
+  const generatedStateSignatures = new Map<string, string>()
   const resolvedConfigStates = new WeakMap<object, ResolvedEnvState>()
   const pendingConfigStates = new Map<string, ResolvedEnvState>()
   const configStateKey = `__vitehubEnvState${++envVitePluginSequence}`
@@ -192,6 +193,12 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const state = pendingConfigStates.get(configStateId) ?? resolvedStates.get(projectRoot)
       if (!state) throw new Error(`Missing resolved Env state for ${projectRoot}`)
       pendingConfigStates.delete(configStateId)
+      const generatedStateSignature = createGeneratedStateSignature(projectRoot, state, runtimeImports)
+      const existingGeneratedStateSignature = generatedStateSignatures.get(projectRoot)
+      if (existingGeneratedStateSignature && existingGeneratedStateSignature !== generatedStateSignature) {
+        throw new TypeError(`[vitehub] One hubEnv() plugin cannot resolve incompatible Env configurations for the same project root ${JSON.stringify(projectRoot)}.`)
+      }
+      generatedStateSignatures.set(projectRoot, generatedStateSignature)
       resolvedConfigStates.set(config, state)
       for (const environmentConfig of Object.values(config.environments || {})) {
         resolvedConfigStates.set(environmentConfig, state)
@@ -236,6 +243,21 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       )
     },
   }
+}
+
+function createGeneratedStateSignature(
+  root: string,
+  state: ResolvedEnvState,
+  runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+): string {
+  const publicTypes = createPublicTypeEntries(state.publicConfig)
+  return JSON.stringify([
+    createViteTypes(publicTypes, state.serverRegistry, runtimeImports),
+    createPublicEnvModule(state.publicConfig),
+    createPublicEnvModuleTypes(publicTypes),
+    createServerEnvModule(state.serverRegistry, runtimeImports, state.providerModules, viteHubEnvServerModulePath(root)),
+    createServerEnvModuleTypes(state.serverRegistry, runtimeImports),
+  ])
 }
 
 async function prepareEnvGeneratedTypes(
