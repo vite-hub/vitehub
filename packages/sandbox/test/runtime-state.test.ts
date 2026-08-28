@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 
-import { createGeneratedSandboxRuntimeRegistry } from "../src/runtime/state.ts"
+import { createGeneratedSandboxModuleSpecifier, createGeneratedSandboxRuntimeRegistry } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
 
@@ -48,4 +48,12 @@ it("resolves the active Windows generation when a retained registry generation w
   await rm(join(generationsDir, "runtime-current"), { recursive: true })
   await writeFile(activeFacade, `export default { example: async () => import(${JSON.stringify(pathToFileURL(nextDefinition).href)}) }\n`)
   await expect(loadRetainedDefinition()).resolves.toMatchObject({ default: { bundle: { value: "next" } } })
+})
+
+it("encodes URL-significant filesystem characters in recovery specifiers", () => {
+  const path = join(tmpdir(), "vitehub-sandbox-#%-runtime", "sandbox.mjs")
+  const specifier = createGeneratedSandboxModuleSpecifier(path, true)
+
+  expect(specifier).toContain("vitehub-sandbox-%23%25-runtime")
+  expect(new URL(specifier).searchParams.has("vitehub-recovery")).toBe(true)
 })

@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url'
+
 import type { AgentSandboxConfig } from '../module-types'
 import type { SandboxDefinitionBundle, SandboxDefinitionOptions } from '../module-types'
 
@@ -23,13 +25,9 @@ function isMissingGeneratedSandboxModule(error: unknown) {
   return code === 'ENOENT' || code === 'ERR_MODULE_NOT_FOUND'
 }
 
-function createGeneratedSandboxModuleSpecifier(path: string, recover = false) {
+export function createGeneratedSandboxModuleSpecifier(path: string, recover = false) {
   const normalizedPath = path.replaceAll('\\', '/')
-  const url = new URL(
-    normalizedPath.startsWith('file:')
-      ? normalizedPath
-      : normalizedPath.startsWith('/') ? `file://${normalizedPath}` : `file:///${normalizedPath}`,
-  )
+  const url = normalizedPath.startsWith('file:') ? new URL(normalizedPath) : pathToFileURL(normalizedPath)
   if (recover)
     url.searchParams.set('vitehub-recovery', String(++generatedRegistryRecoveryId))
   return url.href
