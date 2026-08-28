@@ -1,4 +1,4 @@
-import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -309,6 +309,105 @@ describe("Provider Agent Driver", () => {
     finally {
       platform.mockRestore()
       await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists deletion of an existing top-level Codex home entry", async () => {
+    const threadId = "thread-delete-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const sharedConfig = join(sharedHome, "config.toml")
+    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      await rm(join(String(options.settings?.homePath), "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists rename of an existing top-level Codex home entry", async () => {
+    const threadId = "thread-rename-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const sharedConfig = join(sharedHome, "config.toml")
+    const renamedConfig = join(sharedHome, "config.previous.toml")
+    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "config.toml"), join(shadowHome, "config.previous.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("removes owned Codex home links without removing or replacing their referents", async () => {
+    const threadId = "thread-delete-linked-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const originalReferent = join(externalHome, "original.toml")
+    const replacementReferent = join(externalHome, "replacement.toml")
+    const removedLink = join(sharedHome, "removed.toml")
+    const replacedLink = join(sharedHome, "replaced.toml")
+    await writeFile(originalReferent, "original = true\n")
+    await writeFile(replacementReferent, "replacement = true\n")
+    await symlink(originalReferent, removedLink)
+    await symlink(originalReferent, replacedLink)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rm(join(shadowHome, "removed.toml"))
+      await rm(join(shadowHome, "replaced.toml"))
+      await rm(replacedLink)
+      await symlink(replacementReferent, replacedLink)
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(removedLink)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(originalReferent, "utf8")).toBe("original = true\n")
+      expect(await readlink(replacedLink)).toBe(replacementReferent)
+      expect(await readFile(replacementReferent, "utf8")).toBe("replacement = true\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
     }
   })
 
@@ -656,33 +755,6 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     finally {
       await rm(sharedHome, { force: true, recursive: true })
       await rm(externalHome, { force: true, recursive: true })
-    }
-  })
-
-  it("persists removals from the Codex credential overlay", async () => {
-    const threadId = "thread-shared-codex-home-removal"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const sharedConfig = join(sharedHome, "config.toml")
-    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      await rm(join(String(options.settings?.homePath), "config.toml"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
     }
   })
 
