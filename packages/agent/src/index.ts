@@ -4808,11 +4808,6 @@ async function finishAgentInvocation<
         }
       }
     }
-    if (!failed && usage) {
-      assignResolvedUsageRecord(result, usage)
-      const raw = toAgentRunResult(result).raw
-      if (raw !== result) assignResolvedUsageRecord(raw, usage)
-    }
     if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
@@ -5267,7 +5262,7 @@ async function executeAgentInvocationWithCapacityLease<
       ? customRun && options.renderOutput && isAsyncIterable(result)
       : isAsyncIterable(result) && !invocation.finalOutputRenderers.length
     if (shouldRenderStream) {
-      rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length
+      rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length && !isUIMessageStreamResult(result)
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         ? nonBlockingPendingAsyncIterableSource(result as AsyncIterable<unknown>)
         : undefined
@@ -5920,7 +5915,7 @@ async function executeAgentInvocationWithCapacityLease<
         const reason = outcome.failed ? outcome.error : undefined
         const uiSources = [...uiMessageSources.values()]
         await Promise.allSettled(uiSources.map(source => source.cancel(reason)))
-        const settleUiSources = outcome.failed || outcome.completed
+        const settleUiSources = outcome.failed || outcome.completed || !rendererSource
         const cancellations = await Promise.allSettled([
           ...(rendererSource ? [rendererSource.settleCancellation(reason)] : []),
           ...(settleUiSources ? uiSources.map(source => source.settleCancellation(reason)) : []),
