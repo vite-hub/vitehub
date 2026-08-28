@@ -268,6 +268,29 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       credentials: '{"tokens":{"access_token":"secret"}}',
       provider: "codex",
     }).generate(context(threadId) as never)
+  }, 15_000)
+
+  it("uses CODEX_HOME as the shared Codex home", async () => {
+    const threadId = "thread-environment-codex-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-environment-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      await createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        env: { CODEX_HOME: sharedHome },
+        provider: "codex",
+      }).generate(context(threadId) as never)
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
   })
 
   it("excludes private Codex home entries case-insensitively on macOS", async () => {
@@ -397,6 +420,42 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     finally {
       releaseFirst()
       await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("serializes symlink aliases for the same Codex home", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const aliasRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-home-alias-"))
+    const alias = join(aliasRoot, "codex")
+    await symlink(sharedHome, alias)
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
+    const first = runtime("thread-home-alias-first", [event("turn.completed", "thread-home-alias-first", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => firstBlocked,
+    })
+    runtime("thread-home-alias-second", [event("turn.completed", "thread-home-alias-second", { state: "completed" }, { turnId: "turn-1" })])
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      const firstInvocation = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: sharedHome } })
+        .generate(context("thread-home-alias-first") as never)
+      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      const secondInvocation = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: alias } })
+        .generate(context("thread-home-alias-second") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseFirst()
+      await expect(firstInvocation).resolves.toBeDefined()
+      await expect(secondInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseFirst()
+      await Promise.all([
+        rm(sharedHome, { force: true, recursive: true }),
+        rm(aliasRoot, { force: true, recursive: true }),
+      ])
     }
   })
 

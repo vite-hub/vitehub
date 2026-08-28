@@ -1,7 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, copyFile, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
@@ -232,8 +232,9 @@ function resolveCodexSharedHome(homePath: unknown, environment: NodeJS.ProcessEn
   if (homePath !== undefined && !hasRuntimeType(homePath, "string")) {
     throw new TypeError("[vitehub] Codex Driver provider setting homePath must be a string when credentials are configured.")
   }
-  const base = environment.HOME || environment.USERPROFILE || homedir()
   const configured = homePath?.trim()
+  if (!configured && environment.CODEX_HOME?.trim()) return resolve(environment.CODEX_HOME)
+  const base = environment.HOME || environment.USERPROFILE || homedir()
   if (!configured) return resolve(base, ".codex")
   if (configured === "~") return resolve(base)
   if (configured.startsWith("~/") || configured.startsWith("~\\")) return resolve(base, configured.slice(2))
@@ -1390,6 +1391,8 @@ async function* runProvider<
     }
     if (credentialHome) {
       credentialSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
+      await mkdir(credentialSharedHome, { recursive: true })
+      credentialSharedHome = await realpath(credentialSharedHome)
       const sharedHomeKey = providerHostPlatform === "win32" || providerHostPlatform === "darwin" ? credentialSharedHome.toLowerCase() : credentialSharedHome
       releaseCredentialHomeLock = await acquireProviderSessionLock(codexSharedHomeLocks, sharedHomeKey, effectiveSignal)
       await materializeCodexCredentialOverlay(credentialHome, credentialSharedHome)
