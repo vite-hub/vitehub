@@ -13,7 +13,7 @@ function mainError(errors: unknown[]): unknown {
   let selectedCount = 0
 
   for (const error of errors) {
-    const message = error && typeof error === "object" ? Reflect.get(error, "message") : undefined
+    const message = error ? Reflect.get(Object(error), "message") : undefined
     const count = (counts.get(message) ?? 0) + 1
     counts.set(message, count)
     if (count >= selectedCount) {
@@ -48,7 +48,7 @@ export default async function retry<T>(
       return result
     }
     catch (error) {
-      if (bailError !== undefined || (error && typeof error === "object" && Reflect.get(error, "bail")) || Number.isNaN(retries)) throw error
+      if (bailError !== undefined || (error && Reflect.get(Object(error), "bail")) || Number.isNaN(retries)) throw error
       errors.push(error)
       if (attempt > retries) throw mainError(errors)
       options.onRetry?.(error, attempt)
