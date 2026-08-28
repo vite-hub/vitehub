@@ -58,6 +58,11 @@ const optionalPeerExports = new Map<string, readonly string[]>([
 const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/agent", ["@vite-hub/workflow"]],
   ["@vite-hub/agent/runtime/workflow", ["@vite-hub/workflow"]],
+  ["@vite-hub/browser/controllers/playwright", ["playwright-core"]],
+  ["@vite-hub/blob/drivers/files-sdk", ["files-sdk"]],
+  ["@vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
+  ["@vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
+  ["vite-hub/browser/controllers/playwright", ["playwright-core"]],
 ])
 
 function optionalDeclarationPeersForExport(specifier: string, subpath: string) {

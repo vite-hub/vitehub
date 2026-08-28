@@ -50,11 +50,21 @@ describe("public package export contracts", () => {
     }
   })
 
-  it("keeps lazy Agent Workflow imports runnable without their declaration peer", () => {
-    for (const specifier of ["@vite-hub/agent", "@vite-hub/agent/runtime/workflow"]) {
+  it("keeps lazy optional peer exports runnable without their declaration peers", () => {
+    const lazyPeerExports = new Map<string, string>([
+      ["@vite-hub/agent", "@vite-hub/workflow"],
+      ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
+      ["@vite-hub/browser/controllers/playwright", "playwright-core"],
+      ["@vite-hub/blob/drivers/files-sdk", "files-sdk"],
+      ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
+      ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
+      ["vite-hub/browser/controllers/playwright", "playwright-core"],
+    ])
+
+    for (const [specifier, peer] of lazyPeerExports) {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === specifier)
-      expect(contract?.optionalRuntimePeers).not.toContain("@vite-hub/workflow")
-      expect(contract?.optionalDeclarationPeers).toContain("@vite-hub/workflow")
+      expect(contract?.optionalRuntimePeers).not.toContain(peer)
+      expect(contract?.optionalDeclarationPeers).toContain(peer)
     }
   })
 
@@ -80,13 +90,19 @@ describe("public package export contracts", () => {
     expect(source).not.toMatch(/from ["']h3["']/)
   })
 
-  it("points every contract at a built artifact and declared optional peers", () => {
+  it("points every contract at a built artifact", () => {
     for (const contract of publicPackageExportContracts) {
       const info = packageInfos.find(info => info.packageName === contract.packageName)!
-      const manifest = readPackageManifest(info.name)
       const target = join(packageDir(info.name), contract.target.replace(/^\.\//, ""))
 
       expect(existsSync(target), `${contract.specifier} should publish ${contract.target}`).toBe(true)
+    }
+  })
+
+  it("declares every optional peer used by an export contract", () => {
+    for (const contract of publicPackageExportContracts) {
+      const info = packageInfos.find(info => info.packageName === contract.packageName)!
+      const manifest = readPackageManifest(info.name)
       for (const peer of new Set([...contract.optionalDeclarationPeers, ...contract.optionalRuntimePeers])) {
         expect(manifest.peerDependencies?.[peer], `${contract.specifier} should declare ${peer}`).toEqual(expect.any(String))
         expect(manifest.peerDependenciesMeta?.[peer]?.optional, `${contract.specifier} should keep ${peer} optional`).toBe(true)
