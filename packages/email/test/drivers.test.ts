@@ -404,6 +404,23 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("rejects a custom unsubscribe header that omits a configured non-one-click target", async () => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(
+      driver.send(
+        {
+          ...message,
+          headers: { "List-Unsubscribe": "<mailto:other@example.com>" },
+          unsubscribe: { mailto: "leave@example.com", oneClick: false },
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it.each(["", "List-Unsubscribe=No"])(
     "rejects an invalid one-click unsubscribe post header %j before dispatch",
     async (post) => {
@@ -886,6 +903,27 @@ describe("Cloudflare Email driver", () => {
           ...message,
           headers: { "List-Unsubscribe": "<mailto:leave@example.com>" },
           unsubscribe: { url: "https://example.com/unsubscribe" },
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("rejects a custom unsubscribe header that omits a configured non-one-click target", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(
+      driver.send(
+        {
+          ...message,
+          headers: { "List-Unsubscribe": "<mailto:other@example.com>" },
+          unsubscribe: { mailto: "leave@example.com", oneClick: false },
         },
         context,
       ),

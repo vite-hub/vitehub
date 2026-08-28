@@ -151,16 +151,16 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   }
   const existingListUnsubscribe = listUnsubscribeValues[0];
   const existingListUnsubscribePost = listUnsubscribePostValues[0];
-  if (
-    oneClickEnabled &&
-    normalizedUrl &&
+  const missingTarget =
     existingListUnsubscribe !== undefined &&
-    !hasListUnsubscribeTarget(existingListUnsubscribe, normalizedUrl)
-  ) {
+    [normalizedUrl, mailto ? `mailto:${mailto}` : undefined]
+      .filter((target) => target !== undefined)
+      .some((target) => !hasListUnsubscribeTarget(existingListUnsubscribe, target));
+  if (missingTarget) {
     throw emailProviderError(
       driver,
       "INVALID_OPTIONS",
-      "one-click unsubscribe requires List-Unsubscribe to contain its HTTPS URL.",
+      "List-Unsubscribe must contain every configured unsubscribe target.",
     );
   }
   if (values.length > 0 && existingListUnsubscribe === undefined)
