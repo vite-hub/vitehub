@@ -108,8 +108,9 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
   }
 
   // SAFETY: This module owns the private synchronization member attached to its Workspace facade.
-  ;(workspace as WorkspaceWithDefinitionSync).__workspaceDefinitionSyncKey = definition
-  ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async (abortSignal) => {
+  const synchronizedWorkspace = workspace as WorkspaceWithDefinitionSync
+  synchronizedWorkspace.__workspaceDefinitionSyncKey = definition
+  synchronizedWorkspace.__syncWorkspaceDefinition = async (abortSignal) => {
     const { syncWorkspaceDefinition } = await import("../lifecycle.ts")
     await syncWorkspaceDefinition(definition, store, abortSignal)
   }

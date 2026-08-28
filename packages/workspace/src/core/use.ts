@@ -68,8 +68,10 @@ interface WorkspaceDefinitionSyncState {
 const workspaceDefinitionSyncStates = new WeakMap<object, WeakMap<object, WorkspaceDefinitionSyncState>>()
 
 async function workspaceDefinitionSyncState(workspace: Workspace): Promise<WorkspaceDefinitionSyncState> {
+  // SAFETY: Workspace metadata forwarding owns the private target accessor attached to Workspace facades.
   const target = await (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
-  const owner = target && typeof target === "object" ? target : workspace
+  const owner = target ?? workspace
+  // SAFETY: Workspace creation owns the private synchronization key attached to Workspace facades.
   const key = (workspace as WorkspaceWithDefinitionSync).__workspaceDefinitionSyncKey ?? workspace
   let states = workspaceDefinitionSyncStates.get(owner)
   if (!states) {
@@ -306,6 +308,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       return await next
     },
     async readFile(path, options) {
+      // SAFETY: The facade preserves the readFile overload selected by its caller.
       return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)
     },
     async writeFile(path, content, options) {
