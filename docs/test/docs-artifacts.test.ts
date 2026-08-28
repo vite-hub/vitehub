@@ -123,6 +123,21 @@ describe("writeDocsArtifacts", () => {
     );
   });
 
+  it("keeps link-like text inside multiline inline HTML literal", () => {
+    expect(toRawMarkdown([
+      "<span",
+      " title =",
+      ' "[literal](/docs/literal)"',
+      ">label</span> [rendered](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "<span",
+      " title =",
+      ' "[literal](/docs/literal)"',
+      ">label</span> [rendered](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
   it("keeps link-like text inside inline HTML forms literal", () => {
     expect(toRawMarkdown([
       "Text <!-- [comment](/docs/comment) --> [rendered](/docs/rendered)",
@@ -174,6 +189,22 @@ describe("writeDocsArtifacts", () => {
       "<custom-tag>",
       "[rendered](https://vitehub.dev/docs/rendered)",
       "",
+    ].join("\n"));
+  });
+
+  it("keeps type-7 HTML in lazy blockquote paragraph continuations", () => {
+    expect(toRawMarkdown([
+      "> Paragraph",
+      "<custom-tag>",
+      "[rendered](/docs/rendered)",
+      "::warning",
+      "Rendered warning.",
+      "::",
+    ].join("\n"))).toContain([
+      "> Paragraph",
+      "<custom-tag>",
+      "[rendered](https://vitehub.dev/docs/rendered)",
+      "> **Warning**",
     ].join("\n"));
   });
 
@@ -578,6 +609,21 @@ describe("writeDocsArtifacts", () => {
         pid: 2_147_483_647,
         token: "abandoned-recovery",
       }));
+      utimesSync(lockDir, new Date(0), new Date(0));
+
+      expect(recoverAbandonedLock(lockDir)).toBe(true);
+      expect(existsSync(lockDir)).toBe(false);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("recovers a schema-invalid lock owner", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-invalid-owner-"));
+    const lockDir = resolve(rootDir, ".raw-artifacts.lock");
+
+    try {
+      writeText(resolve(lockDir, "owner.json"), "{}");
       utimesSync(lockDir, new Date(0), new Date(0));
 
       expect(recoverAbandonedLock(lockDir)).toBe(true);

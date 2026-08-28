@@ -362,7 +362,7 @@ function rewriteInlineLinks(source: string) {
   let htmlPlaceholderPrefix = "__VITEHUB_RAW_HTML_TAG_";
   while (protectedSource.includes(htmlPlaceholderPrefix)) htmlPlaceholderPrefix += "_";
   protectedSource = protectedSource.replace(
-    /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<![A-Z][^>]*>|<!\[CDATA\[[\s\S]*?\]\]>|<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>/g,
+    /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<![A-Z][^>]*>|<!\[CDATA\[[\s\S]*?\]\]>|<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t\n]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t\n]*=[ \t\n]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t\n]*\/?>/g,
     (tag) => `${htmlPlaceholderPrefix}${htmlTags.push(tag) - 1}__`,
   );
 
@@ -418,7 +418,7 @@ function rewriteLinks(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
     const quoteDepth = leadingQuoteDepth(referenceContainer(line));
-    const lazyTypeSevenContinuation = typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth;
+    const lazyTypeSevenContinuation = typeSevenHtml && paragraphOpen && quoteDepth <= paragraphQuoteDepth;
     if (
       paragraphOpen
       && exitsMarkdownContainer(line, paragraphListIndent, paragraphQuoteDepth)
@@ -597,7 +597,7 @@ function cardListsOutsideFences(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const quoteDepth = leadingQuoteDepth(referenceContainer(line));
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
-    if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
+    if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth <= paragraphQuoteDepth)) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
@@ -757,7 +757,7 @@ function stripPresentationDirectives(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const quoteDepth = leadingQuoteDepth(referenceContainer(deindented));
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
-    if (nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
+    if (nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth <= paragraphQuoteDepth)) {
       output.push(deindented);
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
         const htmlContainer = markdownContainer(deindented);
