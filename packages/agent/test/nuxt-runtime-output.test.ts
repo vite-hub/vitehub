@@ -95,16 +95,20 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 180
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
 import { defineAgent, runAgentInline } from "@vite-hub/agent"
-import { mcp } from "@vite-hub/agent/capabilities"
+import { executor, mcp } from "@vite-hub/agent/capabilities"
 
 const agent = defineAgent({ driver: { env: { PATH: "" }, kind: "codex" }, runtime: false })
+const optionalServer = false as boolean
+const executorCapability = executor(false)
 const capability = mcp({
   servers: {
+    optional: optionalServer ? { transport: { type: "http", url: "http://127.0.0.1:1/optional" } } : undefined,
     proof: { transport: { type: "http", url: "http://127.0.0.1:1/mcp" } },
   },
 })
 
 export default defineEventHandler(async () => {
+  await executorCapability.resolve?.({ tools: { add() {} } } as never)
   let mcp = "loaded"
   let provider = "loaded"
   try {
@@ -123,7 +127,7 @@ export default defineEventHandler(async () => {
     if (message.includes("Cannot find") && message.includes("@t3tools/provider-runtime")) throw error
     provider = "loaded-before-cli-error"
   }
-  return { mcp, provider }
+  return { executor: executorCapability.id, mcp, provider }
 })
 `, "utf8")
 
@@ -157,6 +161,7 @@ export default defineEventHandler(async () => {
       const response = await requestWhenReady(`http://127.0.0.1:${port}/api/proof`)
       expect(response.status, `${await response.clone().text()}\n${stderr}`).toBe(200)
       await expect(response.json()).resolves.toEqual({
+        executor: "executor",
         mcp: "loaded-before-transport-error",
         provider: "loaded-before-cli-error",
       })

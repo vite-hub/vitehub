@@ -15,14 +15,17 @@ const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: {
   environment?: Record<string, string>
   settings?: Record<string, unknown>
 }) => providerRuntimes.shift()))
-const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
+const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
+  ? "/app/node_modules/@openai/codex/bin/codex.js"
+  : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
 const readCodexSharedHome = vi.hoisted(() => vi.fn())
 const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
 const beforeCodexCredentialChmod = vi.hoisted(() => vi.fn())
 const beforeCodexHomeSymlink = vi.hoisted(() => vi.fn())
+const beforeCodexHomeLink = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
-vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
+vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>()
   return {
@@ -30,6 +33,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     chmod: async (...args: Parameters<typeof original.chmod>) => {
       await beforeCodexCredentialChmod(...args)
       return await original.chmod(...args)
+    },
+    link: async (...args: Parameters<typeof original.link>) => {
+      await beforeCodexHomeLink(...args)
+      return await original.link(...args)
     },
     readdir: (...args: Parameters<typeof original.readdir>) => readCodexSharedHome.getMockImplementation()
       ? readCodexSharedHome(...args)
@@ -156,7 +163,7 @@ describe("Provider Agent Driver", () => {
   it("keeps the host Codex executable fallback when the package is absent", async () => {
     const threadId = "thread-host-codex"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    resolveInstalledCodexExecutable.mockReturnValueOnce(undefined)
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
@@ -177,6 +184,18 @@ describe("Provider Agent Driver", () => {
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
       settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
+    }))
+  })
+
+  it("uses the installed Claude SDK executable", async () => {
+    const threadId = "thread-project-claude"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: { binaryPath: "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude" },
     }))
   })
 
@@ -529,6 +548,37 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
         join(sharedHome, "skills"),
         expect.stringContaining("vitehub-codex-shadow-home-"),
         "junction",
+      )
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("uses Windows hard links for linked shared Codex home files", async () => {
+    const threadId = "thread-windows-linked-codex-home-file"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const externalConfig = join(externalHome, "config.toml")
+    await writeFile(externalConfig, "model = \"gpt-5.6-sol\"\n")
+    await symlink(externalConfig, join(sharedHome, "config.toml"))
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(beforeCodexHomeLink).toHaveBeenCalledWith(
+        join(sharedHome, "config.toml"),
+        expect.stringContaining("vitehub-codex-shadow-home-"),
       )
     }
     finally {

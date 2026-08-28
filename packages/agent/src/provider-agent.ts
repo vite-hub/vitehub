@@ -16,7 +16,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
-import { resolveInstalledCodexExecutable } from "./internal/codex-runtime-package.ts"
+import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
@@ -320,7 +320,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       linkedEntry = resolvedEntry
     }
     try {
-      if (process.platform === "win32" && sourceEntry.isFile()) {
+      if (process.platform === "win32" && linkedEntry.isFile()) {
         await link(source, target).catch(async (error) => {
           // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           const code = (error as NodeJS.ErrnoException).code
@@ -1423,7 +1423,7 @@ async function* runProvider<
       await workspaceCleanup
       await settleAgentProviderCleanups([credentialCleanup.cleanup(), cleanupRoot()])
     }
-    const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
+    const providerExecutable = resolveInstalledProviderExecutable(options.provider)
     const runtimeEnvironment = providerEnvironment(providerEnvironmentOverrides)
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
@@ -1431,7 +1431,7 @@ async function* runProvider<
       provider: options.provider,
     }
     const providerSettings: Record<string, unknown> = {}
-    if (codexExecutable) providerSettings.binaryPath = codexExecutable
+    if (providerExecutable) providerSettings.binaryPath = providerExecutable
     for (const [key, value] of Object.entries(options.providerSettings || {})) {
       if (value !== undefined) providerSettings[key] = value
     }

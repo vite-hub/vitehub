@@ -68,10 +68,11 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 
-Install the Codex CLI as a project dependency when you select the Codex Driver:
+Install only the provider packages selected by your Agent Definitions:
 
 ```sh
 pnpm add @openai/codex@0.149.1
+pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 ```
 
 ```ts [server/agents/review/agent.ts]
@@ -91,7 +92,7 @@ export default defineAgent({
 })
 ```
 
-Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. For Codex, ViteHub resolves an installed `@openai/codex` package without requiring a global executable. Production self-hosted Node builds on macOS and Linux copy the CLI wrapper and only the build host's native optional package into `.output/server/node_modules`, so build on the same OS and CPU architecture as the deployment host. If the package is absent, ViteHub falls back to `codex` on the host `PATH`; it does not download a runtime during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
+Provider Drivers require a local Node.js host with credentials available to the process. ViteHub resolves an installed `@openai/codex` or `@anthropic-ai/claude-agent-sdk` package without requiring deployment-specific copy scripts. Production self-hosted Node builds on macOS and Linux copy only the build host's native optional package into `.output/server/node_modules`, including the Linux libc variant, so build on the same host type used for deployment. If Codex is absent, ViteHub falls back to `codex` on the host `PATH`. Claude requires the Agent SDK, while a missing native SDK package at runtime retains T3's host `claude` command fallback. ViteHub does not download provider packages during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
 Provider runtime cursors resume a thread while the Agent Definition process remains active. Chat-backed cursors are also partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one. Cursors are process-local and do not survive restarts or resume on another worker; use the Agent Invocation message history as the durable conversation boundary.
 
