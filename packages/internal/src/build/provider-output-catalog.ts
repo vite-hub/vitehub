@@ -85,6 +85,7 @@ export class ProviderOutputCatalog {
   #deploymentContributionSequence = 0
   #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], ProviderDeploymentOutputEntry[]>()
   #deploymentGenerations = new Set<ProviderDeploymentOutputGeneration>()
+  #pendingDeploymentDiscards: Array<Promise<void>> = []
   #takenDeploymentContributions = new Map<ProviderDeploymentOutputContribution, {
     entry: ProviderDeploymentOutputEntry
     entryDiscarded: boolean
@@ -169,7 +170,9 @@ export class ProviderOutputCatalog {
       else this.#deploymentContributions.delete(owner)
     }
     for (const [contribution, taken] of this.#takenDeploymentContributions) {
+      const invalidatedFallbacks = taken.fallbacks.filter(entry => entry.generation === generation)
       taken.fallbacks = taken.fallbacks.filter(entry => entry.generation !== generation)
+      for (const fallback of invalidatedFallbacks) this.#queueDeploymentDiscard(fallback)
       if (taken.entry.generation !== generation) continue
       this.#takenDeploymentContributions.delete(contribution)
       for (const fallback of taken.fallbacks) this.#restoreDeploymentContribution(fallback)
@@ -200,7 +203,7 @@ export class ProviderOutputCatalog {
   }
 
   async prepareDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): Promise<void> {
-    const discarded: Array<Promise<void>> = []
+    const discarded = this.#pendingDeploymentDiscards.splice(0)
     for (const contribution of contributions) {
       const taken = this.#takenDeploymentContributions.get(contribution)
       if (!taken || taken.entryDiscarded || !taken.entry.contribution.discard) continue
@@ -214,7 +217,7 @@ export class ProviderOutputCatalog {
   }
 
   async completeDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): Promise<void> {
-    const discarded: Array<Promise<void>> = []
+    const discarded = this.#pendingDeploymentDiscards.splice(0)
     for (const contribution of contributions) {
       const taken = this.#takenDeploymentContributions.get(contribution)
       if (!taken) continue
@@ -250,6 +253,13 @@ export class ProviderOutputCatalog {
     entries.sort((left, right) => left.sequence - right.sequence)
     this.#deploymentContributions.set(entry.contribution.owner, entries)
   }
+
+  #queueDeploymentDiscard(entry: ProviderDeploymentOutputEntry): void {
+    if (!entry.contribution.discard) return
+    const discard = Promise.resolve().then(entry.contribution.discard)
+    void discard.catch(() => {})
+    this.#pendingDeploymentDiscards.push(discard)
+  }
 }
 
 const providerOutputCatalogRegistry = globalThis as typeof globalThis & {
@@ -267,6 +277,7 @@ export function createProviderOutputCatalog(): ProviderOutputCatalog {
   return new ProviderOutputCatalog()
 }
 
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- The Vite config object's identity is the complete catalog ownership contract.
 export function useProviderOutputCatalog(config: object): ProviderOutputCatalog {
   // SAFETY: The symbol property is optional and stores only ProviderOutputCatalog values on config objects owned by this module.
   const owner = config as ProviderOutputCatalogOwner

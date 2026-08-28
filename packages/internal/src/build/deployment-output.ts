@@ -214,6 +214,7 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Provider config is an opaque serializable object passed to the shared config writer.
 async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
   if (!config) return
   const bundled = await readFile(outfile, "utf8")
@@ -576,7 +577,8 @@ async function writeProviderDeploymentOutputsNow(
   transaction?: ProviderDeploymentOutputRootTransaction,
 ): Promise<void> {
   signal?.throwIfAborted()
-  await transaction?.snapshot(providerDeploymentOutputPaths(options))
+  const clientDir = resolve(options.rootDir, options.clientOutDir)
+  await transaction?.snapshot(providerDeploymentOutputPaths(options), [clientDir])
   const writes: Array<Promise<void>> = []
   if (options.cloudflare) {
     writes.push(writeCloudflareDeploymentOutput({
@@ -627,7 +629,7 @@ async function writeProviderDeploymentOutputsNow(
       cleanups.push(async () => await cleanupVercelDeploymentOutputs(options.rootDir, cleanup, signal))
     }
   }
-  await transaction?.snapshot(cleanupPaths)
+  await transaction?.snapshot(cleanupPaths, [clientDir])
   await settleWrites(cleanups.map(cleanup => cleanup()))
   signal?.throwIfAborted()
 }
@@ -660,10 +662,11 @@ interface ProviderDeploymentOutputSnapshot {
   backup: string
   path: string
   present: boolean
+  preservedPaths: string[]
 }
 
 interface ProviderDeploymentOutputRootTransaction {
-  snapshot: (paths: string[]) => Promise<void>
+  snapshot: (paths: string[], preservedPaths?: string[]) => Promise<void>
 }
 
 function pathContains(parent: string, child: string): boolean {
@@ -672,21 +675,32 @@ function pathContains(parent: string, child: string): boolean {
 }
 
 async function restoreProviderDeploymentOutputSnapshot(snapshot: ProviderDeploymentOutputSnapshot): Promise<void> {
-  if (!snapshot.present) {
-    await rm(snapshot.path, { force: true, recursive: true })
-    return
-  }
-  const restoreRoot = await mkdtemp(resolve(dirname(snapshot.path), ".vitehub-provider-output-restore-"))
+  const restoreRoot = await mkdtemp(resolve(snapshot.present ? dirname(snapshot.path) : tmpdir(), "vitehub-provider-output-restore-"))
   const staged = resolve(restoreRoot, "snapshot")
-  let restored = false
+  const preservedRoot = resolve(restoreRoot, "preserved")
   try {
-    await cp(snapshot.backup, staged, { recursive: true })
+    await mkdir(preservedRoot, { recursive: true })
+    const preserved = snapshot.preservedPaths.map((path, index) => ({
+      backup: resolve(preservedRoot, String(index)),
+      path,
+      present: existsSync(path),
+    }))
+    await Promise.all(preserved.map(async (entry) => {
+      if (entry.present) await cp(entry.path, entry.backup, { recursive: true })
+    }))
+    if (snapshot.present) await cp(snapshot.backup, staged, { recursive: true })
     await rm(snapshot.path, { force: true, recursive: true })
-    await rename(staged, snapshot.path)
-    restored = true
+    if (snapshot.present) await rename(staged, snapshot.path)
+    for (const entry of preserved) {
+      await rm(entry.path, { force: true, recursive: true })
+      if (entry.present) {
+        await mkdir(dirname(entry.path), { recursive: true })
+        await cp(entry.backup, entry.path, { recursive: true })
+      }
+    }
   }
   finally {
-    if (restored) await rm(restoreRoot, { force: true, recursive: true })
+    await rm(restoreRoot, { force: true, recursive: true })
   }
 }
 
@@ -709,7 +723,15 @@ async function withProviderDeploymentOutputRootTransaction<T>(
   const snapshots = new Map<string, ProviderDeploymentOutputSnapshot>()
   let snapshotIndex = 0
   const transaction: ProviderDeploymentOutputRootTransaction = {
-    async snapshot(paths) {
+    async snapshot(paths, preservedPaths = []) {
+      const resolvedPreservedPaths = [...new Set(preservedPaths.map(path => resolve(path)))]
+      for (const snapshot of snapshots.values()) {
+        const additions = resolvedPreservedPaths.filter(path => path !== snapshot.path && pathContains(snapshot.path, path) && !snapshot.preservedPaths.includes(path))
+        snapshot.preservedPaths.push(...additions)
+        if (snapshot.present) {
+          await Promise.all(additions.map(path => rm(resolve(snapshot.backup, relative(snapshot.path, path)), { force: true, recursive: true })))
+        }
+      }
       const candidates = [...new Set(paths.map(path => resolve(path)))]
         .sort((left, right) => left.length - right.length)
         .filter((path, index, all) => !all.slice(0, index).some(parent => pathContains(parent, path)))
@@ -718,9 +740,13 @@ async function withProviderDeploymentOutputRootTransaction<T>(
         backup: resolve(transactionRoot, String(snapshotIndex++)),
         path,
         present: existsSync(path),
+        preservedPaths: resolvedPreservedPaths.filter(preserved => preserved !== path && pathContains(path, preserved)),
       }))
       const results = await Promise.allSettled(pending.map(async (snapshot) => {
-        if (snapshot.present) await cp(snapshot.path, snapshot.backup, { recursive: true })
+        if (snapshot.present) {
+          await cp(snapshot.path, snapshot.backup, { recursive: true })
+          await Promise.all(snapshot.preservedPaths.map(path => rm(resolve(snapshot.backup, relative(snapshot.path, path)), { force: true, recursive: true })))
+        }
       }))
       const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
       if (failure) {
@@ -742,6 +768,10 @@ async function withProviderDeploymentOutputRootTransaction<T>(
         for (const child of children) {
           snapshots.delete(child.path)
           await rm(child.backup, { force: true, recursive: true })
+        }
+        snapshot.preservedPaths.push(...children.flatMap(child => child.preservedPaths).filter(path => !snapshot.preservedPaths.includes(path)))
+        if (snapshot.present) {
+          await Promise.all(snapshot.preservedPaths.map(path => rm(resolve(snapshot.backup, relative(snapshot.path, path)), { force: true, recursive: true })))
         }
         snapshots.set(snapshot.path, snapshot)
       }
@@ -780,7 +810,11 @@ interface ProviderDeploymentOutputPluginContext {
   environment?: object
 }
 
-const providerDeploymentOutputEnvironmentGenerations = new WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>()
+const providerDeploymentOutputGenerationRegistry = globalThis as typeof globalThis & {
+  __vitehubProviderDeploymentOutputEnvironmentGenerations?: WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>
+}
+const providerDeploymentOutputEnvironmentGenerations = providerDeploymentOutputGenerationRegistry.__vitehubProviderDeploymentOutputEnvironmentGenerations
+  ??= new WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>()
 
 export function createProviderDeploymentOutputGenerationState(): {
   capture: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined) => void
@@ -975,9 +1009,9 @@ export async function finalizeProviderDeploymentOutputs(
             await settleWrites(roots.map(root => root.write))
             throw error
           }
+          state.generations.clear()
           decideRoots(undefined)
           await settleWrites(roots.map(root => root.write))
-          state.generations.clear()
           await catalog.completeDeploymentContributions(contributions)
         }
         catch (error) {

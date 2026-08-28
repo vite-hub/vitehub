@@ -51,7 +51,9 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await runProviderOutputHooks(plugin)
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+    expect(getImportAliases).toHaveBeenCalledOnce()
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 
     expect(getImportAliases).toHaveBeenCalledOnce()
   })

@@ -46,6 +46,24 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("shares one build generation across independently loaded Internal copies", async () => {
+    const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-copy")
+    const catalog = createProviderOutputCatalog()
+    const first = createProviderDeploymentOutputGenerationState()
+    const second = independentModule.createProviderDeploymentOutputGenerationState()
+    const environment = {}
+    const rootDir = await createTempProject()
+    const write = vi.fn(async () => undefined)
+    first.capture({ environment }, catalog)
+    second.capture({ environment }, catalog)
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir, write }, first.get({ environment }))
+
+    await second.reset({ environment }, catalog, new Error("peer build failed"))
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("keeps build generations local to each Vite environment", async () => {
     const catalog = createProviderOutputCatalog()
     const generations = createProviderDeploymentOutputGenerationState()
@@ -345,6 +363,34 @@ describe("Provider Output finalizer", () => {
     expect(olderDiscard).toHaveBeenCalledOnce()
   })
 
+  it("discards fallback artifacts invalidated while their replacement is active", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const olderGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    const newerGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    const olderDiscard = vi.fn(async () => undefined)
+    let releaseNewer!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      discard: olderDiscard,
+      owner: "blob",
+      rootDir,
+      write: async () => undefined,
+    }, olderGeneration)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async () => await new Promise<void>(resolve => releaseNewer = resolve),
+    }, newerGeneration)
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(releaseNewer).toBeDefined())
+    await resetProviderDeploymentOutputs(catalog, new Error("older build failed"), olderGeneration)
+    releaseNewer()
+    await finalization
+
+    expect(olderDiscard).toHaveBeenCalledOnce()
+  })
+
   it("rolls back completed roots when a peer root fails", async () => {
     const catalog = createProviderOutputCatalog()
     const firstRoot = await createTempProject()
@@ -415,9 +461,13 @@ describe("Provider Output finalizer", () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
     const outputRoot = join(rootDir, "dist")
+    const clientOutput = join(outputRoot, "client", "index.html")
     const previousFile = join(outputRoot, "existing.txt")
-    await mkdir(outputRoot, { recursive: true })
-    await writeFile(previousFile, "previous\n")
+    await mkdir(dirname(clientOutput), { recursive: true })
+    await Promise.all([
+      writeFile(clientOutput, "older client\n"),
+      writeFile(previousFile, "previous\n"),
+    ])
     contributeProviderDeploymentOutput(catalog, {
       owner: "agent",
       rootDir,
@@ -427,12 +477,14 @@ describe("Provider Output finalizer", () => {
           cloudflare: { files: { "index.js": "replacement\n" }, outputRoot, wranglerConfig: {} },
           rootDir,
         })
+        await writeFile(clientOutput, "newer client\n")
         throw new Error("output failed")
       },
     })
 
     await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("output failed")
     await expect(readFile(previousFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(clientOutput, "utf8")).resolves.toBe("newer client\n")
     expect(existsSync(join(outputRoot, "index.js"))).toBe(false)
   })
 

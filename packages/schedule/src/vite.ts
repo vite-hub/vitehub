@@ -639,6 +639,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           : undefined
         const workflow = await prepareWorkflow?.(workflowArtifactDir)
         const artifactDir = workflowArtifactDir
+        const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: artifactDir
             ? async () => await rm(artifactDir, { force: true, recursive: true })
@@ -646,7 +647,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           owner: "schedule",
           rootDir,
           write: async ({ signal }) => {
-            const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
             signal.throwIfAborted()
             await generateProviderOutputsWithinLock({
               bundleAlias: {
