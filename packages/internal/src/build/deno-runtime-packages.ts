@@ -562,14 +562,25 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
 async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: string, packages: RuntimePackage[], rootDir: string }): Promise<void> {
   const copied = new Set<string>()
   const staged = new Set<string>()
+  const stagedTargets = new Set<string>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
   const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
   for (const runtimePackage of packages) {
-    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, runtimePackage)
+    const targetDir = join(options.outputNodeModules, ...runtimePackage.name.split("/"))
+    let selectedPackage = runtimePackage
+    if (!runtimePackage.packageJsonPath && stagedTargets.has(targetDir)) {
+      const stagedPackageJsonPath = await resolvePackageJson(
+        runtimePackage.name,
+        createRequire(join(options.outputNodeModules, "package.json")),
+        options.outputNodeModules,
+      )
+      if (stagedPackageJsonPath) selectedPackage = { ...runtimePackage, packageJsonPath: stagedPackageJsonPath }
+    }
+    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, stagedTargets, selectedPackage)
   }
 }
 
-async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, staged: Set<string>, options: RuntimePackage): Promise<void> {
+async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, options: RuntimePackage): Promise<void> {
   let packageJsonPath = options.packageJsonPath
   if (packageJsonPath) {
     try {
@@ -602,6 +613,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     recursive: true,
   })
   staged.add(stagedKey)
+  stagedTargets.add(targetDir)
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const optionalDependencyNames = new Set(Object.keys(packageJson.optionalDependencies || {}))
   const dependencyNames = new Set(
@@ -624,7 +636,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     const dependencyNodeModules = options.hoistOptionalDependencies && packageJson.optionalDependencies?.[dependencyName]
       ? outputNodeModules
       : join(targetDir, "node_modules")
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, stagedTargets, {
       hoistOptionalDependencies: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,

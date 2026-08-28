@@ -9,7 +9,7 @@ type FilesInstance = Files<Adapter>
 type FoldedCursor = { index: number, providerCursor?: string }
 
 async function loadFiles(): Promise<FilesCtor> {
-  return (await importOptionalPeer<typeof import("files-sdk")>("files-sdk", "files")).Files
+  return (await importOptionalPeer(() => import("files-sdk"), "files-sdk", "files")).Files
 }
 
 function isNotFound(error: unknown): boolean {

@@ -959,6 +959,24 @@ import "sharp"
     await expect(readFile(join(root, ".output/node_modules/native/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
   })
 
+  it("keeps an owner-selected native package over the project-root installation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-owner-native-"))
+    const owner = join(root, "node_modules/.pnpm/owner@2/node_modules/owner/package.json")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(root, "node_modules/native-probe/package.json"), { name: "native-probe", version: "1" })
+    await writeJson(owner, { name: "owner", optionalDependencies: { "native-probe": "2" }, version: "2" })
+    await writeJson(join(dirname(owner), "node_modules/native-probe/package.json"), { name: "native-probe", version: "2" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/.pnpm/owner@2/node_modules/owner/index.js
+import "owner"
+require("native-probe")
+`)
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/native-probe/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
+  })
+
   it("preserves bundle-marker paths above a nested Vite root", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vitehub-deno-monorepo-"))
     const root = join(workspace, "apps/api")
