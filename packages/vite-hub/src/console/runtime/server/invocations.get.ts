@@ -148,12 +148,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       ...done.invocations.filter(invocation => !historyIds.has(invocation.id)),
       ...history.invocations,
     ],
-    remainingStatuses: [
+    remainingStatuses: [...new Set<AgentInvocationRecordStatus>([
       ...("working" in next ? ["running" as const] : []),
       ...("queued" in next ? ["pending" as const] : []),
       ...("done" in next ? ["cancelled" as const, "completed" as const, "failed" as const] : []),
-      ...("history" in next ? ["cancelled" as const, "completed" as const, "failed" as const] : []),
-    ],
+      ...("history" in next
+        ? ["running" as const, "pending" as const, "cancelled" as const, "completed" as const, "failed" as const]
+        : []),
+    ])],
   }
   if (nextCursor) result.cursor = nextCursor
   return result

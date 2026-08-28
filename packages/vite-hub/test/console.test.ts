@@ -603,6 +603,37 @@ describe("Agent invocation console", () => {
     }])
   })
 
+  it("reports every lifecycle while the unfiltered history cursor remains", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["running", "pending", "completed"] as const).entries()) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const cursor = encodeURIComponent(JSON.stringify({ history: null }))
+    const url = `http://localhost/api/_vitehub/console/invocations?limit=1&cursor=${cursor}`
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.cursor).toBeDefined()
+    expect(result.remainingStatuses).toEqual([
+      "running",
+      "pending",
+      "cancelled",
+      "completed",
+      "failed",
+    ])
+  })
+
   it("keeps an invocation that starts running between lifecycle reads", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({

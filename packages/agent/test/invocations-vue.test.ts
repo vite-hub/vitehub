@@ -301,6 +301,31 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("bounds duplicate-page replay per load-more request", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await settle();
+
+    const replay = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-1")] });
+    await settle();
+    calls[2]!.resolve({ cursor: "page-4", invocations: [record("inv-1")] });
+    await replay;
+
+    expect(calls).toHaveLength(3);
+    expect(resource.cursor.value).toBe("page-4");
+    expect(resource.isLoadingMore.value).toBe(false);
+
+    const next = resource.loadMore();
+    calls[3]!.resolve({ invocations: [record("inv-0")] });
+    await next;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-1", "inv-0"]);
+    scope.stop();
+  });
+
   it("keeps pagination failures separate from first-page refreshes", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
