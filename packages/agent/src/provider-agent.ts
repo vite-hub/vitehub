@@ -1647,6 +1647,7 @@ async function* runProvider<
     let invocationCleanupDeferred: Promise<void> | undefined
     let forcedRootCleanup: Promise<void> | undefined
     let runtimeCleanupSettled = false
+    let runtimeCleanupFailure: unknown
     if (runtimeCleanupDeferred) {
       observeLateCleanup((async () => {
         let timeout: ReturnType<typeof setTimeout> | undefined
@@ -1664,7 +1665,13 @@ async function* runProvider<
     const cleanupTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
-        : Promise.resolve().then(() => runtime?.close()).finally(() => runtimeCleanupSettled = true)
+        : Promise.resolve()
+            .then(() => runtime?.close())
+            .catch((error) => {
+              runtimeCleanupFailure = error
+              throw error
+            })
+            .finally(() => runtimeCleanupSettled = true)
       const runtimeAndToolCleanup = await Promise.allSettled([
         runtimeCleanup,
         toolServer?.close(),
@@ -1737,7 +1744,7 @@ async function* runProvider<
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
         try {
-          await releaseCodexCredentialHome(runtimeCleanupSettled ? undefined : error)
+          await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : error))
         }
         catch (releaseError) {
           cleanupErrors.push(releaseError)
@@ -1755,7 +1762,7 @@ async function* runProvider<
         ]).finally(async () => {
           if (timeout) clearTimeout(timeout)
           try {
-            await releaseCodexCredentialHome(runtimeCleanupSettled ? undefined : cleanupTimeout)
+            await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : cleanupTimeout))
           }
           finally {
             await cleanupRoot()

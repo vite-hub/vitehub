@@ -2404,7 +2404,9 @@ cli_auth_credentials_store = "keyring"
         await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
       }
       else {
-        await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
+        await vi.waitFor(async () => {
+          await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
+        })
       }
     }
     finally {
@@ -2462,6 +2464,47 @@ cli_auth_credentials_store = "keyring"
       runtime(`${threadId}-next`, [event("turn.completed", `${threadId}-next`, { state: "completed" }, { turnId: "turn-1" })])
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).resolves.toBeDefined()
+    }
+    finally {
+      await client?.close().catch(() => undefined)
+      vi.useRealTimers()
+    }
+  })
+
+  it("quarantines a named credential profile when provider cleanup rejects while Capability cleanup stalls", async () => {
+    vi.useFakeTimers()
+    let client: McpClient | undefined
+    try {
+      const threadId = "thread-profile-rejected-provider-stalled-tool"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onSendTurn(mcp) {
+          client = new McpClient({ name: "provider-test", version: "1" })
+          const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+            requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+          })
+          await client.connect(transport)
+          void client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
+          await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+        },
+      })
+      provider.close.mockRejectedValueOnce(new Error("close failed"))
+      const execute = vi.fn(() => new Promise(() => {}))
+      const options = {
+        credentialProfile: `rejected-provider-stalled-tool-${crypto.randomUUID()}`,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter(options).generate(context(threadId, {
+        tools: { stalled: { execute, name: "stalled" } },
+      }) as never)
+
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
     }
     finally {
       await client?.close().catch(() => undefined)
