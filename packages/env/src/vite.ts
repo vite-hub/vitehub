@@ -57,6 +57,13 @@ export interface EnvVitePluginAPI {
 
 export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
 
+interface ResolvedEnvState {
+  diagnosticsText: string | undefined
+  providerModules: Record<string, string>
+  publicConfig: Record<string, unknown>
+  serverRegistry: EnvRuntimeRegistry
+}
+
 export interface EnvGeneratedPathOptions {
   projectRoot?: string
   relativeTo?: string
@@ -77,9 +84,8 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
 
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
-  let providerModules: Record<string, string> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
-  let diagnosticsText: string | undefined
+  const resolvedStates = new Map<string, ResolvedEnvState>()
   const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
   const getPublicEnv = () => buildPublicConfig
   const getServerEnvRegistry = () => serverRegistry
@@ -108,9 +114,16 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
       const root = resolveProjectRoot(config.root || process.cwd())
-      providerModules = resolveProviderModules(options.providers, root)
+      const providerModules = resolveProviderModules(options.providers, root)
       if (!envConfig) {
         serverRegistry = {}
+        buildPublicConfig = {}
+        resolvedStates.set(root, {
+          diagnosticsText: undefined,
+          providerModules,
+          publicConfig: buildPublicConfig,
+          serverRegistry,
+        })
         for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
         return
       }
@@ -141,7 +154,12 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       serverRegistry = createServerEnvRegistry(envConfig.server)
       assertConfiguredProviders(serverRegistry, providerModules)
       for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
-      diagnosticsText = formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics)
+      resolvedStates.set(root, {
+        diagnosticsText: formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics),
+        providerModules,
+        publicConfig: buildPublicConfig,
+        serverRegistry,
+      })
 
       return {
         define: {
@@ -151,19 +169,25 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       }
     },
     async configResolved(config) {
-      if (diagnosticsText) {
-        config.logger.info(diagnosticsText)
-      }
       const projectRoot = resolveProjectRoot(config.root)
+      const state = resolvedStates.get(projectRoot)
+      if (!state) throw new Error(`Missing resolved Env state for ${projectRoot}`)
+      if (state.diagnosticsText) config.logger.info(state.diagnosticsText)
       const packageRoot = await resolvePackageRoot(config.root, projectRoot)
-      await refreshEnvGeneratedFiles(projectRoot, packageRoot, buildPublicConfig, serverRegistry, runtimeImports, providerModules)
+      await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules)
     },
     load(id) {
+      const viteRoot = (this as { environment?: { config?: { root?: string } } }).environment?.config?.root
+      const state = (viteRoot ? resolvedStates.get(resolveProjectRoot(viteRoot)) : undefined)
+        ?? Array.from(resolvedStates.values()).at(-1)
+      const publicConfig = state?.publicConfig ?? buildPublicConfig
+      const registry = state?.serverRegistry ?? serverRegistry
+      const providerModules = state?.providerModules ?? {}
       if (id === RESOLVED_PUBLIC_ID) {
-        return createPublicEnvModule(buildPublicConfig)
+        return createPublicEnvModule(publicConfig)
       }
       if (id === RESOLVED_SERVER_ID) {
-        return createServerEnvModule(serverRegistry, runtimeImports, providerModules)
+        return createServerEnvModule(registry, runtimeImports, providerModules)
       }
     },
     resolveId: {
@@ -377,7 +401,7 @@ function createServerEnvModule(
 function providerImportSpecifier(specifier: string, outputPath: string | undefined): string {
   const windowsAbsolute = win32.isAbsolute(specifier)
   if (!isAbsolute(specifier) && !windowsAbsolute) return specifier
-  if (!outputPath) return specifier.replace(/\\/g, "/")
+  if (!outputPath) return absoluteProviderImportSpecifier(specifier)
   const outputIsWindows = win32.isAbsolute(outputPath)
   if (windowsAbsolute !== outputIsWindows) return absoluteProviderImportSpecifier(specifier)
   const target = windowsAbsolute

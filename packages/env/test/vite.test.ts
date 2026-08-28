@@ -386,6 +386,10 @@ describe("Vite plugin", () => {
     expect(serverModule).toContain("shared/token")
     expect(serverModule).not.toContain("gateway-secret")
 
+    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const virtualModule = loadHook.call({ environment: { config: { root } } }, "\0#vitehub/env/server")
+    expect(virtualModule).toContain(`${root.replace(/\\/g, "/")}/server/env%23blue%3F%25/secrets.mjs`)
+
     const serverTypes = await readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")
     expect(serverTypes).toContain("loadServerEnv(event?: unknown")
     expect(serverTypes).toContain("Promise<ReadonlyServerEnv>")
@@ -474,8 +478,32 @@ describe("Vite plugin", () => {
     expect(serverModule).toContain(`from "@example/env-provider"`)
 
     const virtualModule = await (plugin.load as (id: string) => string)("\0#vitehub/env/server")
-    expect(virtualModule).toContain(`from "D:/shared/provider.mjs"`)
+    expect(virtualModule).toContain(`from "/D:/shared/provider.mjs"`)
     expect(virtualModule).toContain(`from ${JSON.stringify(join(root, "server", "env", "provider.mjs").replace(/\\/g, "/"))}`)
+  })
+
+  it("keeps provider modules scoped to each Vite configuration", async () => {
+    const firstRoot = await mkdtemp(join(tmpdir(), "vitehub-env-provider-first-"))
+    const secondRoot = await mkdtemp(join(tmpdir(), "vitehub-env-provider-second-"))
+    const plugin = hubEnv({ providers: { secrets: "./server/provider.mjs" } })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    const config = (root: string) => ({
+      env: { server: { token: env({ source: env.provider("secrets", "token") }) } },
+      root,
+    })
+
+    await Promise.all([
+      configHook(config(firstRoot), { command: "build", mode: "production" }),
+      configHook(config(secondRoot), { command: "build", mode: "production" }),
+    ])
+
+    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const firstModule = loadHook.call({ environment: { config: { root: firstRoot } } }, "\0#vitehub/env/server")
+    const secondModule = loadHook.call({ environment: { config: { root: secondRoot } } }, "\0#vitehub/env/server")
+    expect(firstModule).toContain(`${firstRoot}/server/provider.mjs`)
+    expect(firstModule).not.toContain(`${secondRoot}/server/provider.mjs`)
+    expect(secondModule).toContain(`${secondRoot}/server/provider.mjs`)
+    expect(secondModule).not.toContain(`${firstRoot}/server/provider.mjs`)
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
