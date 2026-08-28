@@ -1179,7 +1179,7 @@ export interface AgentProviderDriverOptions<
   }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
-  output?: AgentOutputDefinition<TOutput>
+  output?: Omit<AgentOutputDefinition<TOutput>, "maxAttempts">
   permissions?: AgentProviderPermissions
 }
 
@@ -1232,7 +1232,7 @@ export interface AgentRunDriver<
   instructions?: never
   kind?: never
   model?: never
-  output?: AgentOutputDefinition<TOutput>
+  output?: Omit<AgentOutputDefinition<TOutput>, "maxAttempts">
   permissionMode?: never
   permissions?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>

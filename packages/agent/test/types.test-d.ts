@@ -329,6 +329,50 @@ describe("agent public types", () => {
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
   })
 
+  it("scopes output correction attempts to Model Drivers", () => {
+    const schema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input }),
+        vendor: "test",
+        version: 1 as const,
+      },
+    } satisfies StandardSchemaV1
+
+    defineAgent({
+      driver: { model: {} as LanguageModel, output: { maxAttempts: 2, schema } },
+    })
+    defineAgent({
+      driver: {
+        kind: "codex",
+        output: {
+          // @ts-expect-error Provider Drivers validate one response and do not run Model Driver correction calls.
+          maxAttempts: 2,
+          schema,
+        },
+      },
+    })
+    defineAgent({
+      driver: {
+        kind: "claude-code",
+        output: {
+          // @ts-expect-error Provider Drivers validate one response and do not run Model Driver correction calls.
+          maxAttempts: 2,
+          schema,
+        },
+      },
+    })
+    defineAgent({
+      driver: {
+        output: {
+          // @ts-expect-error Custom-run Drivers validate the value returned by application code once.
+          maxAttempts: 2,
+          schema,
+        },
+        run: () => "{}",
+      },
+    })
+  })
+
   it("accepts literal false as the inline runtime opt-out", () => {
     const agent = defineAgent({
       driver: { run: () => "ok" },
