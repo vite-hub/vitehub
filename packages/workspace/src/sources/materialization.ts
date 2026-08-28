@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+import { isDeepStrictEqual } from "node:util"
 
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, contentToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
@@ -111,6 +112,29 @@ function contentEquals(left: string | Uint8Array, right: string | Uint8Array) {
   const leftBytes = left instanceof Uint8Array ? left : new TextEncoder().encode(left)
   const rightBytes = right instanceof Uint8Array ? right : new TextEncoder().encode(right)
   return leftBytes.byteLength === rightBytes.byteLength && leftBytes.every((byte, index) => byte === rightBytes[index])
+}
+
+function normalizeMetadataValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeMetadataValue)
+  if (!value || Object.getPrototypeOf(value) !== Object.prototype) return value
+  return Object.fromEntries(Object.entries(value)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, normalizeMetadataValue(entry)]))
+}
+
+function observableFileMetadata(metadata: Record<string, unknown> | undefined) {
+  return normalizeMetadataValue(Object.fromEntries(Object.entries(metadata || {})
+    .filter(([key, value]) => key !== "materializedAt" && key !== "validatedAt" && value !== undefined)))
+}
+
+function fileAttributesEqual(
+  previous: { mediaType?: string, metadata?: Record<string, unknown> },
+  mediaType: string | undefined,
+  metadata: Record<string, unknown>,
+) {
+  return previous.mediaType === mediaType
+    && isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata))
 }
 
 function compareContentStream(
@@ -498,6 +522,11 @@ export async function materializeWorkspaceSources(
         const item = entry.item!
         const metadata = item.metadata || {}
         const previousFile = await store.readFile(path)
+        const fileMetadata = {
+          ...metadata,
+          ...entry.metadata,
+          source: source.key,
+        }
         const comparedStream = previousFile && entry.contentStream
           ? compareContentStream(entry.contentStream, previousFile.content)
           : undefined
@@ -506,11 +535,7 @@ export async function materializeWorkspaceSources(
           content: entry.content,
           contentStream: comparedStream?.contentStream || entry.contentStream,
           mediaType: item.mediaType,
-          metadata: {
-            ...metadata,
-            ...entry.metadata,
-            source: source.key,
-          },
+          metadata: fileMetadata,
         })
         itemMetadata[path] = entry.metadata
         sourceFiles++
@@ -519,6 +544,7 @@ export async function materializeWorkspaceSources(
         const unchanged = previousFile && (comparedStream
           ? comparedStream.unchanged()
           : contentEquals(previousFile.content, entry.content ?? ""))
+          && fileAttributesEqual(previousFile, item.mediaType, fileMetadata)
         const status = unchanged
           ? "unchanged" as const
           : previousFile ? "updated" as const : "added" as const

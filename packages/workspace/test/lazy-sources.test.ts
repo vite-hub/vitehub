@@ -1267,6 +1267,74 @@ describe("lazy sources", () => {
     })
   })
 
+  it("reports materialized file attribute changes as updates", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime("2026-01-01T00:00:00.000Z")
+    let mediaType = "text/plain"
+    let metadata = { category: "draft" }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-attribute-deltas",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getItems() {
+            return [{ key: "a.md", path: "a.md", content: "# Same\n", mediaType, metadata }]
+          },
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Same\n", mediaType, metadata }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    mediaType = "text/markdown"
+    vi.advanceTimersByTime(1_000)
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 0, updated: 1 },
+        paths: [{ path: "docs/a.md", status: "updated" }],
+      }],
+    })
+
+    metadata = { category: "published" }
+    const progress: WorkspaceMaterializeSourcesProgressEvent[] = []
+    vi.advanceTimersByTime(1_000)
+    await expect(view.materializeSources({
+      details: "paths",
+      sources: ["docs"],
+      onProgress(event) {
+        progress.push(event)
+      },
+    })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 0, updated: 1 },
+        paths: [{ path: "docs/a.md", status: "updated" }],
+      }],
+    })
+    expect(progress.at(-1)).toMatchObject({
+      counts: { added: 0, removed: 0, unchanged: 0, updated: 1 },
+      status: "completed",
+    })
+    await expect(store.stat("docs/a.md")).resolves.toMatchObject({
+      mediaType: "text/markdown",
+      metadata: expect.objectContaining({ category: "published" }),
+    })
+
+    vi.advanceTimersByTime(1_000)
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{
+        counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
+        paths: [{ path: "docs/a.md", status: "unchanged" }],
+      }],
+    })
+  })
+
   it("reports file deltas when the Store omits snapshot metadata", async () => {
     let content = "# Same\n"
     const store = createMemoryWorkspaceStore()
