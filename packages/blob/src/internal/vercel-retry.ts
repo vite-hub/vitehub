@@ -43,6 +43,7 @@ export default async function retry<T>(
       return result
     }
     catch (error) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Retry failures cross an untyped dependency boundary, so preserve async-retry's bail marker check.
       if (bailError !== undefined || (error && typeof error === "object" && Reflect.get(error, "bail")) || Number.isNaN(retries)) throw error
       errors.push(error)
       if (attempt > retries) throw mainError()

@@ -117,6 +117,10 @@ describe("optional peer imports", () => {
   })
 
   it("throttles Vercel callbacks with a leading call and the latest trailing call", () => {
+    expect(() => Reflect.apply(throttle, undefined, [null, 100])).toThrowError(
+      "Expected the first argument to be a `function`, got `object`.",
+    )
+
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     try {
