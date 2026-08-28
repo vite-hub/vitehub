@@ -393,13 +393,16 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const queueHostRefresh = (file: string) => {
         if (serverClosed || !root || !sourceDefinitionPath(file, root, serverDirs)) return
         const result = refreshQueue.then(async () => {
+          if (serverClosed) return
           const handlers = await prepareSources({ projectRoot: root, serverDirs })
+          if (serverClosed) return
           const handlerKey = generatedHandlerKey(handlers)
           if (handlerKey === configuredHandlerKey) return
           const listeners = [...generatedHandlersListeners]
           const listenerResults = await Promise.allSettled(
             listeners.map(([listener]) => Promise.resolve().then(() => listener(handlers))),
           )
+          if (serverClosed) return
           for (const result of listenerResults) {
             if (result.status === "rejected") server.config.logger.error(String(result.reason))
           }

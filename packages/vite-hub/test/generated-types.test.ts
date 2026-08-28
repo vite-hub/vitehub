@@ -706,6 +706,42 @@ describe("framework generated types", () => {
     }
   })
 
+  it("stops in-flight and queued Source refreshes when the Vite server closes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    let finishObserver: (() => void) | undefined
+    const observerFinished = new Promise<void>((resolve) => {
+      finishObserver = resolve
+    })
+    const observer = vi.fn(() => observerFinished)
+    plugin.api.onGeneratedHandlersChanged(observer)
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    const inFlightRefresh = listeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledOnce())
+
+    await writeFile(collection, collectionModule("meals"))
+    const queuedRefresh = listeners.get("add")?.(collection)
+    await closeBundle(plugin)()
+    finishObserver?.()
+    await Promise.all([inFlightRefresh, queuedRefresh])
+
+    expect(observer).toHaveBeenCalledOnce()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
   it("watches custom Source directories and recovers after refresh errors", async () => {
     const { root, viteRoot } = await createNestedProject()
     const serverDir = join(root, "api")
