@@ -3665,17 +3665,59 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
 function assignResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): void {
   if (!usageRecord || !result || !hasRuntimeType(result, "object") || result instanceof Response || !Object.isExtensible(result)) return
   try {
-    const descriptor = (value: unknown): PropertyDescriptor => ({
-      configurable: true,
-      enumerable: true,
-      value,
-      writable: true,
-    })
-    if (usageRecord.usage) Reflect.defineProperty(result, "usage", descriptor(usageRecord.usage))
-    Reflect.defineProperty(result, "usageRecord", descriptor(usageRecord))
+    const assignable = (property: "usage" | "usageRecord") => {
+      const descriptor = Object.getOwnPropertyDescriptor(result, property)
+      return !descriptor || ("value" in descriptor ? descriptor.writable === true : hasRuntimeType(descriptor.set, "function"))
+    }
+    if (!assignable("usage") || !assignable("usageRecord")) return
+    Reflect.set(result, "usageRecord", usageRecord)
+    if (usageRecord.usage) Reflect.set(result, "usage", usageRecord.usage)
   }
   catch {
     // The finish result still carries merged usage when the preserved result cannot be updated.
+  }
+}
+
+function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): ReturnType<typeof cancellableAsyncIterableSource> {
+  const iterator = stream[Symbol.asyncIterator]()
+  let cancelTask: Promise<void> | undefined
+  let completed = false
+  let reading = false
+  const cancel = async (reason?: unknown) => {
+    if (completed) return
+    cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
+    if (reading) {
+      void cancelTask.catch(() => {})
+      return
+    }
+    await cancelTask
+  }
+  return {
+    cancel,
+    get completed() {
+      return completed
+    },
+    stream: {
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            reading = true
+            const chunk = await Promise.resolve(iterator.next()).finally(() => {
+              reading = false
+            })
+            if (chunk.done) {
+              completed = true
+              return { done: true, value: undefined }
+            }
+            return { done: false, value: chunk.value }
+          },
+          async return(reason?: unknown) {
+            await cancel(reason)
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    },
   }
 }
 
@@ -3955,15 +3997,14 @@ async function resultWithStreamedTextAndUsage(
       catch {
         // Keep normalizing readable usage fields when a provider exposes an unreadable then getter.
       }
-      if (hasRuntimeType(then, "function") && !resolveUsage) {
-        resolvedUsage = undefined
-      }
-      else if (hasRuntimeType(then, "function")) {
+      if (hasRuntimeType(then, "function")) {
         const pendingUsage = Symbol("pending usage")
         try {
           resolvedUsage = await Promise.race([
-            Promise.resolve(resolvedUsage).catch(() => undefined),
-            new Promise(resolve => setTimeout(resolve, 0, pendingUsage)),
+            Promise.resolve(resolvedUsage),
+            resolveUsage
+              ? new Promise(resolve => setTimeout(resolve, 0, pendingUsage))
+              : Promise.resolve(pendingUsage),
           ])
           if (resolvedUsage === pendingUsage) resolvedUsage = undefined
         }
@@ -5164,13 +5205,22 @@ async function executeAgentInvocationWithCapacityLease<
   const outputExtensions = new Map<string, unknown>()
   const rawDriverResult = result
   const rawDriverUsageObserved = isAsyncIterable(result)
+  const rawDriverHasDeferredUsage = rawDriverUsageObserved && hasRuntimeType(rawDriverResult, "object") && rawDriverResult !== null && ["usage", "totalUsage"].some((property) => {
+    try {
+      const usage = Reflect.get(rawDriverResult, property)
+      if (usage === null || !hasRuntimeType(usage, "object")) return false
+      return hasRuntimeType(Reflect.get(usage, "then"), "function")
+    }
+    catch {
+      return false
+    }
+  })
   let rawDriverUsageRecord = rawDriverUsageObserved
     ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "")).usageRecord
     : undefined
   let renderedResult = false
   let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
   const resolveRawDriverUsageRecord = async (resolveUsage: boolean) => {
-    if (!rendererSource?.completed) return rawDriverUsageRecord
     rawDriverUsageRecord = toAgentRunResult(await resultWithStreamedTextAndUsage(
       rawDriverResult,
       "",
@@ -5216,7 +5266,9 @@ async function executeAgentInvocationWithCapacityLease<
         : result
       const shouldPreserveStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
         && !(options.renderOutput && invocation.output)
-        && (options.holdCapacity === true || hasFinishConsumer(invocation) || invocation.finishExtensionProviders.some(provider => provider.eager))
+        && (options.holdCapacity === true
+          || (hasFinishConsumer(invocation) && rendered !== rawDriverResult && rawDriverHasDeferredUsage)
+          || invocation.finishExtensionProviders.some(provider => provider.eager))
         && shouldHoldInvocationOutput()
       if (shouldPreserveStreamResult || (options.renderOutput
         && !invocation.output
@@ -5296,7 +5348,7 @@ async function executeAgentInvocationWithCapacityLease<
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
                 let source: ReturnType<typeof cancellableAsyncIterableSource>
                 try {
-                  source = cancellableAsyncIterableSource(toUIMessageStream.apply(rendered, args))
+                  source = nonBlockingPendingAsyncIterableSource(toUIMessageStream.apply(rendered, args))
                   const normalizedStream = normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))
                   const enrichedStream = withEagerStreamUsageExtensions(
                     toReadableAsyncIterableStream(normalizedStream),
@@ -5355,7 +5407,6 @@ async function executeAgentInvocationWithCapacityLease<
             resolvedPrimaryProperties.set(property, value)
             if (isAsyncIterable(value)) {
               streamPropertyValues.set(property, value)
-              preservedSources.set(value, preservedSources.get(value) ?? cancellableAsyncIterableSource(value))
             }
           }
         }
@@ -5428,11 +5479,14 @@ async function executeAgentInvocationWithCapacityLease<
         const descriptors: PropertyDescriptorMap = {}
         try {
           for (const property of streamProperties) {
+            let preservedStream: AsyncIterable<unknown> | undefined
             descriptors[property] = {
               configurable: true,
               enumerable: true,
-              value: preserveStream(streamPropertyValues.get(property)!),
-              writable: true,
+              get: () => {
+                preservedStream ??= preserveStream(streamPropertyValues.get(property)!)
+                return preservedStream
+              },
             }
           }
         }
