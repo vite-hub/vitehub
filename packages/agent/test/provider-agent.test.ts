@@ -213,6 +213,42 @@ describe("Provider Agent Driver", () => {
     await rm(settings[0].homePath, { force: true, recursive: true })
   })
 
+  it("does not retain a named profile lock while credentials are resolving", async () => {
+    const profile = `provider-resolver-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const controller = new AbortController()
+    let finishFirstResolution: ((credentials: string) => void) | undefined
+    const credentials = vi.fn()
+      .mockImplementationOnce(() => new Promise<string>(resolve => finishFirstResolution = resolve))
+      .mockReturnValue(JSON.stringify({ tokens: { access_token: "shared" } }))
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+    const firstThreadId = "thread-profile-pending-resolver"
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const first = adapter.generate(context(firstThreadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(credentials).toHaveBeenCalledOnce())
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(first).rejects.toMatchObject({ name: "AbortError" })
+
+    const nextThreadId = "thread-profile-after-pending-resolver"
+    runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const next = adapter.generate(context(nextThreadId) as never)
+    try {
+      await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+      await expect(next).resolves.toBeDefined()
+      expect(credentials).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      finishFirstResolution?.(JSON.stringify({ tokens: { access_token: "shared" } }))
+      await Promise.allSettled([next])
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
   it("removes an invocation-private Codex credential Home after runtime cleanup", async () => {
     const threadId = "thread-private-credentials"
     let homePath: string | undefined
@@ -2300,7 +2336,7 @@ describe("Provider Agent Driver", () => {
     finishStartup()
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     expect(provider.stopSession).toHaveBeenCalledWith(threadId)
-    expect(waitUntil).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledTimes(2)
   })
 
   it("stops deferred provider work before closing the Workspace", async () => {
@@ -2353,7 +2389,7 @@ describe("Provider Agent Driver", () => {
     rejectStartup(new Error("late startup failed"))
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     expect(provider.stopSession).not.toHaveBeenCalled()
-    expect(waitUntil).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledTimes(2)
   })
 
   it("closes the Workspace when provider shutdown fails", async () => {

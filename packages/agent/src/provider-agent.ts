@@ -400,10 +400,11 @@ async function prepareCodexCredentialHome<
   }
   if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
 
+  const credentials = await resolveCredentials()
   const key = `${process.cwd()}:${profile}`
   const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.input.abortSignal)
   try {
-    const homePath = await openCodexProfileHome(profile, await resolveCredentials())
+    const homePath = await openCodexProfileHome(profile, credentials)
     return { homePath, release: async () => release() }
   }
   catch (error) {
