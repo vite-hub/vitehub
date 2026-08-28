@@ -13,7 +13,7 @@ import { createServer } from "vite"
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, createConsoleInvocationsIdentity, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
-import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
+import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
@@ -235,7 +235,7 @@ describe("Agent invocation console", () => {
         updatedAt: "2026-08-27T10:00:00.000Z",
       }],
       version: 1,
-    }).invocations[0]).not.toHaveProperty("agentName")
+    }).invocations[0]?.agentName).toBe(consoleFixtureFallbackAgentName)
     expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
     expect(() => parseConsoleFixture({
       invocations: [0, 1].map(() => ({

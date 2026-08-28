@@ -505,17 +505,19 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
     const effectiveAuth = viteAuth ?? options.auth
-    assertConsoleProductionAccess(configuredConsole, {
-      auth: configuredConsole !== true && configuredConsole.access === "auth" && effectiveAuth
-        ? resolveAuthViteConfig(
-            effectiveAuth === true ? undefined : effectiveAuth,
-            viteRoot,
-            { serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined },
-          )
-        : undefined,
-      development: Boolean(nuxt.options.dev),
-      preset: plan.preset,
-    })
+    if (!nuxt.options.vitehubCliDiscovery) {
+      assertConsoleProductionAccess(configuredConsole, {
+        auth: configuredConsole !== true && configuredConsole.access === "auth" && effectiveAuth
+          ? resolveAuthViteConfig(
+              effectiveAuth === true ? undefined : effectiveAuth,
+              viteRoot,
+              { serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined },
+            )
+          : undefined,
+        development: Boolean(nuxt.options.dev),
+        preset: plan.preset,
+      })
+    }
     const fixture = nuxt.options.vitehubCliDiscovery
       ? undefined
       : process.env[consoleFixtureEnvironmentVariable]

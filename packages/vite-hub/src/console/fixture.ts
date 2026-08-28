@@ -7,6 +7,7 @@ import type { AgentInvocationRecord } from "@vite-hub/agent"
 import type { RuntimeDiagnosticError, TraceEventLogEntry } from "@vite-hub/runtime"
 
 export const consoleFixtureEnvironmentVariable = "VITEHUB_CONSOLE_FIXTURE"
+export const consoleFixtureFallbackAgentName = "Fixture"
 
 export interface ConsoleFixture {
   invocations: readonly AgentInvocationRecord[]
@@ -217,12 +218,12 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     return parsed
   })
   const resolvedAgentName = input.agentName === undefined
-    ? undefined
+    ? consoleFixtureFallbackAgentName
     : agentName(input.agentName, `${path}.agentName`)
   // SAFETY: The parser validates every required AgentInvocationRecord field and preserves optional fixture metadata.
   return {
     ...input,
-    ...(resolvedAgentName ? { agentName: resolvedAgentName } : {}),
+    agentName: resolvedAgentName,
     cancelledAt: optionalTimestamp(input.cancelledAt, `${path}.cancelledAt`),
     channelId: optionalString(input.channelId, `${path}.channelId`),
     completedAt: optionalTimestamp(input.completedAt, `${path}.completedAt`),

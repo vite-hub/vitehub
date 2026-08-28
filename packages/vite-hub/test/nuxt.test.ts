@@ -464,18 +464,18 @@ describe("ViteHub Nuxt integration", () => {
     const activeFixturePlugin = "// active fixture plugin\n"
     await mkdir(resolve(generatedPlugin, ".."), { recursive: true })
     await writeFile(generatedPlugin, activeFixturePlugin)
-    const development = createNuxt(true)
-    development.nuxt.options.rootDir = root
-    development.nuxt.options.buildDir = resolve(root, ".nuxt")
-    development.nuxt.options.vitehubCliDiscovery = true
+    const discovery = createNuxt(false)
+    discovery.nuxt.options.rootDir = root
+    discovery.nuxt.options.buildDir = resolve(root, ".nuxt")
+    discovery.nuxt.options.vitehubCliDiscovery = true
     vi.stubEnv(consoleFixtureEnvironmentVariable, resolve(root, "missing.fixture.json"))
 
     try {
-      await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+      await viteHubNuxtModule({ console: true, preset: "node" }, discovery.nuxt)
       await expect(readFile(resolve(root, ".vitehub/data/console.sqlite")))
         .rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(activeFixturePlugin)
-      expect(development.nuxt.options.vite.plugins).toContainEqual(
+      expect(discovery.nuxt.options.vite.plugins).toContainEqual(
         expect.objectContaining({ name: "vite-hub/console-cli" }),
       )
     }

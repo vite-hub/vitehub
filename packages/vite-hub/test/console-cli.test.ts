@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { runConsoleDevCli } from "../src/console/cli.ts"
-import { consoleFixtureEnvironmentVariable, parseConsoleFixture } from "../src/console/fixture.ts"
+import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, parseConsoleFixture } from "../src/console/fixture.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 
@@ -101,7 +101,7 @@ describe("Console fixture CLI", () => {
     expect(stderr.output()).toContain("Console fixture version must be 1")
   })
 
-  it("starts a command for fixture invocations without an Agent name", async () => {
+  it("starts a command with a selectable identity for fixture invocations without an Agent name", async () => {
     const { fixture, root } = await fixtureRoot()
     const fixtureValue = JSON.parse(await readFile(fixture, "utf8"))
     delete fixtureValue.invocations[0].agentName
@@ -113,6 +113,8 @@ describe("Console fixture CLI", () => {
     await expect(runConsoleDevCli(["--fixture", fixture, "--", "pnpm", "dev"], cli)).resolves.toBe(0)
 
     expect(spawn).toHaveBeenCalledOnce()
+    expect(parseConsoleFixture(fixtureValue).invocations[0]?.agentName)
+      .toBe(consoleFixtureFallbackAgentName)
     expect(stderr.output()).toBe("")
   })
 
