@@ -592,6 +592,7 @@ describe("@vite-hub/runtime", () => {
   })
 
   it("falls back to private for WebAssembly.Module payloads unsupported by telemetry", async () => {
+    // SAFETY: Node exposes WebAssembly.Module even though the test's ambient global type omits it.
     const WebAssemblyModule = (globalThis as typeof globalThis & {
       WebAssembly: { Module: new (bytes: Uint8Array) => object }
     }).WebAssembly.Module
