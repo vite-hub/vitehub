@@ -189,10 +189,11 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
 
 interface CodexCredentialHome {
   homePath: string
-  release(): Promise<void>
+  release(reason?: unknown): Promise<void>
 }
 
 const codexCredentialProfileLocks = new Map<string, Promise<void>>()
+const unavailableCodexCredentialProfiles = new Map<string, unknown>()
 const codexCredentialProcessStartedAt = Date.now() - Math.round(process.uptime() * 1_000)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 let codexCredentialScavenging = Promise.resolve()
@@ -436,10 +437,24 @@ async function prepareCodexCredentialHome<
 
   const credentials = await resolveCredentials()
   const key = `${process.cwd()}:${profile}`
+  const unavailableReason = unavailableCodexCredentialProfiles.get(key)
+  if (unavailableReason !== undefined) {
+    throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
+  }
   const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.input.abortSignal)
   try {
+    const unavailableReason = unavailableCodexCredentialProfiles.get(key)
+    if (unavailableReason !== undefined) {
+      throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
+    }
     const homePath = await openCodexProfileHome(profile, credentials)
-    return { homePath, release: async () => release() }
+    return {
+      homePath,
+      async release(reason) {
+        if (reason !== undefined) unavailableCodexCredentialProfiles.set(key, reason)
+        release()
+      },
+    }
   }
   catch (error) {
     release()
@@ -1305,10 +1320,10 @@ async function* runProvider<
     deferredWorkspaceCleanup = cleanup
     observeLateCleanup(cleanup)
   }
-  const releaseCodexCredentialHome = async () => {
+  const releaseCodexCredentialHome = async (reason?: unknown) => {
     const home = codexCredentialHome
     codexCredentialHome = undefined
-    await home?.release()
+    await home?.release(reason)
   }
   const finalizeDeferredRuntime = async (sessionThreadId?: ThreadId, turnId?: TurnId) => {
     try {
@@ -1626,6 +1641,12 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
+        try {
+          await releaseCodexCredentialHome(error)
+        }
+        catch (releaseError) {
+          cleanupErrors.push(releaseError)
+        }
         forcedRootCleanup = cleanupRoot()
         observeLateCleanup(forcedRootCleanup)
         void cleanupTask.catch(() => undefined)

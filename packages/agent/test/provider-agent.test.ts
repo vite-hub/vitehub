@@ -2173,11 +2173,40 @@ cli_auth_credentials_store = "keyring"
       const result = collect(stream)
 
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      const home = (runtimeCall![0] as { environment: { CODEX_HOME: string } }).environment.CODEX_HOME
+      await expect(access(home)).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10_000)
 
       await expect(result).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ recoverable: true, type: "error" }),
       ]))
+      await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("quarantines a named credential profile when provider cleanup stalls", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-profile-cleanup-timeout"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const options = {
+        credentialProfile: `cleanup-timeout-${crypto.randomUUID()}`,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      const result = createProviderAgentAdapter(options).generate(context(threadId) as never)
+
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(result).resolves.toBeDefined()
+
+      await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
     }
     finally {
       vi.useRealTimers()
