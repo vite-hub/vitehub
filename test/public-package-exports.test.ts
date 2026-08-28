@@ -75,6 +75,11 @@ describe("public package export contracts", () => {
     }
   })
 
+  it("keeps Blob declarations independent from H3 host declarations", () => {
+    const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
+    expect(source).not.toMatch(/from ["']h3["']/)
+  })
+
   it("points every contract at a built artifact and declared optional peers", () => {
     for (const contract of publicPackageExportContracts) {
       const info = packageInfos.find(info => info.packageName === contract.packageName)!
