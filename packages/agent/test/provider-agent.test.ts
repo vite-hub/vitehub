@@ -428,6 +428,25 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it("rejects an oversized named-profile seed before reading it", async () => {
+    const profile = `provider-oversized-seed-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, ".vitehub-seed.sha256"), "a".repeat(66), { mode: 0o600 })
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context("thread-oversized-profile-seed") as never)).rejects.toThrow("profile seed must not exceed 65 bytes")
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
   it("serializes a named Codex credential profile across Agent Drivers", async () => {
     const profile = `provider-shared-${crypto.randomUUID()}`
     const credentials = () => JSON.stringify({ tokens: { access_token: "shared" } })
@@ -2420,6 +2439,22 @@ cli_auth_credentials_store = "keyring"
     provider.close.mockRejectedValueOnce(new Error("close failed"))
     const options = {
       credentialProfile: `cleanup-rejection-${crypto.randomUUID()}`,
+      credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex" as const,
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(threadId) as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+  })
+
+  it("quarantines a named credential profile when provider cleanup rejects without a reason", async () => {
+    const threadId = "thread-profile-valueless-cleanup-rejection"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    provider.close.mockRejectedValueOnce(undefined)
+    const options = {
+      credentialProfile: `valueless-cleanup-rejection-${crypto.randomUUID()}`,
       credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
       provider: "codex" as const,
     }

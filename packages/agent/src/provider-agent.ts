@@ -196,7 +196,12 @@ const codexCredentialProfileLocks = new Map<string, Promise<void>>()
 const unavailableCodexCredentialProfiles = new Map<string, unknown>()
 const codexCredentialProcessStartedAt = Date.now() - Math.round(process.uptime() * 1_000)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
+const codexCredentialSeedMaxBytes = 65
 let codexCredentialScavenging = Promise.resolve()
+
+function codexRuntimeCleanupFailure(reason: unknown): unknown {
+  return reason ?? new Error("[vitehub] Codex Driver runtime cleanup rejected without a reason.")
+}
 
 function normalizeCodexCredentials(value: unknown): string {
   const unseal = value && hasRuntimeType(value, "object") ? Reflect.get(value, "unseal") : undefined
@@ -443,6 +448,7 @@ async function openCodexProfileHome(profile: string, credentials: string): Promi
   const seedPath = join(homePath, ".vitehub-seed.sha256")
   const seed = await lstat(seedPath).catch(() => undefined)
   if (seed && (!seed.isFile() || seed.isSymbolicLink() || seed.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile seed must be a singly linked file: ${seedPath}`)
+  if (seed && seed.size > codexCredentialSeedMaxBytes) throw new Error(`[vitehub] Codex Driver profile seed must not exceed ${codexCredentialSeedMaxBytes} bytes: ${seedPath}`)
   const seedHash = seed ? (await readFile(seedPath, "utf8")).trim() : ""
   const authPath = join(homePath, "auth.json")
   const auth = await lstat(authPath).catch(() => undefined)
@@ -1398,7 +1404,7 @@ async function* runProvider<
         await runtime!.close()
       }
       catch (error) {
-        deferredRuntimeFailure = error
+        deferredRuntimeFailure = codexRuntimeCleanupFailure(error)
         throw error
       }
       finally {
@@ -1515,7 +1521,7 @@ async function* runProvider<
           await lateRuntime.close()
         }
         catch (error) {
-          deferredRuntimeFailure = error
+          deferredRuntimeFailure = codexRuntimeCleanupFailure(error)
           throw error
         }
         finally {
@@ -1668,7 +1674,7 @@ async function* runProvider<
         : Promise.resolve()
             .then(() => runtime?.close())
             .catch((error) => {
-              runtimeCleanupFailure = error
+              runtimeCleanupFailure = codexRuntimeCleanupFailure(error)
               throw error
             })
             .finally(() => runtimeCleanupSettled = true)
@@ -1685,7 +1691,7 @@ async function* runProvider<
       if (!runtimeCleanupDeferred) {
         try {
           const runtimeResult = runtimeAndToolCleanup[0]
-          await releaseCodexCredentialHome(runtimeResult?.status === "rejected" ? runtimeResult.reason : undefined)
+          await releaseCodexCredentialHome(runtimeResult?.status === "rejected" ? codexRuntimeCleanupFailure(runtimeResult.reason) : undefined)
         }
         catch (error) {
           cleanupErrors.push(error)
