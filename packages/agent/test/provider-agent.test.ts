@@ -2369,6 +2369,49 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it.each([
+    { credentialProfile: undefined, name: "invocation-private credential Home", quarantined: false },
+    { credentialProfile: `cancelled-cleanup-${crypto.randomUUID()}`, name: "named credential profile", quarantined: true },
+  ])("finalizes the $name when cancelled provider cleanup stalls", async ({ credentialProfile, quarantined }) => {
+    vi.useFakeTimers()
+    try {
+      const threadId = `thread-cancelled-cleanup-${crypto.randomUUID()}`
+      const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const controller = new AbortController()
+      const options = {
+        credentialProfile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter(options).generate(context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      }) as never)
+
+      await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      // SAFETY: The mocked Codex runtime call records the credential homePath setting.
+      const home = (runtimeCall![0].settings as { homePath: string }).homePath
+      controller.abort(new DOMException("cancelled", "AbortError"))
+      await expect(result).rejects.toMatchObject({ name: "AbortError" })
+      await expect(access(home)).resolves.toBeUndefined()
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      if (quarantined) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+      }
+      else {
+        await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
+      }
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("quarantines a named credential profile when provider cleanup rejects", async () => {
     const threadId = "thread-profile-cleanup-rejection"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

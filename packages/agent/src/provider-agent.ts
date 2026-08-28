@@ -1748,12 +1748,18 @@ async function* runProvider<
       }
       else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
         let timeout: ReturnType<typeof setTimeout> | undefined
+        const cleanupTimeout = new Error("[vitehub] Provider Agent Driver invocation cleanup timed out.")
         invocationCleanupDeferred = Promise.race([
           cleanupTask,
           new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
         ]).finally(async () => {
           if (timeout) clearTimeout(timeout)
-          await cleanupRoot()
+          try {
+            await releaseCodexCredentialHome(runtimeCleanupSettled ? undefined : cleanupTimeout)
+          }
+          finally {
+            await cleanupRoot()
+          }
         })
         observeLateCleanup(invocationCleanupDeferred)
         void cleanupTask.catch(() => undefined)
