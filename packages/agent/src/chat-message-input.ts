@@ -44,6 +44,20 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
   selectedMessages: UIMessageLike[]
 }
 
+const derivedChatInvokers = new WeakMap<object, AgentInvoker>()
+
+export function markDerivedChatTriggerInvoker(invoker: unknown, source?: AgentInvoker): void {
+  if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
+}
+
+export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
+  return derivedChatTriggerInvoker(invoker) !== undefined
+}
+
+export function derivedChatTriggerInvoker(invoker: unknown): AgentInvoker | undefined {
+  return typeof invoker === "object" && invoker !== null ? derivedChatInvokers.get(invoker) : undefined
+}
+
 function uiMessageText(message: UIMessageLike): string {
   const parts = Array.isArray(message.parts) ? message.parts : []
   return parts
@@ -63,11 +77,7 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
 }
 
 export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
-  const userMeta: Record<string, unknown> = {}
-  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
-    const value = firstString(triggerInput?.user?.[key])?.trim()
-    if (value) userMeta[key] = value
-  }
+  const userMeta = chatTriggerUserMeta(triggerInput?.user)
   const meta = Object.keys(userMeta).length || triggerInput?.meta
     ? { ...userMeta, ...triggerInput?.meta }
     : undefined
@@ -81,6 +91,15 @@ export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerI
           ...(meta ? { meta } : {}),
         }, "chat.message input.user")
       : undefined
+}
+
+export function chatTriggerUserMeta(user: Record<string, unknown> | undefined): Record<string, unknown> {
+  const userMeta: Record<string, unknown> = {}
+  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
+    const value = firstString(user?.[key])?.trim()
+    if (value) userMeta[key] = value
+  }
+  return userMeta
 }
 
 function uiToolName(part: Record<string, unknown>): string {
@@ -363,6 +382,7 @@ function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatT
 }
 
 function createChatTriggerHookArgs<TRuntimeConfig extends AgentRuntimeConfig>(
+  _options: AgentChatOptions<TRuntimeConfig>,
   messages: UIMessageLike[],
   run: AgentRunMetadata | undefined,
   session: AgentChatMessageTriggerInput["session"] | undefined,
@@ -399,8 +419,9 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const providerSessionId = triggerInput?.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId
     ? `${transportSessionId}:chat-session:${selectedSessionId}`
     : transportSessionId)
-  const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
+  const hookArgs = createChatTriggerHookArgs(options, selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
+  if (!triggerInput?.invoker) markDerivedChatTriggerInvoker(invoker)
   return {
     hookArgs,
     input: {

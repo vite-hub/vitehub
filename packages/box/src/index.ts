@@ -189,6 +189,7 @@ export interface BoxSession {
   readonly executionAuthority: ExecutionAuthority;
   readonly files: BoxFiles;
   readonly id: string;
+  readonly inspectionConcurrency?: number;
   readonly ports?: BoxPorts;
   readonly spawn?: (
     command: string,

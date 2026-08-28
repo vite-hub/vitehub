@@ -214,20 +214,28 @@ export type AgentChannelContext<
 > = AgentChatContext<TMeta, TUser, TMessageMetadata> & { run?: AgentRunMetadata }
 
 declare global {
-  interface ViteHubAgentChannelMeta {}
-  interface ViteHubAgentChannelUser {}
   interface ViteHubAgentInvocationContextValues {
-    chat: AgentChatContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
-    channel: AgentChannelContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
+    chat: AgentChatContext
+    channel: AgentChannelContext
   }
   interface ViteHubWorkspaceSourceResolutionContextMap {
-    channel: AgentChannelContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
+    channel: AgentChannelContext
   }
 }
 
 export function getAgentChatContext(
   input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
-): AgentChatContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser> | undefined {
+): AgentChatContext | undefined
+export function getAgentChatContext<
+  TSchema extends { "~standard": { types?: { output: object } } },
+>(
+  input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
+  _metaSchema: TSchema,
+): AgentChatContext<NonNullable<TSchema["~standard"]["types"]>["output"]> | undefined
+export function getAgentChatContext(
+  input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
+  _metaSchema?: unknown,
+): AgentChatContext | undefined {
   const store = "get" in input ? input : input.context
   return store.get(agentChatContextKey)
 }
@@ -382,7 +390,7 @@ export function chat<
   const TOptions extends AgentChatCapabilityOptions<any> = AgentChatCapabilityOptions,
 >(
   // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
-  options: TOptions = {} as TOptions,
+  options: TOptions & { meta?: never } = {} as TOptions,
 ): AgentCapabilityDefinition<ChatRuntimeConfigOf<TOptions>, WorkspaceName, ChatCapabilityTypeContract<string>> {
   // SAFETY: AgentChatCapabilityOptions is the public subset of the same Chat Capability option contract.
   return defineChatCapability(options as AgentChatOptions<ChatRuntimeConfigOf<TOptions>>) as AgentCapabilityDefinition<ChatRuntimeConfigOf<TOptions>, WorkspaceName, ChatCapabilityTypeContract<string>>

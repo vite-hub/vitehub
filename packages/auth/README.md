@@ -9,48 +9,63 @@
 
 `@vite-hub/auth` defines one server-owned Auth Definition and turns it into a Better Auth server for ViteHub apps.
 
+Most applications install `vite-hub` and enable Auth through the framework preset. Install this owner package directly when a focused Vite integration, library, or manual host needs Auth without the rest of ViteHub. Better Auth still owns providers, client plugins, adapters, and sign-in UI.
+
 ## Install
 
 ```sh
 pnpm add @vite-hub/auth better-auth
+pnpm add -D vite
 ```
 
-## Minimal API
+## First local session
 
 ```ts
 // server/auth.ts
-import { defineAuth } from "@vite-hub/auth"
+import { defineAuth } from "@vite-hub/auth";
 
 export default defineAuth({
   appName: "My app",
-})
+  emailAndPassword: { enabled: true },
+});
 ```
 
 ```ts
 // vite.config.ts
-import { hubAuth } from "@vite-hub/auth/vite"
-import { defineConfig } from "vite"
+import { hubAuth } from "@vite-hub/auth/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [hubAuth()],
-})
+});
 ```
 
-`hubAuth()` discovers `server/auth.ts`, exposes `/api/auth/**`, and generates the Nitro route handler for production builds.
+Start the Vite Development Server, then create a local session through the mounted Better Auth route:
+
+```sh
+pnpm vite
+```
+
+```sh
+curl -i http://localhost:5173/api/auth/sign-up/email \
+  -H 'content-type: application/json' \
+  --data '{"name":"Local User","email":"local@example.com","password":"passwordpassword"}'
+```
+
+Successful output has status `200`, a `better-auth.session_token` cookie, and the new user's email. `hubAuth()` discovers `server/auth.ts`, exposes `/api/auth/**`, and generates the Nitro route handler for production builds.
+
+This default proves discovery and the session route locally. It is not durable storage. Configure a concrete Better Auth database adapter before relying on sessions across restarts or replicas.
 
 For host routes that need runtime secrets, provider credentials, request-derived origins, or route guarding, keep that policy in the Auth Definition.
 
 ```ts
 // vite.config.ts
-import { hubAuth } from "@vite-hub/auth/vite"
-import { env, hubEnv } from "@vite-hub/env/vite"
-import { defineConfig } from "vite"
+import { hubAuth } from "@vite-hub/auth/vite";
+import { env, hubEnv } from "@vite-hub/env/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [
-    hubEnv(),
-    hubAuth(),
-  ],
+  plugins: [hubEnv(), hubAuth()],
   env: {
     server: {
       auth: {
@@ -62,12 +77,12 @@ export default defineConfig({
       },
     },
   },
-})
+});
 ```
 
 ```ts
 // server/auth.ts
-import { defineAuth } from "@vite-hub/auth"
+import { defineAuth } from "@vite-hub/auth";
 
 export default defineAuth(({ env, requestOrigin }) => ({
   appName: "My app",
@@ -87,7 +102,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
       clientSecret: env.auth.github.clientSecret.unseal(),
     },
   },
-}))
+}));
 ```
 
 When `@vite-hub/env` is installed, the Auth Definition callback receives the typed server env. It also receives `requestOrigin`, so same-origin apps do not need a separate auth URL environment variable.
@@ -108,7 +123,7 @@ export default defineAuth({
       },
     ],
   },
-})
+});
 ```
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host.
@@ -122,7 +137,7 @@ Set `route: false` only when a host integration mounts Auth itself.
 ```ts
 export default defineAuth({
   route: false,
-})
+});
 ```
 
 Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
@@ -134,7 +149,7 @@ export default defineAuth({
   basePath: "/auth",
   database: { name: "auth", dedicated: true },
   secondaryStorage: { store: "auth" },
-})
+});
 ```
 
 `database` and `secondaryStorage` are placement metadata. ViteHub removes metadata-shaped values before calling `betterAuth()`, so they do not create Database or KV adapters. When Better Auth needs persistent storage, return its concrete `database` or `secondaryStorage` adapter from the Definition callback or `runtime`.
@@ -145,31 +160,31 @@ Vue apps can use ViteHub's Better Auth client and normalized session composable 
 
 ```ts
 // lib/auth-client.ts
-import { useUserSession } from "@vite-hub/auth/vue"
+import { useUserSession } from "@vite-hub/auth/vue";
 
-export const session = useUserSession()
+export const session = useUserSession();
 ```
 
 That default talks to `/api/auth` on the same origin. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client.
 
 ```ts
 // server/auth.ts
-import { defineAuth } from "@vite-hub/auth"
+import { defineAuth } from "@vite-hub/auth";
 
 export default defineAuth({
   appName: "My app",
   basePath: "/auth",
-})
+});
 ```
 
 ```ts
 // lib/auth-client.ts
-import { createAuthClient, useUserSession } from "@vite-hub/auth/vue"
+import { createAuthClient, useUserSession } from "@vite-hub/auth/vue";
 
 export const authClient = createAuthClient({
   basePath: "/auth",
-})
-export const userSession = useUserSession(authClient)
+});
+export const userSession = useUserSession(authClient);
 ```
 
 The exported `createAuthClient` keeps Better Auth's option and plugin inference for custom base paths and client plugins. The zero-config composables use ViteHub's shared default client. React, Svelte, Solid, and other framework clients remain available from Better Auth's framework entrypoints.
@@ -182,15 +197,15 @@ Use `authenticated()` when an Agent should derive its Agent Invoker from the cur
 
 ```ts
 // server/support.agent.ts
-import { defineAgent } from "@vite-hub/agent"
-import { authenticated } from "@vite-hub/auth/agent"
+import { defineAgent } from "@vite-hub/agent";
+import { authenticated } from "@vite-hub/auth/agent";
 
 export default defineAgent({
   invoker: authenticated(),
   driver: {
     run: ({ invoker }) => ({ invoker }),
   },
-})
+});
 ```
 
 By default, the Auth Package reads the same-app Better Auth session from the request and maps the Auth User to an Agent Invoker with `kind: "authUser"`. Customize `id`, `kind`, `label`, or `meta` for normal identity shaping, and use `source` or `map` when the Agent consumes JWTs, bearer tokens, OAuth/OIDC provider output, or product-specific identity.
@@ -198,9 +213,19 @@ By default, the Auth Package reads the same-app Better Auth session from the req
 When authentication is required but unavailable, `authenticated()` throws `ViteHubError` with code `AUTHENTICATION_REQUIRED`. HTTP adapters map that code to `401`; the transport status is not part of the error object.
 
 ```ts
-import { ViteHubError } from "@vite-hub/runtime"
+import { ViteHubError } from "@vite-hub/runtime";
 
-const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this Agent.")
+const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this Agent.");
 ```
 
 `error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()` and `requireAuth()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results are programmer or provider-contract defects, so ViteHub keeps those `TypeError`s outside the operational provider boundary.
+
+## Production checks
+
+- Supply a strong Better Auth secret from Server Env at request time; never put it in Public Env, client code, Agent input, logs, or traces.
+- Set request-aware `baseURL` or use `requestOrigin` so callback and cookie origins match the deployed host.
+- Configure a concrete Better Auth database adapter and migrations. ViteHub `database` and `secondaryStorage` fields are placement metadata, not adapters.
+- Protect application and Console page/API routes explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
+- Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
+
+Read the complete [Auth guide](https://vitehub.dev/docs/server-primitives/auth), [Auth Users and Agent Invokers](https://vitehub.dev/docs/concepts/auth-users-and-agent-invokers), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
