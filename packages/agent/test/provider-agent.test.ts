@@ -15,6 +15,7 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
+import { streamAgentOutputToEvents } from "../src/agent-output.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -1709,19 +1710,32 @@ describe("Provider Agent Driver", () => {
     await expect(collect(output.value)).rejects.toThrow("Provider turn aborted: provider stopped")
   })
 
-  it("preserves approval requests in normalized UI streams", async () => {
+  it("preserves tool and approval lifecycles in normalized UI streams", async () => {
     const events = (async function* () {
+      yield { id: "call-1", name: "workspace_write", type: "tool-input-start" }
       yield { id: "approval-1", name: "workspace_write", toolCallId: "call-1", type: "approval-request" }
+      yield { approved: false, id: "approval-1", reason: "Use read-only mode.", type: "approval-decision" }
       yield { id: "approval-2", input: { path: "README.md" }, name: "workspace_write", type: "approval-request" }
       yield { type: "finish" }
     })()
-    const output = await finalizeUiMessageStreamOutput(events, true, () => undefined)
+    const output = await finalizeUiMessageStreamOutput(streamAgentOutputToEvents(events), true, () => undefined)
 
     await expect(collect(output.value)).resolves.toEqual(expect.arrayContaining([
+      {
+        toolCallId: "call-1",
+        toolName: "workspace_write",
+        type: "tool-input-start",
+      },
       {
         approvalId: "approval-1",
         toolCallId: "call-1",
         type: "tool-approval-request",
+      },
+      {
+        approvalId: "approval-1",
+        approved: false,
+        reason: "Use read-only mode.",
+        type: "tool-approval-response",
       },
       {
         input: { path: "README.md" },

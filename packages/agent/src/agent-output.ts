@@ -511,7 +511,8 @@ export function toAgentStreamEvent(
     return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...optionalTitle(value.title), type: "tool-result" }
   }
   if (type === "approval-request") {
-    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, type: "approval-request" }
+    const toolCallId = hasRuntimeType(value.toolCallId, "string") ? value.toolCallId : undefined
+    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, ...(toolCallId ? { toolCallId } : {}), type: "approval-request" }
   }
   if (type === "tool-approval-request") {
     const id = String(value.approvalId ?? value.id)
