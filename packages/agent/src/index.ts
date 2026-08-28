@@ -4647,7 +4647,7 @@ async function materializeAgentStructuredOutputInner(
   }
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-  const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(streamResult))
+  const source = cancellableAsyncIterableSource(withStreamResultCancellation(streamAgentOutputToEvents(streamResult), streamResult))
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const events = withCapabilityCleanup(source.stream, async (outcome) => {
     const cancellations = await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))

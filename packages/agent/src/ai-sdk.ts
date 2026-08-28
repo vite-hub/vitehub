@@ -946,6 +946,7 @@ function createUsageCapture() {
   let capturedUsage: unknown
   let metadataSource: unknown
   const languageModelCallSources: unknown[] = []
+  const languageModelCallResultSources: unknown[] = []
   let start!: () => void
   let publish!: () => void
   let complete!: () => void
@@ -978,6 +979,10 @@ function createUsageCapture() {
 
   return {
     capture,
+    captureLanguageModelCallResult(event: unknown) {
+      capture(event)
+      languageModelCallResultSources.push(event)
+    },
     complete,
     completed,
     async onEnd(event: unknown) {
@@ -1016,6 +1021,9 @@ function createUsageCapture() {
     },
     get languageModelCallSources() {
       return languageModelCallSources
+    },
+    get languageModelCallResultSources() {
+      return languageModelCallResultSources
     },
   }
 }
@@ -1180,8 +1188,10 @@ function withCapturedStreamUsage<T extends {
             return result
           }
           const event = result.value
-          if (event && hasRuntimeType(event, "object") && Reflect.get(event, "type") === "finish") {
-            primaryCapture?.capture(event)
+          const eventType = event && hasRuntimeType(event, "object") ? Reflect.get(event, "type") : undefined
+          if (eventType === "finish-step") primaryCapture?.captureLanguageModelCallResult(event)
+          if (eventType === "finish") {
+            primaryCapture?.captureLanguageModelCallResult(event)
             complete()
             const captureList = captures()
             const usage = await combinedCapturedUsage(captureList)
@@ -1352,7 +1362,19 @@ async function combinedUsageRecord(
 ): Promise<AgentUsageRecord | undefined> {
   const records = (await Promise.all(calls.flatMap(({ capture, result }) => {
     if (capture.languageModelCallSources.length > 1) {
-      return capture.languageModelCallSources.map(source => resolveAgentUsageRecord(source))
+      return capture.languageModelCallSources.map((source, index) => {
+        const resultSource = capture.languageModelCallResultSources[index]
+        const sourceRecord = recordFrom(source)
+        const resultRecord = recordFrom(resultSource)
+        return resolveAgentUsageRecord(sourceRecord && resultRecord
+          ? {
+              ...resultRecord,
+              ...sourceRecord,
+              providerMetadata: sourceRecord.providerMetadata ?? resultRecord.providerMetadata,
+              usage: sourceRecord.usage ?? resultRecord.usage,
+            }
+          : source)
+      })
     }
     return [resolveAgentUsageRecord(result === undefined ? capture.usageSource : withCapturedUsage(result, capture))]
   }))).filter((record): record is AgentUsageRecord => Boolean(record))
@@ -2149,7 +2171,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             cancelled = true
             cancelProvider(reason)
             try {
-              await (await getReader()).cancel(reason)
+              void (await getReader()).cancel(reason).catch(() => undefined)
             }
             finally {
               detachAbortListener()

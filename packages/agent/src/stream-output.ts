@@ -177,25 +177,24 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>, o
     })()
     await cancelTask
   }
-  return {
-    cancel,
-    stream: (async function* () {
-      try {
-        for (;;) {
-          const chunk = await getIterator().next()
-          if (chunk.done) {
-            completed = true
-            return
-          }
-          yield chunk.value
+  const source = (async function* () {
+    try {
+      for (;;) {
+        const chunk = await getIterator().next()
+        if (chunk.done) {
+          completed = true
+          return
         }
+        yield chunk.value
       }
-      finally {
-        if (!completed) await cancel()
-        else readableReader?.releaseLock()
-      }
-    })(),
-  }
+    }
+    finally {
+      if (!completed) await cancel()
+      else readableReader?.releaseLock()
+    }
+  })()
+  Object.defineProperty(source, Symbol.for("vitehub.agent.stream.cancel"), { value: cancel })
+  return { cancel, stream: source }
 }
 
 export function withReadableStreamCleanup<T>(
