@@ -260,7 +260,7 @@ async function writeSandboxArtifacts(
     for (const artifact of plan.artifacts || []) {
       const stableDst = resolve(generatedDir, artifact.filename)
       const relativePath = stableDst.slice(runtimeDir.length + 1)
-      const dst = platform === 'win32' ? resolve(generationDir, relativePath) : stableDst
+      const dst = resolve(generationDir, relativePath)
       const contents = artifact.contents ?? await artifact.getContents?.(emitted)
       if (typeof contents !== 'string')
         throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
@@ -270,29 +270,17 @@ async function writeSandboxArtifacts(
 
     if (typeTemplate)
       await writeFileIfChanged(resolve(generationDir, typeTemplate.filename.replace(/^runtime\//, '')), typeTemplate.contents)
-    for (const artifact of emitted.values()) {
-      const relativePath = platform === 'win32'
-        ? artifact.dst.slice(generationDir.length + 1)
-        : artifact.dst.slice(runtimeDir.length + 1)
-      await writeFileIfChanged(resolve(generationDir, relativePath), artifact.contents)
-    }
+    for (const artifact of emitted.values())
+      await writeFileIfChanged(artifact.dst, artifact.contents)
     const generationFacadeFile = resolve(generationDir, 'sandbox.mjs')
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     if (!registryArtifact)
       throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
-    const generationRegistryFile = platform === 'win32'
-      ? registryArtifact.dst
-      : resolve(generationDir, registryArtifact.dst.slice(runtimeDir.length + 1))
     const providerLoaderArtifact = emitted.get('sandbox-provider-loader')
-    const generationProviderLoaderFile = !providerLoaderArtifact
-      ? undefined
-      : platform === 'win32'
-        ? providerLoaderArtifact.dst
-        : resolve(generationDir, providerLoaderArtifact.dst.slice(runtimeDir.length + 1))
     await writeFileIfChanged(
       generationFacadeFile,
       markSandboxRuntimeGeneration(
-        createFacadeContents(generationFacadeFile, generationRegistryFile, generationProviderLoaderFile),
+        createFacadeContents(generationFacadeFile, registryArtifact.dst, providerLoaderArtifact?.dst),
         generationDir,
       ),
     )
@@ -445,7 +433,11 @@ export async function prepareSandboxRuntime(options: {
     aliases,
     cloudflare: plan.cloudflare,
     definitions,
-    files: [facadeFile, ...Array.from(emitted.values(), artifact => artifact.dst)],
+    files: [
+      facadeFile,
+      ...Array.from(emitted.values(), artifact => artifact.dst),
+      ...(plan.artifacts || []).map(artifact => resolve(ensureGeneratedDir(rootDir, 'sandbox'), artifact.filename)),
+    ],
     hosting: context.hosting,
     provider: getSandboxFeatureProvider(context.config)?.provider,
     rootDir,

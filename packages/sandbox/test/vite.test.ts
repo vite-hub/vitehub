@@ -1135,6 +1135,7 @@ describe("hubSandbox", () => {
     const previousResolvedSandbox = await realpath(sandboxAlias)
     const previousResolvedRegistry = await realpath(registryAlias)
     const previousResolvedDefinition = await realpath(definitionArtifact)
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(previousResolvedDefinition))
     const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
     const invalidated: string[] = []
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
@@ -1168,6 +1169,7 @@ describe("hubSandbox", () => {
       },
     })
 
+    const currentResolvedDefinition = await realpath(definitionArtifact)
     expect(invalidated).toEqual(expect.arrayContaining([
       sandboxAlias,
       registryAlias,
@@ -1177,8 +1179,11 @@ describe("hubSandbox", () => {
       previousResolvedDefinition,
       await realpath(sandboxAlias),
       await realpath(registryAlias),
-      await realpath(definitionArtifact),
+      currentResolvedDefinition,
     ]))
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(previousResolvedDefinition))
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.not.toContain(JSON.stringify(currentResolvedDefinition))
+    await expect(readFile(await realpath(registryAlias), "utf8")).resolves.toContain(JSON.stringify(currentResolvedDefinition))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
 
     await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
