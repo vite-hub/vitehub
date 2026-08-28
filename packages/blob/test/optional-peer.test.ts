@@ -103,6 +103,20 @@ describe("optional peer imports", () => {
     expect(attempts).toBe(1)
   })
 
+  it("returns Vercel's most frequent retry error and breaks ties with the latest error", async () => {
+    const repeated = new Error("repeated")
+    const final = new Error("final")
+    await expect(retry((_, attempt) => {
+      throw attempt < 3 ? repeated : final
+    }, { minTimeout: 0, randomize: false, retries: 2 })).rejects.toBe(repeated)
+
+    const first = new Error("first")
+    const latest = new Error("latest")
+    await expect(retry((_, attempt) => {
+      throw attempt === 1 ? first : latest
+    }, { minTimeout: 0, randomize: false, retries: 1 })).rejects.toBe(latest)
+  })
+
   it("ships the patched Vercel Blob runtime through the public driver", async () => {
     const built = await readFile(new URL("../dist/drivers/vercel.js", import.meta.url), "utf8")
 
