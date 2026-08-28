@@ -236,7 +236,14 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
         return workspace
       }
       catch (error) {
-        if (abortSignal?.aborted || !currentAbortSignal?.aborted) throw error
+        if (abortSignal?.aborted) {
+          // The caller that started synchronization owns its abort fence. Wait
+          // for accepted mutations to settle before allowing that caller to
+          // discard this facade and restart against the same Store.
+          if (abortSignal === currentAbortSignal) await current.catch(() => {})
+          throw error
+        }
+        if (!currentAbortSignal?.aborted) throw error
         if (syncPromise === current) {
           syncPromise = undefined
           syncAbortSignal = undefined

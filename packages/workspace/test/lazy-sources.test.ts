@@ -1595,7 +1595,9 @@ describe("lazy sources", () => {
     const synchronizing = syncWorkspaceDefinition(definition, store)
     await expect(Promise.race([synchronizing.then(() => "synced"), Promise.resolve("pending")])).resolves.toBe("pending")
     releaseFirst()
-    await expect(materializing).rejects.toThrow("superseded")
+    await expect(materializing).resolves.toMatchObject({
+      sources: [expect.objectContaining({ source: "generated", status: "error" })],
+    })
     await synchronizing
 
     await expect(view.readFile("docs/generated/result.md")).resolves.toBe("version 2\n")

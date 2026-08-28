@@ -29,10 +29,12 @@ export async function publishWorkspace(definition: WorkspaceDefinition, store: W
   await publishWorkspaceSnapshot(definition, store, snapshot, false)
 }
 
-export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot, durable = true, abortSignal?: AbortSignal): Promise<void> {
+type TrackLifecycleOperation = <T>(operation: Promise<T>) => Promise<T>
+
+export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot, durable = true, abortSignal?: AbortSignal, trackOperation?: TrackLifecycleOperation): Promise<void> {
   for (const publisher of definition.publish || []) {
     abortSignal?.throwIfAborted()
-    await publisher.publish({
+    const operation = publisher.publish({
       abortSignal,
       durable,
       workspace: definition,
@@ -40,6 +42,7 @@ export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, 
       rootDir: definition.rootDir || process.cwd(),
       snapshot,
     })
+    await (trackOperation ? trackOperation(operation) : operation)
   }
 }
 
@@ -51,6 +54,23 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
   const idle = () => active.size
     ? new Promise<void>((resolve) => { settleIdle = resolve })
     : Promise.resolve()
+  const track = <T>(operation: Promise<T>): Promise<T> => {
+    active.add(operation)
+    void operation.then(() => {
+      active.delete(operation)
+      if (!active.size) {
+        settleIdle?.()
+        settleIdle = undefined
+      }
+    }, () => {
+      active.delete(operation)
+      if (!active.size) {
+        settleIdle?.()
+        settleIdle = undefined
+      }
+    })
+    return operation
+  }
   // SAFETY: The proxy preserves the WorkspaceStore contract and only wraps known mutation methods.
   const fenced = new Proxy(store, {
     get(target, property) {
@@ -60,25 +80,11 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
       return (...args: unknown[]) => {
         abortSignal.throwIfAborted()
         const operation = Promise.resolve(Reflect.apply(value, target, args))
-        active.add(operation)
-        void operation.then(() => {
-          active.delete(operation)
-          if (!active.size) {
-            settleIdle?.()
-            settleIdle = undefined
-          }
-        }, () => {
-          active.delete(operation)
-          if (!active.size) {
-            settleIdle?.()
-            settleIdle = undefined
-          }
-        })
-        return operation
+        return track(operation)
       }
     },
   }) as WorkspaceStore
-  return { fenced, idle }
+  return { fenced, idle, track }
 }
 
 async function waitForFencedSync(operation: Promise<void>, signal: AbortSignal, idle: () => Promise<void>) {
@@ -99,11 +105,11 @@ async function waitForFencedSync(operation: Promise<void>, signal: AbortSignal, 
 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal): Promise<void> {
   if (!abortSignal) return await syncWorkspaceDefinitionInternal(definition, store)
-  const { fenced, idle } = createAbortFencedStore(store, abortSignal)
-  await waitForFencedSync(syncWorkspaceDefinitionInternal(definition, fenced, abortSignal, store), abortSignal, idle)
+  const { fenced, idle, track } = createAbortFencedStore(store, abortSignal)
+  await waitForFencedSync(syncWorkspaceDefinitionInternal(definition, fenced, abortSignal, store, track), abortSignal, idle)
 }
 
-async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal, materializationStore = store): Promise<void> {
+async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, store: WorkspaceStore, abortSignal?: AbortSignal, materializationStore = store, trackOperation?: TrackLifecycleOperation): Promise<void> {
   abortSignal?.throwIfAborted()
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
   const hasExplicitLoaders = !!definition.loaders?.length
@@ -120,7 +126,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   abortSignal?.throwIfAborted()
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
     const snapshot = await store.snapshot({ name: "sync" })
-    await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
+    await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
     return
   }
   if (!hasBuildSourceState && !hasExplicitLoaders) return
@@ -146,7 +152,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   }
   abortSignal?.throwIfAborted()
   const snapshot = await store.snapshot({ name: "sync" })
-  await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal)
+  await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
 }
 
 async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {

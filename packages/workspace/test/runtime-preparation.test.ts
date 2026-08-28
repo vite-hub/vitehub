@@ -465,6 +465,123 @@ describe("Workspace runtime preparation", () => {
     await preparation.stop()
   })
 
+  it("waits for accepted definition synchronization writes before restarting", async () => {
+    const base = createMemoryWorkspaceStore()
+    let releaseWrite!: () => void
+    const writeBlocked = new Promise<void>((resolve) => { releaseWrite = resolve })
+    let writeStarted!: () => void
+    const writing = new Promise<void>((resolve) => { writeStarted = resolve })
+    let activeWrites = 0
+    let maxActiveWrites = 0
+    let writes = 0
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property) {
+        if (property !== "writeFile") {
+          const value = Reflect.get(target, property, target)
+          return value instanceof Function ? value.bind(target) : value
+        }
+        return async (...args: Parameters<WorkspaceStore["writeFile"]>) => {
+          if (args[0] !== "startup.txt") return await base.writeFile(...args)
+          writes++
+          activeWrites++
+          maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+          if (writes === 1) {
+            writeStarted()
+            await writeBlocked
+          }
+          try {
+            return await base.writeFile(...args)
+          }
+          finally {
+            activeWrites--
+          }
+        }
+      },
+    })
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    registerWorkspace(name, {
+      loaders: [{
+        name: "startup-write",
+        async load(ctx) {
+          await ctx.store.writeFile("startup.txt", { content: "ready", path: "startup.txt" })
+        },
+      }],
+      sources: {
+        docs: custom({
+          getItem: async key => ({ content: "# Ready", key }),
+          getItems: async () => [{ content: "# Ready", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          materialize: "startup",
+        }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await writing
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseWrite()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    expect(maxActiveWrites).toBe(1)
+    expect(writes).toBe(2)
+    await preparation.stop()
+  })
+
+  it("waits for publisher side effects before restarting preparation", async () => {
+    let releasePublish!: () => void
+    const publishBlocked = new Promise<void>((resolve) => { releasePublish = resolve })
+    let publishStarted!: () => void
+    const publishing = new Promise<void>((resolve) => { publishStarted = resolve })
+    let activePublications = 0
+    let maxActivePublications = 0
+    let publications = 0
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    registerWorkspace(name, {
+      loaders: [{ name: "startup", async load() {} }],
+      publish: [{
+        name: "blocking-publisher",
+        async publish() {
+          publications++
+          activePublications++
+          maxActivePublications = Math.max(maxActivePublications, activePublications)
+          if (publications === 1) {
+            publishStarted()
+            await publishBlocked
+          }
+          activePublications--
+        },
+      }],
+      sources: {
+        docs: custom({
+          getItem: async key => ({ content: "# Ready", key }),
+          getItems: async () => [{ content: "# Ready", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          materialize: "startup",
+        }),
+      },
+      store: { provider: "memory" },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await publishing
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releasePublish()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    expect(maxActivePublications).toBe(1)
+    expect(publications).toBe(2)
+    await preparation.stop()
+  })
+
   it("stops without waiting for a pending validator", async () => {
     let validating!: () => void
     const validationStarted = new Promise<void>((resolve) => {
