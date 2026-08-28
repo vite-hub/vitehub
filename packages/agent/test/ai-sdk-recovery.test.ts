@@ -283,6 +283,41 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(3)
   })
 
+  it("reports completed usage when structured output corrections fail", async () => {
+    const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":3}"])
+    const doGenerate = fakeModel.doGenerate.bind(fakeModel)
+    fakeModel.doGenerate = async (options) => ({
+      ...await doGenerate(options),
+      providerMetadata: { test: { usage: { cost: fakeModel.calls.length / 10 } } },
+    })
+    const agentError = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+        output: { schema: outputSchema },
+      },
+      hooks: { "agent:error": agentError },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime, { prompt: "Respond" })).rejects.toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+
+    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: [
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.3" }) }),
+          ],
+          cost: expect.objectContaining({ usd: "0.6" }),
+          usage: expect.objectContaining({ totalTokens: 6 }),
+        }),
+      }),
+    }))
+  })
+
   it("repairs structured output before applying an output renderer", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":\"repaired\"}"])
     const render = vi.fn((result: unknown) => result)
@@ -1116,6 +1151,55 @@ describe("AI SDK recovery", () => {
     ])
 
     await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })).rejects.toBe(unavailable)
+  })
+
+  it("reports completed tool-call repair usage when a later model step fails", async () => {
+    const unavailable = new Error("follow-up provider unavailable")
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "{\"query\":\"fixed\"}",
+      async () => { throw unavailable },
+    ])
+    const doGenerate = fakeModel.doGenerate.bind(fakeModel)
+    fakeModel.doGenerate = async (options) => ({
+      ...await doGenerate(options),
+      providerMetadata: { test: { usage: { cost: fakeModel.calls.length / 10 } } },
+    })
+    const agentError = vi.fn()
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "search-test",
+        tools: {
+          search: {
+            execute: () => "found",
+            inputSchema: toolInputSchema,
+            name: "search",
+          },
+        },
+      })],
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+      },
+      hooks: { "agent:error": agentError },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime, { prompt: "Search" })).rejects.toBe(unavailable)
+
+    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
+      error: unavailable,
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: [
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          ],
+          cost: expect.objectContaining({ usd: "0.3" }),
+          usage: expect.objectContaining({ totalTokens: 4 }),
+        }),
+      }),
+    }))
   })
 
   it("propagates streamed tool-call repair failures after a successful follow-up step", async () => {

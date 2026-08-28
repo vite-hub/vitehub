@@ -8,6 +8,7 @@ import {
 } from "./internal/stream-result.ts"
 import { loadAiSdk } from "./internal/ai-sdk-runtime.ts"
 import { markMessageChannelInstructionConsumer, resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { agentInvocationUsageResolverContextKey } from "./invocation-context.ts"
 import {
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
@@ -1818,6 +1819,14 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const usageCapture = createUsageCapture()
       const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
       const fallbackUsageCapture = createUsageCapture()
+      context.context.set(agentInvocationUsageResolverContextKey, async () => {
+        const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
+        if (!captures.some(capture => capture.captured)) return
+        return await combinedUsageRecord(
+          captures.map(capture => ({ capture })),
+          combinedCapturedUsage(captures),
+        )
+      }, { overwrite: true })
       const repairCallInput = () => {
         const usageCapture = createUsageCapture()
         repairUsageCaptures.push(usageCapture)

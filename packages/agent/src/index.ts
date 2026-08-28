@@ -50,7 +50,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationUsageResolverContextKey, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
@@ -3987,6 +3987,22 @@ type AgentInvocationFinishOutcome =
   | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { error: unknown, status: "error", usage?: AgentUsageRecord }
 
+async function resolveFailedInvocationUsage<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<AgentUsageRecord | undefined> {
+  const resolveUsage = context.context.get(agentInvocationUsageResolverContextKey)
+  if (!hasRuntimeType(resolveUsage, "function")) return
+  try {
+    // SAFETY: Drivers register this private invocation-context callback with the internal usage record contract.
+    return await resolveUsage() as AgentUsageRecord | undefined
+  }
+  catch {
+    // Usage accounting must not replace the original invocation failure.
+    return undefined
+  }
+}
+
 function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
   return outcome.failed ? { error: outcome.error, status: "error" } : { result, status: "success" }
 }
@@ -5004,7 +5020,8 @@ async function executeAgentInvocationWithCapacityLease<
     }
   }
   catch (error) {
-    return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+    const usage = await resolveFailedInvocationUsage(invocation)
+    return await lifecycle.fail({ error, status: "error", ...(usage ? { usage } : {}) }, error, executionFailureMessage)
   }
 
   if (options.kind === "run"
