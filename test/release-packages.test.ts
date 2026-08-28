@@ -557,7 +557,7 @@ describe("release publication", () => {
     ])
     const registry = fakeRegistryRuntime(artifact.manifest.packages)
     let fetches = 0
-    const runtime = { ...registry.runtime, fetch: async (...args: Parameters<typeof fetch>) => { fetches++; return registry.runtime.fetch(args[0] as string) as any } }
+    const runtime = { ...registry.runtime, fetch: async (...args: Parameters<typeof fetch>) => { fetches++; return registry.runtime.fetch(String(args[0])) } }
 
     await publishReleaseArtifacts({ dryRun: true, manifestPath: artifact.manifestPath, runtime, sourceSha, tag: "latest" })
 

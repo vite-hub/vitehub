@@ -37,6 +37,14 @@ function fail(message) {
   throw new Error(message)
 }
 
+function isPlainObject(value) {
+  return value?.constructor === Object
+}
+
+function isString(value) {
+  return value?.constructor === String
+}
+
 function parseSemanticVersion(value, label) {
   const match = semanticVersionPattern.exec(value || "")
   if (!match) fail(`Invalid semantic version for ${label}: ${value || "(missing)"}`)
@@ -128,7 +136,7 @@ export async function listReleasePackages(workspace) {
     }
     if (manifest.private === true) continue
     if (!packageNamePattern.test(manifest.name || "")) fail(`Invalid public package name in ${sourceManifest}`)
-    if (typeof manifest.version !== "string" || !manifest.version) fail(`Missing package version in ${sourceManifest}`)
+    if (!isString(manifest.version) || !manifest.version) fail(`Missing package version in ${sourceManifest}`)
     packages.push({ manifest, name: manifest.name, path, sourceManifest, version: manifest.version })
   }
 
@@ -302,18 +310,18 @@ function parseManifest(source, path) {
 }
 
 function assertExactKeys(value, keys, label) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) fail(`Invalid ${label}`)
+  if (!isPlainObject(value)) fail(`Invalid ${label}`)
   const actual = Object.keys(value).toSorted()
   if (JSON.stringify(actual) !== JSON.stringify([...keys].toSorted())) fail(`Unexpected ${label} fields: ${actual.join(", ")}`)
 }
 
 function assertSortedUniqueStrings(values, label) {
-  if (!Array.isArray(values) || values.some(value => typeof value !== "string")) fail(`Invalid ${label}`)
+  if (!Array.isArray(values) || !values.every(isString)) fail(`Invalid ${label}`)
   if (JSON.stringify(values) !== JSON.stringify([...new Set(values)].toSorted())) fail(`${label} must be sorted and unique`)
 }
 
 function assertCanonicalIntegrity(integrity, name) {
-  if (typeof integrity !== "string" || !integrity.startsWith("sha512-")) fail(`Invalid integrity for ${name}`)
+  if (!isString(integrity) || !integrity.startsWith("sha512-")) fail(`Invalid integrity for ${name}`)
   const encoded = integrity.slice("sha512-".length)
   const bytes = Buffer.from(encoded, "base64")
   if (bytes.byteLength !== 64 || bytes.toString("base64") !== encoded) fail(`Non-canonical integrity for ${name}`)
@@ -343,13 +351,13 @@ export async function verifyReleaseArtifacts(options) {
   for (const [index, pkg] of manifest.packages.entries()) {
     assertExactKeys(pkg, ["files", "integrity", "name", "sourceManifest", "tarball", "version", "workspaceDependencies"], `release package ${index}`)
     if (!packageNamePattern.test(pkg.name || "")) fail(`Invalid release package name: ${pkg.name}`)
-    if (typeof pkg.version !== "string" || !pkg.version) fail(`Invalid release package version for ${pkg.name}`)
+    if (!isString(pkg.version) || !pkg.version) fail(`Invalid release package version for ${pkg.name}`)
     releaseVersion ||= pkg.version
     if (pkg.version !== releaseVersion) fail(`Release packages do not share one version: ${pkg.name}`)
-    if (typeof pkg.sourceManifest !== "string" || isAbsolute(pkg.sourceManifest) || pkg.sourceManifest.split("/").includes("..")) {
+    if (!isString(pkg.sourceManifest) || isAbsolute(pkg.sourceManifest) || pkg.sourceManifest.split("/").includes("..")) {
       fail(`Invalid source manifest path for ${pkg.name}`)
     }
-    if (typeof pkg.tarball !== "string" || basename(pkg.tarball) !== pkg.tarball || !pkg.tarball.endsWith(".tgz")) {
+    if (!isString(pkg.tarball) || basename(pkg.tarball) !== pkg.tarball || !pkg.tarball.endsWith(".tgz")) {
       fail(`Invalid tarball path for ${pkg.name}`)
     }
     assertCanonicalIntegrity(pkg.integrity, pkg.name)
@@ -522,7 +530,7 @@ function integrityHex(integrity) {
 
 function decodeStatement(attestation) {
   const payload = attestation?.bundle?.dsseEnvelope?.payload
-  if (typeof payload !== "string") fail("Registry attestation has no DSSE payload")
+  if (!isString(payload)) fail("Registry attestation has no DSSE payload")
   return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
 }
 
@@ -559,7 +567,7 @@ export async function inspectPublishedPackage(pkg, options) {
   const packument = await packumentResponse.json()
   if (packument.dist?.integrity !== pkg.integrity) fail(`Registry integrity mismatch for ${pkg.name}@${pkg.version}`)
   const attestationUrl = packument.dist?.attestations?.url
-  if (typeof attestationUrl !== "string") fail(`Registry provenance is missing for ${pkg.name}@${pkg.version}`)
+  if (!isString(attestationUrl)) fail(`Registry provenance is missing for ${pkg.name}@${pkg.version}`)
   const parsedAttestationUrl = new URL(attestationUrl)
   if (parsedAttestationUrl.origin !== registry || !parsedAttestationUrl.pathname.startsWith("/-/npm/v1/attestations/")) {
     fail(`Registry returned an untrusted attestation URL for ${pkg.name}@${pkg.version}`)

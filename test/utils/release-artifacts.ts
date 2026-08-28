@@ -1,30 +1,35 @@
 import { lstatSync, readFileSync } from "node:fs"
 import { dirname, isAbsolute, join, resolve } from "node:path"
+import { array, literal, object, parse, string } from "valibot"
 
-interface ReleasePackage {
-  name: string
-  tarball: string
-  version: string
-}
+const releaseManifestSchema = object({
+  packages: array(object({
+    name: string(),
+    tarball: string(),
+    version: string(),
+  })),
+  schemaVersion: literal(1),
+})
 
-interface ReleaseManifest {
-  packages: ReleasePackage[]
-  schemaVersion: number
+function parseReleaseManifest(source: string, manifestPath: string) {
+  try {
+    const value: unknown = JSON.parse(source)
+    return parse(releaseManifestSchema, value)
+  }
+  catch (error) {
+    throw new Error(`Invalid release manifest: ${manifestPath}`, { cause: error })
+  }
 }
 
 export function readReleaseArtifactTarballs(repoRoot: string) {
   const configured = process.env.VITEHUB_RELEASE_MANIFEST
   if (!configured) return
   const manifestPath = isAbsolute(configured) ? configured : resolve(repoRoot, configured)
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ReleaseManifest
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.packages)) {
-    throw new Error(`Invalid release manifest: ${manifestPath}`)
-  }
+  const manifest = parseReleaseManifest(readFileSync(manifestPath, "utf8"), manifestPath)
 
   const tarballs = new Map<string, string>()
   for (const pkg of manifest.packages) {
     if (tarballs.has(pkg.name)) throw new Error(`Duplicate release package: ${pkg.name}`)
-    if (typeof pkg.tarball !== "string" || typeof pkg.version !== "string") throw new Error(`Invalid release package: ${pkg.name}`)
     const path = join(dirname(manifestPath), pkg.tarball)
     const stats = lstatSync(path)
     if (!stats.isFile() || stats.isSymbolicLink()) throw new Error(`Release tarball is not a regular file: ${path}`)
