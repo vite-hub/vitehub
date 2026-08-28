@@ -287,6 +287,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('resolveConsoleRouteName(route.name, "vitehub-console-invocation")')
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)")
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)")
+    expect(consolePage).toContain('data-slot="mobile-session-navigation"')
     expect(consolePage).not.toContain("route.query.agent")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(consolePage).not.toContain("<UApp")
