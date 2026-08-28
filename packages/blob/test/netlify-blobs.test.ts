@@ -141,6 +141,16 @@ describe("Netlify Blobs driver", () => {
     expect(cancel).toHaveBeenCalledOnce()
   })
 
+  it("shares the retry budget across HTTP and network failures", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockRejectedValue(new Error("unreachable")))
+
+    await expect(createDriver(options).list()).rejects.toThrow("unreachable")
+
+    expect(fetch).toHaveBeenCalledTimes(6)
+  })
+
   it("supports explicit credentials and retries without process", async () => {
     vi.useFakeTimers()
     vi.stubGlobal("process", undefined)

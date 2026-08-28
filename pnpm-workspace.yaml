@@ -153,7 +153,7 @@ catalogs:
     workflow: 5.0.0-beta.35
   workspace:
     isomorphic-git: ^1.38.7
-    minimatch: ^10.2.5
+    minimatch: ^10.2.6
     mountx: 0.0.2
     mrmime: ^2.0.1
     picomatch: ^4.0.5

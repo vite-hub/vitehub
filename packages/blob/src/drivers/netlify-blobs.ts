@@ -99,19 +99,21 @@ function getRetryDelay(response?: Response) {
 }
 
 async function fetchWithRetry(url: URL, options: RequestInit, attemptsLeft = MAX_FETCH_RETRIES): Promise<Response> {
-  try {
-    const response = await fetch(url, options)
-    if (attemptsLeft > 0 && (response.status === 429 || response.status >= 500)) {
-      await response.body?.cancel()
-      await new Promise(resolve => setTimeout(resolve, getRetryDelay(response)))
-      return await fetchWithRetry(url, options, attemptsLeft - 1)
+  while (true) {
+    let response: Response
+    try {
+      response = await fetch(url, options)
     }
-    return response
-  }
-  catch (error) {
-    if (attemptsLeft === 0) throw error
-    await new Promise(resolve => setTimeout(resolve, getRetryDelay()))
-    return await fetchWithRetry(url, options, attemptsLeft - 1)
+    catch (error) {
+      if (attemptsLeft === 0) throw error
+      attemptsLeft--
+      await new Promise(resolve => setTimeout(resolve, getRetryDelay()))
+      continue
+    }
+    if (attemptsLeft === 0 || (response.status !== 429 && response.status < 500)) return response
+    attemptsLeft--
+    await response.body?.cancel()
+    await new Promise(resolve => setTimeout(resolve, getRetryDelay(response)))
   }
 }
 

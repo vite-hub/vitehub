@@ -2,7 +2,7 @@ import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
 import { attachWorkspaceSourceRequestExecution } from "@vite-hub/workspace/runtime"
 
 function runtime(): AgentRuntimeContext {
@@ -300,6 +300,67 @@ describe("access capability", () => {
     await expect(resolved.tools!.inScope.execute!({ path: "customers/globex/brief.md" })).resolves.toBe(false)
   })
 
+  it("bounds model-facing glob patterns before preserving Workspace Scope filtering", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    const entries = await resolved.workspace!.fs.glob("customers/{acme,globex}/**")
+    expect(entries.map(entry => entry.path)).toEqual([
+      "customers",
+      "customers/acme",
+      "customers/acme/brief.md",
+    ])
+    await expect(resolved.workspace!.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.glob("x\\{a,b\\}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.glob("x".repeat(2_049))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern input exceeds the model-facing limit of 2048 bytes.",
+    )
+    await expect(resolved.workspace!.fs.search({
+      pattern: "orders",
+      paths: ["{a,b}".repeat(11)],
+    })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.list("", {
+      exclude: Array.from({ length: 17 }, (_, index) => `literal-{${index}}`),
+      recursive: true,
+    })).resolves.toHaveLength(3)
+
+    const resolvedWithExpansiveScope = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "expansive",
+            scopes: {
+              expansive: { paths: ["{a,b}".repeat(11)] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    await expect(resolvedWithExpansiveScope.workspace!.fs.search({ pattern: "orders" })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
   it("can select Workspace Scope from an explicit trusted resolver", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -434,6 +495,220 @@ describe("access capability", () => {
 
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.glob("reports/{1..100000}.json")).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.search({
+      cwd: "{a,b}".repeat(11),
+      pattern: "orders",
+    })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.list("", { exclude: ["reports/{1..100000}.json"], recursive: true })).resolves.toHaveLength(7)
+  })
+
+  it("bounds model-facing glob patterns on Workspace Sessions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    // SAFETY: This fixture implements the only WorkspaceSession method exercised by this test.
+    const createSession = () => asUnknownBoundary({
+      glob: vi.fn(async () => []),
+    }) as WorkspaceSession
+    const fsSession = createSession()
+    const facadeSession = createSession()
+    const workspace = {
+      ...base,
+      fs: {
+        ...base.fs,
+        startSession: vi.fn(async () => fsSession),
+      },
+      startSession: vi.fn(async () => facadeSession),
+    } as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: { all: true, role: "admin", scope: "support" },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const resolvedWithSessions = resolved.workspace as ReadonlyWorkspaceFacade & {
+      fs: ReadonlyWorkspaceFacade["fs"] & { startSession(): Promise<WorkspaceSession> }
+      startSession(): Promise<WorkspaceSession>
+    }
+
+    await expect((await resolvedWithSessions.fs.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect((await resolvedWithSessions.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    expect(fsSession.glob).not.toHaveBeenCalled()
+    expect(facadeSession.glob).not.toHaveBeenCalled()
+  })
+
+  it("preserves prototype methods on model-safe Workspace facades and sessions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+
+    class Files {
+      readonly #files = base.fs
+
+      readFile = this.#files.readFile
+      stat = this.#files.stat
+      exists = this.#files.exists
+      list = this.#files.list
+      glob = this.#files.glob
+      search = this.#files.search
+      materializeSources = this.#files.materializeSources
+
+      async startSession() {
+        return new Session()
+      }
+
+      prototypeValue() {
+        return this.#files.exists("public/readme.md")
+      }
+    }
+
+    class Session {
+      readonly #value = "session"
+
+      async glob() {
+        return []
+      }
+
+      prototypeValue() {
+        return this.#value
+      }
+    }
+
+    class Workspace {
+      readonly fs = new Files()
+      readonly tools = base.tools
+      readonly #value = "workspace"
+
+      async startSession() {
+        // SAFETY: This fixture implements the only WorkspaceSession method exercised by this test.
+        return asUnknownBoundary(new Session()) as WorkspaceSession
+      }
+
+      prototypeValue() {
+        return this.#value
+      }
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, new Workspace() as ReadonlyWorkspaceFacade)
+    const workspace = resolved.workspace as ReadonlyWorkspaceFacade & Workspace & {
+      fs: ReadonlyWorkspaceFacade["fs"] & Files
+      startSession(): Promise<WorkspaceSession & Session>
+    }
+
+    expect(workspace.prototypeValue()).toBe("workspace")
+    await expect(workspace.fs.prototypeValue()).resolves.toBe(true)
+    const session = await workspace.startSession() as WorkspaceSession & Session
+    expect(session.prototypeValue()).toBe("session")
+    await expect((await workspace.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
+  it("wraps frozen Workspace facades and sessions without violating proxy invariants", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    // SAFETY: This fixture implements the only WorkspaceSession method exercised by this test.
+    const session = asUnknownBoundary(Object.freeze({
+      async glob() {
+        return []
+      },
+    })) as WorkspaceSession
+    const fs = Object.freeze({
+      ...base.fs,
+      async startSession() {
+        return session
+      },
+    })
+    const workspace = Object.freeze({
+      fs,
+      tools: base.tools,
+      async startSession() {
+        return session
+      },
+    }) as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const wrapped = resolved.workspace as ReadonlyWorkspaceFacade & {
+      fs: ReadonlyWorkspaceFacade["fs"] & { startSession(): Promise<WorkspaceSession> }
+      startSession(): Promise<WorkspaceSession>
+    }
+
+    expect("fs" in wrapped).toBe(true)
+    expect("startSession" in wrapped).toBe(true)
+    expect("exists" in wrapped.fs).toBe(true)
+    expect("glob" in wrapped.fs).toBe(true)
+    await expect(wrapped.fs.exists("public/readme.md")).resolves.toBe(true)
+    await expect(wrapped.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect((await wrapped.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
+  it("preserves own Workspace properties when model-safe facades are spread", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    const history = { rebase: vi.fn() }
+    const capabilities = vi.fn(() => ({ sync: true }))
+    const workspace = { ...base, capabilities, history } as ReadonlyWorkspaceFacade & {
+      capabilities: typeof capabilities
+      history: typeof history
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const spread = { ...resolved.workspace } as typeof workspace
+
+    expect(spread.history).toBe(history)
+    expect(spread.capabilities()).toEqual({ sync: true })
+    expect(capabilities).toHaveBeenCalledOnce()
+    expect(spread.fs).not.toBe(base.fs)
+    await expect(spread.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
+  it("binds own Workspace methods to the original receiver", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    const receiverState = new WeakMap<object, string>([[base.fs, "receiver"]])
+    const fs = {
+      ...base.fs,
+      receiverValue() {
+        return receiverState.get(this)
+      },
+    }
+    receiverState.set(fs, "receiver")
+    const workspace = { ...base, fs } as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const wrappedFs = resolved.workspace!.fs as ReadonlyWorkspaceFacade["fs"] & { receiverValue(): string | undefined }
+
+    expect(wrappedFs.receiverValue()).toBe("receiver")
   })
 
   it("falls back to default scope when an explicit resolver returns no scope", async () => {
