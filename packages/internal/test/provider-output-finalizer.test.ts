@@ -64,6 +64,32 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("shares active finalization and reset coordination across independently loaded Internal copies", async () => {
+    const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-finalization-copy")
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let activeSignal: AbortSignal | undefined
+    let releaseWrite!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ signal }) => {
+        activeSignal = signal
+        await new Promise<void>(resolve => releaseWrite = resolve)
+        signal.throwIfAborted()
+      },
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(activeSignal).toBeDefined())
+    const reset = independentModule.resetProviderDeploymentOutputs(catalog)
+    expect(activeSignal?.aborted).toBe(true)
+    releaseWrite()
+
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+  })
+
   it("keeps build generations local to each Vite environment", async () => {
     const catalog = createProviderOutputCatalog()
     const generations = createProviderDeploymentOutputGenerationState()
@@ -644,6 +670,36 @@ describe("Provider Output finalizer", () => {
 
     const firstFinalization = finalizeProviderDeploymentOutputs(first)
     const secondFinalization = finalizeProviderDeploymentOutputs(second)
+    await vi.waitFor(() => expect(started).toEqual(["first"]))
+    releaseFirst()
+    await Promise.all([firstFinalization, secondFinalization])
+
+    expect(started).toEqual(["first", "second"])
+  })
+
+  it("serializes the same root across independently loaded Internal copies", async () => {
+    const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-lock-copy")
+    const first = createProviderOutputCatalog()
+    const second = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const started: string[] = []
+    let releaseFirst!: () => void
+    contributeProviderDeploymentOutput(first, {
+      owner: "blob",
+      rootDir,
+      write: async () => {
+        started.push("first")
+        await new Promise<void>(resolve => releaseFirst = resolve)
+      },
+    })
+    contributeProviderDeploymentOutput(second, {
+      owner: "blob",
+      rootDir,
+      write: async () => { started.push("second") },
+    })
+
+    const firstFinalization = finalizeProviderDeploymentOutputs(first)
+    const secondFinalization = independentModule.finalizeProviderDeploymentOutputs(second)
     await vi.waitFor(() => expect(started).toEqual(["first"]))
     releaseFirst()
     await Promise.all([firstFinalization, secondFinalization])

@@ -258,6 +258,9 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
             "Nitro Cloudflare",
           )
         }
+        else {
+          definitions = discoverQueueDefinitions({ rootDir: resolved.root })
+        }
         const config = resolved
         const rootDir = nuxtProjectRoot || config.root
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.

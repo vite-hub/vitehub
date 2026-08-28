@@ -136,7 +136,6 @@ interface FinalizeProviderDeploymentOutputOptions {
   signal?: AbortSignal
 }
 
-const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
 interface ProviderDeploymentOutputFinalization {
   controller: AbortController
   handoff?: Promise<void>
@@ -148,13 +147,23 @@ interface ProviderDeploymentOutputFinalization {
   }
 }
 
-const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
 interface ProviderDeploymentOutputReset {
   failures: Set<unknown>
   promise: Promise<void>
 }
 
-const providerDeploymentOutputCompletedResets = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>()
+const providerDeploymentOutputRegistry = globalThis as typeof globalThis & {
+  __vitehubProviderDeploymentOutputCompletedResets?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>
+  __vitehubProviderDeploymentOutputEnvironmentGenerations?: WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>
+  __vitehubProviderDeploymentOutputFinalizations?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>
+  __vitehubProviderDeploymentOutputWrites?: Map<string, Promise<unknown>>
+}
+const providerDeploymentOutputWrites = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputWrites
+  ??= new Map<string, Promise<unknown>>()
+const providerDeploymentOutputFinalizations = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputFinalizations
+  ??= new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
+const providerDeploymentOutputCompletedResets = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputCompletedResets
+  ??= new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>()
 
 const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "agent",
@@ -810,10 +819,7 @@ interface ProviderDeploymentOutputPluginContext {
   environment?: object
 }
 
-const providerDeploymentOutputGenerationRegistry = globalThis as typeof globalThis & {
-  __vitehubProviderDeploymentOutputEnvironmentGenerations?: WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>
-}
-const providerDeploymentOutputEnvironmentGenerations = providerDeploymentOutputGenerationRegistry.__vitehubProviderDeploymentOutputEnvironmentGenerations
+const providerDeploymentOutputEnvironmentGenerations = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputEnvironmentGenerations
   ??= new WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>()
 
 export function createProviderDeploymentOutputGenerationState(): {
