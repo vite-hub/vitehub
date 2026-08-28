@@ -4087,7 +4087,7 @@ async function finishStreamAgentInvocation<
   let finishUsage: AgentUsageRecord | undefined
   try {
     const usageRecord = outcome.usageResolved
-      ? outcome.usage
+      ? outcome.usage && await resolveAgentUsageRecord({ usageRecord: outcome.usage }, context.run)
       : await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)

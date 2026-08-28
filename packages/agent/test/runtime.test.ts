@@ -1336,10 +1336,18 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("captures yielded usage in runAgent invocation data", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+  it("captures yielded usage in runAgent invocation data after final rendering", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "final-usage-output",
+          output(context) {
+            context.output.final(result => result)
+          },
+        }),
+      ],
       hooks: { "agent:finish": finish },
       driver: { run: () => (async function* () {
           yield { text: "hello", type: "text-delta" }
@@ -1364,6 +1372,49 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.attributes).toMatchObject({
       "usage.record": {
         run: { runId: "run-streamed-usage" },
+        usage: { totalTokens: 5 },
+      },
+    })
+  })
+
+  it("captures yielded usage in streamAgent invocation data after final rendering", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "final-stream-usage-output",
+          output(context) {
+            context.output.final(result => result)
+          },
+        }),
+      ],
+      hooks: { "agent:finish": finish },
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { text: "hello", type: "text-delta" }
+            yield { type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } }
+            yield { type: "finish" }
+          })(),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "stream-streamed-usage" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      run: { runId: "stream-streamed-usage" },
+      usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        run: { runId: "stream-streamed-usage" },
         usage: { totalTokens: 5 },
       },
     })
