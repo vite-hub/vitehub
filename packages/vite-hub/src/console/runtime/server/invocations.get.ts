@@ -6,6 +6,7 @@ import type { AgentInvocationListOptions, AgentInvocationListResult, AgentInvoca
 
 interface ConsoleInvocationCursor {
   done?: string | null
+  history?: string | null
   queued?: string | null
   working?: string | null
 }
@@ -18,7 +19,7 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   try {
     const parsed: unknown = JSON.parse(value)
     if (!(parsed instanceof Object) || Array.isArray(parsed)) throw new TypeError()
-    const keys = ["working", "queued", "done"] as const
+    const keys = ["working", "queued", "done", "history"] as const
     if (!keys.some(key => Reflect.has(parsed, key))) throw new TypeError()
     const cursor: ConsoleInvocationCursor = {}
     for (const key of keys) {
@@ -38,17 +39,18 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
 }
 
 function encodeCursor(cursor: ConsoleInvocationCursor): string | undefined {
-  if (!("working" in cursor || "queued" in cursor || "done" in cursor)) return
+  if (!("working" in cursor || "queued" in cursor || "done" in cursor || "history" in cursor)) return
   return JSON.stringify(cursor)
 }
 
 async function listLifecyclePage(
-  status: readonly AgentInvocationRecordStatus[],
+  status: readonly AgentInvocationRecordStatus[] | undefined,
   limit: number,
   cursor: string | null | undefined,
   agentName: string | undefined,
 ): Promise<AgentInvocationListResult> {
-  const options: AgentInvocationListOptions = { limit, status }
+  const options: AgentInvocationListOptions = { limit }
+  if (status) options.status = status
   if (agentName) options.agentName = agentName
   if (cursor !== null && cursor !== undefined) options.cursor = cursor
   return getConsoleInvocations().list(options)
@@ -92,23 +94,27 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   }
   const pageLimit = Math.min(limit ?? defaultListLimit, maximumListLimit)
   const emptyPage: AgentInvocationListResult = { invocations: [] }
-  const initialPage = !("working" in cursor || "queued" in cursor || "done" in cursor)
+  const initialPage = !("working" in cursor || "queued" in cursor || "done" in cursor || "history" in cursor)
   let remainingLimit = pageLimit
-  let remainingGroups = initialPage ? 3 : Object.keys(cursor).length
   const deferredGroups = new Set<keyof ConsoleInvocationCursor>()
   const pages: Record<keyof ConsoleInvocationCursor, AgentInvocationListResult> = {
     done: emptyPage,
+    history: emptyPage,
     queued: emptyPage,
     working: emptyPage,
   }
-  const groups: readonly [keyof ConsoleInvocationCursor, readonly AgentInvocationRecordStatus[]][] = [
+  const groups: readonly [keyof ConsoleInvocationCursor, readonly AgentInvocationRecordStatus[] | undefined][] = [
     ["queued", ["pending"]],
     ["working", ["running"]],
     ["done", ["cancelled", "completed", "failed"]],
+    ["history", undefined],
   ]
+  const primaryPending = initialPage || "working" in cursor || "queued" in cursor || "done" in cursor
+  if (primaryPending) deferredGroups.add("history")
   const pendingGroups = groups
-    .filter(([key]) => initialPage || key in cursor)
+    .filter(([key]) => (initialPage ? key !== "history" : key in cursor && (key !== "history" || !primaryPending)))
     .sort(([left], [right]) => Number(cursor[right] === null) - Number(cursor[left] === null))
+  let remainingGroups = pendingGroups.length
   for (const [key, statuses] of pendingGroups) {
     if (remainingLimit === 0) {
       deferredGroups.add(key)
@@ -121,7 +127,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     remainingLimit -= page.invocations.length
     remainingGroups--
   }
-  const { done, queued, working } = pages
+  const { done, history, queued, working } = pages
   const next: ConsoleInvocationCursor = {}
   if (working.cursor !== undefined) next.working = working.cursor
   else if (deferredGroups.has("working")) next.working = cursor.working ?? null
@@ -129,19 +135,24 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   else if (deferredGroups.has("queued")) next.queued = cursor.queued ?? null
   if (done.cursor !== undefined) next.done = done.cursor
   else if (deferredGroups.has("done")) next.done = cursor.done ?? null
+  if (history.cursor !== undefined) next.history = history.cursor
+  else if (deferredGroups.has("history")) next.history = cursor.history ?? null
   const nextCursor = encodeCursor(next)
+  const historyIds = new Set(history.invocations.map(invocation => invocation.id))
   const doneIds = new Set(done.invocations.map(invocation => invocation.id))
   const workingIds = new Set(working.invocations.map(invocation => invocation.id))
   const result: AgentInvocationListResult = {
     invocations: [
-      ...working.invocations.filter(invocation => !doneIds.has(invocation.id)),
-      ...queued.invocations.filter(invocation => !workingIds.has(invocation.id) && !doneIds.has(invocation.id)),
-      ...done.invocations,
+      ...working.invocations.filter(invocation => !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
+      ...queued.invocations.filter(invocation => !workingIds.has(invocation.id) && !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
+      ...done.invocations.filter(invocation => !historyIds.has(invocation.id)),
+      ...history.invocations,
     ],
     remainingStatuses: [
       ...("working" in next ? ["running" as const] : []),
       ...("queued" in next ? ["pending" as const] : []),
       ...("done" in next ? ["cancelled" as const, "completed" as const, "failed" as const] : []),
+      ...("history" in next ? ["cancelled" as const, "completed" as const, "failed" as const] : []),
     ],
   }
   if (nextCursor) result.cursor = nextCursor

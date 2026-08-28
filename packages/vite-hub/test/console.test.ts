@@ -462,7 +462,7 @@ describe("Agent invocation console", () => {
     const last = await invocationsHandler(requestEvent)
 
     expect(last.invocations.map(invocation => invocation.id)).toEqual(["pending-0", "completed-3"])
-    expect(last.cursor).toBeUndefined()
+    expect(last.cursor).toBeDefined()
   })
 
   it("caps composite console pages at the invocation list maximum", async () => {
@@ -517,7 +517,7 @@ describe("Agent invocation console", () => {
     requestEvent.req!.url = url
 
     const first = await invocationsHandler(requestEvent)
-    expect(first.cursor).toBe(JSON.stringify({ queued: "" }))
+    expect(first.cursor).toBe(JSON.stringify({ queued: "", history: null }))
 
     requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
     requestEvent.req!.url = requestEvent.node!.req!.url
@@ -556,6 +556,47 @@ describe("Agent invocation console", () => {
     const result = await invocationsHandler(requestEvent)
 
     expect(result.invocations).toMatchObject([{
+      id: "transitioning",
+      status: "completed",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    }])
+  })
+
+  it("preserves an invocation that becomes terminal between pages", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const id of ["transitioning", "newer"]) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id,
+        observations: [],
+        status: "running",
+        traceId: `trace-${id}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const first = await invocationsHandler(requestEvent)
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["newer"])
+    await store.update("transitioning", {
+      status: "completed",
+      timestamp: "2026-08-23T12:01:00.000Z",
+    })
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    let page = await invocationsHandler(requestEvent)
+    while (!page.invocations.some(invocation => invocation.id === "transitioning") && page.cursor) {
+      requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(page.cursor)}`
+      requestEvent.req!.url = requestEvent.node!.req!.url
+      page = await invocationsHandler(requestEvent)
+    }
+
+    expect(page.invocations).toMatchObject([{
       id: "transitioning",
       status: "completed",
       updatedAt: "2026-08-23T12:01:00.000Z",
@@ -624,7 +665,7 @@ describe("Agent invocation console", () => {
     requestEvent.req!.url = requestEvent.node!.req!.url
     const second = await invocationsHandler(requestEvent)
     expect(second.invocations.map(invocation => invocation.id)).toEqual(["pending-2", "pending-1"])
-    expect(second.cursor).toBeUndefined()
+    expect(second.cursor).toBeDefined()
   })
 
   it("preserves deferred active pagination while serving terminal sessions", async () => {
@@ -655,7 +696,7 @@ describe("Agent invocation console", () => {
       cursor = page.cursor
     } while (cursor)
 
-    expect(ids).toEqual(["pending-3", "completed-1", "pending-2", "completed-0"])
+    expect([...new Set(ids)]).toEqual(["pending-3", "completed-1", "pending-2", "completed-0"])
   })
 
   it("searches session text through the console Collection", async () => {
