@@ -1,5 +1,6 @@
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
+import { realpath } from 'node:fs/promises'
 import { basename, dirname, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
@@ -159,6 +160,10 @@ function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getMo
   }
 }
 
+async function resolveGeneratedSandboxModuleIds(files: string[]) {
+  return Promise.all(files.map(async file => normalize(await realpath(file).catch(() => file))))
+}
+
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
   const integrationOptions = options && typeof options === 'object'
@@ -168,6 +173,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
   let definitions: DiscoveredSandboxDefinition[] = []
+  let rootDir: string | undefined
   let sandboxStateModule: string | undefined
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
@@ -220,6 +226,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
+      rootDir = prepared.rootDir
       if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
         const facade = generatedAliases[SANDBOX_PACKAGE_ID]
         if (facade) {
@@ -269,6 +276,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
+      rootDir = prepared.rootDir
       selectedProvider = prepared.provider
       const nitro = (config as { nitro?: unknown }).nitro
       if (nitro && typeof nitro === 'object') {
@@ -312,15 +320,18 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       }
     },
     async handleHotUpdate(context) {
-      if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))
+      if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, rootDir))
         return
 
       const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]
+      const previousResolvedFiles = await resolveGeneratedSandboxModuleIds(previousFiles)
       const prepared = await refreshSandboxRuntime()
       selectedProvider = prepared.provider
       if (resolvedConfig)
         await composeCloudflareSandbox(resolvedConfig, prepared)
-      invalidateGeneratedSandboxModules([...previousFiles, ...generatedFiles, ...Object.values(generatedAliases)], context.server.moduleGraph)
+      const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]
+      const currentResolvedFiles = await resolveGeneratedSandboxModuleIds(currentFiles)
+      invalidateGeneratedSandboxModules([...previousFiles, ...previousResolvedFiles, ...currentFiles, ...currentResolvedFiles], context.server.moduleGraph)
     },
     configEnvironment(name, config) {
       const result = config.consumer === 'server'

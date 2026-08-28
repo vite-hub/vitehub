@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -1105,6 +1105,9 @@ describe("hubSandbox", () => {
     const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
     const registryAlias = join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs")
     const definitionArtifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const previousResolvedSandbox = await realpath(sandboxAlias)
+    const previousResolvedRegistry = await realpath(registryAlias)
+    const previousResolvedDefinition = await realpath(definitionArtifact)
     const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
     const invalidated: string[] = []
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
@@ -1128,7 +1131,7 @@ describe("hubSandbox", () => {
       server: {
         moduleGraph: {
           getModuleById(id) {
-            if ([sandboxAlias, registryAlias, definitionArtifact].includes(id))
+            if ([sandboxAlias, registryAlias, definitionArtifact].includes(id) || id.includes("/.runtime-generations/"))
               return { id }
           },
           invalidateModule(module) {
@@ -1138,7 +1141,17 @@ describe("hubSandbox", () => {
       },
     })
 
-    expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
+    expect(invalidated).toEqual(expect.arrayContaining([
+      sandboxAlias,
+      registryAlias,
+      definitionArtifact,
+      previousResolvedSandbox,
+      previousResolvedRegistry,
+      previousResolvedDefinition,
+      await realpath(sandboxAlias),
+      await realpath(registryAlias),
+      await realpath(definitionArtifact),
+    ]))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
 
     await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
@@ -1376,5 +1389,41 @@ describe("hubSandbox", () => {
 
     expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated helper")
+  })
+
+  it("watches Sandbox project files from the owned project root", async () => {
+    const projectRoot = await createViteRoot()
+    const viteRoot = join(projectRoot, "app")
+    const helper = join(projectRoot, "src/tools/message.ts")
+    const definition = join(projectRoot, "src/tools/release-notes.sandbox.ts")
+    await mkdir(viteRoot)
+    await writeFile(helper, `export const message = "initial"\n`)
+    await writeFile(definition, [
+      `import { message } from "./message"`,
+      `export default { run: async () => ({ message }) }`,
+      ``,
+    ].join("\n"))
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: viteRoot, __vitehubProjectRoot: projectRoot }, { command: "serve", mode: "development" })
+    await configResolved({ root: viteRoot, resolve: { alias: [] } })
+
+    const artifact = join(projectRoot, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    await expect(readFile(artifact, "utf8")).resolves.toContain("initial")
+    await writeFile(helper, `export const message = "updated"\n`)
+
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: helper,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    await expect(readFile(artifact, "utf8")).resolves.toContain("updated")
   })
 })
