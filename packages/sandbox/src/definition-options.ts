@@ -99,9 +99,21 @@ function readDefinitionObject(sourceFile: ts.SourceFile): ts.ObjectLiteralExpres
     }
   }
   for (const statement of sourceFile.statements) {
-    if (!ts.isExportAssignment(statement))
+    let expression: ts.Expression | undefined
+    if (ts.isExportAssignment(statement)) {
+      expression = statement.expression
+    }
+    else if (ts.isExportDeclaration(statement)
+      && !statement.moduleSpecifier
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)) {
+      const defaultExport = statement.exportClause.elements.find(element => element.name.text === 'default')
+      const binding = defaultExport && (defaultExport.propertyName ?? defaultExport.name)
+      if (binding)
+        expression = immutableBindings.get(binding.text)
+    }
+    if (!expression)
       continue
-    let expression: ts.Expression | undefined = statement.expression
     const seen = new Set<string>()
     while (expression) {
       if (ts.isParenthesizedExpression(expression)) {

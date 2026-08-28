@@ -386,39 +386,26 @@ describe("hubBlob", () => {
       expect(runtimeSource).not.toContain("/drivers/fs")
       expect(runtimeSource).not.toContain("/drivers/vercel")
 
-      const filesSdkStub = join(root, "files-sdk.mjs")
-      const netlifyAdapterStub = join(root, "netlify-blobs.mjs")
       const entryFile = join(root, "entry.mjs")
       const artifactFile = join(artifactRoot, "server.mjs")
-      await writeFile(filesSdkStub, [
-        "export class Files {",
-        "  constructor({ adapter }) {",
-        "    if (adapter?.kind !== 'netlify-blobs-adapter-stub') throw new Error('netlify-files-sdk-stub')",
-        "    this.adapter = adapter",
-        "  }",
-        "  async download(key) {",
-        "    const value = this.adapter.values.get(key)",
-        "    if (!value) throw new Error(`Missing ${key}`)",
-        "    return { arrayBuffer: async () => value.bytes.buffer, blob: async () => new Blob([value.bytes], { type: value.contentType }) }",
-        "  }",
-        "  async upload(key, body, options = {}) {",
-        "    const bytes = new Uint8Array(await new Response(body).arrayBuffer())",
-        "    this.adapter.values.set(key, { bytes, contentType: options.contentType })",
-        "    return { contentType: options.contentType, key, lastModified: new Date(0), size: bytes.byteLength }",
-        "  }",
-        "  async url(key) { return `https://blob.example/${key}` }",
-        "}",
-        "",
-      ].join("\n"), "utf8")
-      await writeFile(netlifyAdapterStub, [
-        "export function netlifyBlobs() {",
-        "  return { kind: 'netlify-blobs-adapter-stub', values: new Map() }",
-        "}",
-        "",
-      ].join("\n"), "utf8")
       await writeFile(entryFile, [
-        "import './.vitehub/nitro/blob/runtime.mjs'",
-        `import { blob } from ${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))}`,
+        "const values = new Map()",
+        "globalThis.fetch = async (input, init = {}) => {",
+        "  const url = new URL(input.toString())",
+        "  const method = init.method || 'GET'",
+        "  if (url.hostname === 'api.netlify.com') return Response.json({ url: 'https://signed.blobs.example.test/netlify.txt' })",
+        "  if (method === 'PUT') {",
+        "    const bytes = await new Response(init.body).arrayBuffer()",
+        "    values.set(url.pathname, { bytes, metadata: new Headers(init.headers).get('x-amz-meta-user') })",
+        "    return new Response(null, { headers: { etag: 'netlify-etag' }, status: 200 })",
+        "  }",
+        "  const value = values.get(url.pathname)",
+        "  return value",
+        "    ? new Response(value.bytes, { headers: { etag: 'netlify-etag', 'x-amz-meta-user': value.metadata } })",
+        "    : new Response(null, { status: 404 })",
+        "}",
+        "await import('./.vitehub/nitro/blob/runtime.mjs')",
+        `const { blob } = await import(${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))})`,
         "const [putError] = await blob.put('netlify.txt', 'netlify-store', { contentType: 'text/plain' })",
         "if (putError) throw putError",
         "const [getError, object] = await blob.get('netlify.txt')",
@@ -434,18 +421,11 @@ describe("hubBlob", () => {
         metafile: true,
         outfile: artifactFile,
         platform: "node",
-        plugins: [{
-          name: "netlify-sdk-stubs",
-          setup(build) {
-            build.onResolve({ filter: /^files-sdk$/ }, () => ({ path: filesSdkStub }))
-            build.onResolve({ filter: /^files-sdk\/netlify-blobs$/ }, () => ({ path: netlifyAdapterStub }))
-          },
-        }],
         target: "node24",
       })
       const artifactSource = await readFile(artifactFile, "utf8")
-      expect(artifactSource).toContain("netlify-files-sdk-stub")
-      expect(artifactSource).toContain("netlify-blobs-adapter-stub")
+      expect(artifactSource).toContain("netlify-etag")
+      expect(artifactSource).not.toContain("files-sdk/netlify-blobs")
       expect(artifactSource).not.toContain("files-sdk/vercel-blob")
       expect(artifactSource).not.toContain("files-sdk/s3")
       const externalImports = Object.values(buildResult.metafile.outputs)
