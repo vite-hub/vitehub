@@ -1,6 +1,6 @@
 export async function requestConsole(
   path: string,
-  options: { query?: Record<string, unknown>, signal?: AbortSignal },
+  options: { query?: Record<string, unknown>, signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const url = new URL(path, "http://vitehub.local")
   for (const [key, value] of Object.entries(options.query ?? {})) {

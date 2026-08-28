@@ -1,4 +1,5 @@
 import type { AgentInvocations } from "@vite-hub/agent"
+import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
 export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
@@ -11,6 +12,10 @@ export const consoleInvocationsBindingRootRegistryKey: unique symbol = Symbol.fo
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
+export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
+export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
+export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
+export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
 
 type ConsoleInvocationsByRoot = {
   delete(key: string): boolean
@@ -19,7 +24,10 @@ type ConsoleInvocationsByRoot = {
   readonly size: number
 }
 
-type ConsoleInvocationRegistry = Record<symbol, AgentInvocations | string | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | undefined>
+type ConsoleInvocationRegistry = Record<
+  symbol,
+  AgentInvocations | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleSectionsByRoot | undefined
+>
 
 type ConsoleInvocationIdentitiesByRoot = {
   delete(key: string): boolean
@@ -27,6 +35,12 @@ type ConsoleInvocationIdentitiesByRoot = {
   get(key: string): string | undefined
   set(key: string, value: string): unknown
   values(): IterableIterator<string>
+}
+
+type ConsoleSectionsByRoot = {
+  get(key: string): readonly ConsoleSectionId[] | undefined
+  set(key: string, value: readonly ConsoleSectionId[]): unknown
+  readonly size: number
 }
 
 export type ConsoleInvocationScope = {
@@ -38,6 +52,9 @@ export type ConsoleInvocationScope = {
   [consoleInvocationsRootKey]?: string
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
+  [consoleSectionsKey]?: readonly ConsoleSectionId[]
+  [consoleSectionsRootKey]?: string
+  [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
 
 export function createConsoleInvocationsIdentity(
@@ -84,6 +101,17 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
     && Number.isInteger(registry.size)
     // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
     ? registry as ConsoleInvocationsByRoot
+    : undefined
+}
+
+function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleSectionsByRoot member before use.
+  const registry = value as Partial<ConsoleSectionsByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
+    ? registry as ConsoleSectionsByRoot
     : undefined
 }
 
@@ -243,6 +271,38 @@ export function installConsoleInvocationFallback(
     }
     registry[consoleInvocationsKey] = invocations
   }
+}
+
+export function installConsoleSectionScope(
+  projectRoot: string,
+  sections: readonly ConsoleSectionId[],
+  scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+): readonly ConsoleSectionId[] {
+  const installed = [...new Set(sections)]
+  scope[consoleSectionsRootKey] = projectRoot
+  scope[consoleSectionsKey] = installed
+  const registry = processRegistry(scope)
+  if (registry) {
+    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, readonly ConsoleSectionId[]>()
+    sectionsRegistry.set(projectRoot, installed)
+    registry[consoleSectionsRegistryKey] = sectionsRegistry
+    registry[consoleSectionsKey] = installed
+  }
+  return installed
+}
+
+export function resolveConsoleSections(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): readonly ConsoleSectionId[] {
+  const root = scope[consoleSectionsRootKey]
+  const registry = processRegistry(scope)
+  const registered = sectionsByRoot(registry?.[consoleSectionsRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleSectionsKey] ?? []
+  if (registered && registered.size > 1) return scope[consoleSectionsKey] ?? []
+  // SAFETY: installConsoleSectionScope is the only writer for this process registry key.
+  return (registry?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
+}
+
+export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {
+  return scope[consoleInvocationsRootKey]
 }
 
 export function resolveConsoleInvocationsRoot(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {

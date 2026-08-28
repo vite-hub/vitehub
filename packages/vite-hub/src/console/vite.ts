@@ -10,6 +10,7 @@ import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/intern
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Environment, Plugin } from "vite"
+import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
@@ -59,6 +60,7 @@ interface ConsoleVitePluginOptions {
   preset?: string
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
   invocationRootState?: ConsoleInvocationRootState
+  sections?: readonly ConsoleSectionId[]
 }
 
 export interface ConsoleInvocationRootState {
@@ -122,13 +124,14 @@ function authRouteProtects(route: ResolvedAuthViteConfig["access"]["routes"][num
 export function assertConsoleProductionAccess(
   configured: true | ConsoleOptions,
   options: {
+    agentsEnabled: boolean
     development: boolean
     preset?: string
     auth?: ResolvedAuthViteConfig
   },
 ): void {
   if (options.development) return
-  if (options.preset && options.preset !== "node") {
+  if (options.agentsEnabled && options.preset && options.preset !== "node") {
     throw new Error(
       `[vitehub] Console currently requires preset: "node" for production because its fallback journal uses durable local SQLite. Disable Console for the ${JSON.stringify(options.preset)} production build or deploy it with the Node preset.`,
     )
@@ -151,20 +154,30 @@ export function assertConsoleProductionAccess(
 
 function renderConsoleNitroPlugin(
   projectRoot: string,
+  sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
 ): string {
+  const agentsEnabled = sections.includes("agents")
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
+    `import { installConsoleSections } from "vite-hub/console/sections"`,
+    ...(agentsEnabled
+      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
+      : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
-    fixture
-      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`
-      : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
-    `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
+    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    ...(agentsEnabled
+      ? [
+          fixture
+            ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`
+            : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
+          `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
+        ]
+      : []),
     "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
@@ -173,6 +186,7 @@ function renderConsoleNitroPlugin(
 async function writeConsoleNitroPlugin(
   file: string,
   projectRoot: string,
+  sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   fixture?: string,
   runtimeBinding?: string,
@@ -186,7 +200,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -211,6 +225,7 @@ export function generatedConsolePluginRegistration(value: string): boolean {
 }
 
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
+  const sections = options.sections ?? []
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
   let root: string | undefined
@@ -223,7 +238,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     const identity = await writeConsoleNitroPlugin(
       generatedPlugin,
       projectRoot,
-      discoverAgentDefinitionEntries(root, serverDirs),
+      sections,
+      sections.includes("agents") ? discoverAgentDefinitionEntries(root, serverDirs) : [],
       fixture,
       options.invocationRootState?.binding,
       () => !options.invocationRootState?.closed,
@@ -246,6 +262,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
+        agentsEnabled: sections.includes("agents"),
         auth: configured !== true && configured.access === "auth"
           ? options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS], viteConfig.auth)
           : undefined,
@@ -272,7 +289,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
-          discoverAgentDefinitionEntries(root),
+          sections,
+          sections.includes("agents") ? discoverAgentDefinitionEntries(root) : [],
           fixture,
           options.invocationRootState?.binding,
         )
@@ -285,18 +303,40 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
-            join(consoleRuntimeRoot, "server/invocation.get.js"),
-            join(consoleRuntimeRoot, "server/invocations.get.js"),
-            join(consoleRuntimeRoot, "server/agents.get.js"),
-            join(consoleRuntimeRoot, "server/search.get.js"),
-            join(consoleRuntimeRoot, "server/page.get.js"),
-          ].includes(handler?.handler))
+                join(consoleRuntimeRoot, "server/invocation.get.js"),
+                join(consoleRuntimeRoot, "server/invocations.get.js"),
+                join(consoleRuntimeRoot, "server/agents.get.js"),
+                join(consoleRuntimeRoot, "server/sections.get.js"),
+                join(consoleRuntimeRoot, "server/search.get.js"),
+                join(consoleRuntimeRoot, "server/page.get.js"),
+              ].includes(handler?.handler),
+          )
         : []
       handlers.push(
-        { handler: join(consoleRuntimeRoot, "server/agents.get.js"), route: "/api/_vitehub/console/agents" },
-        { handler: join(consoleRuntimeRoot, "server/invocations.get.js"), route: "/api/_vitehub/console/invocations" },
-        { handler: join(consoleRuntimeRoot, "server/invocation.get.js"), route: "/api/_vitehub/console/invocations/:id" },
-        { handler: join(consoleRuntimeRoot, "server/search.get.js"), route: "/api/_vitehub/console/search" },
+        {
+          handler: join(consoleRuntimeRoot, "server/sections.get.js"),
+          route: "/api/_vitehub/console/sections",
+        },
+        ...(sections.includes("agents")
+          ? [
+              {
+                handler: join(consoleRuntimeRoot, "server/agents.get.js"),
+                route: "/api/_vitehub/console/agents",
+              },
+              {
+                handler: join(consoleRuntimeRoot, "server/invocations.get.js"),
+                route: "/api/_vitehub/console/invocations",
+              },
+              {
+                handler: join(consoleRuntimeRoot, "server/invocation.get.js"),
+                route: "/api/_vitehub/console/invocations/:id",
+              },
+              {
+                handler: join(consoleRuntimeRoot, "server/search.get.js"),
+                route: "/api/_vitehub/console/search",
+              },
+            ]
+          : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
@@ -304,10 +344,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
       plugins.push(generatedPlugin)
-      const publicAssets = Array.isArray(nitro.publicAssets)
-        ? nitro.publicAssets.filter(asset => asset?.baseURL !== "/_vitehub/assets")
-        : []
-      publicAssets.push({ baseURL: "/_vitehub/assets", dir: consolePublicRoot, fallthrough: false })
+      const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets.filter((asset) => asset?.baseURL !== "/_vitehub/assets") : []
+      publicAssets.push({
+        baseURL: "/_vitehub/assets",
+        dir: consolePublicRoot,
+        fallthrough: false,
+      })
 
       consoleConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
     },
