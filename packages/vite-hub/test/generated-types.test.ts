@@ -102,6 +102,14 @@ function buildEnd(plugin: Plugin) {
   return plugin.buildEnd as () => Promise<void>
 }
 
+function configureServer(plugin: Plugin) {
+  // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
+  return plugin.configureServer as (server: {
+    restart: () => Promise<void>
+    watcher: { on: (event: string, callback: (file: string) => Promise<void>) => void }
+  }) => void
+}
+
 function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
   const contributor = plugin.vitehub?.cli
   if (!contributor || contributor instanceof Function) throw new TypeError("Expected static CLI metadata.")
@@ -494,6 +502,35 @@ describe("framework generated types", () => {
     expect(userConfig.nitro.modules).toContainEqual(
       expect.objectContaining({ name: "vite-hub/generated-route-guard" }),
     )
+  })
+
+  it("restarts the Vite host when Source refresh changes Nitro handlers", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void>>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      restart,
+      watcher: { on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await writeFile(collection, `${collectionModule("meals")}\n`)
+    await listeners.get("change")?.(collection)
+    expect(restart).not.toHaveBeenCalled()
+
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+    expect(restart).toHaveBeenCalledOnce()
+
+    await config(plugin)({ root })
+    await writeFile(collection, collectionModule("meals"))
+    await listeners.get("add")?.(collection)
+    expect(restart).toHaveBeenCalledTimes(2)
   })
 
   it("rejects a conflicting plain Vite Nitro handler", async () => {

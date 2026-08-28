@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, extname, join, relative, resolve } from "node:path"
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import {
@@ -289,11 +289,27 @@ function applicationBaseURL(base: string | undefined): string {
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
+function generatedHandlerKey(handlers: GeneratedSourceHandler[]): string {
+  return JSON.stringify(handlers)
+}
+
+function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
+  const directories = serverDirs === undefined ? [resolve(projectRoot, "server")] : serverDirs
+  return directories.some((directory) => {
+    const path = relative(resolve(projectRoot, directory), resolve(file)).replaceAll("\\", "/")
+    if (path.startsWith("../") || isAbsolute(path)) return false
+    return /^content\.(?:[cm]?[jt]s)$/.test(path)
+      || (/^collections\/.+\.(?:[cm]?[jt]s)$/.test(path) && !/\.d\.[cm]?ts$/.test(path))
+  })
+}
+
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   api: { prepareSources: (options: Omit<SourceGenerationOptions, "importBase">) => Promise<GeneratedSourceHandler[]> }
 } {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
+  let configuredHandlerKey = generatedHandlerKey([])
+  let refreshQueue = Promise.resolve()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
     prepareSourceGeneration({ ...input, importBase: options.importBase })
   const refresh = async () => {
@@ -310,6 +326,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
+      configuredHandlerKey = generatedHandlerKey(handlers)
       viteConfig.define = {
         ...viteConfig.define,
         __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)),
@@ -322,9 +339,25 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const viteConfig = config as SourcePluginConfig
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
+      configuredHandlerKey = generatedHandlerKey(handlers)
       if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
         viteConfig.nitro = mergeGeneratedSourceNitroConfig(viteConfig.nitro, handlers)
       }
+    },
+    configureServer(server) {
+      const refreshHost = async (file: string) => {
+        const root = projectRoot
+        if (!root || !sourceDefinitionPath(file, root, serverDirs)) return
+        const result = refreshQueue.then(async () => {
+          const handlers = await prepareSources({ projectRoot: root, serverDirs })
+          if (generatedHandlerKey(handlers) !== configuredHandlerKey) await server.restart()
+        })
+        refreshQueue = result.catch(() => {})
+        await result
+      }
+      server.watcher.on("add", refreshHost)
+      server.watcher.on("change", refreshHost)
+      server.watcher.on("unlink", refreshHost)
     },
     buildStart: refresh,
     buildEnd: refresh,
