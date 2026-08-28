@@ -397,7 +397,16 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       for (const environment of Object.values(server.environments)) {
         closeHostRefreshByEnvironment.set(environment, closeHostRefresh)
       }
-      const queueHostRefresh = (file: string) => {
+      const scheduleHostRefreshRetry = (file: string) => {
+        if (hostRefreshRetry) return
+        hostRefreshRetry = setTimeout(() => {
+          hostRefreshRetry = undefined
+          if (!serverClosed) void queueHostRefresh(file)
+        }, hostRefreshRetryDelay)
+        hostRefreshRetry.unref?.()
+        hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)
+      }
+      function queueHostRefresh(file: string) {
         if (serverClosed || !root || !sourceDefinitionPath(file, root, serverDirs)) return
         const result = refreshQueue.then(async () => {
           if (serverClosed) return
@@ -420,18 +429,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
             listenerOptions.handlesHostRestart && listenerResults[index]?.status === "fulfilled",
           )
           if (hasHostRestartOwner && !hostRestartHandled) {
-            if (!hostRefreshRetry) {
-              hostRefreshRetry = setTimeout(() => {
-                hostRefreshRetry = undefined
-                if (!serverClosed) void queueHostRefresh(file)
-              }, hostRefreshRetryDelay)
-              hostRefreshRetry.unref?.()
-              hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)
-            }
+            scheduleHostRefreshRetry(file)
             return
           }
           if (!hasHostRestartOwner) {
-            await server.restart()
+            try {
+              await server.restart()
+            }
+            catch (error) {
+              scheduleHostRefreshRetry(file)
+              throw error
+            }
           }
           configuredHandlerKey = handlerKey
           clearHostRefreshRetry()

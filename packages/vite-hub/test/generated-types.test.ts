@@ -122,8 +122,10 @@ function closeBundle(plugin: Plugin, environment: TestPluginEnvironment) {
 }
 
 function configureServer(plugin: Plugin) {
+  const configureServer = plugin.configureServer
+  const rawHook = configureServer instanceof Function ? configureServer : configureServer?.handler
   // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
-  const hook = plugin.configureServer as (server: {
+  const hook = rawHook as unknown as (server: {
     config: { logger: { error: (message: string) => void } }
     environments: Record<string, TestPluginEnvironment>
     restart: () => Promise<void>
@@ -686,6 +688,40 @@ describe("framework generated types", () => {
 
     await listeners.get("unlink")?.(collection)
     expect(restartHost).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries a generated topology when the plain Vite restart fails", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const collection = join(root, "server/collections/meals.ts")
+      await mkdir(join(root, "server/collections"), { recursive: true })
+      await writeFile(collection, collectionModule("meals"))
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restart = vi.fn()
+        .mockRejectedValueOnce(new Error("Vite restart failed"))
+        .mockResolvedValue(undefined)
+      const loggerError = vi.fn()
+
+      configureServer(plugin)({
+        config: { logger: { error: loggerError } },
+        restart,
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await rm(collection)
+      await expect(listeners.get("unlink")?.(collection)).rejects.toThrow("Vite restart failed")
+      expect(restart).toHaveBeenCalledOnce()
+      expect(loggerError).toHaveBeenCalledWith("Error: Vite restart failed")
+
+      await vi.runAllTimersAsync()
+      expect(restart).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("cancels generated topology retries when the Vite server closes", async () => {
