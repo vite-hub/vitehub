@@ -178,7 +178,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   }
 }
 
-export async function writeQueueRegistry(rootDir: string, definitions: DiscoveredQueueDefinition[], generatedDir = ensureGeneratedDir(rootDir, productName)): Promise<void> {
+export async function writeQueueRegistry(rootDir: string, definitions: DiscoveredQueueDefinition[], generatedDir: string = ensureGeneratedDir(rootDir, productName)): Promise<void> {
   await mkdir(generatedDir, { recursive: true })
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
