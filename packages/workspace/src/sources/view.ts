@@ -187,6 +187,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         for (const source of selectedSources) {
           if (operationStarted.has(source.key) && !operationCompleted.has(source.key)) {
             invalidateMaterializedPath(source.key, path)
+            preparedSources.delete(source.key)
+            sourceContexts.delete(source.key)
             continue
           }
           if (operationCompleted.has(source.key)) recordMaterializedPath(source.key, path)

@@ -1074,6 +1074,37 @@ describe("lazy sources", () => {
     expect(prepare.mock.calls[1]?.[0]).not.toBe(prepare.mock.calls[0]?.[0])
   })
 
+  it("reprepares a persistent Source after materialization is canceled", async () => {
+    const abort = new AbortController()
+    let cancel = true
+    const clients = new WeakMap<object, { keys: string[] }>()
+    const prepare = vi.fn(async (context: SourceContext) => {
+      clients.set(context, { keys: ["current.md"] })
+    })
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      prepare,
+      async getKeys(context: SourceContext) {
+        if (cancel) {
+          cancel = false
+          abort.abort(new DOMException("Canceled", "AbortError"))
+          abort.signal.throwIfAborted()
+        }
+        return clients.get(context)?.keys || []
+      },
+      async getItem(key: string) {
+        return { key, path: key, content: "# Current\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({ name: "canceled-materialization-preparation", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })).rejects.toThrow("Canceled")
+    await expect(view.readFile("docs/current.md", { encoding: "utf8" })).resolves.toBe("# Current\n")
+    expect(prepare).toHaveBeenCalledTimes(2)
+    expect(prepare.mock.calls[1]?.[0]).not.toBe(prepare.mock.calls[0]?.[0])
+  })
+
   it("clears an earlier prepared Source context after a refresh fails", async () => {
     const clients = new WeakMap<object, { keys: string[] }>()
     let failRefresh = false
