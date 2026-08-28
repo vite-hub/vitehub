@@ -86,6 +86,13 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: Re
   return meta?.status === "ready" && meta.configHash === configHash
 }
 
+export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, sourceKey: string, paths: Iterable<string>): Promise<boolean | undefined> {
+  const meta = await readSourceSnapshotMetadata(store, sourceKey)
+  if (!meta || meta.status !== "ready") return undefined
+  const ownedPaths = new Set(Object.keys(meta.items || {}))
+  return [...paths].some(path => ownedPaths.has(normalizeWorkspacePath(path)))
+}
+
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
   await store.setMeta?.(sourceSnapshotMetaKey(metadata.source), metadata)
 }

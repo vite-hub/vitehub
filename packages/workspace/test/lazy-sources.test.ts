@@ -1559,6 +1559,33 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledTimes(2)
   })
 
+  it("preserves a disjoint root startup snapshot during root build cleanup", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: "# Startup\n" }))
+    const definition = {
+      name: "startup-disjoint-root-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          files: [{ path: "build.md", content: "# Build\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          async getKeys() { return ["startup.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["generated"] })
+    getItem.mockRejectedValue(new Error("provider unavailable"))
+    await syncWorkspaceDefinition(definition, store)
+
+    await expect(view.readFile("startup.md")).resolves.toBe("# Startup\n")
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
   it("fences pending startup materialization before build synchronization resets its mount", async () => {
     let releaseFirst!: () => void
     const blocked = new Promise<void>((resolve) => { releaseFirst = resolve })

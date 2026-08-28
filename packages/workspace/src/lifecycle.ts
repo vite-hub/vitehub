@@ -4,7 +4,7 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
-import { sourceSnapshotMetaKey } from "./sources/materialization.ts"
+import { sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
@@ -177,7 +177,12 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   for (const source of [...previousSources, ...currentSources].filter(source => !source.mountPath)) {
     abortSignal?.throwIfAborted()
     const removedPaths = await rootBuildSourceFilePaths(store, source)
-    const affected = startupSources.filter(startup => removedPaths.some(path => sourceMountIntersectsPath(startup, path)))
+    const affected: ResolvedWorkspaceSource[] = []
+    for (const startup of startupSources) {
+      if (!removedPaths.some(path => sourceMountIntersectsPath(startup, path))) continue
+      if (await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths) === false) continue
+      affected.push(startup)
+    }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
     for (const startup of affected) await store.setMeta?.(sourceSnapshotMetaKey(startup.key), {})
     abortSignal?.throwIfAborted()
