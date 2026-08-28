@@ -3808,8 +3808,27 @@ function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
   return usage as AgentUsage
 }
 
-function mergedDefinedObjects(...values: unknown[]): Record<string, unknown> {
-  return Object.assign({}, ...values.map(definedObjectProperties))
+function mergedAgentUsageScalars(...values: (AgentUsage | undefined)[]): AgentUsage {
+  const usage: AgentUsage = {}
+  for (const value of values) {
+    if (!value) continue
+    for (const key of ["inputTokens", "outputTokens", "totalTokens"] as const) {
+      const tokens = value[key]
+      if (hasRuntimeType(tokens, "number") && Number.isFinite(tokens)) usage[key] = tokens
+    }
+    if (value.raw !== undefined) usage.raw = value.raw
+  }
+  return usage
+}
+
+function mergedFiniteNumberObjects(...values: unknown[]): Record<string, number> {
+  const merged: Record<string, number> = {}
+  for (const value of values) {
+    for (const [key, item] of Object.entries(mergedReadableObjects(value))) {
+      if (hasRuntimeType(item, "number") && Number.isFinite(item)) merged[key] = item
+    }
+  }
+  return merged
 }
 
 function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
@@ -3947,9 +3966,11 @@ async function resultWithStreamedTextAndUsage(
     const streamedUsage = normalizedAgentUsage(streamedUsageRecordProperties.usage)
     const normalizedRecordUsage = normalizedAgentUsage(normalizedUsageRecordProperties.usage)
     const usageValues = [fallbackUsage, streamedUsage, sourceUsage, normalizedRecordUsage, canonicalResolvedUsage]
+    const inputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.inputTokenDetails))
+    const outputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.outputTokenDetails))
     const mergedUsage = usageValues.some(Boolean)
       ? {
-          ...mergedDefinedObjects(...usageValues),
+          ...mergedAgentUsageScalars(...usageValues),
           ...(usageValues.some(value => value?.details)
             ? {
                 details: {
@@ -3957,20 +3978,8 @@ async function resultWithStreamedTextAndUsage(
                 },
               }
             : {}),
-          ...(usageValues.some(value => value?.inputTokenDetails)
-            ? {
-                inputTokenDetails: {
-                  ...mergedReadableObjects(...usageValues.map(value => value?.inputTokenDetails)),
-                },
-              }
-            : {}),
-          ...(usageValues.some(value => value?.outputTokenDetails)
-            ? {
-                outputTokenDetails: {
-                  ...mergedReadableObjects(...usageValues.map(value => value?.outputTokenDetails)),
-                },
-              }
-            : {}),
+          ...(Object.keys(inputTokenDetails).length ? { inputTokenDetails } : {}),
+          ...(Object.keys(outputTokenDetails).length ? { outputTokenDetails } : {}),
         }
       : undefined
     const canonicalUsageRecordProperties = mergedUsageRecords(canonicalUsageRecord)

@@ -433,7 +433,7 @@ describe("Agent Invocation Interface lifecycle", () => {
   it("records top-level usage when finalizing raw streams", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
-    const providerUsage = { completionTokens: 3, promptTokens: 2 }
+    const providerUsage = { completionTokens: 3, promptTokens: 2, providerMetadata: "private" }
     const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
     const raw = Object.assign((async function* () {
       yield { text: "answer", type: "text-delta" }
@@ -447,10 +447,12 @@ describe("Agent Invocation Interface lifecycle", () => {
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({ raw, text: "answer", usage, usageRecord: { usage } }),
-      invocation: expect.objectContaining({ usage: expect.objectContaining({ usage }) }),
-    }))
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, text: "answer", usage, usageRecord: { usage } },
+      invocation: { usage: { usage } },
+    })
+    expect(finish.mock.calls[0]![0].result.usage).toEqual(usage)
   })
 
   it("records promise-backed totalUsage when finalizing raw streams", async () => {
@@ -747,6 +749,32 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     expect(finish.mock.calls[0]![0]).toMatchObject({
       result: { usage: { inputTokenDetails: { cachedTokens: 2 } } },
+    })
+  })
+
+  it("filters invalid token details from top-level raw usage", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {})(), {
+      usage: {
+        inputTokenDetails: { cachedTokens: "invalid", cacheWriteTokens: 1 },
+        inputTokens: 2,
+        outputTokenDetails: { reasoningTokens: Number.NaN, textTokens: 3 },
+        outputTokens: 3,
+      },
+    })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].result.usage).toEqual({
+      inputTokenDetails: { cacheWriteTokens: 1 },
+      inputTokens: 2,
+      outputTokenDetails: { textTokens: 3 },
+      outputTokens: 3,
+      totalTokens: 5,
     })
   })
 
