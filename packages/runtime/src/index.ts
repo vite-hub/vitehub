@@ -500,11 +500,13 @@ function containsEnumerableAccessor(value: unknown, seen = new Set<object>()): b
     if (!("value" in descriptor) || containsEnumerableAccessor(descriptor.value, seen)) return true
   }
   if (value instanceof Map) {
+    // SAFETY: The intrinsic call is bound to the Map instance established above.
     for (const [key, entry] of Map.prototype.entries.call(value) as MapIterator<[unknown, unknown]>) {
       if (containsEnumerableAccessor(key, seen) || containsEnumerableAccessor(entry, seen)) return true
     }
   }
   if (value instanceof Set) {
+    // SAFETY: The intrinsic call is bound to the Set instance established above.
     for (const entry of Set.prototype.values.call(value) as SetIterator<unknown>) {
       if (containsEnumerableAccessor(entry, seen)) return true
     }

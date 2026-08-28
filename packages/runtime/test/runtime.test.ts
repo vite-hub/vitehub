@@ -450,6 +450,7 @@ describe("@vite-hub/runtime", () => {
     expect(entry?.payload?.visibility).toBe("public")
     if (entry?.payload?.visibility !== "public") throw new Error("Expected a public Blob payload.")
     expect(entry.payload.value).toBeInstanceOf(Blob)
+    // SAFETY: The runtime constructor assertion above establishes the public Blob snapshot.
     const snapshot = entry.payload.value as Blob
     expect(snapshot).toMatchObject({ size: 12, type: "text/plain" })
     await expect(snapshot.text()).resolves.toBe("public bytes")
