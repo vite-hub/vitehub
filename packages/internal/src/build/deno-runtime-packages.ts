@@ -1,4 +1,4 @@
-import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { access, cp, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -89,6 +89,12 @@ function collectCreateRequireAliases(source: string): Set<string> {
   for (const match of source.matchAll(/(?:^|[;\n])\s*import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
     factories.add(`${match[1]}.createRequire`)
   }
+  for (const match of source.matchAll(/\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*([A-Za-z_$][\w$]*))?[^}]*\}\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
+    factories.add(match[1] ?? "createRequire")
+  }
+  for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
+    factories.add(`${match[1]}.createRequire`)
+  }
   if (factories.size === 0) return new Set()
 
   const aliases = new Set<string>()
@@ -113,11 +119,11 @@ function collectImportedPackageNames(source: string): Set<string> {
     }
   }
   const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
-  const requirePattern = new RegExp(`\\b(?:${requireNames})(?:\\s*\\.\\s*resolve)?\\s*\\(\\s*["']([^"']+)["']\\s*(?:,|\\))`, "g")
+  const requirePattern = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(["'\x60])((?:\\.|[^"'\x60\\])*)\1\s*(?:,|\))`, "g")
   for (const match of executableSource.matchAll(requirePattern)) {
     if (!isStandaloneCall(executableSource, match.index))
       continue
-    const name = packageNameFromSpecifier(match[1]!)
+    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
     if (name) names.add(name)
   }
   for (const { specifier } of findLiteralDynamicImports(executableSource)) {
@@ -131,6 +137,21 @@ function collectImportedPackageNames(source: string): Set<string> {
       continue
     const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
     if (name) names.add(name)
+  }
+  return names
+}
+
+function collectStaticPackageNames(source: string): Set<string> {
+  const names = new Set<string>()
+  const executableSource = maskInertImportText(source)
+  for (const pattern of [
+    /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
+    /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
+  ]) {
+    for (const match of executableSource.matchAll(pattern)) {
+      const name = packageNameFromSpecifier(match[1]!)
+      if (name) names.add(name)
+    }
   }
   return names
 }
@@ -357,15 +378,33 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
         continue
       }
       if (character === "`") {
+        const prefix = output.slice(Math.max(0, output.length - 160))
+        const keepPackageCall = [...packageCallNames].some((name) =>
+          new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`).test(prefix),
+        )
+        if (keepPackageCall || /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*$/.test(prefix)) {
+          let end = index + 1
+          while (end < source.length) {
+            if (source[end] === "\\") end += 2
+            else if (source[end] === "$" && source[end + 1] === "{") break
+            else if (source[end++] === "`") {
+              output += source.slice(index, end)
+              index = end
+              break
+            }
+            else end++
+          }
+          if (index === end) continue
+        }
         scanTemplate()
         continue
       }
       if (character === '"' || character === "'") {
         const prefix = output.slice(Math.max(0, output.length - 120))
         const keepPackageCall = [...packageCallNames].some((name) =>
-          new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*\\(\\s*$`).test(prefix),
+          new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`).test(prefix),
         )
-        const keep = keepPackageCall || /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
+        const keep = keepPackageCall || /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
         let end = index + 1
         while (end < source.length) {
           if (source[end] === "\\") end += 2
@@ -515,6 +554,7 @@ interface RuntimePackage {
   onlyIfOptionalDependencies?: boolean
   optional?: boolean
   packageJsonPath?: string
+  ownsTarget?: boolean
 }
 
 interface RuntimePackageJson {
@@ -563,6 +603,7 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   const copied = new Set<string>()
   const staged = new Set<string>()
   const stagedTargets = new Set<string>()
+  const ownedTargets = new Set<string>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
   const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
   for (const runtimePackage of packages) {
@@ -576,11 +617,11 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
       )
       if (stagedPackageJsonPath) selectedPackage = { ...runtimePackage, packageJsonPath: stagedPackageJsonPath }
     }
-    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, stagedTargets, selectedPackage)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, stagedTargets, ownedTargets, selectedPackage)
   }
 }
 
-async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, options: RuntimePackage): Promise<void> {
+async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, ownedTargets: Set<string>, options: RuntimePackage): Promise<void> {
   let packageJsonPath = options.packageJsonPath
   if (packageJsonPath) {
     try {
@@ -603,6 +644,8 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
   const targetDir = join(outputNodeModules, ...name.split("/"))
+  if (!options.ownsTarget && ownedTargets.has(targetDir)) return
+  if (options.ownsTarget) ownedTargets.add(targetDir)
   const stagedKey = packageKey + "\0" + targetDir
   if (staged.has(stagedKey)) return
   copied.add(packageKey)
@@ -638,11 +681,12 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     const dependencyNodeModules = options.hoistOptionalDependencies && packageJson.optionalDependencies?.[dependencyName]
       ? outputNodeModules
       : join(targetDir, "node_modules")
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, stagedTargets, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, stagedTargets, ownedTargets, {
       hoistOptionalDependencies: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
+      ownsTarget: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
       optional: Boolean(packageJson.optionalDependencies?.[dependencyName]),
     })
   }
@@ -823,7 +867,12 @@ async function readRuntimePackages(
     }
   }
   for (const source of sources) {
-    for (const name of collectImportedPackageNames(source)) {
+    const staticNames = collectStaticPackageNames(source)
+    const requiredNames = new Set([
+      ...collectImportedPackageNames(maskBundledPackageRegions(source)),
+      ...staticNames,
+    ])
+    for (const name of requiredNames) {
       const existing = packages.get(name)
       let resolvedPackageJsonPath = resolvedPackageJsonPaths.get(name)
       if (resolvedPackageJsonPath) {
@@ -842,7 +891,7 @@ async function readRuntimePackages(
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
-        optional: existing?.optional ?? false,
+        optional: staticNames.has(name) ? false : existing?.optional ?? false,
         packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
       })
     }
@@ -851,7 +900,8 @@ async function readRuntimePackages(
 }
 
 export function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
-  const executableSource = maskInertImportText(source)
+  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
+  const executableSource = maskInertImportText(source, createRequireAliases)
   for (const match of executableSource.matchAll(/new URL\(\s*(["'`])(\.[^"'`]*)\1\s*,\s*import\.meta\.url\s*\)/g)) {
     const specifier = cookImportSpecifier(match[2]!)
     if (allowedLocalImports.includes(specifier)) continue
@@ -867,6 +917,13 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
       throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
     }
   }
+  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
+  const computedRequire = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(?=[^)\s])(?!["'\x60])`, "g")
+  for (const match of remaining.matchAll(computedRequire)) {
+    if (isStandaloneCall(remaining, match.index!)) {
+      throw new Error(`Deno ${outputName} contains an unsupported computed require. Use a static import so ViteHub can bundle its dependency.`)
+    }
+  }
 }
 
 function isUnconditionalTopLevelExpression(source: string, expressionStart: number): boolean {
@@ -877,7 +934,9 @@ function isUnconditionalTopLevelExpression(source: string, expressionStart: numb
   }
   if (braceDepth !== 0) return false
   const statementPrefix = source.slice(0, expressionStart).split(/[;\n]/).at(-1)!
+  const precedingLine = source.slice(0, expressionStart).split("\n").at(-2)?.trim() ?? ""
   return /^\s*await\b/.test(statementPrefix)
+    && !/^(?:else\s+)?(?:if|for|while|with)\s*\(/.test(precedingLine)
     && !/&&|\|\||\?\?|\?\./.test(statementPrefix)
     && !/(^|[^?])\?(?![?.])/.test(statementPrefix)
 }
@@ -996,27 +1055,60 @@ export async function finalizeDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
 ): Promise<void> {
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
-  await recoverInterruptedDenoDeploymentOutput(outputDir)
-  const stageRoot = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}.vitehub-`))
-  activeDenoDeploymentStages.add(stageRoot)
-  const stagedOutputDir = join(stageRoot, "output")
-  const previousOutputDir = join(stageRoot, "previous")
+  const releaseLock = await acquireDenoDeploymentLock(outputDir)
   try {
-    await cp(outputDir, stagedOutputDir, { recursive: true })
-    await finalizeStagedDenoDeploymentOutput({ ...options, outputDir: stagedOutputDir }, join(outputDir, "server"))
-    await rename(outputDir, previousOutputDir)
+    await recoverInterruptedDenoDeploymentOutput(outputDir)
+    const stageRoot = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}.vitehub-`))
+    activeDenoDeploymentStages.add(stageRoot)
+    const stagedOutputDir = join(stageRoot, "output")
+    const previousOutputDir = join(stageRoot, "previous")
     try {
-      await rename(stagedOutputDir, outputDir)
+      await cp(outputDir, stagedOutputDir, { recursive: true })
+      await finalizeStagedDenoDeploymentOutput({ ...options, outputDir: stagedOutputDir }, join(outputDir, "server"))
+      await rename(outputDir, previousOutputDir)
+      try {
+        await rename(stagedOutputDir, outputDir)
+      }
+      catch (error) {
+        await rename(previousOutputDir, outputDir)
+        throw error
+      }
     }
-    catch (error) {
-      await rename(previousOutputDir, outputDir)
-      throw error
+    finally {
+      activeDenoDeploymentStages.delete(stageRoot)
+      await rm(stageRoot, { force: true, recursive: true })
     }
   }
   finally {
-    activeDenoDeploymentStages.delete(stageRoot)
-    await rm(stageRoot, { force: true, recursive: true })
+    await releaseLock()
   }
+}
+
+async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promise<void>> {
+  const lockPath = `${outputDir}.vitehub-lock`
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const lock = await open(lockPath, "wx")
+      await lock.writeFile(`${process.pid}\n`, "utf8")
+      await lock.close()
+      return () => rm(lockPath, { force: true })
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      const owner = Number.parseInt(await readFile(lockPath, "utf8").catch(() => ""), 10)
+      let ownerAlive = Number.isSafeInteger(owner) && owner > 0
+      if (ownerAlive) {
+        try { process.kill(owner, 0) }
+        catch (signalError) {
+          if ((signalError as NodeJS.ErrnoException).code === "ESRCH") ownerAlive = false
+          else throw signalError
+        }
+      }
+      if (ownerAlive) throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized by process ${owner}.`)
+      await rm(lockPath, { force: true })
+    }
+  }
+  throw new Error(`Could not acquire the Deno deployment output lock for ${JSON.stringify(outputDir)}.`)
 }
 
 async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promise<void> {

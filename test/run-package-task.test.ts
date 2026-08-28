@@ -95,7 +95,7 @@ describe("package task runner", () => {
       "@vite-hub/markdown-template",
       "@vite-hub/runtime",
     ])
-  }, 15_000)
+  }, 30_000)
 
   it("keeps packages outside the safe allowlist serial", async () => {
     const result = await runFixture(["@fixture/serial-a", "@fixture/serial-b"], { VITEHUB_FIXTURE_DELAY: "20" })

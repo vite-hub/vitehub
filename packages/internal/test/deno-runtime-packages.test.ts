@@ -83,6 +83,18 @@ const inert = 'load("inert-runtime")'
 `)).toEqual(["@scope/aliased-resolve", "aliased-runtime"])
   })
 
+  it("finds CommonJS createRequire aliases and constant require templates", () => {
+    expect(collectDenoRuntimePackageNames(`
+const { createRequire: makeRequire } = require("node:module")
+const moduleApi = __require("module")
+const load = makeRequire(import.meta.url)
+const loadFromApi = moduleApi.createRequire(import.meta.url)
+load(\`template-runtime\`)
+loadFromApi("commonjs-runtime")
+require?.("optional-runtime")
+`)).toEqual(["commonjs-runtime", "optional-runtime", "template-runtime"])
+  })
+
   it("finds createRequire aliases from bare, namespace, and default module imports", () => {
     expect(collectDenoRuntimePackageNames(`
 import { createRequire as makeRequire } from "module"
@@ -311,6 +323,23 @@ import "real"
 
     await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
       .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
+  })
+
+  it("rejects relocated imports beneath unbraced control statements", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-unbraced-entry-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'if (globalThis.enabled)\n  await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+      .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
+  })
+
+  it("rejects computed require calls before relocation", () => {
+    expect(() => assertSupportedRelocatedImports('const target = "./helper.cjs"; require(target)', "application entrypoint"))
+      .toThrow("unsupported computed require")
   })
 
   it("bundles package import mappings into relocated entrypoints", async () => {
@@ -943,6 +972,17 @@ load("@img/sharp-linux-x64/sharp.node")
     expect(existsSync(completedStage)).toBe(false)
   })
 
+  it("does not recover deployment output owned by another process", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-concurrent-output-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".output.vitehub-lock"), `${process.pid}\n`, "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+      .rejects.toThrow("already being finalized")
+  })
+
   it("uses the pnpm package from a bundle marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-pnpm-"))
     const bundled = join(root, "node_modules/.pnpm/sharp@2/node_modules/sharp/package.json")
@@ -961,20 +1001,20 @@ import "sharp"
 
   it("keeps an owner-selected native package over the project-root installation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-owner-native-"))
-    const owner = join(root, "node_modules/.pnpm/owner@2/node_modules/owner/package.json")
+    const owner = join(root, "node_modules/.pnpm/aaa-owner@2/node_modules/aaa-owner/package.json")
     await writeJson(join(root, "package.json"), {})
-    await writeJson(join(root, "node_modules/native-probe/package.json"), { name: "native-probe", version: "1" })
-    await writeJson(owner, { name: "owner", optionalDependencies: { "native-probe": "2" }, version: "2" })
-    await writeJson(join(dirname(owner), "node_modules/native-probe/package.json"), { name: "native-probe", version: "2" })
+    await writeJson(join(root, "node_modules/zzz-native/package.json"), { name: "zzz-native", version: "1" })
+    await writeJson(owner, { name: "aaa-owner", optionalDependencies: { "zzz-native": "2" }, version: "2" })
+    await writeJson(join(dirname(owner), "node_modules/zzz-native/package.json"), { name: "zzz-native", version: "2" })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/.pnpm/owner@2/node_modules/owner/index.js
-import "owner"
-require("native-probe")
+    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/.pnpm/aaa-owner@2/node_modules/aaa-owner/index.js
+import "aaa-owner"
+require("zzz-native")
 `)
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
-    await expect(readFile(join(root, ".output/node_modules/native-probe/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
+    await expect(readFile(join(root, ".output/node_modules/zzz-native/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
   })
 
   it("preserves bundle-marker paths above a nested Vite root", async () => {

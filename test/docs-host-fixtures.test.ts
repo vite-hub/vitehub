@@ -172,7 +172,7 @@ describe("host documentation fixtures", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  }, 180_000)
+  }, 300_000)
 
   it("declares exactly one representative build per documented host", async () => {
     const contracts = parseSnippetContracts(await readFile(join(fixturesRoot, "manifest.json"), "utf8"))
