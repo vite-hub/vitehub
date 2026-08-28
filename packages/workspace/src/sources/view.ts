@@ -64,7 +64,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const sourceContextUsers = new Map<string, number>()
   const materializeBySource = new Map<string, Promise<void>>()
   const materializedPathsBySource = new Map<string, Set<string>>()
-  const materializedRevisionBySource = new Map<string, string>()
+  const materializedRevisionBySource = new Map<string, { id: string, immutable: boolean }>()
   let materializationQueue = Promise.resolve()
 
   function invalidateMaterializedPath(sourceKey: string, path: string) {
@@ -78,9 +78,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (!paths.size) materializedPathsBySource.delete(sourceKey)
   }
 
-  function recordMaterializedPath(sourceKey: string, path: string, revision?: { id: string }) {
+  function recordMaterializedPath(sourceKey: string, path: string, revision?: { id: string, immutable: boolean }) {
     const previousRevision = materializedRevisionBySource.get(sourceKey)
-    if (revision && previousRevision && revision.id !== previousRevision) {
+    if (revision && previousRevision && (!revision.immutable || revision.id !== previousRevision.id)) {
       materializedPathsBySource.delete(sourceKey)
     }
     if (path) invalidateMaterializedPath(sourceKey, path)
@@ -90,7 +90,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       materializedPathsBySource.set(sourceKey, paths)
     }
     paths.add(path)
-    if (revision) materializedRevisionBySource.set(sourceKey, revision.id)
+    if (revision) materializedRevisionBySource.set(sourceKey, revision)
   }
 
   async function materializeSources(

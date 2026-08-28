@@ -1600,6 +1600,38 @@ describe("lazy sources", () => {
     expect(resolveRevision).toHaveBeenCalledTimes(2)
   })
 
+  it("invalidates sibling coverage when a mutable revision is refreshed", async () => {
+    let version = 0
+    const resolvedVersions = new WeakMap<SourceContext, number>()
+    const resolveRevision = vi.fn(async (context: SourceContext) => {
+      resolvedVersions.set(context, ++version)
+      return { id: "main", immutable: false, ref: "main" }
+    })
+    const view = createWorkspaceSourceView({
+      name: "mutable-sibling-revision-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          resolveRevision,
+          async getKeys() {
+            return ["a/guide.md", "b/guide.md"]
+          },
+          async getItem(key, context) {
+            return { key, path: key, content: `version-${resolvedVersions.get(context)}` }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.list("docs/a", { recursive: true })
+    await expect(view.readFile("docs/a/guide.md", { encoding: "utf8" })).resolves.toBe("version-1")
+    await view.list("docs/b", { recursive: true })
+    await expect(view.readFile("docs/b/guide.md", { encoding: "utf8" })).resolves.toBe("version-2")
+    await expect(view.readFile("docs/a/guide.md", { encoding: "utf8" })).resolves.toBe("version-3")
+    expect(resolveRevision).toHaveBeenCalledTimes(3)
+  })
+
   it("shares and reuses successful pathless lazy materialization", async () => {
     let release!: () => void
     const getKeys = vi.fn(async () => {
