@@ -2188,6 +2188,53 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("marks truncated finish usage incomplete", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [id, truncated] of [["complete", false], ["truncated", true]] as const) {
+      store.create({
+        completedAt: "2026-08-27T10:00:00.000Z",
+        createdAt: "2026-08-27T09:59:00.000Z",
+        id,
+        observations: [{
+          attributes: {
+            "usage.record": {
+              model: id,
+              usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+            },
+            ...(truncated ? { "vitehub.observation.truncated": true } : {}),
+          },
+          name: "agent.invocation.finish",
+          sequence: 1,
+          timestamp: "2026-08-27T10:00:00.000Z",
+          type: "lifecycle",
+        }],
+        status: "completed",
+        traceId: `trace-${id}`,
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      })
+    }
+    const invocations = defineAgentInvocations({ store })
+
+    expect(invocationUsage((await invocations.get("truncated"))!)).toBeUndefined()
+    await expect(createUsageSummary(invocations, {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      available: true,
+      models: [expect.objectContaining({ model: "complete", totalTokens: 10 })],
+      partial: true,
+      totals: {
+        inputTokens: 4,
+        inputTokensAvailable: false,
+        invocations: 2,
+        outputTokens: 6,
+        outputTokensAvailable: false,
+        totalTokens: 10,
+        totalTokensAvailable: false,
+      },
+    })
+  })
+
   it("scans creation-ordered pages for recent completions", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({

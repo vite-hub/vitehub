@@ -20,6 +20,11 @@ export interface ConsoleInvocationUsage {
   totalTokens?: number
 }
 
+interface InvocationUsageProjection {
+  incomplete: boolean
+  usage?: ConsoleInvocationUsage
+}
+
 interface UsageWindow {
   bucket: "day" | "hour"
   durationMs: number
@@ -220,13 +225,21 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
   return Object.keys(projected).length ? projected : undefined
 }
 
-export function invocationUsage(record: AgentInvocationRecord): ConsoleInvocationUsage | undefined {
+function invocationUsageProjection(record: AgentInvocationRecord): InvocationUsageProjection {
   for (let index = record.observations.length - 1; index >= 0; index--) {
     const observation = record.observations[index]!
     if (observation.name !== "agent.invocation.finish") continue
     const usage = usageNode(observation.attributes?.["usage.record"])
-    if (usage) return usage
+    if (observation.attributes?.["vitehub.observation.truncated"] === true) {
+      return { incomplete: true }
+    }
+    if (usage) return { incomplete: false, usage }
   }
+  return { incomplete: false }
+}
+
+export function invocationUsage(record: AgentInvocationRecord): ConsoleInvocationUsage | undefined {
+  return invocationUsageProjection(record).usage
 }
 
 function bucketStart(timestamp: string, resolution: UsageWindow["bucket"]): string | undefined {
@@ -370,11 +383,13 @@ export async function createUsageSummary(
       const bucket = bucketStart(usageTime(record), window.bucket)
       if (!bucket) continue
       const bucketTotal = buckets.get(bucket) ?? emptyTotals()
-      const usage = invocationUsage(record)
+      const projection = invocationUsageProjection(record)
+      const usage = projection.usage
       if (!usage) {
         addMissingUsage(totals)
         addMissingUsage(bucketTotal)
         buckets.set(bucket, bucketTotal)
+        partial ||= projection.incomplete
         continue
       }
       recordedUsage++
