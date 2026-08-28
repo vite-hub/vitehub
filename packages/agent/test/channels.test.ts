@@ -794,11 +794,11 @@ describe("agent channels", () => {
     })
   })
 
-  it("rewrites published image references in GitHub PR reviews", async () => {
+  it("captures rewritten image references in GitHub PR reviews and updates", async () => {
     const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
-    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
       if (String(url).endsWith("/app/installations/123/access_tokens")) {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
@@ -816,6 +816,8 @@ describe("agent channels", () => {
     })
     const reviewEffect = channel.effects?.review
     if (!hasRuntimeType(reviewEffect, "function")) throw new Error("Missing GitHub review effect.")
+    const updateEffect = channel.effects?.update
+    if (!hasRuntimeType(updateEffect, "function")) throw new Error("Missing GitHub update effect.")
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const reviewContext = {
@@ -869,6 +871,31 @@ describe("agent channels", () => {
         }),
         headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
         method: "POST",
+      }),
+    )
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const updateContext = {
+      ...reviewContext,
+      effect: {
+        ...reviewContext.effect,
+        kind: "update",
+        payload: { body: "Updated body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)" },
+      },
+    } as never
+    await updateEffect(updateContext)
+
+    expect(messageChannelDeliveredReplyBody(updateContext)).toBe(
+      "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+    )
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/issues/comments/99",
+      expect.objectContaining({
+        body: JSON.stringify({
+          body: "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+        }),
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
+        method: "PATCH",
       }),
     )
   })
