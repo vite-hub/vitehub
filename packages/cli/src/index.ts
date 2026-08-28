@@ -112,7 +112,6 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
   return new Promise<{ exitCode: number | null, signal: NodeJS.Signals | null }>((resolveResult, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      detached: process.platform !== "win32",
       env: options.env,
       shell: process.platform === "win32",
       stdio: [
@@ -130,14 +129,11 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
     }
     for (const signal of forwardedSignals) {
       const handler = () => {
-        if (!child.pid) child.kill(signal)
-        else {
-          try {
-            process.kill(-child.pid, signal)
-          }
-          catch (error) {
-            if (Reflect.get(Object(error), "code") !== "ESRCH") throw error
-          }
+        try {
+          child.kill(signal)
+        }
+        catch (error) {
+          if (Reflect.get(Object(error), "code") !== "ESRCH") throw error
         }
         if (signal === "SIGTSTP") process.kill(process.pid, "SIGSTOP")
       }
