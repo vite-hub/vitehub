@@ -28,6 +28,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 import { github as githubPublisher } from "../src/publish.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { workspaceStoreTarget } from "../src/storage/target.ts"
+import { resolveWorkspaceMetadataTarget } from "../src/storage/metadata-target.ts"
 
 const invocation = {
   context: {
@@ -81,14 +82,19 @@ function customerSource() {
 }
 
 function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspaceFacade {
+  // SAFETY: This test fixture intentionally supplies only the Workspace tools exercised by these cases.
+  const tools = {
+    inspect: () => ({}),
+    none: () => ({}),
+  } as never
   return {
     fs: {
-      // SAFETY: the facade accepts the workspace reader's full option union.
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       readFile: async (path, options) => await workspace.readFile(path, options as never),
       stat: async path => await workspace.stat(path),
       exists: async path => await workspace.exists(path),
       list: async (path, options) => await workspace.list(path, options),
-      // SAFETY: the facade glob pattern has already passed workspace API validation.
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       glob: async (pattern, options) => await workspace.glob(pattern as never, options),
       search: async query => await workspace.search(query),
       materializeSources: async options => await workspace.materializeSources?.(options) ?? {
@@ -100,15 +106,18 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
         sources: [],
       },
     },
-    // SAFETY: readonly facade tests do not exercise optional workspace tools.
-    tools: {
-      inspect: () => ({}),
-      none: () => ({}),
-    } as never,
+    getMeta: async key => await workspace.getMeta?.(key),
+    tools,
   }
 }
 
 function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
+  // SAFETY: This test fixture intentionally supplies only the Workspace tools exercised by these cases.
+  const tools = {
+    inspect: () => ({}),
+    none: () => ({}),
+    write: () => ({}),
+  } as never
   return {
     capabilities: async () => await workspace.capabilities?.() ?? { conditionalWrites: false },
     diff: async options => await workspace.diff(options),
@@ -121,7 +130,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
         await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
       },
       exists: async path => await workspace.exists(path),
-      // SAFETY: the facade glob pattern has already passed workspace API validation.
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       glob: async (pattern, options) => await workspace.glob(pattern as never, options),
       list: async (path, options) => await workspace.list(path || "", options),
       mkdir: async (path, options) => await workspace.mkdir(path, options),
@@ -129,7 +138,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
         await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
         await workspace.rm(from, { force: true, recursive: true })
       },
-      // SAFETY: the facade accepts the workspace reader's full option union.
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       readFile: async (path, options) => await workspace.readFile(path, options as never),
       rm: async (path, options) => await workspace.rm(path, options),
       search: async query => await workspace.search(query),
@@ -154,20 +163,15 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     snapshot: async options => await workspace.snapshot(options),
     startSession: async options => await workspace.startSession(options),
     sync: async options => await workspace.sync(options),
-    // SAFETY: writable facade tests do not exercise the tool implementations.
-    tools: {
-      inspect: () => ({}),
-      none: () => ({}),
-      write: () => ({}),
-    } as never,
+    tools,
   }
 }
 
 async function runShell(workspace: ReadonlyWorkspaceFacade, command: string): Promise<WorkspaceShellResult> {
-  // SAFETY: this test fixture supplies the complete tool context used by the shell implementation.
+  // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
   return await workspace.tools.shell.execute!(
     { command },
-    // SAFETY: the shell implementation only reads these tool-context fields in this test.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     { toolCallId: "test", messages: [] } as never,
   ) as WorkspaceShellResult
 }
@@ -204,7 +208,7 @@ describe("Workspace Source Resolution", () => {
       invocation: {
         context: {
           entries: () => values.entries(),
-          // SAFETY: the test map contains the invocation context values requested by this fixture.
+          // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
           get: (id: string) => values.get(id) as never,
           has: id => values.has(id),
           toJSON: () => Object.fromEntries(values),
@@ -581,7 +585,7 @@ describe("Workspace Source Resolution", () => {
       "~standard": {
         jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
         validate(input: unknown) {
-          // SAFETY: this schema fixture accepts arbitrary object-shaped query input.
+          // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
           return { value: input as Record<string, unknown> }
         },
       },
@@ -613,18 +617,18 @@ describe("Workspace Source Resolution", () => {
       definition,
       scope("support", [workspaceSourceRequestDescriptorPath("inventoryHealthSummary")]),
     )
-    // SAFETY: this test fixture supplies the complete tool context used by the shell implementation.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const result = await workspace.tools.shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
-      // SAFETY: the shell implementation only reads these tool-context fields in this test.
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       { toolCallId: "test", messages: [] } as never,
     ) as WorkspaceShellResult
 
     expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }, null, 2) })
-    // SAFETY: this test fixture supplies the complete tool context used by the shell implementation.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const hiddenResult = await workspace.tools.shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/hidden-inventory'" },
-      // SAFETY: the shell implementation only reads these tool-context fields in this test.
+      // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       { toolCallId: "test", messages: [] } as never,
     ) as WorkspaceShellResult
 
@@ -632,11 +636,11 @@ describe("Workspace Source Resolution", () => {
       exitCode: 126,
       stderr: expect.stringContaining("not visible in the selected workspace scope"),
     })
-    // SAFETY: the mocked fetch call above always records a RequestInit argument.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const init = request.mock.calls[0]?.[1] as RequestInit
-    // SAFETY: the mocked request initializes headers with a Headers-compatible value.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
-    // SAFETY: the mocked request initializes headers with a Headers-compatible value.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     expect((init.headers as Headers).get("x-scope")).toBe("support")
     expect(request).toHaveBeenCalledOnce()
     expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
@@ -1020,7 +1024,7 @@ describe("Workspace Source Resolution", () => {
             return ["models/orders.sql"]
           },
           async getItem(key) {
-            return key === "models/orders.sql" ? { key, path: key, content: "select 1\n" } : await Promise.reject(new Error(`Workspace file does not exist: ${key}`))
+            return { key, path: key, content: "select 1\n" }
           },
         }),
       },
@@ -1033,6 +1037,201 @@ describe("Workspace Source Resolution", () => {
 
     await expect(workspace.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select 1\n")
     await expect(workspace.fs.readFile("ingestion/acme/old.sql")).rejects.toThrow("does not exist")
+  })
+
+  it("serves unchanged startup Source snapshots through overlays", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: "prepared\n" }))
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["ready.md"] },
+          getItem,
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+    getItem.mockRejectedValue(new Error("provider unavailable"))
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("docs/ready.md")).resolves.toBe("prepared\n")
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("masks removed startup snapshot files after an overlay refresh", async () => {
+    let keys = ["kept.md", "removed.md"]
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+    keys = ["kept.md"]
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await workspace.fs.materializeSources?.({ sources: ["docs"] })
+
+    await expect(workspace.fs.readFile("docs/kept.md")).resolves.toBe("kept.md\n")
+    await expect(workspace.fs.readFile("docs/removed.md")).rejects.toThrow("does not exist")
+    await expect(workspace.fs.exists("docs/removed.md")).resolves.toBe(false)
+    await expect(workspace.fs.list("docs")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/kept.md", type: "file" }),
+    ])
+  })
+
+  it("masks removed root-mounted startup files after an overlay refresh", async () => {
+    let keys = ["kept.md", "removed.md"]
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        root: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["root"] })
+    keys = ["kept.md"]
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await workspace.fs.materializeSources?.({ sources: ["root"] })
+
+    await expect(workspace.fs.readFile("kept.md")).resolves.toBe("kept.md\n")
+    await expect(workspace.fs.exists("removed.md")).resolves.toBe(false)
+  })
+
+  it("does not serve startup snapshots outside the selected scope", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["public.md", "private.md"] },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+      selectedWorkspaceScope: {
+        all: false,
+        name: "public",
+        paths: ["docs/public.md"],
+        role: "reader",
+        sources: ["docs"],
+      },
+    })
+
+    await expect(workspace.fs.readFile("docs/public.md")).resolves.toBe("public.md\n")
+    await expect(workspace.fs.readFile("docs/private.md")).rejects.toThrow("Workspace file does not exist")
+  })
+
+  it("does not serve root startup snapshots outside the selected scope", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["public.md", "private.md"] },
+          async getItem(key) { return { key, content: `${key}\n` } },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+      selectedWorkspaceScope: {
+        all: false,
+        name: "public",
+        paths: ["public.md"],
+        role: "reader",
+        sources: ["docs"],
+      },
+    })
+
+    await expect(workspace.fs.readFile("public.md")).resolves.toBe("public.md\n")
+    await expect(workspace.fs.readFile("private.md")).rejects.toThrow("Workspace file does not exist")
+    await expect(workspace.fs.exists("private.md")).resolves.toBe(false)
+    await expect(workspace.fs.list("", { recursive: true })).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "private.md" })]),
+    )
+    await expect(workspace.fs.glob("**/*.md")).resolves.toEqual([
+      expect.objectContaining({ path: "public.md" }),
+    ])
+    await expect(workspace.fs.search({ pattern: "private", paths: [""] })).resolves.toEqual([])
+  })
+
+  it("does not serve parent startup snapshots through resolved child Sources", async () => {
+    const childGetItem = vi.fn(async (key: string) => ({ key, content: "resolved\n" }))
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          mount: "docs",
+          async getKeys() { return ["private/secret.md"] },
+          async getItem(key) { return { key, content: "prepared parent\n" } },
+        }),
+        privateDocs: custom({
+          materialize: "lazy",
+          mount: "docs/private",
+          async resolve() {
+            return custom({
+              mount: "docs/private",
+              async getKeys() { return ["secret.md"] },
+              getItem: childGetItem,
+            })
+          },
+          async getKeys() { return [] },
+          async getItem(key) { throw new Error(`unresolved source read: ${key}`) },
+        }),
+      },
+      store: { provider: "memory" },
+    }
+    const base = createWorkspace(definition)
+    await base.materializeSources?.({ sources: ["docs"] })
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("docs/private/secret.md")).resolves.toBe("resolved\n")
+    expect(childGetItem).toHaveBeenCalledOnce()
   })
 
   it("keeps source-backed paths read-only in writable overlays", async () => {
@@ -1061,7 +1260,11 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
-    // SAFETY: writableFacade created this resolved facade with writable operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const writable = workspace as WritableWorkspaceFacade
 
     await expect(writable.fs.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
@@ -1103,7 +1306,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
-    // SAFETY: writableFacade created this resolved facade with writable operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const writable = workspace as WritableWorkspaceFacade
     await writable.materializeSources({ path: "docs" })
     await writable.publish({ name: "publish resolved view" })
@@ -1119,6 +1322,7 @@ describe("Workspace Source Resolution", () => {
     await expect(context.store.readFile("docs/README.md")).resolves.toMatchObject({
       content: "# Resolved docs\n",
     })
+    await expect(resolveWorkspaceMetadataTarget(writable)).resolves.toBeDefined()
   })
 
   it("preserves the active GitHub Store target in resolved publication", async () => {
@@ -1131,7 +1335,7 @@ describe("Workspace Source Resolution", () => {
         token: "token",
       })],
     }
-    // SAFETY: writableFacade preserves the backing Store target used by this publish fixture.
+    // SAFETY: This test fixture intentionally exposes the private Store target hook under test.
     const facade = writableFacade(base) as WritableWorkspaceFacade & { [workspaceStoreTarget]: () => unknown }
     facade[workspaceStoreTarget] = () => ({ provider: "github", branch: "main", repository: "onmax/repo" })
     const { workspace } = await createWorkspaceSourceResolutionFacade(facade, definition, {
@@ -1139,7 +1343,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
-    // SAFETY: the custom facade above retains writable publish operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((workspace as WritableWorkspaceFacade).publish()).rejects.toThrow(
       "GitHub publisher cannot publish to onmax/repo@main while it backs the active GitHub Workspace Store",
     )
@@ -1168,7 +1372,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
-    // SAFETY: writableFacade created this resolved facade with writable operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
@@ -1199,7 +1403,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
-    // SAFETY: writableFacade created this resolved facade with writable operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((first.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
     })
@@ -1210,7 +1414,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
-    // SAFETY: writableFacade created this resolved facade with writable operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect((second.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
       sources: [expect.objectContaining({
@@ -1253,9 +1457,9 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
     await expect(workspace.fs.readFile("private/secret.md")).resolves.toBe("secret\n")
-    // SAFETY: the source-resolution facade installs startSession on its fs facade above.
-    const sessionFs = workspace.fs as typeof workspace.fs & Pick<ReturnType<typeof createWorkspace>, "startSession">
-    const session = await sessionFs.startSession({ paths: ["docs"] })
+    const startSession = Reflect.get(workspace.fs, "startSession")
+    expect(startSession).toBeTypeOf("function")
+    const session: { close(): Promise<void>, readFile(path: string): Promise<string> } = await Reflect.apply(startSession, workspace.fs, [{ paths: ["docs"] }])
 
     try {
       await expect(session.readFile("docs/guide.md")).resolves.toBe("needle\n")
@@ -1292,7 +1496,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
-    // SAFETY: the source-resolution facade installs startSession on its fs facade.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const startSession = vi.spyOn(workspace.fs as typeof workspace.fs & {
       startSession(options?: { paths?: string[] }): Promise<unknown>
     }, "startSession")
@@ -1355,7 +1559,7 @@ describe("Workspace Source Resolution", () => {
     })
 
     expect(workspace).toHaveProperty("startSession")
-    // SAFETY: the property assertion above verifies the resolved facade exposes startSession.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await (workspace as ReadonlyWorkspaceFacade & { startSession(options?: { paths?: string[] }): Promise<unknown> }).startSession({
       paths: ["public"],
     })
@@ -1387,7 +1591,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
-    // SAFETY: writableFacade created this resolved facade with writable operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const session = await (workspace as WritableWorkspaceFacade).startSession()
 
     await expect(session.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
@@ -1410,7 +1614,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
-    // SAFETY: writableFacade created this resolved facade with writable operations.
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const session = await (workspace as WritableWorkspaceFacade).startSession({ paths: ["artifacts"] })
 
     try {

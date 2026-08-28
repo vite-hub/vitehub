@@ -1,5 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks"
-
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
@@ -8,10 +6,12 @@ import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath
 import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   hasCurrentSourceSnapshot,
+  hasFreshSourceSnapshot,
+  materializesCompleteSource,
   materializeWorkspaceSources,
+  readCurrentSourceSnapshot,
   readResolvedSourceFile,
   searchMaterializedStore,
-  shouldMaterializeSource,
   statVirtualSourcePath,
 } from "./materialization.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
@@ -27,9 +27,9 @@ import type {
   WorkspaceContent,
   WorkspaceDefinition,
   WorkspaceEntry,
-  WorkspaceMaterializeSourcesProgressEvent,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceMaterializeSourcesResult,
   WorkspaceSourceItem,
   WorkspaceStat,
   WorkspaceStore,
@@ -50,226 +50,77 @@ export interface WorkspaceSourceView {
   rm(path: string, options?: RmOptions): Promise<void>
 }
 
-export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
-  const materializationProgressSources = new AsyncLocalStorage<{
-    barrierSafe: ReadonlySet<string>
-    materializing: ReadonlySet<string>
-  }>()
+interface PendingMaterialization {
+  fullSource: boolean
+  promise: Promise<WorkspaceMaterializeSourcesResult>
+  tail: Promise<void>
+}
+
+interface MaterializationState {
+  completedSources: Set<string>
+  generationBySource: Map<string, number>
+  materializedSources: Set<string>
+  pendingBySource: Map<string, PendingMaterialization>
+}
+
+const materializationByStore = new WeakMap<WorkspaceStore, WeakMap<WorkspaceDefinition, MaterializationState>>()
+
+export async function invalidateWorkspaceSourceMaterialization(definition: WorkspaceDefinition, store: WorkspaceStore, sourceKeys: Iterable<string>): Promise<void> {
+  const state = materializationByStore.get(store)?.get(definition)
+  if (!state) return
+  const pending = new Set<Promise<void>>()
+  for (const sourceKey of sourceKeys) {
+    state.completedSources.delete(sourceKey)
+    state.materializedSources.delete(sourceKey)
+    state.generationBySource.set(sourceKey, (state.generationBySource.get(sourceKey) ?? 0) + 1)
+    const operation = state.pendingBySource.get(sourceKey)
+    if (operation) pending.add(operation.tail)
+  }
+  await Promise.all(pending)
+}
+
+async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return await pending
+  signal.throwIfAborted()
+  let removeAbortListener = () => {}
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort)
+    if (signal.aborted) onAbort()
+  })
+  try {
+    return await Promise.race([pending, aborted])
+  }
+  finally {
+    removeAbortListener()
+  }
+}
+
+export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore, options: { reuseStartupSnapshots?: boolean } = {}): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
-  const sources = allSources.filter(source => !source.requestOnly && source.materialize === "lazy")
+  const sources = allSources.filter(source => !source.requestOnly && (source.materialize === "lazy" || source.materialize === "startup"))
   const syncSources = allSources.filter(source => source.sync)
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
-  const preparedSources = new Set<string>()
-  const materializationPreparationBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
-  const sourceContextUsers = new Map<string, number>()
-  const materializeBySource = new Map<string, Promise<void>>()
-  const materializedPathsBySource = new Map<string, Set<string>>()
-  const materializedRevisionBySource = new Map<string, { id: string, immutable: boolean }>()
-  const materializationGenerationBySource = new Map<string, number>()
-  let materializationQueue = Promise.resolve()
-
-  function invalidateMaterializedPath(sourceKey: string, path: string) {
-    const paths = materializedPathsBySource.get(sourceKey)
-    if (!paths) return
-    for (const materializedPath of paths) {
-      if (!path || !materializedPath || path === materializedPath || path.startsWith(`${materializedPath}/`) || materializedPath.startsWith(`${path}/`)) {
-        paths.delete(materializedPath)
-      }
-    }
-    if (!paths.size) materializedPathsBySource.delete(sourceKey)
+  let materializationByDefinition = materializationByStore.get(store)
+  if (!materializationByDefinition) {
+    materializationByDefinition = new WeakMap()
+    materializationByStore.set(store, materializationByDefinition)
   }
-
-  function recordMaterializedPath(sourceKey: string, path: string, revision?: { id: string, immutable: boolean }) {
-    const previousRevision = materializedRevisionBySource.get(sourceKey)
-    const revisionChanged = previousRevision
-      ? !revision || !previousRevision.immutable || !revision.immutable || revision.id !== previousRevision.id
-      : materializedPathsBySource.has(sourceKey)
-    if (revisionChanged) {
-      materializedPathsBySource.delete(sourceKey)
-    }
-    if (path) invalidateMaterializedPath(sourceKey, path)
-    let paths = materializedPathsBySource.get(sourceKey)
-    if (!paths) {
-      paths = new Set()
-      materializedPathsBySource.set(sourceKey, paths)
-    }
-    paths.add(path)
-    materializationGenerationBySource.set(sourceKey, (materializationGenerationBySource.get(sourceKey) || 0) + 1)
-    if (revision) materializedRevisionBySource.set(sourceKey, revision)
-    else materializedRevisionBySource.delete(sourceKey)
+  const materializationState = materializationByDefinition.get(definition) ?? {
+    completedSources: new Set<string>(),
+    generationBySource: new Map<string, number>(),
+    materializedSources: new Set<string>(),
+    pendingBySource: new Map<string, PendingMaterialization>(),
   }
-
-  async function materializeSources(
-    options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions,
-    behavior: { reusePreparedContext?: boolean } = {},
-  ) {
-    let started = false
-    const selectedSources = allSources.filter(source => shouldMaterializeSource(source, options))
-    if (!selectedSources.length) {
-      return {
-        bytes: 0,
-        directories: 0,
-        durationMs: 0,
-        files: 0,
-        path: normalizeWorkspacePath(options?.path || ""),
-        sources: [],
-      }
-    }
-    const concurrentPreparations = new Map(selectedSources
-      .map(source => [source.key, prepareBySource.get(source.key)] as const)
-      .filter((entry): entry is readonly [string, Promise<void>] => Boolean(entry[1])))
-    const operationContexts = new Map<string, ReturnType<typeof createSourceContext>>()
-    const operationCompleted = new Set<string>()
-    const operationPrepared = new Set<string>()
-    const operationStarted = new Set<string>()
-    const initialGenerations = new Map(selectedSources.map(source => [source.key, materializationGenerationBySource.get(source.key) || 0]))
-    const getOperationContext = (source: (typeof sources)[number]) => {
-      let context = operationContexts.get(source.key)
-      if (!context) {
-        const reusePreparedContext = behavior.reusePreparedContext && preparedSources.has(source.key) && !sourceContextUsers.has(source.key)
-        context = reusePreparedContext
-          ? getSourceContext(source)
-          : createSourceContext(definition, source, store)
-        operationContexts.set(source.key, context)
-        if (reusePreparedContext) operationPrepared.add(source.key)
-      }
-      return context
-    }
-    const promotePreparedContexts = () => {
-      for (const sourceKey of operationPrepared) {
-        const context = operationContexts.get(sourceKey)
-        if (!context) continue
-        sourceContexts.set(sourceKey, context)
-        preparedSources.add(sourceKey)
-      }
-    }
-    const queuedMaterializations = materializationQueue
-    const calledFromProgress = materializationProgressSources.getStore() !== undefined
-    const pending = (calledFromProgress ? Promise.resolve() : queuedMaterializations).then(async () => {
-      started = true
-      options?.abortSignal?.throwIfAborted()
-      await Promise.all([...concurrentPreparations.values()].map(async preparation => await preparation.catch(() => undefined)))
-      options?.abortSignal?.throwIfAborted()
-      try {
-        const selectedOptions = {
-          ...options,
-          sources: selectedSources.map(source => source.key),
-        }
-        const materializationOptions = options?.onProgress
-          ? {
-              ...selectedOptions,
-              onProgress: async (event: WorkspaceMaterializeSourcesProgressEvent) => await materializationProgressSources.run(
-                {
-                  barrierSafe: new Set(selectedSources.map(source => source.key)),
-                  materializing: new Set([...operationCompleted, event.source]),
-                },
-                async () => await options.onProgress!(event),
-              ),
-            }
-          : selectedOptions
-        return await materializeWorkspaceSources(definition, store, materializationOptions, {
-          getContext: getOperationContext,
-          isCompleted(source) {
-            if (operationStarted.has(source.key)) return false
-            if ((materializationGenerationBySource.get(source.key) || 0) === initialGenerations.get(source.key)) return false
-            const paths = materializedPathsBySource.get(source.key)
-            return Boolean(paths && [...paths].some(materializedPath =>
-              !materializedPath || path === materializedPath || path.startsWith(`${materializedPath}/`)
-            ))
-          },
-          isPrepared: source => operationPrepared.has(source.key),
-          onCompleted(source) {
-            operationCompleted.add(source.key)
-          },
-          onPrepared(source) {
-            operationPrepared.add(source.key)
-          },
-          onStarted(source) {
-            operationStarted.add(source.key)
-          },
-        })
-      }
-      finally {
-        promotePreparedContexts()
-      }
-    })
-    materializationQueue = (calledFromProgress
-      ? Promise.all([
-          queuedMaterializations.catch(() => undefined),
-          pending.catch(() => undefined),
-        ]).then(() => undefined)
-      : pending.then(() => undefined, () => undefined))
-    for (const source of selectedSources) {
-      const previous = materializationPreparationBySource.get(source.key)
-      const barrier = Promise.all([
-        previous?.catch(() => undefined),
-        pending.then(() => undefined, () => undefined),
-      ]).then(() => undefined)
-      materializationPreparationBySource.set(source.key, barrier)
-      void barrier.finally(() => {
-        if (materializationPreparationBySource.get(source.key) === barrier) {
-          materializationPreparationBySource.delete(source.key)
-        }
-      })
-    }
-    const path = normalizeWorkspacePath(options?.path || "")
-    let result: Awaited<typeof pending>
-    try {
-      result = options?.abortSignal
-        ? await new Promise<Awaited<typeof pending>>((resolve, reject) => {
-            const signal = options.abortSignal!
-            const aborted = () => {
-              if (!started) reject(signal.reason)
-            }
-            if (signal.aborted) {
-              aborted()
-              return
-            }
-            signal.addEventListener("abort", aborted, { once: true })
-            pending.then(
-              (value) => {
-                signal.removeEventListener("abort", aborted)
-                resolve(value)
-              },
-              (error) => {
-                signal.removeEventListener("abort", aborted)
-                reject(error)
-              },
-            )
-          })
-        : await pending
-    }
-    catch (error) {
-      if (started) {
-        for (const source of selectedSources) {
-          if (operationStarted.has(source.key) && !operationCompleted.has(source.key)) {
-            invalidateMaterializedPath(source.key, path)
-            preparedSources.delete(source.key)
-            sourceContexts.delete(source.key)
-            continue
-          }
-          if (operationCompleted.has(source.key)) {
-            recordMaterializedPath(source.key, path, operationContexts.get(source.key)?.revision)
-          }
-        }
-      }
-      throw error
-    }
-    for (const source of result.sources) {
-      if (source.status !== "ready") {
-        invalidateMaterializedPath(source.source, path)
-        preparedSources.delete(source.source)
-        sourceContexts.delete(source.source)
-        continue
-      }
-      recordMaterializedPath(source.source, path, source.revision)
-    }
-    return result
-  }
+  if (!materializationByDefinition.has(definition)) materializationByDefinition.set(definition, materializationState)
+  const { completedSources, generationBySource, materializedSources, pendingBySource } = materializationState
+  const uncachedMaterializedSources = new Set<string>()
+  const persistsSourceSnapshots = Boolean(store.getMeta && store.setMeta)
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)
@@ -280,28 +131,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return context
   }
 
-  async function useSourceContext<T>(
-    source: { key: string, mountPath: string },
-    use: (context: ReturnType<typeof createSourceContext>) => Promise<T>,
-  ) {
-    const context = getSourceContext(source)
-    sourceContextUsers.set(source.key, (sourceContextUsers.get(source.key) || 0) + 1)
-    try {
-      return await use(context)
-    }
-    finally {
-      const users = sourceContextUsers.get(source.key)! - 1
-      if (users) sourceContextUsers.set(source.key, users)
-      else sourceContextUsers.delete(source.key)
-    }
-  }
-
   function isLazySourcePath(path: string) {
     return sources.some(source => sourceMountContainsPath(source, path))
-  }
-
-  function isLazySource(sourceKey: string) {
-    return sources.some(source => source.key === sourceKey)
   }
 
   function isSyncSourceMountPath(path: string) {
@@ -357,7 +188,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   function isLiveSource(sourceKey: string) {
-    return Boolean(sources.find(item => item.key === sourceKey)?.livePaths)
+    const source = sources.find(item => item.key === sourceKey)
+    return Boolean(source?.livePaths && source.materialize !== "startup")
+  }
+
+  function usesLiveProvider(source: (typeof sources)[number]) {
+    return Boolean(source.livePaths && source.materialize !== "startup")
   }
 
   function getLazySourcesForPath(path: string) {
@@ -367,22 +203,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensurePrepared(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
-    if (!materializationProgressSources.getStore()?.barrierSafe.has(sourceKey)) {
-      await materializationPreparationBySource.get(sourceKey)
+    if (source.materialize === "startup" && completedSources.has(sourceKey)) {
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
+      completedSources.delete(sourceKey)
     }
-    if (preparedSources.has(sourceKey)) return
+    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source)) {
+      completedSources.add(sourceKey)
+      return
+    }
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
-      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(
-        () => {
-          preparedSources.add(sourceKey)
-          prepareBySource.delete(sourceKey)
-        },
-        (error) => {
-          prepareBySource.delete(sourceKey)
-          throw error
-        },
-      )
+      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)
       prepareBySource.set(sourceKey, pending)
     }
     await pending
@@ -392,28 +223,121 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await Promise.all(items.map(async source => await ensurePrepared(source.key)))
   }
 
-  async function ensureMaterialized(sourceKey: string, path?: string) {
-    const normalized = normalizeWorkspacePath(path || "")
-    const materializedPaths = materializedPathsBySource.get(sourceKey)
-    if ([...materializedPaths || []].some(materializedPath =>
-      !materializedPath || normalized === materializedPath || normalized.startsWith(`${materializedPath}/`)
-    )) return
-    if (materializationProgressSources.getStore()?.materializing.has(sourceKey)) return
-    let pending = materializeBySource.get(sourceKey)
-    if (!pending) {
-      const reusePreparedContext = !materializedPathsBySource.has(sourceKey)
-      pending = materializeSources({ path, sources: [sourceKey] }, { reusePreparedContext }).then(() => undefined)
-      materializeBySource.set(sourceKey, pending)
+  async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}) {
+    const requestedPath = normalizeWorkspacePath(options.path || "")
+    const selectedSources = allSources
+      .filter(source => source.materialize === "lazy" || source.materialize === "startup" || source.materialize === "build" && Boolean(requestedPath))
+      .filter(source => (!options.sources?.length || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
+    const predecessors = selectedSources.flatMap((source) => {
+      const pending = pendingBySource.get(source.key)
+      return pending ? [pending.tail] : []
+    })
+    const previous = waitForMaterialization(Promise.all(predecessors), options.abortSignal)
+    const current = (async () => {
+      await previous
+      const generations = new Map(selectedSources.map((source) => {
+        const generation = (generationBySource.get(source.key) ?? 0) + 1
+        generationBySource.set(source.key, generation)
+        return [source.key, generation] as const
+      }))
+      const mutations = new Set<Promise<unknown>>()
+      const isCurrent = () => selectedSources.every(source => generationBySource.get(source.key) === generations.get(source.key))
+      async function trackMutation<T>(operation: () => Promise<T>) {
+        if (!isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
+        const mutation = operation()
+        mutations.add(mutation)
+        try {
+          return await mutation
+        }
+        finally {
+          mutations.delete(mutation)
+        }
+      }
+      for (const source of selectedSources) {
+        if (!materializesCompleteSource(source, options)) continue
+        materializedSources.delete(source.key)
+        if (source.materialize === "startup") completedSources.delete(source.key)
+      }
+      let result: WorkspaceMaterializeSourcesResult
       try {
-        await pending
+        result = await waitForMaterialization(materializeWorkspaceSources(definition, store, options, {
+          isCurrent,
+          async mutate(operation) {
+            options.abortSignal?.throwIfAborted()
+            return await trackMutation(operation)
+          },
+          async checkpoint(operation) {
+            return await trackMutation(operation)
+          },
+        }), options.abortSignal)
       }
-      finally {
-        if (materializeBySource.get(sourceKey) === pending) materializeBySource.delete(sourceKey)
+      catch (error) {
+        if (options.abortSignal?.aborted && mutations.size) await Promise.allSettled(mutations)
+        throw error
       }
-      return
+      for (const sourceResult of result.sources) {
+        const source = sources.find(item => item.key === sourceResult.source)
+        if (sourceResult.status === "ready" && source && materializesCompleteSource(source, options)) {
+          materializedSources.add(source.key)
+          if (source.materialize === "lazy" && source.cache === false) {
+            uncachedMaterializedSources.add(source.key)
+          }
+          if (source.materialize === "startup") {
+            completedSources.add(source.key)
+          }
+        }
+      }
+      return result
+    })()
+    // Keep a cancelled waiter registered until its predecessor settles. Otherwise
+    // a later operation can overtake the still-active predecessor and mutate the
+    // same Store concurrently.
+    const tail = current.then(
+      () => undefined,
+      async () => { await Promise.allSettled(predecessors) },
+    )
+    const entries = new Map(selectedSources.map(source => [source.key, {
+      fullSource: materializesCompleteSource(source, options),
+      promise: current,
+      tail,
+    }]))
+    for (const [sourceKey, entry] of entries) pendingBySource.set(sourceKey, entry)
+    void tail.then(() => {
+      for (const [sourceKey, entry] of entries) {
+        if (pendingBySource.get(sourceKey) === entry) pendingBySource.delete(sourceKey)
+      }
+    })
+    return await current
+  }
+
+  async function ensureMaterialized(sourceKey: string) {
+    const source = sources.find(item => item.key === sourceKey)
+    if (!source) return
+    const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
+    const pending = pendingBySource.get(sourceKey)
+    if (pending?.fullSource) {
+      try {
+        await pending.promise
+      }
+      catch {
+        // A lazy consumer owns its fallback independently from a preparation
+        // lifecycle that it happened to join.
+      }
+      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) {
+        if (isUncachedLazySource) uncachedMaterializedSources.add(sourceKey)
+        return
+      }
     }
-    await pending
-    await ensureMaterialized(sourceKey, path)
+    if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
+      const maxAge = source.cache && source.cache.maxAge
+      if (source.materialize !== "lazy" || !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
+      materializedSources.delete(sourceKey)
+    }
+    if (completedSources.has(sourceKey)) {
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
+      completedSources.delete(sourceKey)
+    }
+    await materializeSerialized({ sources: [sourceKey] })
   }
 
   async function ensureMaterializedSources(items = sources) {
@@ -434,13 +358,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of getLazySourcesForPath(path)) {
       if (isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
       await ensurePrepared(source.key)
-      if (source.livePaths) {
+      if (usesLiveProvider(source)) {
         await pruneLiveSourceStoreEntries(result, source)
         continue
       }
       if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
-          const allowed = await useSourceContext(source, async context => await currentSourceTreePaths(source, context))
+          const allowed = await currentSourceTreePaths(source, getSourceContext(source))
           for (const key of result.keys()) {
             if (sourceMountContainsPath(source, key) && !allowed.has(key)) result.delete(key)
           }
@@ -454,10 +378,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         continue
       }
       if (sourceMountContainsPath(source, path) || !source.mountPath && path) {
-        await ensureMaterialized(source.key, path)
-        for (const key of result.keys()) {
-          if (sourceMountContainsPath(source, key)) result.delete(key)
-        }
+        await ensureMaterialized(source.key)
         for (const entry of await store.list(path, options)) result.set(entry.path, entry)
       }
       else if (!path && !result.has(source.mountPath)) {
@@ -510,15 +431,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of sources) {
       const paths = sourcePaths.get(source.key)
       if (query.paths?.length && !paths?.length && !query.paths.some(path => !normalizeWorkspacePath(path))) continue
-      if (source.livePaths) {
+      if (usesLiveProvider(source)) {
         await ensurePrepared(source.key)
         const liveEntries = liveSourceEntries(source)
           .filter(entry => entry.type === "file")
           .filter(entry => !paths?.length || paths.some(path => !path || entry.path === path || entry.path.startsWith(`${path}/`)))
         for (const entry of liveEntries) {
-          const sourcePath = source.livePaths[entry.path]
+          const sourcePath = source.livePaths![entry.path]
           if (typeof sourcePath !== "string") continue
-          const item = await useSourceContext(source, async context => await source.source.getItem(sourcePath, context))
+          const item = await source.source.getItem(sourcePath, getSourceContext(source))
           const content = await sourceItemContent(item)
           const text = typeof content === "string" ? content : new TextDecoder().decode(content)
           results.push(...searchText(entry.path, text, { ...query, limit: limit - results.length }))
@@ -614,13 +535,24 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
         if (isLiveSource(resolution.sourceKey)) {
-          const item = await useSourceContext(resolution.source, async context => await resolution.source.source.getItem(resolution.sourcePath, context))
+          const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
           return decodeFile(await sourceItemContent(item), options)
         }
-        if (isLazySource(resolution.sourceKey)) await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        if (resolution.source.materialize === "startup" && !completedSources.has(resolution.sourceKey) && !materializedSources.has(resolution.sourceKey)) {
+          await ensureMaterialized(resolution.sourceKey)
+        }
+        const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge
+        let shouldRefreshCachedLazy = false
+        if (resolution.source.materialize === "lazy" && Number.isFinite(cacheMaxAge)) {
+          shouldRefreshCachedLazy = materializedSources.has(resolution.sourceKey)
+            || Boolean(await readCurrentSourceSnapshot(store, resolution.source))
+        }
+        if (shouldRefreshCachedLazy) {
+          await ensureMaterialized(resolution.sourceKey)
+        }
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
-        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       await materializeRootSourceForPath(resolution.workspacePath)
@@ -663,7 +595,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     async glob(pattern, options) {
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       await ensurePreparedSources()
-      await ensureMaterializedSources(sources.filter(source => !source.livePaths))
+      await ensureMaterializedSources(sources.filter(source => !usesLiveProvider(source)))
 
       const result = new Map<string, WorkspaceEntry>()
       for (const entry of await store.glob(patterns, options)) {
@@ -672,7 +604,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const entry of descriptorPathEntries("", { recursive: true })) {
         if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
       }
-      for (const source of sources.filter(source => source.livePaths)) {
+      for (const source of sources.filter(usesLiveProvider)) {
         await pruneLiveSourceStoreEntries(result, source)
         for (const entry of liveSourceEntries(source)) {
           if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
@@ -696,17 +628,20 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
           return result
         }
-        if (isLazySource(resolution.sourceKey)) await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
         const stored = await store.stat(resolution.workspacePath)
         if (stored) return stored
-        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
-        const result = await useSourceContext(resolution.source, async context => await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, context))
+        if (resolution.source.materialize === "startup" && completedSources.has(resolution.sourceKey)) {
+          throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+        }
+        await ensureMaterialized(resolution.sourceKey)
+        const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source))
         if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
       let result = await store.stat(resolution.workspacePath)
       if (!result) {
-        if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) {
+        if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) {
           return { path: "", type: "directory" }
         }
         await materializeRootSourceForPath(resolution.workspacePath)
@@ -716,7 +651,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return result
     },
     async materializeSources(options) {
-      return await materializeSources(options)
+      return await materializeSerialized(options)
     },
     async exists(path) {
       if (descriptorStat(normalizeWorkspacePath(path))) return true
@@ -727,13 +662,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           if (!resolution.workspacePath) return true
           return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
         }
-        if (isLazySource(resolution.sourceKey)) await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
         if (await store.stat(resolution.workspacePath)) return true
-        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
-        return Boolean(await useSourceContext(resolution.source, async context => await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, context)))
+        if (resolution.source.materialize === "startup" && completedSources.has(resolution.sourceKey)) return false
+        await ensureMaterialized(resolution.sourceKey)
+        return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
       }
       if (await store.stat(resolution.workspacePath)) return true
-      if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) return true
+      if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) return true
       await materializeRootSourceForPath(resolution.workspacePath)
       return Boolean(await store.stat(resolution.workspacePath))
     },

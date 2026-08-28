@@ -1,8 +1,7 @@
 import { posix } from "node:path"
-import { isDeepStrictEqual } from "node:util"
 
 import { workspaceError } from "../core/errors.ts"
-import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
@@ -37,25 +36,27 @@ export interface LazyMaterializedMetadata {
   sha?: string
   digest?: string
   ref?: string
-  materializedAttributes?: true
-  materializedMediaType?: string
-  materializedMetadata?: Record<string, unknown>
 }
 
-interface SourceSnapshotMetadata extends Omit<
-  WorkspaceSourceMaterializationStatus,
-  "cacheStatus" | "counts" | "durationMs" | "paths" | "provider"
-> {
+interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStatus, "cacheStatus" | "counts" | "durationMs" | "paths" | "provider"> {
   configHash: string
   cacheMaxAge?: number
   items?: Record<string, LazyMaterializedMetadata>
 }
 
-function sourceSnapshotMetaKey(sourceKey: string) {
+export interface MaterializationControl {
+  isCurrent(): boolean
+  mutate<T>(operation: () => Promise<T>): Promise<T>
+  checkpoint<T>(operation: () => Promise<T>): Promise<T>
+}
+
+export function sourceSnapshotMetaKey(sourceKey: string) {
   return `source:${sourceKey}:snapshot`
 }
 
-function sourceConfigFingerprint(source: ResolvedWorkspaceSource) {
+type SourceConfiguration = Pick<ResolvedWorkspaceSource, "cache" | "key" | "materialize" | "mountPath" | "source">
+
+function sourceConfigFingerprint(source: SourceConfiguration) {
   return {
     cache: source.cache,
     key: source.key,
@@ -65,7 +66,7 @@ function sourceConfigFingerprint(source: ResolvedWorkspaceSource) {
   }
 }
 
-async function sourceConfigHash(source: ResolvedWorkspaceSource) {
+async function sourceConfigHash(source: SourceConfiguration) {
   return await sha256(sourceConfigFingerprint(source))
 }
 
@@ -78,7 +79,7 @@ function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: Resol
   return Date.now() - Date.parse(meta.materializedAt) <= maxAge * 1000
 }
 
-async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: string) {
+async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">, sourceKey: string) {
   // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
   return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
 }
@@ -87,6 +88,24 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: Re
   const configHash = await sourceConfigHash(source)
   const meta = await readSourceSnapshotMetadata(store, source.key)
   return meta?.status === "ready" && meta.configHash === configHash
+}
+
+export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
+  const configHash = await sourceConfigHash(source)
+  return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
+}
+
+export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration) {
+  const configHash = await sourceConfigHash(source)
+  const snapshot = await readSourceSnapshotMetadata(store, source.key)
+  return snapshot?.configHash === configHash ? snapshot : undefined
+}
+
+export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, sourceKey: string, paths: Iterable<string>): Promise<boolean | undefined> {
+  const meta = await readSourceSnapshotMetadata(store, sourceKey)
+  if (!meta || meta.status !== "ready") return undefined
+  const ownedPaths = new Set(Object.keys(meta.items || {}))
+  return [...paths].some(path => ownedPaths.has(normalizeWorkspacePath(path)))
 }
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
@@ -107,58 +126,8 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
   return Object.keys(items).length ? items : undefined
 }
 
-function publicMaterializationStatus(snapshot: SourceSnapshotMetadata): WorkspaceSourceMaterializationStatus {
-  return {
-    bytes: snapshot.bytes,
-    error: snapshot.error,
-    files: snapshot.files,
-    materializedAt: snapshot.materializedAt,
-    mountPath: snapshot.mountPath,
-    revision: snapshot.revision,
-    source: snapshot.source,
-    status: snapshot.status,
-  }
-}
-
 function contentSize(content: string | Uint8Array) {
   return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
-}
-
-function contentEquals(left: string | Uint8Array, right: string | Uint8Array) {
-  const leftBytes = left instanceof Uint8Array ? left : new TextEncoder().encode(left)
-  const rightBytes = right instanceof Uint8Array ? right : new TextEncoder().encode(right)
-  return leftBytes.byteLength === rightBytes.byteLength && leftBytes.every((byte, index) => byte === rightBytes[index])
-}
-
-function normalizeMetadataValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeMetadataValue)
-  if (!value || Object.getPrototypeOf(value) !== Object.prototype) return value
-  return Object.fromEntries(Object.entries(value)
-    .filter(([, entry]) => entry !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => [key, normalizeMetadataValue(entry)]))
-}
-
-function observableFileMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(metadata || {})
-    .filter(([key, value]) => key !== "materializedAt" && key !== "validatedAt" && value !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => [key, normalizeMetadataValue(value)]))
-}
-
-function fileAttributesEqual(
-  previous: { mediaType?: string, metadata?: Record<string, unknown> },
-  previousSnapshot: LazyMaterializedMetadata | undefined,
-  mediaType: string | undefined,
-  metadata: Record<string, unknown>,
-) {
-  if (previousSnapshot?.materializedAttributes) {
-    return previousSnapshot.materializedMediaType === mediaType
-      && isDeepStrictEqual(observableFileMetadata(previousSnapshot.materializedMetadata), observableFileMetadata(metadata))
-  }
-  return previous.mediaType === undefined || previous.mediaType === mediaType
-    ? previous.metadata === undefined || isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata))
-    : false
 }
 
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
@@ -177,14 +146,14 @@ function materializationPathMatches(path: string, options: WorkspaceMaterializeS
   return pathContains(requested, path)
 }
 
-function materializesCompleteSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
+export function materializesCompleteSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
   const requested = normalizeWorkspacePath(options?.path || "")
   return !requested || Boolean(source.mountPath && pathContains(requested, source.mountPath))
 }
 
-export function shouldMaterializeSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
+function shouldMaterializeSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
   if (source.requestOnly || !sourcePathMatches("", source, options)) return false
-  if (source.materialize === "lazy") return true
+  if (source.materialize === "lazy" || source.materialize === "startup") return true
   return source.materialize === "build" && Boolean(options?.path)
 }
 
@@ -213,23 +182,22 @@ function emptyMaterializationCounts(): WorkspaceSourceMaterializationCounts {
   return { added: 0, removed: 0, unchanged: 0, updated: 0 }
 }
 
-function materializationCacheStatus(
-  source: ResolvedWorkspaceSource,
-  completeSource: boolean,
-  hit: boolean,
-): NonNullable<WorkspaceSourceMaterializationStatus["cacheStatus"]> {
-  if (!completeSource) return "bypassed"
-  if (!source.cache) return "disabled"
-  return hit ? "hit" : "miss"
+function materializationCacheStatus(source: ResolvedWorkspaceSource, complete: boolean, hit: boolean) {
+  if (!complete) return "bypassed" as const
+  if (!source.cache) return "disabled" as const
+  return hit ? "hit" as const : "miss" as const
 }
 
-function materializationPaths(
-  options: WorkspaceMaterializeSourcesOptions | undefined,
-  paths: WorkspaceSourceMaterializationPathResult[],
-) {
+function materializationPaths(options: WorkspaceMaterializeSourcesOptions | undefined, paths: WorkspaceSourceMaterializationPathResult[]) {
   return options?.details === "paths"
     ? paths.slice().sort((left, right) => left.path.localeCompare(right.path) || left.status.localeCompare(right.status))
     : undefined
+}
+
+function contentEquals(left: string | Uint8Array, right: string | Uint8Array) {
+  const leftBytes = left instanceof Uint8Array ? left : new TextEncoder().encode(left)
+  const rightBytes = right instanceof Uint8Array ? right : new TextEncoder().encode(right)
+  return leftBytes.byteLength === rightBytes.byteLength && leftBytes.every((byte, index) => byte === rightBytes[index])
 }
 
 function shouldReportMaterializationUpdate(lastReportedAt: number, files: number) {
@@ -258,10 +226,13 @@ function parentDirectoryPaths(path: string) {
 async function removeStaleMaterializedSourceFiles(
   store: WorkspaceStore,
   source: ResolvedWorkspaceSource,
+  sources: ResolvedWorkspaceSource[],
   nextPaths: Set<string>,
   scope: WorkspaceMaterializeSourcesOptions | undefined,
-  options: { onRemoved: (path: string, bytes: number) => void, removeUntracked?: boolean },
-): Promise<void> {
+  control: MaterializationControl,
+  previousPaths = new Set<string>(),
+  onRemoved?: (path: string, bytes: number) => void,
+) {
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
@@ -269,15 +240,21 @@ async function removeStaleMaterializedSourceFiles(
     if (!materializationPathMatches(entry.path, scope)) continue
     if (nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
-    if (options.removeUntracked || file?.metadata?.source === source.key) {
+    const currentOwner = file?.metadata?.source
+    const overlapsAnotherSource = sources.some(candidate =>
+      candidate.key !== source.key
+      && candidate.mountPath.length >= source.mountPath.length
+      && sourceMountContainsPath(candidate, entry.path),
+    )
+    if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || !overlapsAnotherSource))) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
-      await store.rm(entry.path, { force: true })
-      options.onRemoved(entry.path, file ? contentSize(file.content) : 0)
+      await control.mutate(() => store.rm(entry.path, { force: true }))
+      onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
   }
   for (const entry of entries.filter(entry => entry.type === "directory" && staleDirectories.has(entry.path) && !nextDirectories.has(entry.path)).sort((a, b) => b.path.length - a.path.length)) {
     try {
-      await store.rm(entry.path, { force: true })
+      await control.mutate(() => store.rm(entry.path, { force: true }))
     }
     catch {}
   }
@@ -348,7 +325,8 @@ async function* iterateMaterializationEntries(
 
   if (source.source.getItems) {
     for await (const item of iterateSourceItems(source, ctx)) {
-      const entry = createMaterializationEntry(source, item, await source.source.getMeta?.(item.key, ctx))
+      const upstreamMeta = item.metadata ?? await source.source.getMeta?.(item.key, ctx)
+      const entry = createMaterializationEntry(source, item, upstreamMeta)
       if (materializationPathMatches(entry.path, options)) yield entry
     }
     return
@@ -379,17 +357,18 @@ export async function materializeWorkspaceSources(
   definition: WorkspaceDefinition,
   store: WorkspaceStore,
   options: WorkspaceMaterializeSourcesOptions = {},
-  lifecycle?: {
-    getContext(source: ResolvedWorkspaceSource): SourceContext
-    isCompleted(source: ResolvedWorkspaceSource): boolean
-    onCompleted(source: ResolvedWorkspaceSource): void
-    isPrepared(source: ResolvedWorkspaceSource): boolean
-    onPrepared(source: ResolvedWorkspaceSource): void
-    onStarted(source: ResolvedWorkspaceSource): void
+  control: MaterializationControl = {
+    isCurrent: () => true,
+    async mutate(operation) { return await operation() },
+    async checkpoint(operation) { return await operation() },
   },
 ): Promise<WorkspaceMaterializeSourcesResult> {
+  const assertCurrent = () => {
+    if (!control.isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
+  }
   const started = Date.now()
-  const sources = normalizeWorkspaceSources(definition.sources).filter(source => shouldMaterializeSource(source, options))
+  const configuredSources = normalizeWorkspaceSources(definition.sources)
+  const sources = configuredSources.filter(source => shouldMaterializeSource(source, options))
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
   let directories = 0
@@ -397,8 +376,6 @@ export async function materializeWorkspaceSources(
 
   for (const source of sources) {
     throwIfAborted(options.abortSignal)
-    if (lifecycle?.isCompleted(source)) continue
-    lifecycle?.onStarted(source)
     const sourceStarted = Date.now()
     await reportMaterializationProgress(options, source, { status: "started" })
     let configHash: string
@@ -410,84 +387,46 @@ export async function materializeWorkspaceSources(
     catch (error) {
       const durationMs = Date.now() - sourceStarted
       const message = error instanceof Error ? error.message : String(error)
-      resultSources.push({
-        counts: emptyMaterializationCounts(),
-        durationMs,
-        error: message,
-        mountPath: source.mountPath,
-        provider: source.source.name,
-        source: source.key,
-        status: "error",
-      })
-      await reportMaterializationProgress(options, source, {
-        counts: emptyMaterializationCounts(),
-        durationMs,
-        error: message,
-        status: "failed",
-      })
+      const failed = {
+        counts: emptyMaterializationCounts(), durationMs, error: message, mountPath: source.mountPath,
+        provider: source.source.name, source: source.key, status: "error" as const,
+      }
+      resultSources.push(failed)
+      await reportMaterializationProgress(options, source, { counts: failed.counts, durationMs, error: message, status: "failed" })
       if (options.abortSignal?.aborted) throw error
       continue
     }
     const completeSource = materializesCompleteSource(source, options)
     const cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
-    throwIfAborted(options.abortSignal)
     if (cacheHit) {
       const durationMs = Date.now() - sourceStarted
       const cachedPaths = Object.keys(existing?.items || {})
-      const cachedFiles = existing?.items ? cachedPaths.length : existing?.files || 0
+      const cachedFiles = cachedPaths.length || existing?.files || 0
       const counts = { ...emptyMaterializationCounts(), unchanged: cachedFiles }
-      const paths = cachedPaths.map(path => ({ path, status: "unchanged" as const }))
-      const reportedPaths = materializationPaths(options, paths)
       const ready: WorkspaceSourceMaterializationStatus = {
-        cacheStatus,
-        counts: { ...counts },
-        durationMs,
+        cacheStatus, counts, durationMs,
         source: source.key,
         mountPath: source.mountPath,
         provider: source.source.name,
         status: "ready",
         revision: existing?.revision,
         materializedAt: existing?.materializedAt,
-        files: cachedFiles,
+        files: existing?.files,
         bytes: existing?.bytes,
       }
-      if (reportedPaths) ready.paths = reportedPaths
-      try {
-        await reportMaterializationProgress(options, source, {
-          bytes: existing?.bytes || 0,
-          cacheStatus,
-          counts: { ...counts },
-          durationMs,
-          files: cachedFiles,
-          revision: existing?.revision,
-          status: "completed",
-        })
-        resultSources.push(ready)
-        files += cachedFiles
-        bytes += existing?.bytes || 0
-        lifecycle?.onCompleted(source)
-      }
-      catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        const failed = { ...ready, error: message, status: "error" as const }
-        resultSources.push(failed)
-        await writeSourceSnapshotMetadata(store, {
-          ...existing!,
-          error: message,
-          status: "error",
-        }).catch(() => undefined)
-        await reportMaterializationProgress(options, source, {
-          bytes: existing?.bytes || 0,
-          cacheStatus,
-          counts: { ...counts },
-          durationMs,
-          error: message,
-          files: cachedFiles,
-          revision: existing?.revision,
-          status: "failed",
-        })
-      }
+      const paths = materializationPaths(options, cachedPaths.map(path => ({ path, status: "unchanged" as const })))
+      if (paths) ready.paths = paths
+      resultSources.push(ready)
+      files += cachedFiles
+      bytes += existing?.bytes || 0
+      await reportMaterializationProgress(options, source, {
+        bytes: existing?.bytes || 0,
+        cacheStatus, counts, durationMs,
+        files: cachedFiles,
+        revision: existing?.revision,
+        status: "completed",
+      })
       continue
     }
 
@@ -495,36 +434,31 @@ export async function materializeWorkspaceSources(
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
       ? { ...existing.items }
       : {}
+    if (completeSource) {
+      assertCurrent()
+      await control.mutate(() => writeSourceSnapshotMetadata(store, {
+        configHash,
+        source: source.key,
+        mountPath: source.mountPath,
+        status: "updating",
+        revision,
+        items: checkpointItems(itemMetadata),
+        cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+      }))
+    }
+
     let sourceFiles = 0
     let sourceBytes = 0
-    let persistedBytesDelta = 0
-    let storeMutationStarted = false
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
-    const ctx = lifecycle?.getContext(source) || createSourceContext(definition, source, store)
-    const previousAbortSignal = ctx.abortSignal
-    ctx.abortSignal = options.abortSignal
     try {
-      if (completeSource) {
-        await writeSourceSnapshotMetadata(store, {
-          configHash,
-          source: source.key,
-          mountPath: source.mountPath,
-          status: "updating",
-          revision,
-          items: checkpointItems(itemMetadata),
-          cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-        })
-      }
+      const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
       throwIfAborted(options.abortSignal)
-      if (!lifecycle?.isPrepared(source)) {
-        await prepareWorkspaceSource(source.source, ctx, { refreshRevision: true })
-        lifecycle?.onPrepared(source)
-      }
+      await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
-        await store.mkdir(source.mountPath, { recursive: true })
+        await control.mutate(() => store.mkdir(source.mountPath, { recursive: true }))
       }
 
       revision = ctx.revision
@@ -539,8 +473,7 @@ export async function materializeWorkspaceSources(
         if (entry.reused) {
           itemMetadata[path] = entry.metadata
           sourceFiles++
-          const reusedFile = entry.reused.size === undefined ? await store.readFile(path) : undefined
-          sourceBytes += entry.reused.size ?? (reusedFile ? contentSize(reusedFile.content) : 0)
+          sourceBytes += entry.reused.size || 0
           counts.unchanged++
           paths.push({ path, status: "unchanged" })
           if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
@@ -558,38 +491,24 @@ export async function materializeWorkspaceSources(
         }
         const item = entry.item!
         const metadata = item.metadata || {}
-        const previousStat = await store.stat(path)
-        const previousFile = entry.contentStream && previousStat?.size !== undefined ? undefined : await store.readFile(path)
-        const previousExists = previousStat?.type === "file" || Boolean(previousFile)
-        const fileMetadata = {
-          ...metadata,
-          ...entry.metadata,
-          source: source.key,
-        }
-        storeMutationStarted = true
+        const previous = entry.contentStream ? undefined : await store.readFile(path)
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
           contentStream: entry.contentStream,
           mediaType: item.mediaType,
-          metadata: fileMetadata,
-        })
-        const tracked = Object.hasOwn(itemMetadata, path)
-        const previousItemMetadata = itemMetadata[path]
-        itemMetadata[path] = {
-          ...entry.metadata,
-          materializedAttributes: true,
-          materializedMediaType: item.mediaType,
-          materializedMetadata: observableFileMetadata(fileMetadata),
-        }
+          metadata: {
+            ...metadata,
+            ...entry.metadata,
+            source: source.key,
+          },
+        }, control)
+        itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0
-        persistedBytesDelta += (written.size || 0) - (previousExists && tracked ? previousStat?.size ?? (previousFile ? contentSize(previousFile.content) : 0) : 0)
-        const unchanged = previousFile && contentEquals(previousFile.content, entry.content ?? "")
-          && fileAttributesEqual(previousFile, previousItemMetadata, item.mediaType, fileMetadata)
-        const status = unchanged
+        const status = previous && contentEquals(previous.content, entry.content ?? "")
           ? "unchanged" as const
-          : previousExists ? "updated" as const : "added" as const
+          : previous ? "updated" as const : "added" as const
         counts[status]++
         paths.push({ path, status })
         if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
@@ -605,15 +524,9 @@ export async function materializeWorkspaceSources(
         }
       }
       throwIfAborted(options.abortSignal)
-      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, {
-        onRemoved(path, removedBytes) {
-          storeMutationStarted = true
-          counts.removed++
-          if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= removedBytes
-          delete itemMetadata[path]
-          paths.push({ path, status: "removed" })
-        },
-        removeUntracked: Boolean(source.mountPath),
+      await removeStaleMaterializedSourceFiles(store, source, configuredSources, nextPaths, options, control, new Set(Object.keys(existing?.items || {})), (path) => {
+        counts.removed++
+        paths.push({ path, status: "removed" })
       })
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
@@ -632,29 +545,23 @@ export async function materializeWorkspaceSources(
         items: readyItems,
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
-      if (completeSource) await writeSourceSnapshotMetadata(store, ready)
+      if (completeSource) await control.mutate(() => writeSourceSnapshotMetadata(store, ready))
       else if (existing?.configHash === configHash) {
-        const scopedItems = checkpointItems(itemMetadata)
-        await writeSourceSnapshotMetadata(store, {
+        await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...existing,
-          bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
-          files: scopedItems ? Object.keys(scopedItems).length : 0,
-          items: scopedItems,
-          materializedAt: undefined,
-          revision,
-          status: "updating",
-        })
+          items: checkpointItems(itemMetadata),
+        }))
       }
       const durationMs = Date.now() - sourceStarted
-      const reportedPaths = materializationPaths(options, paths)
       const resultSource: WorkspaceSourceMaterializationStatus = {
-        ...publicMaterializationStatus(ready),
-        cacheStatus,
-        counts: { ...counts },
-        durationMs,
-        provider: source.source.name,
+        ...ready, cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,
       }
+      const reportedPaths = materializationPaths(options, paths)
       if (reportedPaths) resultSource.paths = reportedPaths
+      resultSources.push(resultSource)
+      files += sourceFiles
+      bytes += sourceBytes
+      directories += directorySet.size
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,
         cacheStatus,
@@ -665,14 +572,8 @@ export async function materializeWorkspaceSources(
         revision,
         status: "completed",
       })
-      resultSources.push(resultSource)
-      files += sourceFiles
-      bytes += sourceBytes
-      directories += directorySet.size
-      lifecycle?.onCompleted(source)
     }
     catch (error) {
-      revision = ctx.revision ?? revision
       const failed: SourceSnapshotMetadata = {
         configHash,
         source: source.key,
@@ -689,37 +590,15 @@ export async function materializeWorkspaceSources(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? storeMutationStarted
-              ? {
-                  ...existing,
-                  bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
-                  files: Object.keys(itemMetadata).length,
-                  items: checkpointItems(itemMetadata),
-                  materializedAt: undefined,
-                  revision,
-                  status: "updating" as const,
-                }
-              : existing
-            : storeMutationStarted
-              ? { ...failed, status: "updating" as const, error: undefined }
+            ? { ...existing, items: checkpointItems(itemMetadata) }
             : undefined
-        : !completeSource && existing?.configHash === configHash
-          ? {
-              ...failed,
-              bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
-              files: Object.keys(itemMetadata).length,
-            }
-          : failed
-      if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint).catch(() => undefined)
+        : failed
+      if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))
       const durationMs = Date.now() - sourceStarted
-      const reportedPaths = materializationPaths(options, paths)
       const failedSource: WorkspaceSourceMaterializationStatus = {
-        ...publicMaterializationStatus(failed),
-        cacheStatus,
-        counts: { ...counts },
-        durationMs,
-        provider: source.source.name,
+        ...failed, cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,
       }
+      const reportedPaths = materializationPaths(options, paths)
       if (reportedPaths) failedSource.paths = reportedPaths
       resultSources.push(failedSource)
       await reportMaterializationProgress(options, source, {
@@ -733,9 +612,6 @@ export async function materializeWorkspaceSources(
         status: "failed",
       })
       if (options.abortSignal?.aborted) throw error
-    }
-    finally {
-      ctx.abortSignal = previousAbortSignal
     }
   }
 
@@ -770,31 +646,28 @@ async function writeMaterializedFile(
     mediaType?: string
     metadata?: Record<string, unknown>
   },
+  control?: MaterializationControl,
 ): Promise<{ size?: number }> {
   if (file.contentStream) {
     if (store.writeFileStream) {
-      let size = 0
-      const content = (async function* () {
-        for await (const chunk of contentStreamChunks(file.contentStream!)) {
-          size += chunk.byteLength
-          yield chunk
-        }
-      })()
-      await store.writeFileStream(path, {
+      const content = file.contentStream
+      const write = () => store.writeFileStream!(path, {
         path: file.path,
         content,
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
-      return { size }
+      return control ? await control.mutate(write) : await write()
     }
     const content = await contentStreamToBytes(file.contentStream)
-    await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
+    if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))
+    else await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
     return { size: content.byteLength }
   }
 
   const content = file.content ?? ""
-  await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
+  if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))
+  else await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
   return { size: contentSize(content) }
 }
 
