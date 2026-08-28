@@ -32,6 +32,7 @@ const observationTypeSchema = v.picklist([
 const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 const booleanSchema = v.boolean()
+const numberSchema = v.number()
 const diagnosticScalarSchema = v.union([v.string(), v.pipe(v.number(), v.finite())])
 const annotationValueSchema = v.union([
   v.boolean(),
@@ -44,6 +45,22 @@ function record(value: unknown): Record<string, unknown> | undefined {
   if (Array.isArray(value)) return
   const result = v.safeParse(recordSchema, value)
   return result.success ? result.output : undefined
+}
+
+function assertJsonValue(value: unknown, path: string): void {
+  if (v.safeParse(annotationValueSchema, value).success) return
+  if (v.safeParse(numberSchema, value).success) {
+    throw new TypeError(`[vitehub] Console fixture ${path} must be a finite number.`)
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) assertJsonValue(item, `${path}[${index}]`)
+    return
+  }
+  const input = record(value)
+  if (!input) throw new TypeError(`[vitehub] Console fixture ${path} must be a JSON value.`)
+  for (const [key, item] of Object.entries(input)) {
+    assertJsonValue(item, `${path}[${JSON.stringify(key)}]`)
+  }
 }
 
 function requiredString(value: unknown, path: string): string {
@@ -148,8 +165,12 @@ function observation(value: unknown, path: string): TraceEventLogEntry {
   }
   requiredString(input.name, `${path}.name`)
   timestamp(input.timestamp, `${path}.timestamp`)
-  if (input.attributes !== undefined && !record(input.attributes)) {
-    throw new TypeError(`[vitehub] Console fixture ${path}.attributes must be an object.`)
+  if (input.attributes !== undefined) {
+    const attributes = record(input.attributes)
+    if (!attributes) {
+      throw new TypeError(`[vitehub] Console fixture ${path}.attributes must be an object.`)
+    }
+    assertJsonValue(attributes, `${path}.attributes`)
   }
   if (input.trace !== undefined) {
     const trace = record(input.trace)

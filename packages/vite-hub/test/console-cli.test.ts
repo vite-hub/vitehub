@@ -262,6 +262,21 @@ describe("Console fixture CLI", () => {
         fixture({
           observations: [
             {
+              attributes: { nested: [{ value: Number.POSITIVE_INFINITY }] },
+              name: "agent.start",
+              sequence: 0,
+              timestamp: "2026-08-27T10:00:00.000Z",
+              type: "run",
+            },
+          ],
+        }),
+      ),
+    ).toThrow('invocations[0].observations[0].attributes["nested"][0]["value"] must be a finite number')
+    expect(() =>
+      parseConsoleFixture(
+        fixture({
+          observations: [
+            {
               name: "agent.start",
               sequence: 0,
               timestamp: "2026-08-27T10:00:00.000Z",
