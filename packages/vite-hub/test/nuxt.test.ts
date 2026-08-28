@@ -426,6 +426,8 @@ describe("ViteHub Nuxt integration", () => {
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).toContain(`from "vite-hub/console/sections"`)
+    expect(generated).not.toContain(`from "vite-hub/console/server"`)
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["kv"])`)
     expect(generated).not.toContain("installConsoleInvocations")
     expect(generated).toContain(`installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`)

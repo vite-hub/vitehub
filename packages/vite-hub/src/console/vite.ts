@@ -96,10 +96,16 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const kvEnabled = sections.includes("kv")
   return [
-    `import { ${["installConsoleSections", ...(agentsEnabled ? ["installConsoleAgentDefinitions", "installConsoleInvocations"] : []), ...(kvEnabled ? ["installConsoleKV"] : [])].join(
-      ", ",
-    )} } from "vite-hub/console/server"`,
-    ...(kvEnabled ? [`import { kv as vitehubConsoleKV } from "vite-hub/kv"`] : []),
+    `import { installConsoleSections } from "vite-hub/console/sections"`,
+    ...(agentsEnabled
+      ? [`import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`]
+      : []),
+    ...(kvEnabled
+      ? [
+          `import { installConsoleKV } from "vite-hub/console/kv"`,
+          `import { kv as vitehubConsoleKV } from "vite-hub/kv"`,
+        ]
+      : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
     ...(agentsEnabled

@@ -26,7 +26,10 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
+| `vite-hub/agent/runtime/process` | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
+| `vite-hub/console/kv` | Read-only KV inspection registration for framework server integrations. |
+| `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
@@ -88,6 +91,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, `inputCommands()`, and `subagents()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
+| `@vite-hub/agent/runtime/process` | Agent Package | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
 | `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Agent state helpers. |
 | `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |

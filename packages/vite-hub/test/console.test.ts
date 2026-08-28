@@ -179,6 +179,8 @@ describe("ViteHub Console", () => {
 
       expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/sections", "/api/_vitehub/console/kv", "/_vitehub", "/_vitehub/**"])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).toContain(`installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default"])`)
@@ -1009,7 +1011,7 @@ describe("ViteHub Console", () => {
         attributes: expect.objectContaining({ "tool.error": "Lookup failed" }),
         name: "agent.tool.error",
       }))
-      expect(observation?.attributes["content.omitted"] ?? []).not.toContain("tool.error")
+      expect(observation?.attributes?.["content.omitted"] ?? []).not.toContain("tool.error")
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
