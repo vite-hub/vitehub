@@ -2478,12 +2478,19 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), { value: cancelProvider })
         return stream
       }
-      const streamedResult = await start()
-      // SAFETY: Cloning preserves the provider result contract while overriding only its stream and usage accessors.
-      const result = cloneStreamTextResult(streamedResult, {
+      // SAFETY: The lazy facade implements the StreamTextResult members consumed by the adapter.
+      const result = asUnknownBoundary({
         fullStream: lazyStream("fullStream"),
         stream: lazyStream("stream"),
-        textStream: lazyStream("textStream"),
+        get textStream() {
+          return lazyStream("textStream")
+        },
+        get usage() {
+          return lazyUsage(streamed => streamed.usage)
+        },
+        get totalUsage() {
+          return lazyUsage(streamed => streamed.totalUsage)
+        },
         toUIMessageStream(...args: unknown[]) {
           let reader: ReadableStreamDefaultReader<unknown> | undefined
           return new ReadableStream<unknown>({
@@ -2520,19 +2527,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             },
           }, { highWaterMark: 0 })
         },
-      }, false) as StreamTextResult<ToolSet, never, never>
-      Object.defineProperties(result, {
-        usage: {
-          configurable: true,
-          enumerable: true,
-          get: () => lazyUsage(streamed => streamed.usage),
-        },
-        totalUsage: {
-          configurable: true,
-          enumerable: true,
-          get: () => lazyUsage(streamed => streamed.totalUsage),
-        },
-      })
+      }) as StreamTextResult<ToolSet, never, never>
       const cancelStarted = async () => {
         cancelProvider(invocationAbortSignal?.reason)
         try {
