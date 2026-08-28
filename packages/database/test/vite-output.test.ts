@@ -264,12 +264,6 @@ async function readCloudflareWorker(rootDir: string) {
   return await readFile(join(distDir, outputDir, "index.js"), "utf8")
 }
 
-function errorText(error: unknown) {
-  return (error as { stderr?: string; message?: string } | undefined)?.stderr
-    || (error as { message?: string } | undefined)?.message
-    || String(error)
-}
-
 function outputText(output: Awaited<ReturnType<typeof runDbBuild>>) {
   return `${output.stdout}\n${output.stderr}`
 }
@@ -398,16 +392,9 @@ describe("Vite db provider outputs", () => {
       "",
     ].join("\n"))
 
-    let blobError: Error | undefined
-    try {
-      await runDbBuild(blobRootDir)
-    }
-    catch (caught) {
-      blobError = caught as Error
-    }
-
-    expect(errorText(blobError)).toContain('Could not resolve "node:path"')
-    expect(errorText(blobError)).not.toContain(staleDatabaseMarker)
+    await runDbBuild(blobRootDir)
+    const blobOutput = await readFile(join(blobRootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+    expect(blobOutput).not.toContain(staleDatabaseMarker)
 
     const staleBlobMarker = "stale_blob_runtime_marker"
     const dbRootDir = await createDbBuildProject("vitehub-db-stale-blob-runtime-")

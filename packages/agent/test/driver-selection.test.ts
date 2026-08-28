@@ -180,6 +180,75 @@ describe("built-in Agent Driver selection", () => {
     } as never)).toMatchObject({ execution: { attachments: { maxBytes: 1024 } } });
   });
 
+  it("normalizes Codex credentials, reasoning, and provider settings", () => {
+    const credentials = { unseal: () => "{}" };
+    const providerSettings = { launchArgs: "--enable responses_websockets_v2" };
+    const driver = normalizeAgentDriver({
+      driver: {
+        credentials,
+        kind: "codex",
+        model: "gpt-5.6-sol",
+        providerSettings,
+        reasoningEffort: "high",
+        reasoningSummary: "detailed",
+      },
+    });
+    providerSettings.launchArgs = "changed";
+
+    expect(driver).toMatchObject({
+      credentials,
+      kind: "provider",
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    });
+    const agent = defineAgent({ driver: {
+      credentials,
+      kind: "codex",
+      model: "gpt-5.6-sol",
+      providerSettings: { binaryPath: undefined, launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    } });
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider).toEqual({
+      credentials: true,
+      model: "gpt-5.6-sol",
+      permissions: "ask",
+      provider: "codex",
+      providerSettings: ["launchArgs"],
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    });
+  });
+
+  it("accepts sealed Codex credentials implemented by a class instance", () => {
+    class SecretEnv {
+      unseal() {
+        return "{}";
+      }
+    }
+    const credentials = new SecretEnv();
+
+    expect(normalizeAgentDriver({
+      driver: { credentials, kind: "codex" },
+    })).toMatchObject({ credentials, kind: "provider", provider: "codex" });
+  });
+
+  it.each([
+    [{ kind: "claude-code", credentials: "{}" }, "does not support Codex option: credentials"],
+    [{ kind: "claude-code", model: "claude", reasoningEffort: "high" }, "does not support Codex option: reasoningEffort"],
+    [{ kind: "codex", credentials: "{}", providerSettings: { shadowHomePath: "/tmp/codex" } }, "owns the Codex shadow home"],
+    [{ kind: "codex", reasoningEffort: "high" }, "requires driver.model"],
+    [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: "verbose" }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
+    [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: { toString: (): string => "auto" } }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
+    [{ kind: "codex", providerSettings: [] }, "driver.providerSettings }) must be an object"],
+  ])("rejects invalid provider options %#", (driver, message) => {
+    // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
+    expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);
+  });
+
   it("normalizes adaptive driver capacity defaults", () => {
     const sample = () => ({ concurrency: 2, reason: "host healthy" });
 

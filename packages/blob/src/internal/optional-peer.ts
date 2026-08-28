@@ -1,6 +1,6 @@
-export async function importOptionalPeer<T>(id: string, driver: string, installId = id): Promise<T> {
+export async function importOptionalPeer<T>(load: () => Promise<T>, id: string, driver: string, installId = id): Promise<T> {
   try {
-    return await import(id) as T
+    return await load()
   }
   catch (error) {
     if (isMissingPeerError(error, id)) {

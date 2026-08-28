@@ -95,7 +95,7 @@ const contractOwner: ProofOwner = {
 
 const docsOwner: ProofOwner = {
   task: { name: "test", path: "docs/package.json" },
-  workflow: { job: "docs", path: ".github/workflows/ci.yml" },
+  workflow: { job: "ci", path: ".github/workflows/ci.yml" },
 };
 
 const liveSmokeOwner: ProofOwner = {
@@ -153,19 +153,19 @@ const claimDefinitions = {
       "Enabled integrations compose a Worker, wrangler.json, bindings, callbacks, and runtime modules.",
       {
         task: { name: "test:output:cloudflare", path: "test/tasks.ts" },
-        workflow: { job: "verify-cloudflare", path: ".github/workflows/ci.yml" },
+        workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
       },
     ),
     vercel: ciClaim(
       "Enabled integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules.",
       {
         task: { name: "test:output:vercel", path: "test/tasks.ts" },
-        workflow: { job: "verify-vercel", path: ".github/workflows/ci.yml" },
+        workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
       },
     ),
     netlify: ciClaim("Agent and Schedule write functions under .netlify/v1/functions.", {
       task: { name: "e2e:netlify", path: "vite.config.ts" },
-      workflow: { job: "verify-netlify", path: ".github/workflows/ci.yml" },
+      workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
     }),
     deno: ciClaim(
       "Agent and Schedule write Deno entrypoints. ViteHub does not generate one general Deno bundle.",
@@ -181,19 +181,19 @@ const claimDefinitions = {
       "Pull requests run the shared primitive playground against local Cloudflare output.",
       {
         task: { name: "e2e:local", path: "vite.config.ts" },
-        workflow: { job: "verify-cloudflare", path: ".github/workflows/ci.yml" },
+        workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
       },
     ),
     vercel: ciClaim(
       "Pull requests run the shared primitive playground against local Vercel adapters.",
       {
         task: { name: "e2e:local", path: "vite.config.ts" },
-        workflow: { job: "verify-vercel", path: ".github/workflows/ci.yml" },
+        workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
       },
     ),
     netlify: ciClaim("CI runs a real-project fixture through Netlify CLI.", {
       task: { name: "e2e:netlify", path: "vite.config.ts" },
-      workflow: { job: "verify-netlify", path: ".github/workflows/ci.yml" },
+      workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
     }),
     deno: unpublishedClaim("ViteHub does not publish one shared local Deno provider run."),
     nitro: unpublishedClaim("ViteHub does not publish one unified local Nitro matrix run."),

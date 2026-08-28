@@ -1,5 +1,5 @@
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
-import { normalizeWorkspaceSourcesMetadata, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -81,6 +81,7 @@ import type {
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
+  WorkspaceSourceMaterializationStatus,
 } from "@vite-hub/workspace"
 
 const defaultWorkspaceName = "workspace"
@@ -739,17 +740,25 @@ function capabilityInspectionMetadataProjection(
 
 function providerMetadata(driver: {
   credentialProfile?: string
+  credentials?: unknown
   model?: string
   permissions: AgentInspectionProviderMetadata["permissions"]
   provider: string
+  providerSettings?: Record<string, unknown>
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
 }): AgentInspectionProviderMetadata {
+  const providerSettings = Object.entries(driver.providerSettings || {})
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key)
+    .sort()
   return {
     ...(driver.credentialProfile ? { credentialProfile: driver.credentialProfile } : {}),
+    ...(driver.credentials !== undefined ? { credentials: true } : {}),
     ...(driver.model ? { model: driver.model } : {}),
     permissions: driver.permissions,
     provider: driver.provider,
+    ...(providerSettings.length ? { providerSettings } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
   }
@@ -898,6 +907,10 @@ function sourceMaterialize(source: WorkspaceSourceMetadata): AgentInspectionFile
   return source.materialize === "none" ? undefined : source.materialize
 }
 
+function isPendingMaterialization(materialize: AgentInspectionFileTreeItem["materialize"]): boolean {
+  return materialize === "lazy" || materialize === "startup"
+}
+
 function workspaceMetadataFiles<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -929,7 +942,7 @@ function workspaceMetadataFiles<
       path: mountPath,
       source: source.key,
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-      status: materialize === "lazy" ? "lazy" as const : "ready" as const,
+      status: isPendingMaterialization(materialize) ? "lazy" as const : "ready" as const,
     }
   })
 }
@@ -1088,6 +1101,7 @@ function sortFileTree(item: AgentInspectionFileTreeItem) {
 function markSourceTreeMetadata(
   root: AgentInspectionFileTreeItem,
   options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
+  sourceSnapshots: ReadonlyMap<string, WorkspaceSourceMaterializationStatus> = new Map(),
 ) {
   const sources = normalizedSourcesFromOptions(options)
   for (const source of sources) {
@@ -1098,14 +1112,25 @@ function markSourceTreeMetadata(
     while (pending.length) {
       const item = pending.shift()!
       if (item.path === mountedRoot) {
+        const snapshot = sourceSnapshots.get(source.key)
         item.materialize = materialize
-        item.materialized = item.materialized || materialize === "build" || Boolean(item.children?.length)
+        item.materialized = materialize === "startup" && snapshot
+          ? snapshot.status === "ready"
+          : item.materialized || materialize === "build" || Boolean(item.children?.length)
+        item.materializedAt = snapshot?.materializedAt ?? item.materializedAt
         item.source = source.key
-        item.status = item.materialized ? "ready" : materialize === "lazy" ? "lazy" : "ready"
+        item.status = materialize === "startup" && snapshot
+          ? snapshot.status
+          : item.materialized ? "ready" : isPendingMaterialization(materialize) ? "lazy" : "ready"
       }
       else if (item.path.startsWith(`${mountedRoot}/`)) {
+        if (item.source) {
+          pending.push(...(item.children || []))
+          continue
+        }
+        const snapshot = sourceSnapshots.get(source.key)
         item.materialize = materialize
-        item.materialized = item.materialized || materialize === "build"
+        item.materialized = item.materialized || materialize === "build" || (materialize === "startup" && snapshot?.status === "ready")
         item.source = source.key
       }
       pending.push(...(item.children || []))
@@ -1122,7 +1147,7 @@ function propagateMaterializedDirectories(item: AgentInspectionFileTreeItem): bo
 }
 
 function clearReadyMaterializationHints(item: AgentInspectionFileTreeItem) {
-  if (item.materialized || item.materializedAt || item.status === "ready") {
+  if (item.status === "ready" || (item.status === undefined && (item.materialized || item.materializedAt))) {
     delete item.materialize
   }
   for (const child of item.children || []) clearReadyMaterializationHints(child)
@@ -1132,19 +1157,53 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<AgentInspectionFileTreeItem[]> {
+  const sources = normalizedSourcesFromOptions(options)
+  const sourceSnapshots = new Map<string, WorkspaceSourceMaterializationStatus>()
   const root: AgentInspectionFileTreeItem = {
     children: [],
     kind: "directory",
     label: "",
     path: "",
   }
-  const entries = await workspace.fs.list("", { recursive: true })
+  const entries = await listMaterializedWorkspaceEntries(workspace) ?? await workspace.fs.list("", { recursive: true })
   for (const entry of entries) {
     addFileTreePath(root, entry)
   }
+  for (const source of sources) {
+    const mountPath = sourceMountPath(source)
+    if (mountPath) addFileTreePath(root, { path: mountPath, type: "directory" })
+  }
+  for (const source of sources) {
+    if (sourceSnapshots.has(source.key)) continue
+    const snapshot = await readWorkspaceSourceMaterializationStatus(workspace, source)
+    if (snapshot) sourceSnapshots.set(source.key, snapshot)
+  }
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-  markSourceTreeMetadata(root, asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
+  markSourceTreeMetadata(root, asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>, sourceSnapshots)
   propagateMaterializedDirectories(root)
+  const rootSources = sources.filter(source => !sourceMountPath(source))
+  const roots = await Promise.all(rootSources.map(async (rootSource) => {
+    const snapshot = sourceSnapshots.get(rootSource.key)
+    const sourceRoot: AgentInspectionFileTreeItem = {
+      children: [],
+      kind: "directory",
+      label: "",
+      path: "",
+    }
+    for (const entry of await listMaterializedWorkspaceSourceEntries(workspace, rootSource) || []) {
+      addFileTreePath(sourceRoot, entry)
+    }
+    sourceRoot.label = rootSource.key
+    sourceRoot.materialize = sourceMaterialize(rootSource)
+    sourceRoot.materialized = snapshot?.status === "ready"
+    sourceRoot.materializedAt = snapshot?.materializedAt
+    sourceRoot.source = rootSource.key
+    sourceRoot.status = snapshot?.status ?? "lazy"
+    clearReadyMaterializationHints(sourceRoot)
+    sortFileTree(sourceRoot)
+    return sourceRoot
+  }))
+  if (roots.length) return roots
   clearReadyMaterializationHints(root)
   sortFileTree(root)
   return root.children || []
@@ -1502,10 +1561,11 @@ function createInspectionMetadataRuntime<
   const runtime = resolution.runtime || {}
   return {
     ...runtime,
+    capabilities: runtime.capabilities || {},
     memo: runtime.memo || ((_key, create) => create()),
     runtime: runtime.runtime || "unknown",
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-    runtimeConfig: (runtime.runtimeConfig || {}) as TRuntimeConfig,
+    runtimeConfig: (runtime.runtimeConfig ?? {}) as TRuntimeConfig,
     waitUntil: runtime.waitUntil || (() => {}),
   }
 }

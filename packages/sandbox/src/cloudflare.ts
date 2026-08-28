@@ -10,6 +10,7 @@ import type {
   WranglerDurableObjectBinding,
   WranglerMigration,
 } from './internal/shared/cloudflare-target'
+import { finalizeCloudflareWranglerConfig } from './internal/shared/cloudflare-wrangler'
 
 export const defaultCloudflareSandboxBinding = 'SANDBOX'
 export const defaultCloudflareSandboxClassName = 'Sandbox'
@@ -191,7 +192,11 @@ export async function writeCloudflareSandboxDockerfile(serverDir: string) {
   const dockerfilePath = join(serverDir, 'Dockerfile')
   await writeFileIfChanged(
     dockerfilePath,
-    `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}\n`,
+    [
+      `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}`,
+      'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn',
+      '',
+    ].join('\n'),
   )
   return dockerfilePath
 }
@@ -205,6 +210,7 @@ export async function configureCloudflareSandboxNitro(
   targetValue: MutableNitroCloudflareTarget | undefined,
   rootDir: string,
   options: CloudflareSandboxEntrypointOptions = {},
+  finalizeWrangler = true,
 ) {
   const target = targetValue || {}
   const serverDir = resolve(rootDir, target.output?.serverDir || '.output/server')
@@ -231,5 +237,7 @@ export async function configureCloudflareSandboxNitro(
   target.rollupConfig ||= {}
   target.rollupConfig.external = mergeRollupExternal(target.rollupConfig.external, 'cloudflare:workers')
   installCloudflareSandboxEntrypoint(target, resolvedOptions)
+  if (finalizeWrangler)
+    finalizeCloudflareWranglerConfig(target)
   return target
 }

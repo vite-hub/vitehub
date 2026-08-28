@@ -147,6 +147,7 @@
     "./workspace/runtime": "./dist/workspace/runtime.js",
     "./workspace/server": "./dist/workspace/server.js",
     "./package.json": "./package.json",
+    "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json"
   },
@@ -169,7 +170,6 @@
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@microsoft/microsoft-graph-client": "catalog:storage",
-    "@netlify/blobs": "catalog:storage",
     "@supabase/storage-js": "catalog:storage",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
@@ -201,7 +201,6 @@
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "dropbox": "catalog:storage",
-    "files-sdk": "catalog:storage",
     "google-auth-library": "catalog:storage",
     "mlly": "catalog:unjs",
     "uploadthing": "catalog:storage",

@@ -25,6 +25,7 @@ describe("Agent telemetry", () => {
       resource: { "deployment.environment.name": "production" },
     })
     const runtime = {
+      capabilities: {},
       memo: vi.fn(),
       runtime: "vercel" as const,
       runtimeConfig: {},
@@ -83,7 +84,7 @@ describe("Agent telemetry", () => {
 
     await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
       agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "traces",
       spans: [{
         name: "vitehub.run",
@@ -116,7 +117,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })
 
@@ -149,7 +150,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })).rejects.toThrow("partially rejected")
   })
@@ -304,7 +305,7 @@ describe("Agent telemetry", () => {
 
     await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
       agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "traces",
       spans: [{ name: "vitehub.run", spanId: "0123456789abcdef", startTime: "2026-01-01T00:00:00.000Z", status: { code: "OK" }, traceId: "0123456789abcdef0123456789abcdef" }],
     })
@@ -318,7 +319,7 @@ describe("Agent telemetry", () => {
 
     await otlpHttpJson({ endpoint: "https://telemetry.example/otlp", resource: { build: 1e21 } })({
       agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "traces",
       spans: [{ attributes: { count: 12 }, name: "vitehub.run", spanId: "0123456789abcdef", startTime: "2026-01-01T00:00:00.000Z", status: { code: "OK" }, traceId: "0123456789abcdef0123456789abcdef" }],
     })
@@ -1110,6 +1111,7 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const traceLog = createTraceEventLog()
     const runtime = {
+      capabilities: {},
       memo: vi.fn(),
       runtime: "unknown" as const,
       trace: { id: "host-trace" },

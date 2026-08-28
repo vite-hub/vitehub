@@ -21,7 +21,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolveRuntimeContext, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -253,6 +253,7 @@ export type {
   AgentCapabilitiesList,
   AgentCapabilitiesResolver,
   AgentCapabilitiesResolverContext,
+  AgentCallbackContext,
   AgentChannelDelivery,
   AgentChannelDeliveryEvent,
   AgentChannelDeliveryEventInput,
@@ -1061,7 +1062,7 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
+  return createExecutionContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
 function createTraceId(run?: AgentRunMetadata): string {
@@ -1429,6 +1430,7 @@ function defineBaseAgent<
             model: driver.model,
             permissions: driver.permissions,
             provider: driver.provider,
+            providerSettings: driver.providerSettings,
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
           })))
@@ -1935,6 +1937,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
           model: driver.model,
           output: driver.output,
           permissions: driver.permissions,
+          providerSettings: driver.providerSettings,
           reasoningEffort: driver.reasoningEffort,
           reasoningSummary: driver.reasoningSummary,
         },

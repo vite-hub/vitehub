@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, blob, browser, chat, title, db, email, executor, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
@@ -29,6 +29,11 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("requires capabilities in resolved Runtime contexts", () => {
+    expectTypeOf<ResolvedAgentRuntimeContext["capabilities"]>().toEqualTypeOf<NonNullable<AgentRuntimeContext["capabilities"]>>()
+    expectTypeOf<AgentCallbackContext["capabilities"]>().toEqualTypeOf<NonNullable<AgentRuntimeContext["capabilities"]>>()
+  })
+
   it("preserves native Capability context inference beside Eve mounts", () => {
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
@@ -990,8 +995,8 @@ describe("agent public types", () => {
       },
     }
     access({ workspace: workspaceAccess })
-    // @ts-expect-error Workspace Scopes do not own Agent Driver Instructions.
     access({
+      // @ts-expect-error Workspace Scopes do not own Agent Driver Instructions.
       workspace: {
         scopes: {
           acme: {
@@ -1135,7 +1140,12 @@ describe("agent public types", () => {
         },
       },
     })
-    const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
+    const supportAccess: AccessWorkspaceOptionsFor<
+      typeof workspace,
+      SupportInputContext,
+      AgentRuntimeConfig,
+      "support"
+    > = {
       resolve({ actor, input, invoker, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
@@ -1160,10 +1170,25 @@ describe("agent public types", () => {
       },
     }
     const supportAccessCapability = access({ workspace: supportAccess })
-    type SupportAccessInputContext = NonNullable<typeof supportAccessCapability.__vitehubTypeContract>["inputContext"]
+    type SupportAccessContract = NonNullable<typeof supportAccessCapability["__vitehubTypeContract"]>
+    type SupportAccessInputContext = SupportAccessContract["inputContext"]
     expectTypeOf(supportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     expectTypeOf({} as SupportInputContext).toMatchTypeOf<SupportAccessInputContext>()
+    expectTypeOf(supportAccessCapability)
+      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
+
+    const structuralSupportAccess = {
+      resolve({ input }) {
+        expectTypeOf(input.get().context).toEqualTypeOf<SupportInputContext | undefined>()
+        return "customer"
+      },
+    } satisfies AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext, AgentRuntimeConfig, "support">
+    const structuralSupportAccessCapability = access({ workspace: structuralSupportAccess })
+    expectTypeOf(structuralSupportAccessCapability.__vitehubTypeContract?.inputContext)
+      .toMatchTypeOf<SupportInputContext | undefined>()
+    expectTypeOf(structuralSupportAccessCapability)
+      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
 
     interface SupportRuntimeConfig extends AgentRuntimeConfig {
       supportToken: string

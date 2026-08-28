@@ -299,6 +299,33 @@ ${config}`)
     }
   })
 
+  it("does not carry an array across a table after a quote-bearing multiline value", async () => {
+    const profile = `provider-table-quoted-array-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `values = ["""value"""", ]
+[provider]
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-table-quoted-array-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(`cli_auth_credentials_store = "file"
+${config}`)
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
   it("ignores multiline delimiters in TOML comments", async () => {
     const profile = `provider-commented-multiline-config-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
@@ -638,7 +665,7 @@ cli_auth_credentials_store = "keyring"
     await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
       hostname: hostname(),
       pid: 2_147_483_647,
-      startedAt: 1,
+      startedAt: "stale process identity",
     })}\n`, { mode: 0o600 })
     await mkdir(join(staleRoot, "home"), { mode: 0o700 })
     await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
@@ -653,12 +680,13 @@ cli_auth_credentials_store = "keyring"
 
   it("scavenges an invocation-private credential root after its PID is reused", async () => {
     const liveProcess = spawn(process.execPath, ["-e", "setInterval(() => {}, 1_000)"])
+    const spawned = once(liveProcess, "spawn")
     const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
-    await once(liveProcess, "spawn")
+    await spawned
     await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
       hostname: hostname(),
       pid: liveProcess.pid,
-      startedAt: 1,
+      startedAt: "reused process identity",
     })}\n`, { mode: 0o600 })
     await mkdir(join(staleRoot, "home"), { mode: 0o700 })
     await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })

@@ -75,6 +75,7 @@ export interface ProviderAgentAdapterOptions<
   model?: string
   permissions?: AgentProviderPermissions
   provider: "claude-code" | "codex"
+  providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
 }
@@ -194,7 +195,7 @@ interface CodexCredentialHome {
 
 const codexCredentialProfileLocks = new Map<string, Promise<void>>()
 const unavailableCodexCredentialProfiles = new Map<string, unknown>()
-const codexCredentialProcessStartedAt = Date.now() - Math.round(process.uptime() * 1_000)
+const codexCredentialProcessIdentity = processStartIdentity(process.pid)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 const codexCredentialSeedMaxBytes = 65
 const codexCredentialConfigMaxBytes = 1_048_576
@@ -320,6 +321,8 @@ function codexFileCredentialStoreConfig(config: string): string {
       const delimiter = offset + 2 < line.length ? line.slice(offset, offset + 3) : ""
       if (multiline) {
         if (delimiter !== multiline || (multiline === '"""' && /(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, offset)))) continue
+        const quote = multiline[0]!
+        while (line[offset + 3] === quote) offset++
         multiline = undefined
         offset += 2
         continue
@@ -360,8 +363,8 @@ async function configureCodexCredentialHome(homePath: string): Promise<void> {
   else await chmod(configPath, 0o600)
 }
 
-async function processStartedAt(pid: number): Promise<number | undefined> {
-  const child = spawn("ps", ["-o", "etimes=", "-p", String(pid)], { stdio: ["ignore", "pipe", "ignore"] })
+async function processStartIdentity(pid: number): Promise<string | undefined> {
+  const child = spawn("ps", ["-o", "lstart=", "-p", String(pid)], { stdio: ["ignore", "pipe", "ignore"] })
   let stdout = ""
   child.stdout.setEncoding("utf8")
   child.stdout.on("data", chunk => stdout += chunk)
@@ -369,18 +372,18 @@ async function processStartedAt(pid: number): Promise<number | undefined> {
     child.once("close", resolve)
     child.once("error", () => resolve(undefined))
   })
-  const elapsedSeconds = Number.parseInt(stdout.trim(), 10)
-  if (code !== 0 || !Number.isSafeInteger(elapsedSeconds) || elapsedSeconds < 0) return
-  return Date.now() - elapsedSeconds * 1_000
+  const identity = stdout.trim()
+  if (code !== 0 || !identity) return
+  return identity
 }
 
-async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, startedAt: number }): Promise<boolean> {
+async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, startedAt: string }): Promise<boolean> {
   if (owner.hostname !== hostname()) return true
-  if (owner.pid === process.pid) return owner.startedAt === codexCredentialProcessStartedAt
+  if (owner.pid === process.pid) return owner.startedAt === await codexCredentialProcessIdentity
   try {
     process.kill(owner.pid, 0)
-    const liveStartedAt = await processStartedAt(owner.pid).catch(() => undefined)
-    return liveStartedAt === undefined || Math.abs(liveStartedAt - owner.startedAt) < 2_000
+    const liveIdentity = await processStartIdentity(owner.pid).catch(() => undefined)
+    return liveIdentity === undefined || liveIdentity === owner.startedAt
   }
   catch (error) {
     return !(hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ESRCH")
@@ -407,8 +410,8 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
         || !hasRuntimeType(owner.pid, "number")
         || !Number.isSafeInteger(owner.pid)
         || owner.pid < 1
-        || !hasRuntimeType(owner.startedAt, "number")
-        || !Number.isFinite(owner.startedAt)
+        || !hasRuntimeType(owner.startedAt, "string")
+        || !owner.startedAt
         || await codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, startedAt: owner.startedAt })) return
       await rm(root, { force: true, recursive: true }).catch(() => undefined)
     }))
@@ -422,7 +425,9 @@ async function createTemporaryCodexCredentialHome(credentials: string): Promise<
   const homePath = join(root, "home")
   try {
     await chmod(root, 0o700)
-    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, startedAt: codexCredentialProcessStartedAt })}\n`)
+    const startedAt = await codexCredentialProcessIdentity
+    if (!startedAt) throw new Error("[vitehub] Codex Driver could not determine the credential Home owner process identity.")
+    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, startedAt })}\n`)
     await mkdir(homePath, { mode: 0o700 })
     await configureCodexCredentialHome(homePath)
     await writeCodexCredentials(homePath, credentials)
@@ -1529,10 +1534,11 @@ async function* runProvider<
     const providerExecutable = resolveInstalledProviderExecutable(options.provider)
     const launchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const settings = Object.fromEntries(Object.entries({
+      ...options.providerSettings,
       binaryPath: providerExecutable,
       homePath: codexCredentialHome?.homePath,
       launchArgs,
-    }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+    }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
       environment: providerEnvironment(providerEnvironmentOverrides),
