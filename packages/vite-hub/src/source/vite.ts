@@ -26,11 +26,11 @@ export type {
 } from "@vite-hub/source/vite"
 
 export function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
-  return prepareOwnerSourceGeneration({ importBase: "vite-hub/source", ...options })
+  return prepareOwnerSourceGeneration({ ...options, importBase: options.importBase ?? "vite-hub/source" })
 }
 
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin[] {
-  const source = sourceHubSource({ importBase: "vite-hub/source", ...options })
+  const source = sourceHubSource({ ...options, importBase: options.importBase ?? "vite-hub/source" })
   return [
     source,
     viteHubTypesPlugin({ prepareSources: source.api.prepareSources }),

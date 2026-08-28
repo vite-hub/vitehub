@@ -326,6 +326,22 @@ describe("framework generated types", () => {
     )
   })
 
+  it("uses framework imports when direct Source options explicitly leave the import base undefined", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await prepareFrameworkSourceGeneration({ importBase: undefined, projectRoot: root })
+    const generatedRoute = join(root, ".vitehub/source/routes/meals.mjs")
+    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
+
+    await rm(generatedRoute)
+    const [source] = frameworkHubSource({ importBase: undefined })
+    await configResolved(source!)({ root })
+
+    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
+  })
+
   it("preserves a custom framework import base during CLI preparation", async () => {
     const { root, viteRoot } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
