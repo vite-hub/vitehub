@@ -1,34 +1,49 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue"
+import * as v from "valibot"
 
 import { requestConsole } from "../client/request"
 
 type UsageMetric = "cost" | "tokens"
 type UsageWindow = "24h" | "7d" | "30d" | "90d"
-type UsageTotals = {
-  cacheWriteTokens: number
-  cachedInputTokens: number
-  costUsd: string
-  inputTokens: number
-  invocations: number
-  outputTokens: number
-  reasoningTokens: number
-  totalTokens: number
+const usageTotalsEntries = {
+  cacheWriteTokens: v.number(),
+  cacheWriteTokensAvailable: v.boolean(),
+  cachedInputTokens: v.number(),
+  cachedInputTokensAvailable: v.boolean(),
+  costAvailable: v.boolean(),
+  costUsd: v.string(),
+  inputTokens: v.number(),
+  inputTokensAvailable: v.boolean(),
+  invocations: v.number(),
+  outputTokens: v.number(),
+  outputTokensAvailable: v.boolean(),
+  reasoningTokens: v.number(),
+  reasoningTokensAvailable: v.boolean(),
+  totalTokens: v.number(),
+  totalTokensAvailable: v.boolean(),
 }
-type UsageModel = UsageTotals & { model: string }
-type UsageBucket = UsageTotals & { models: UsageModel[], start: string }
-type UsageSummary = {
-  available: boolean
-  buckets: UsageBucket[]
-  costAvailable: boolean
-  from: string
-  generatedAt: string
-  models: UsageModel[]
-  partial: boolean
-  resolution: "day" | "hour"
-  to: string
-  totals: UsageTotals
-}
+const usageTotalsSchema = v.object(usageTotalsEntries)
+const usageModelSchema = v.object({ ...usageTotalsEntries, model: v.string() })
+const usageBucketSchema = v.object({
+  ...usageTotalsEntries,
+  models: v.array(usageModelSchema),
+  start: v.string(),
+})
+const usageSummarySchema = v.object({
+  available: v.boolean(),
+  buckets: v.array(usageBucketSchema),
+  costAvailable: v.boolean(),
+  from: v.string(),
+  generatedAt: v.string(),
+  models: v.array(usageModelSchema),
+  partial: v.boolean(),
+  resolution: v.picklist(["day", "hour"]),
+  to: v.string(),
+  totals: usageTotalsSchema,
+})
+type UsageTotals = v.InferOutput<typeof usageTotalsSchema>
+type UsageSummary = v.InferOutput<typeof usageSummarySchema>
 
 const props = defineProps<{ base: string }>()
 const emit = defineEmits<{ openSessions: [] }>()
@@ -49,9 +64,12 @@ const metricOptions: Array<{ label: string, value: UsageMetric }> = [
   { label: "Cost", value: "cost" },
   { label: "Tokens", value: "tokens" },
 ]
-const value = (totals: UsageTotals): number => metric.value === "cost"
-  ? Number(totals.costUsd) || 0
-  : totals.totalTokens
+const metricAvailable = (totals: UsageTotals): boolean => metric.value === "cost"
+  ? totals.costAvailable
+  : totals.totalTokensAvailable
+const value = (totals: UsageTotals): number => metricAvailable(totals)
+  ? metric.value === "cost" ? Number(totals.costUsd) || 0 : totals.totalTokens
+  : 0
 const chartMaximum = computed(() => Math.max(0, ...(summary.value?.buckets.map(value) ?? [])))
 const chartBuckets = computed(() => (summary.value?.buckets ?? []).map(bucket => ({
   ...bucket,
@@ -77,6 +95,7 @@ function formatCost(value: string | number): string {
 }
 
 function formatValue(totals: UsageTotals): string {
+  if (!metricAvailable(totals)) return "Unavailable"
   return metric.value === "cost" ? formatCost(totals.costUsd) : formatTokens(totals.totalTokens)
 }
 
@@ -95,11 +114,13 @@ async function load(): Promise<void> {
   const controller = new AbortController()
   request = controller
   loading.value = true
+  summary.value = undefined
+  error.value = undefined
   try {
-    const result = await requestConsole(props.base, {
+    const result = v.parse(usageSummarySchema, await requestConsole(props.base, {
       query: { window: window.value },
       signal: controller.signal,
-    }) as UsageSummary
+    }))
     if (request !== controller) return
     summary.value = result
     error.value = undefined
@@ -227,13 +248,13 @@ onBeforeUnmount(() => request?.abort())
             <div class="rounded-lg border border-default bg-elevated/30 p-4">
               <p class="text-xs text-muted">Input tokens</p>
               <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
-                {{ formatTokens(summary.totals.inputTokens) }}
+                {{ summary.totals.inputTokensAvailable ? formatTokens(summary.totals.inputTokens) : "—" }}
               </p>
             </div>
             <div class="rounded-lg border border-default bg-elevated/30 p-4">
               <p class="text-xs text-muted">Output tokens</p>
               <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
-                {{ formatTokens(summary.totals.outputTokens) }}
+                {{ summary.totals.outputTokensAvailable ? formatTokens(summary.totals.outputTokens) : "—" }}
               </p>
             </div>
           </section>
@@ -281,8 +302,12 @@ onBeforeUnmount(() => request?.abort())
                   <tr v-for="model in summary.models" :key="model.model" class="border-t border-default">
                     <td class="px-4 py-3 font-medium sm:px-5">{{ model.model }}</td>
                     <td class="px-4 py-3 text-right tabular-nums text-muted">{{ formatTokens(model.invocations) }}</td>
-                    <td class="px-4 py-3 text-right tabular-nums">{{ formatTokens(model.totalTokens) }}</td>
-                    <td class="px-4 py-3 text-right tabular-nums sm:px-5">{{ formatCost(model.costUsd) }}</td>
+                    <td class="px-4 py-3 text-right tabular-nums">
+                      {{ model.totalTokensAvailable ? formatTokens(model.totalTokens) : "—" }}
+                    </td>
+                    <td class="px-4 py-3 text-right tabular-nums sm:px-5">
+                      {{ model.costAvailable ? formatCost(model.costUsd) : "—" }}
+                    </td>
                   </tr>
                 </tbody>
               </table>

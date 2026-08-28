@@ -2000,6 +2000,104 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("keeps incomplete nested usage dimensions unavailable", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      completedAt: "2026-08-27T10:00:00.000Z",
+      createdAt: "2026-08-27T09:59:00.000Z",
+      id: "partial-usage",
+      observations: [{
+        attributes: {
+          "usage.record": {
+            calls: [
+              {
+                cost: { display: "$0.01", estimated: false, source: "provider", usd: "0.01" },
+                model: "priced-input",
+                usage: { inputTokens: 10, totalTokens: 10 },
+              },
+              {
+                model: "unpriced-output",
+                usage: { outputTokens: 5, totalTokens: 5 },
+              },
+            ],
+          },
+        },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-27T10:00:00.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      traceId: "trace-partial-usage",
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    })
+    const invocations = defineAgentInvocations({ store })
+    const record = (await invocations.get("partial-usage"))!
+    const projected = invocationUsage(record)
+
+    expect(projected).toMatchObject({ totalTokens: 15 })
+    expect(projected).not.toHaveProperty("cost")
+    expect(projected).not.toHaveProperty("inputTokens")
+    expect(projected).not.toHaveProperty("outputTokens")
+    await expect(createUsageSummary(invocations, {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      costAvailable: false,
+      models: [
+        expect.objectContaining({ costAvailable: true, model: "priced-input", outputTokensAvailable: false }),
+        expect.objectContaining({ costAvailable: false, inputTokensAvailable: false, model: "unpriced-output" }),
+      ],
+      totals: {
+        costAvailable: false,
+        inputTokensAvailable: false,
+        outputTokensAvailable: false,
+        totalTokens: 15,
+        totalTokensAvailable: true,
+      },
+    })
+  })
+
+  it("scans creation-ordered pages for recent completions", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      completedAt: "2026-08-27T10:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      id: "long-running-usage",
+      observations: [{
+        attributes: { "usage.record": { usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 } } },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-27T10:00:00.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      traceId: "trace-long-running-usage",
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    })
+    for (let index = 0; index < 100; index++) {
+      store.create({
+        completedAt: "2026-01-02T00:00:00.000Z",
+        createdAt: "2026-01-02T00:00:00.000Z",
+        id: `old-usage-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `trace-old-usage-${index}`,
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      })
+    }
+    const invocations = defineAgentInvocations({ store })
+
+    await expect(createUsageSummary(invocations, {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      available: true,
+      partial: false,
+      totals: { invocations: 1, totalTokens: 10 },
+    })
+  })
+
   it("rejects overlong Agent filters at the usage endpoint", async () => {
     const requestEvent = event("127.0.0.1")
     const url = `http://localhost/api/_vitehub/console/usage?agent=${"a".repeat(513)}`

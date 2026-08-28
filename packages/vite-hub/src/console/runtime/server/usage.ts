@@ -1,4 +1,5 @@
 import type { AgentInvocationRecord, AgentInvocations } from "@vite-hub/agent"
+import * as v from "valibot"
 
 export interface ConsoleUsageCost {
   display: string
@@ -25,25 +26,38 @@ interface UsageWindow {
 }
 
 interface UsageTotal {
+  cacheWriteTokensAvailable: boolean
   cacheWriteTokens: number
+  cachedInputTokensAvailable: boolean
   cachedInputTokens: number
   costAvailable: boolean
   costUnits: bigint
+  inputTokensAvailable: boolean
   inputTokens: number
   invocations: number
+  outputTokensAvailable: boolean
   outputTokens: number
+  reasoningTokensAvailable: boolean
   reasoningTokens: number
+  totalTokensAvailable: boolean
   totalTokens: number
 }
 
 interface PublicUsageTotals {
+  cacheWriteTokensAvailable: boolean
   cacheWriteTokens: number
+  cachedInputTokensAvailable: boolean
   cachedInputTokens: number
+  costAvailable: boolean
   costUsd: string
+  inputTokensAvailable: boolean
   inputTokens: number
   invocations: number
+  outputTokensAvailable: boolean
   outputTokens: number
+  reasoningTokensAvailable: boolean
   reasoningTokens: number
+  totalTokensAvailable: boolean
   totalTokens: number
 }
 
@@ -56,9 +70,15 @@ const usageWindows: Record<ConsoleUsageWindow, UsageWindow> = {
   "90d": { bucket: "day", durationMs: 90 * 24 * 60 * 60 * 1_000 },
 }
 
+export function parseConsoleUsageWindow(value: string): ConsoleUsageWindow | undefined {
+  if (value === "24h" || value === "7d" || value === "30d" || value === "90d") return value
+}
+
 const decimalPlaces = 18
 const decimalScale = 10n ** BigInt(decimalPlaces)
 const maximumUsageRecords = 10_000
+const finiteNumberSchema = v.pipe(v.number(), v.check(Number.isFinite), v.minValue(0))
+const stringSchema = v.string()
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
@@ -67,7 +87,8 @@ function object(value: unknown): Record<string, unknown> | undefined {
 }
 
 function finiteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined
+  const result = v.safeParse(finiteNumberSchema, value)
+  return result.success ? result.output : undefined
 }
 
 function detailNumber(details: unknown, ...keys: string[]): number | undefined {
@@ -79,11 +100,16 @@ function detailNumber(details: unknown, ...keys: string[]): number | undefined {
   }
 }
 
-function decimalUnits(value: unknown): bigint | undefined {
-  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) return
+function decimalUnits(value: string | undefined): bigint | undefined {
+  if (!value || !/^\d+(?:\.\d+)?$/.test(value)) return
   const [whole, fraction = ""] = value.split(".")
   const padded = `${fraction}${"0".repeat(decimalPlaces)}`.slice(0, decimalPlaces)
   return BigInt(whole!) * decimalScale + BigInt(padded)
+}
+
+function stringValue(value: unknown): string | undefined {
+  const result = v.safeParse(stringSchema, value)
+  return result.success ? result.output : undefined
 }
 
 function decimalString(value: bigint): string {
@@ -95,17 +121,18 @@ function decimalString(value: bigint): string {
   return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
+function allPresent<T>(values: Array<T | undefined>): values is T[] {
+  return values.every(value => value !== undefined)
+}
+
 function sumNumber(values: Array<number | undefined>): number | undefined {
-  const present = values.filter((value): value is number => value !== undefined)
-  return present.length ? present.reduce((total, value) => total + value, 0) : undefined
+  if (!values.length || !allPresent(values)) return
+  return values.reduce((total, value) => total + value, 0)
 }
 
 function sumCost(values: Array<ConsoleUsageCost | undefined>): ConsoleUsageCost | undefined {
-  const units = values.flatMap((value) => {
-    const resolved = decimalUnits(value?.usd)
-    return resolved === undefined ? [] : [resolved]
-  })
-  if (!units.length) return
+  const units = values.map(value => decimalUnits(value?.usd))
+  if (!units.length || !allPresent(units)) return
   const total = units.reduce((sum, value) => sum + value, 0n)
   const estimated = values.some(value => value?.estimated === true)
   const sources = [...new Set(values.flatMap(value => value?.source ? [value.source] : []))]
@@ -125,14 +152,15 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
   const inputDetails = object(usage?.inputTokenDetails)
   const outputDetails = object(usage?.outputTokenDetails)
   const cost = object(record.cost)
-  const costUnits = decimalUnits(cost?.usd)
-  const projectedCost: ConsoleUsageCost | undefined = costUnits === undefined
+  const costUsd = stringValue(cost?.usd)
+  const costUnits = decimalUnits(costUsd)
+  const projectedCost: ConsoleUsageCost | undefined = costUnits === undefined || costUsd === undefined
     ? undefined
     : {
-        display: typeof cost?.display === "string" ? cost.display : `$${cost?.usd}`,
+        display: stringValue(cost?.display) ?? `$${costUsd}`,
         estimated: cost?.estimated === true,
-        source: typeof cost?.source === "string" ? cost.source : "provider",
-        usd: String(cost?.usd),
+        source: stringValue(cost?.source) ?? "provider",
+        usd: costUsd,
       }
   const calls = includeCalls && Array.isArray(record.calls)
     ? record.calls.flatMap((call) => {
@@ -142,14 +170,15 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
     : []
   const inputTokens = finiteNumber(usage?.inputTokens)
   const outputTokens = finiteNumber(usage?.outputTokens)
+  const model = stringValue(record.model)?.trim()
   const projected: ConsoleInvocationUsage = {
-    ...(typeof record.model === "string" && record.model.trim() ? { model: record.model.trim() } : {}),
+    ...(model ? { model } : {}),
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
     ...(finiteNumber(usage?.totalTokens) !== undefined
       ? { totalTokens: finiteNumber(usage?.totalTokens) }
-      : inputTokens !== undefined || outputTokens !== undefined
-        ? { totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0) }
+        : inputTokens !== undefined && outputTokens !== undefined
+          ? { totalTokens: inputTokens + outputTokens }
         : {}),
     ...(detailNumber(inputDetails, "cacheReadTokens", "cacheRead", "cachedInputTokens") !== undefined
       ? { cachedInputTokens: detailNumber(inputDetails, "cacheReadTokens", "cacheRead", "cachedInputTokens") }
@@ -208,42 +237,60 @@ function bucketStarts(from: string, to: string, resolution: UsageWindow["bucket"
 
 function emptyTotals(): UsageTotal {
   return {
+    cacheWriteTokensAvailable: true,
     cacheWriteTokens: 0,
+    cachedInputTokensAvailable: true,
     cachedInputTokens: 0,
-    costAvailable: false,
+    costAvailable: true,
     costUnits: 0n,
+    inputTokensAvailable: true,
     inputTokens: 0,
     invocations: 0,
+    outputTokensAvailable: true,
     outputTokens: 0,
+    reasoningTokensAvailable: true,
     reasoningTokens: 0,
+    totalTokensAvailable: true,
     totalTokens: 0,
   }
 }
 
 function addUsage(total: UsageTotal, usage: ConsoleInvocationUsage): void {
   total.invocations++
+  total.inputTokensAvailable &&= usage.inputTokens !== undefined
   total.inputTokens += usage.inputTokens ?? 0
+  total.outputTokensAvailable &&= usage.outputTokens !== undefined
   total.outputTokens += usage.outputTokens ?? 0
+  total.totalTokensAvailable &&= usage.totalTokens !== undefined
   total.totalTokens += usage.totalTokens ?? 0
+  total.cachedInputTokensAvailable &&= usage.cachedInputTokens !== undefined
   total.cachedInputTokens += usage.cachedInputTokens ?? 0
+  total.cacheWriteTokensAvailable &&= usage.cacheWriteTokens !== undefined
   total.cacheWriteTokens += usage.cacheWriteTokens ?? 0
+  total.reasoningTokensAvailable &&= usage.reasoningTokens !== undefined
   total.reasoningTokens += usage.reasoningTokens ?? 0
   const cost = decimalUnits(usage.cost?.usd)
-  if (cost !== undefined) {
-    total.costAvailable = true
-    total.costUnits += cost
-  }
+  total.costAvailable &&= cost !== undefined
+  total.costUnits += cost ?? 0n
 }
 
 function publicTotals(total: UsageTotal): PublicUsageTotals {
+  const hasUsage = total.invocations > 0
   return {
+    cacheWriteTokensAvailable: hasUsage && total.cacheWriteTokensAvailable,
     cacheWriteTokens: total.cacheWriteTokens,
+    cachedInputTokensAvailable: hasUsage && total.cachedInputTokensAvailable,
     cachedInputTokens: total.cachedInputTokens,
+    costAvailable: hasUsage && total.costAvailable,
     costUsd: decimalString(total.costUnits),
+    inputTokensAvailable: hasUsage && total.inputTokensAvailable,
     inputTokens: total.inputTokens,
     invocations: total.invocations,
+    outputTokensAvailable: hasUsage && total.outputTokensAvailable,
     outputTokens: total.outputTokens,
+    reasoningTokensAvailable: hasUsage && total.reasoningTokensAvailable,
     reasoningTokens: total.reasoningTokens,
+    totalTokensAvailable: hasUsage && total.totalTokensAvailable,
     totalTokens: total.totalTokens,
   }
 }
@@ -275,7 +322,6 @@ export async function createUsageSummary(
   let cursor: string | undefined
   let scanned = 0
   let partial = false
-  let reachedStart = false
 
   do {
     const page = await invocations.list({
@@ -286,11 +332,9 @@ export async function createUsageSummary(
     scanned += page.invocations.length
     const summaries = page.invocations.filter((summary) => {
       const timestamp = Date.parse(usageTime(summary))
-      if (Number.isFinite(timestamp) && timestamp < fromDate.valueOf()) {
-        reachedStart = true
-        return false
-      }
-      return summary.status === "completed" && timestamp <= now.valueOf()
+      return summary.status === "completed"
+        && timestamp >= fromDate.valueOf()
+        && timestamp <= now.valueOf()
     })
     const records = await Promise.all(summaries.map(summary => invocations.get(summary.id)))
     for (const record of records) {
@@ -317,8 +361,10 @@ export async function createUsageSummary(
       }
     }
     cursor = page.cursor
-    if (scanned >= maximumUsageRecords && cursor && !reachedStart) partial = true
-  } while (cursor && !reachedStart && scanned < maximumUsageRecords)
+    if (scanned >= maximumUsageRecords && cursor) partial = true
+  } while (cursor && scanned < maximumUsageRecords)
+
+  const publicTotal = publicTotals(totals)
 
   return {
     available: totals.invocations > 0,
@@ -329,7 +375,7 @@ export async function createUsageSummary(
         models: [...(bucketModels.get(start) ?? new Map<string, UsageTotal>()).entries()]
           .map(([model, modelTotal]) => ({ model, ...publicTotals(modelTotal) })),
       })),
-    costAvailable: totals.costAvailable,
+    costAvailable: publicTotal.costAvailable,
     from,
     generatedAt: new Date().toISOString(),
     models: [...models.entries()]
@@ -338,6 +384,6 @@ export async function createUsageSummary(
     partial,
     resolution: window.bucket,
     to,
-    totals: publicTotals(totals),
+    totals: publicTotal,
   }
 }

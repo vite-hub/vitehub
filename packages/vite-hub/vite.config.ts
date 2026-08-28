@@ -68,6 +68,8 @@ export default defineConfig({
         from: "src/console/runtime/components/console-search.vue",
         to: "dist/console/runtime/components",
       },
+      { from: "src/console/runtime/components/console-usage-summary.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-usage.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue"
+import * as v from "valibot"
 
 const props = defineProps<{ usage: Record<string, unknown> }>()
 
 function number(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+  const result = v.safeParse(v.pipe(v.number(), v.check(Number.isFinite)), value)
+  return result.success ? result.output : undefined
 }
 
 function formatTokens(value: unknown): string {

@@ -1,8 +1,7 @@
 import { getConsoleInvocations } from "./invocations.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
-import { createUsageSummary } from "./usage.ts"
+import { createUsageSummary, parseConsoleUsageWindow } from "./usage.ts"
 
-import type { ConsoleUsageWindow } from "./usage.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 import type { AgentInvocations } from "@vite-hub/agent"
 
@@ -36,7 +35,14 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
       statusMessage: "Invalid Agent name",
     })
   }
-  const window = (query.get("window") || "30d") as ConsoleUsageWindow
+  const windowValue = query.get("window")
+  const window = windowValue === null ? "30d" : parseConsoleUsageWindow(windowValue)
+  if (!window) {
+    throw Object.assign(new Error("Invalid usage window"), {
+      statusCode: 400,
+      statusMessage: "Invalid usage window",
+    })
+  }
   const invocations = getConsoleInvocations()
   return cached(invocations, `${agentName || "*"}:${window}`, () => createUsageSummary(
     invocations,
