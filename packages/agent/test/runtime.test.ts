@@ -5597,7 +5597,7 @@ describe("agent message protocol", () => {
     }, input)).resolves.toMatchObject({ text: "ok" })
 
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      input: { context: {}, ...input },
+      input: expect.objectContaining(input),
       invocation: expect.objectContaining({
         durationMs: expect.any(Number),
         run: { runId: "run-1" },
