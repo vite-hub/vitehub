@@ -138,14 +138,20 @@ export function assertConsoleProductionAccess(
   }
 }
 
-function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[], fixture?: string, fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined): string {
+function renderConsoleNitroPlugin(
+  projectRoot: string,
+  agents: readonly ConsoleAgentEntry[],
+  fixture?: string,
+  fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
+  runtimeBinding?: string,
+): string {
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
     `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     fixture
-      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)})`
+      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`
       : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
     `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
@@ -158,18 +164,24 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   agents: readonly ConsoleAgentEntry[],
   fixture?: string,
+  runtimeBinding?: string,
   active: () => boolean = () => true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
-  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot)
+  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
   if (fixture && snapshot && active()) {
-    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot))
+    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
   }
-  return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
+  return createConsoleInvocationsIdentity(
+    projectRoot,
+    fixture,
+    snapshot ? consoleFixtureRevision(snapshot) : undefined,
+    runtimeBinding,
+  )
 }
 
 export function discoverConsoleAgentNames(
@@ -200,6 +212,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot,
       discoverAgentDefinitionEntries(root, serverDirs),
       fixture,
+      options.invocationRootState?.binding,
       () => !options.invocationRootState?.closed,
     )
     if (options.invocationRootState) {
@@ -243,7 +256,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshAgentDefinitions)
       }
       if (!cliDiscovery) {
-        await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root), fixture)
+        await writeConsoleNitroPlugin(
+          generatedPlugin,
+          projectRoot,
+          discoverAgentDefinitionEntries(root),
+          fixture,
+          options.invocationRootState?.binding,
+        )
       }
 
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -352,6 +371,7 @@ export function consoleInvocationRootPlugin(
         projectRoot,
         fixture,
         revision,
+        state.binding,
       )
       updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
     },

@@ -106,12 +106,13 @@ export function installConsoleFixtureInvocations(
   file: string,
   generatedFixture?: ConsoleFixture,
   generatedRevision?: string,
+  runtimeBinding?: string,
 ): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const resolvedFile = resolve(file)
   const fixture = generatedFixture ?? readConsoleFixture(resolvedFile)
   const revision = generatedRevision ?? consoleFixtureRevision(fixture)
-  const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile, revision)
+  const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile, revision, runtimeBinding)
   const installed = resolveConsoleInvocations()
   if (installed && resolveConsoleInvocationsIdentity() === identity && resolveConsoleInvocationsRevision(identity) === revision) return installed
   const invocations = createConsoleFixtureInvocationsFromSnapshot(fixture)

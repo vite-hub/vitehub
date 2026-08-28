@@ -227,6 +227,26 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("isolates same-revision fixture journals by runtime binding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-runtime-"))
+    try {
+      const file = join(root, "fixture.json")
+      const fixture = parseConsoleFixture(fixtureDocument("shared"))
+      const revision = consoleFixtureRevision(fixture)
+      await writeFile(file, JSON.stringify(fixture))
+
+      const first = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-a")
+      const second = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-b")
+
+      expect(second).not.toBe(first)
+      expect(createConsoleInvocationsIdentity(root, file, revision, "runtime-a"))
+        .not.toBe(createConsoleInvocationsIdentity(root, file, revision, "runtime-b"))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("installs a validated generated snapshot after the fixture changes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-snapshot-"))
     try {

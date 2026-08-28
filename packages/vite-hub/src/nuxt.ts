@@ -171,6 +171,7 @@ function renderConsoleNitroPlugin(
   agents: readonly { handler: string, name: string }[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
+  runtimeBinding?: string,
 ): string {
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
@@ -178,7 +179,7 @@ function renderConsoleNitroPlugin(
     `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     fixture
-      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)})`
+      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`
       : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
     `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
@@ -191,18 +192,24 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   agents: readonly { handler: string, name: string }[],
   fixture?: string,
+  runtimeBinding?: string,
   active: () => boolean = () => true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
-  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot)
+  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
   if (fixture && snapshot && active()) {
-    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot))
+    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
   }
-  return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
+  return createConsoleInvocationsIdentity(
+    projectRoot,
+    fixture,
+    snapshot ? consoleFixtureRevision(snapshot) : undefined,
+    runtimeBinding,
+  )
 }
 
 async function installConsole(
@@ -223,8 +230,9 @@ async function installConsole(
   if (!uiConfigured) {
     await Reflect.apply(uiModule, undefined, [{}, nuxt])
   }
+  const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   if (installInvocations) {
-    if (fixture) installConsoleFixtureInvocations(projectRoot, fixture)
+    if (fixture) installConsoleFixtureInvocations(projectRoot, fixture, undefined, undefined, invocationRootState?.binding)
     else installConsoleInvocations(projectRoot)
   }
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
@@ -257,13 +265,13 @@ async function installConsole(
   }
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
-  const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     const identity = await writeConsoleNitroPlugin(
       plugin,
       projectRoot,
       discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
       fixture,
+      invocationRootState?.binding,
       () => !invocationRootState?.closed,
     )
     if (invocationRootState) {
@@ -609,6 +617,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         projectRoot,
         resolvedConsoleFixture,
         consoleFixtureSnapshot ? consoleFixtureRevision(consoleFixtureSnapshot) : undefined,
+        consoleInvocationRootState.binding,
       ),
       consoleInvocationRootState,
     )] : []),
