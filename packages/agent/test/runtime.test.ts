@@ -981,6 +981,39 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("traces input hook and Capability cleanup failures with separate ownership", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const inputFailure = new Error("input failed")
+    const cleanupFailure = new Error("cleanup failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "cleanup-after-input-failure",
+      })],
+      driver: { run: () => "unused" },
+      hooks: { "agent:input": async () => { throw inputFailure } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBeInstanceOf(AggregateError)
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "input failed" },
+      },
+      {
+        activity: { owner: "vitehub", phase: "teardown" },
+        attributes: { "error.message": "cleanup failed" },
+      },
+    ])
+  })
+
   it("keeps custom Trace Events in the synthesized invocation trace", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

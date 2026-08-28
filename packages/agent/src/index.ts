@@ -3031,6 +3031,7 @@ async function createAgentInvocationContext<
   let invoker = createFallbackAgentInvoker(context.run)
   let failureTelemetry = initialTelemetry
   let failureActivity: TraceActivityContext = { owner: "vitehub", phase: "setup" }
+  let failureTraced = false
   const telemetryContentTraceLogWrapped = initialTelemetryUsesContent || mayResolveContentTelemetry
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
@@ -3196,6 +3197,16 @@ async function createAgentInvocationContext<
           await capabilities.close()
         }
         catch (closeError) {
+          const traceContext = {
+            context: invocationContext,
+            input,
+            invoker,
+            run: context.run,
+            runtime: runtimeContext,
+          }
+          await traceAgentInvocationError(traceContext, error, failureActivity)
+          await traceAgentInvocationError(traceContext, closeError, { owner: "vitehub", phase: "teardown" })
+          failureTraced = true
           throw new AggregateError([error, closeError], "[vitehub] Agent input hook failed and cleanup also failed.")
         }
         throw error
@@ -3371,13 +3382,15 @@ async function createAgentInvocationContext<
     return invocation
   }
   catch (error) {
-    await traceAgentInvocationError({
-      context: invocationContext,
-      input,
-      invoker,
-      run: context.run,
-      runtime: runtimeContext,
-    }, error, failureActivity)
+    if (!failureTraced) {
+      await traceAgentInvocationError({
+        context: invocationContext,
+        input,
+        invoker,
+        run: context.run,
+        runtime: runtimeContext,
+      }, error, failureActivity)
+    }
     scheduleAgentTelemetry(failureTelemetry, runtimeContext, invocationContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
   }

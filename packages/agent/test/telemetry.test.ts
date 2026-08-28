@@ -149,6 +149,7 @@ describe("Agent telemetry", () => {
       records: [{
         attributes: {
           "vitehub.payload.value": {
+            arrayBuffer: new Uint8Array([1, 2]).buffer,
             boxedBigInt: Object(9n),
             boxedBoolean: new Boolean(false),
             boxedNumber: new Number(5),
@@ -163,6 +164,7 @@ describe("Agent telemetry", () => {
             pattern,
             set: new Set(["first", "second"]),
             spoofedBigInt: { label: "spoofed", [Symbol.toStringTag]: "BigInt" },
+            uint8Array: new Uint8Array([1, 2]),
             undefined,
           },
         },
@@ -181,6 +183,10 @@ describe("Agent telemetry", () => {
     expect(payload).toMatchObject({
       kvlistValue: {
         values: [
+          { key: "arrayBuffer", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "ArrayBuffer" } },
+            { key: "bytes", value: { bytesValue: "AQI=" } },
+          ] } } },
           { key: "boxedBigInt", value: { kvlistValue: { values: [
             { key: "type", value: { stringValue: "BigInt" } },
             { key: "value", value: { intValue: "9" } },
@@ -235,6 +241,10 @@ describe("Agent telemetry", () => {
           ] } } },
           { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
           { key: "spoofedBigInt", value: { kvlistValue: { values: [{ key: "label", value: { stringValue: "spoofed" } }] } } },
+          { key: "uint8Array", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Uint8Array" } },
+            { key: "bytes", value: { bytesValue: "AQI=" } },
+          ] } } },
           { key: "undefined", value: { stringValue: "undefined" } },
         ],
       },

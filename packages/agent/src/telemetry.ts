@@ -58,7 +58,14 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
       : new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
     let binary = ""
     for (const byte of bytes) binary += String.fromCharCode(byte)
-    return { bytesValue: btoa(binary) }
+    return {
+      kvlistValue: {
+        values: [
+          { key: "type", value: { stringValue: value instanceof ArrayBuffer ? "ArrayBuffer" : value.constructor.name } },
+          { key: "bytes", value: { bytesValue: btoa(binary) } },
+        ],
+      },
+    }
   }
   if (value instanceof Date) {
     return { stringValue: Number.isFinite(value.getTime()) ? value.toISOString() : String(value) }
