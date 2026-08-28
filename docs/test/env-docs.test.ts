@@ -7,6 +7,7 @@ const docsRoot = resolve(import.meta.dirname, "..");
 
 function envCalls(source: string) {
   const calls: string[] = [];
+  const declarationStarts = ["env(", "env.variable("];
 
   for (let start = 0; start < source.length; start++) {
     const character = source[start] || "";
@@ -29,7 +30,10 @@ function envCalls(source: string) {
       }
       continue;
     }
-    if (!source.startsWith("env(", start) || /[\w$]/.test(source[start - 1] || "")) {
+    const declarationStart = declarationStarts.find((candidate) =>
+      source.startsWith(candidate, start),
+    );
+    if (!declarationStart || /[\w$]/.test(source[start - 1] || "")) {
       continue;
     }
 
@@ -38,7 +42,7 @@ function envCalls(source: string) {
     let escaped = false;
     let comment = "";
 
-    for (let index = start + 4; index < source.length; index++) {
+    for (let index = start + declarationStart.length; index < source.length; index++) {
       const character = source[index] || "";
       const next = source[index + 1] || "";
       if (comment === "line") {
@@ -64,7 +68,7 @@ function envCalls(source: string) {
         depth += 1;
       } else if (character === ")") {
         if (depth === 0) {
-          calls.push(source.slice(start + 4, index));
+          calls.push(source.slice(start + declarationStart.length, index));
           start = index;
           break;
         }
@@ -188,9 +192,11 @@ function buildEnvCalls(source: string) {
 
 describe("Env documentation", () => {
   it("parses declarations with nested calls", () => {
-    expect(envCalls("env({ source: env.source('APP_NAME'), mode: 'build' })")).toEqual([
-      "{ source: env.source('APP_NAME'), mode: 'build' }",
-    ]);
+    expect(
+      envCalls(
+        "env({ source: env.source('APP_NAME'), mode: 'build' }); env.variable({ mode: 'build' })",
+      ),
+    ).toEqual(["{ source: env.source('APP_NAME'), mode: 'build' }", "{ mode: 'build' }"]);
   });
 
   it("ignores declarations in comments and strings", () => {
