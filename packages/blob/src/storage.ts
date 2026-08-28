@@ -7,6 +7,7 @@ import { blobError, blobResult } from "./errors.ts"
 import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobServeEvent, BlobStorage } from "./types.ts"
 
 function setBlobResponseHeader(event: BlobServeEvent, name: string, value: string) {
+  // SAFETY: BlobServeEvent exposes the response headers setHeader mutates and omits only unrelated H3 event fields.
   setHeader(event as Parameters<typeof setHeader>[0], name, value)
 }
 
