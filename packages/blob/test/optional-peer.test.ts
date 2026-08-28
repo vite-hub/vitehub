@@ -123,6 +123,17 @@ describe("optional peer imports", () => {
     expect(attempts).toBe(1)
   })
 
+  it("preserves Vercel's main error after exhausting retries", async () => {
+    const first = new Error("unknown")
+    const main = new Error("unknown")
+    const final = new Error("service unavailable")
+    const errors = [first, main, final]
+
+    await expect(retry((_, attempt) => {
+      throw errors[attempt - 1]
+    }, { minTimeout: 0, randomize: false, retries: 2 })).rejects.toBe(main)
+  })
+
   it("keeps the Netlify driver closure free of Node module loading", async () => {
     const closure = (await readLocalClosure(new URL(import.meta.resolve("@vite-hub/blob/drivers/netlify-blobs")))).join("\n")
 
