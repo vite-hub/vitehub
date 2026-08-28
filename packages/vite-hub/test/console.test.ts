@@ -516,6 +516,46 @@ describe("Agent invocation console", () => {
     expect(result.cursor).toBeDefined()
   })
 
+  it("rechecks later lifecycles after backfilling an earlier group", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 6; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let pendingReads = 0
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending") && ++pendingReads === 2) {
+        await store.update("pending-4", {
+          status: "running",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return list(options)
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=3"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toContainEqual(expect.objectContaining({
+      id: "pending-4",
+      status: "running",
+    }))
+    expect(result.invocations).toHaveLength(2)
+    expect(result.cursor).toBeDefined()
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "6" })
+  })
+
   it("preserves empty opaque cursors across lifecycle pages", async () => {
     const store = createMemoryAgentInvocationStore()
     const pending = (id: string) => ({

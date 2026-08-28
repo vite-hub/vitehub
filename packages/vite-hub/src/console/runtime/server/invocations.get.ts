@@ -114,6 +114,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const pendingGroups = groups
     .filter(([key]) => (initialPage ? key !== "history" : key in cursor && (key !== "history" || !primaryPending)))
     .sort(([left], [right]) => Number(cursor[right] === null) - Number(cursor[left] === null))
+  const pendingKeys = new Set(pendingGroups.map(([key]) => key))
   let remainingGroups = pendingGroups.length
   for (const [key, statuses] of pendingGroups) {
     if (remainingLimit === 0) {
@@ -136,7 +137,29 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       ...backfill,
       invocations: [...page.invocations, ...backfill.invocations],
     }
-    remainingLimit -= backfill.invocations.length
+    const currentIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
+    let rollbackBackfill = false
+    const groupIndex = groups.findIndex(([groupKey]) => groupKey === key)
+    for (const [laterKey, laterStatuses] of groups.slice(groupIndex + 1)) {
+      if (laterKey === "history" || !pendingKeys.has(laterKey)) continue
+      const laterPage = pages[laterKey]
+      const recheckLimit = Math.min(pageLimit, laterPage.invocations.length + backfill.invocations.length)
+      if (recheckLimit === 0) continue
+      const refreshed = await listLifecyclePage(
+        laterStatuses,
+        recheckLimit,
+        cursor[laterKey],
+        agentName,
+      )
+      const previousIds = new Set(laterPage.invocations.map(invocation => invocation.id))
+      const added = refreshed.invocations.filter(invocation => !previousIds.has(invocation.id))
+      if (added.length === 0) continue
+      if (added.some(invocation => !currentIds.has(invocation.id))) rollbackBackfill = true
+      pages[laterKey] = refreshed
+    }
+    if (rollbackBackfill) pages[key] = page
+    const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
+    remainingLimit = Math.max(0, pageLimit - returnedIds.size)
   }
   const { done, history, queued, working } = pages
   const next: ConsoleInvocationCursor = {}
