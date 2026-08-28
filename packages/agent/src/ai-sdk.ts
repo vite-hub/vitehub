@@ -1364,7 +1364,7 @@ function withCapturedStreamUsage<T extends {
             let draining: Promise<void> | undefined
             let read = Promise.resolve<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>>({ done: true, value: undefined })
             // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
-            const getReader = () => reader ??= toUIMessageStream.apply(this, args as never[]).getReader()
+            const getReader = () => reader ??= toUIMessageStream.apply(result, args as never[]).getReader()
             const readNext = () => read = read.then(() => getReader().read())
             const drain = () => draining ??= (async () => {
               while (true) {
@@ -2232,6 +2232,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           if (reader) return reader
           const result = await start()
           const stream = result[property] ?? result.stream ?? result.fullStream ?? result.textStream
+            ?? (isAsyncIterable(result) ? result : undefined)
+          if (!stream) throw new TypeError("[vitehub] AI SDK stream result did not expose an iterable stream.")
           reader = stream instanceof ReadableStream
             ? stream.getReader()
             // SAFETY: StreamTextResult exposes these properties as ReadableStream or AsyncIterable values.
