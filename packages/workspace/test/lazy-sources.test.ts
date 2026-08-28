@@ -645,9 +645,11 @@ describe("lazy sources", () => {
     const materializationObserved = new Promise<void>((resolve) => {
       observeMaterialization = resolve
     })
+    const prepare = vi.fn()
     const source = custom({
       cache: false,
       materialize: "lazy",
+      prepare,
       async getKeys(context) {
         if (context.abortSignal) {
           observeMaterialization()
@@ -676,6 +678,7 @@ describe("lazy sources", () => {
     await expect(listing).resolves.toEqual([
       { path: "docs/guide.md", type: "file" },
     ])
+    expect(prepare).toHaveBeenCalledOnce()
   })
 
   it("prepares a live Source after a cache hit in a fresh view", async () => {
@@ -753,7 +756,7 @@ describe("lazy sources", () => {
     expect(resolveRevision).toHaveBeenCalledOnce()
   })
 
-  it("prepares the persistent non-live Source context after explicit materialization", async () => {
+  it("prepares the persistent non-live Source context after signaled explicit materialization", async () => {
     const clients = new WeakMap<object, { keys: string[] }>()
     const prepare = vi.fn(async (context: SourceContext) => {
       clients.set(context, { keys: ["current.md"] })
@@ -770,8 +773,9 @@ describe("lazy sources", () => {
       },
     })
     const view = createWorkspaceSourceView({ name: "materialization-persistent-preparation", sources: { docs: source } }, createMemoryWorkspaceStore())
+    const abort = new AbortController()
 
-    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+    await expect(view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })).resolves.toMatchObject({
       sources: [{ status: "ready" }],
     })
     await expect(view.exists("docs/missing.md")).resolves.toBe(false)

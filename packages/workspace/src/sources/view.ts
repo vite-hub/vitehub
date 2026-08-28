@@ -54,6 +54,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
+  const materializationPreparationBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   const materializeBySource = new Map<string, Promise<void>>()
   const materializedPathsBySource = new Map<string, Set<string>>()
@@ -64,9 +65,25 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const pending = materializationQueue.then(async () => {
       started = true
       options?.abortSignal?.throwIfAborted()
-      return await materializeWorkspaceSources(definition, store, options, getSourceContext)
+      return await materializeWorkspaceSources(definition, store, options, getSourceContext, (source) => {
+        prepareBySource.set(source.key, Promise.resolve())
+      })
     })
     materializationQueue = pending.then(() => undefined, () => undefined)
+    for (const source of sources) {
+      if (options?.sources?.length && !options.sources.includes(source.key)) continue
+      const previous = materializationPreparationBySource.get(source.key)
+      const barrier = Promise.all([
+        previous?.catch(() => undefined),
+        pending.then(() => undefined, () => undefined),
+      ]).then(() => undefined)
+      materializationPreparationBySource.set(source.key, barrier)
+      void barrier.finally(() => {
+        if (materializationPreparationBySource.get(source.key) === barrier) {
+          materializationPreparationBySource.delete(source.key)
+        }
+      })
+    }
     const result = options?.abortSignal
       ? await new Promise<Awaited<typeof pending>>((resolve, reject) => {
           const signal = options.abortSignal!
@@ -93,7 +110,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const path = normalizeWorkspacePath(options?.path || "")
     for (const source of result.sources) {
       if (source.status !== "ready") continue
-      if (source.cacheStatus !== "hit" && !isLiveSource(source.source)) prepareBySource.set(source.source, Promise.resolve())
       let paths = materializedPathsBySource.get(source.source)
       if (!paths) {
         paths = new Set()
@@ -180,6 +196,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensurePrepared(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
+    await materializationPreparationBySource.get(sourceKey)
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
       pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)
