@@ -1393,7 +1393,13 @@ describe("agent message protocol", () => {
       driver: { run: () => ({
           fullStream: (async function* () {
             yield { text: "hello", type: "text-delta" }
-            yield { type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } }
+            yield {
+              type: "usage",
+              usageRecord: {
+                run: { annotations: { provider: "streamed" } },
+                usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+              },
+            }
             yield { type: "finish" }
           })(),
         }) },
@@ -1409,7 +1415,7 @@ describe("agent message protocol", () => {
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
-      run: { runId: "stream-streamed-usage" },
+      run: { annotations: { provider: "streamed" }, runId: "stream-streamed-usage" },
       usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
     })
     expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.attributes).toMatchObject({

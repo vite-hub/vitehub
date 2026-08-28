@@ -373,7 +373,15 @@ function withFallbackUsageMetadata(
   const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
   const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
   const credentialSource = record.credentialSource ?? (compound ? undefined : credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource)))
-  const runMetadata = record.run ?? run
+  const runMetadata = record.run && run
+    ? {
+        ...record.run,
+        ...run,
+        ...(record.run.annotations || run.annotations
+          ? { annotations: { ...record.run.annotations, ...run.annotations } }
+          : {}),
+      }
+    : record.run ?? run
   return model || transport || cost || response || latency || credentialSource || runMetadata
     ? {
         ...record,

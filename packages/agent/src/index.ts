@@ -5109,6 +5109,9 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   const outputExtensions = new Map<string, unknown>()
+  const rawDriverUsageRecord = isAsyncIterable(result)
+    ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "", undefined, undefined, false)).usageRecord
+    : undefined
   let renderedResult = false
   let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
   try {
@@ -5134,9 +5137,10 @@ async function executeAgentInvocationWithCapacityLease<
 
   if (options.kind === "run") {
     return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-      const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+      const driverUsageRecord = rawDriverUsageRecord ?? (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
+      )
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
@@ -5616,11 +5620,9 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const driverUsageRecord = isAsyncIterable(result)
-      ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "", undefined, undefined, false)).usageRecord
-      : hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+    const driverUsageRecord = rawDriverUsageRecord ?? (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
-        : await resolveFinishUsageRecord(invocation, result)
+        : await resolveFinishUsageRecord(invocation, result))
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
       const projection = hasRuntimeType(definition?.uiMessageStream, "function")
