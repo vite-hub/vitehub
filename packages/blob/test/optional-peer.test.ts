@@ -83,6 +83,17 @@ describe("optional peer imports", () => {
     expect(attempts).toEqual([1, 2])
   })
 
+  it("starts the first Vercel attempt synchronously", async () => {
+    let started = false
+    const result = retry(() => {
+      started = true
+      return "done"
+    }, { retries: 0 })
+
+    expect(started).toBe(true)
+    await expect(result).resolves.toBe("done")
+  })
+
   it("stops Vercel retries when the request bails", async () => {
     const error = new Error("stop")
     let attempts = 0
