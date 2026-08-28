@@ -50,7 +50,7 @@ async function listLifecyclePage(
 ): Promise<AgentInvocationListResult> {
   const options: AgentInvocationListOptions = { limit, status }
   if (agentName) options.agentName = agentName
-  if (cursor) options.cursor = cursor
+  if (cursor !== null && cursor !== undefined) options.cursor = cursor
   return getConsoleInvocations().list(options)
 }
 
@@ -123,11 +123,11 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   }
   const { done, queued, working } = pages
   const next: ConsoleInvocationCursor = {}
-  if (working.cursor) next.working = working.cursor
+  if (working.cursor !== undefined) next.working = working.cursor
   else if (deferredGroups.has("working")) next.working = cursor.working ?? null
-  if (queued.cursor) next.queued = queued.cursor
+  if (queued.cursor !== undefined) next.queued = queued.cursor
   else if (deferredGroups.has("queued")) next.queued = cursor.queued ?? null
-  if (done.cursor) next.done = done.cursor
+  if (done.cursor !== undefined) next.done = done.cursor
   else if (deferredGroups.has("done")) next.done = cursor.done ?? null
   const nextCursor = encodeCursor(next)
   const doneIds = new Set(done.invocations.map(invocation => invocation.id))

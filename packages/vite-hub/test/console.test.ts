@@ -490,6 +490,42 @@ describe("Agent invocation console", () => {
     expect(result.cursor).toBeDefined()
   })
 
+  it("preserves empty opaque cursors across lifecycle pages", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "pending-empty-cursor",
+      observations: [],
+      status: "pending",
+      traceId: "trace-pending-empty-cursor",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const list = store.list.bind(store)
+    const listSpy = vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === "") {
+        return { invocations: [] }
+      }
+      const page = await list(options)
+      return Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === undefined
+        ? { ...page, cursor: "" }
+        : page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=3"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const first = await invocationsHandler(requestEvent)
+    expect(first.cursor).toBe(JSON.stringify({ queued: "" }))
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    await invocationsHandler(requestEvent)
+
+    expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ cursor: "", status: ["pending"] }))
+  })
+
   it("deduplicates an invocation that becomes terminal between lifecycle reads", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
