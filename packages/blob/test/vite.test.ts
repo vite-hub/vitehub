@@ -380,7 +380,7 @@ describe("hubBlob", () => {
         "const values = new Map()",
         "globalThis.fetch = async (input, init = {}) => {",
         "  const url = new URL(input.toString())",
-        "  const method = init.method || 'GET'",
+        "  const method = (init.method || 'GET').toUpperCase()",
         "  if (url.hostname === 'api.netlify.com') return Response.json({ url: 'https://signed.blobs.example.test/netlify.txt' })",
         "  if (method === 'PUT') {",
         "    const bytes = await new Response(init.body).arrayBuffer()",
