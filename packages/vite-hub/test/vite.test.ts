@@ -201,11 +201,12 @@ describe("vitehub", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
-  it("installs the complete console from one option", () => {
-    expect(pluginNames(vitehub({ console: true, preset: "node" }))).toEqual(expect.arrayContaining([
-      "vite-hub/console",
-      "vite-hub/console-invocation-root",
-    ]))
+  it("installs the console and adds the Agent runtime bridge only when Agents are active", () => {
+    expect(pluginNames(vitehub({ console: true, preset: "node" }))).toContain("vite-hub/console")
+    expect(pluginNames(vitehub({ console: true, preset: "node" }))).not.toContain("vite-hub/console-invocation-root")
+    expect(pluginNames(vitehub({ agent: true, console: true, preset: "node" }))).toEqual(
+      expect.arrayContaining(["vite-hub/console", "vite-hub/console-invocation-root"]),
+    )
   })
 
   it("does not install console plugins when explicitly disabled", () => {
@@ -217,7 +218,7 @@ describe("vitehub", () => {
 
   it("passes the deployment storage contract to the console plugin", async () => {
     const plugin = dependencyPluginByName(
-      vitehub({ console: true, preset: "cloudflare" }),
+      vitehub({ agent: true, console: true, preset: "cloudflare" }),
       "vite-hub/console",
     )
 
@@ -237,15 +238,14 @@ describe("vitehub", () => {
           ],
         },
       })
-      const plugin = dependencyPluginByName(
-        vitehub({ auth: true, console: { access: "auth" }, preset: "node" }),
-        "vite-hub/console",
-      )
+      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { access: "auth" }, preset: "node" }), "vite-hub/console")
       const config: Record<string, unknown> = { root }
 
       await callHook(plugin.config, [config, { command: "build", mode: "production" }])
 
-      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
+      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, {
+        serverDirs: undefined,
+      })
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
           expect.objectContaining({ route: "/_vitehub/**" }),

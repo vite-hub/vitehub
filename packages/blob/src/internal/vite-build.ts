@@ -569,7 +569,7 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
 }
 
 function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined): VercelFunctionRuntimePackage[] {
-  const packages = new Set<string>()
+  const packages = new Set<string>([blobPackageName])
   const filesSdkPeers = new Set<string>()
   const resolved = resolveBlobConfig(blob, "vercel")
   const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })

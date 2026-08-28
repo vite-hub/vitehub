@@ -10,14 +10,27 @@ import type {
   AgentInvocationListItem,
   AgentInvocationView,
 } from "@vite-hub/ui";
-import { decodeAgentRouteParam, encodeAgentRouteParam, resolveAgentRouteName } from "../agent-route";
+import {
+  decodeAgentRouteParam,
+  encodeAgentRouteParam,
+  resolveConsoleRouteName,
+} from "../console-route";
 import { requestConsole } from "../client/request";
 import { relativeDuration } from "../client/time";
+import { rememberConsoleSection } from "../sections";
+import ConsoleBackButton from "./console-back-button.vue";
+import ConsoleFrame from "./console-frame.vue";
+import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 
 const route = useRoute();
 const router = useRouter();
-const props = defineProps<{ agentsBase: string; apiBase: string; searchBase: string }>();
+const props = defineProps<{
+  agentsBase: string;
+  apiBase: string;
+  searchBase: string;
+  sectionsBase: string;
+}>();
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
@@ -200,7 +213,7 @@ async function selectInvocation(
   sessionsOpen.value = false;
   selectedAgentName.value = agentName;
   await router.push({
-    name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
+    name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
   });
 }
@@ -210,7 +223,7 @@ async function selectAgent(name: string): Promise<void> {
   selectedAgentName.value = name;
   selectedInvocationId.value = undefined;
   await router.push({
-    name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+    name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
   });
 }
@@ -281,7 +294,7 @@ watch(
     selectedInvocationId.value = requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
     if (!requestedInvocation && firstInvocation && agentName && agentRouteReady) {
       await router.replace({
-        name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
+        name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
         params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation },
       });
     }
@@ -299,7 +312,7 @@ watch(
     selectedAgentName.value = agentName;
     if (requestedAgent !== agentName) {
       await router.replace({
-        name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+        name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
         params: { agent: encodeAgentRouteParam(agentName) },
       });
     }
@@ -318,7 +331,7 @@ watch(
     ) return;
     selectedInvocationId.value = undefined;
     await router.replace({
-      name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+      name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
       params: { agent: encodeAgentRouteParam(agentName) },
     });
   },
@@ -329,6 +342,7 @@ watch(selectedInvocationId, () => {
 });
 
 onMounted(() => {
+  rememberConsoleSection("agents");
   media = window.matchMedia("(min-width: 1024px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
@@ -346,7 +360,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-agent-console">
+  <ConsoleFrame>
     <UDashboardSidebar
       id="agent-sessions"
       v-model:open="sessionsOpen"
@@ -374,12 +388,7 @@ onBeforeUnmount(() => {
             :disabled="!hasMultipleAgents"
             :aria-label="hasMultipleAgents ? `Switch Agent. ${selectedAgentLabel} selected.` : selectedAgentLabel"
           >
-            <span
-              class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5"
-              aria-hidden="true"
-              ><i class="h-2/3 bg-inverted" /><i class="h-full bg-primary" /><i
-                class="h-4/5 bg-inverted"
-            /></span>
+            <ConsoleMark />
             <span v-if="!collapsed" class="grid min-w-0 flex-1 leading-none"
               ><small class="truncate text-[10px] font-bold uppercase tracking-[.12em] text-muted"
                 >ViteHub Console</small
@@ -399,6 +408,9 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default="{ collapsed }">
+        <div class="px-2 pt-2">
+          <ConsoleBackButton :collapsed="collapsed" />
+        </div>
         <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
           <div>
             <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted"
@@ -423,7 +435,7 @@ onBeforeUnmount(() => {
             :collapsed="collapsed"
             block
             class="w-full bg-transparent ring-default"
-            label="Search sessions"
+            label="Search console"
           />
         </div>
         <div
@@ -527,9 +539,28 @@ onBeforeUnmount(() => {
       </template>
     </UDashboardSidebar>
 
-    <ConsoleSearch :agent-names="agentNames" :search-base="searchBase" />
+    <ConsoleSearch
+      :agent-names="agentNames"
+      :agents-base="agentsBase"
+      :search-base="searchBase"
+      :sections-base="sectionsBase"
+    />
 
     <UDashboardPanel id="agent-session">
+      <header
+        v-if="!invocationView"
+        data-slot="mobile-session-navigation"
+        class="flex h-14 shrink-0 items-center border-b border-default px-4 lg:hidden"
+      >
+        <UButton
+          aria-label="Open sessions"
+          color="neutral"
+          icon="i-lucide-panel-left"
+          variant="ghost"
+          @click="sessionsOpen = true"
+        />
+        <span class="ml-2 truncate text-sm font-semibold text-highlighted">{{ selectedAgentLabel }}</span>
+      </header>
       <div class="min-h-0 flex-1" aria-live="polite">
         <div
           v-if="!selectedInvocationId"
@@ -634,16 +665,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </UDashboardPanel>
-  </UDashboardGroup>
+  </ConsoleFrame>
 </template>
 
 <style>
-.vitehub-console {
-  height: 100dvh;
-  min-height: 32rem;
-  overflow: hidden;
-}
-
 .vitehub-console [data-slot="invocation"],
 .vitehub-console [data-slot="invocation-inspector"] {
   height: 100%;
