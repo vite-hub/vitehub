@@ -28,6 +28,8 @@ function fenceRun(line: string) {
 
   const match = rest.match(/^([ \t]*)(```+|~~~+)/);
   if (!match || indentationColumns(match[1]!) > 3) return null;
+  const info = rest.slice(match[0].length);
+  if (match[2]![0] === "`" && info.includes("`")) return null;
   return match ? {
     listIndent,
     quoteDepth,
@@ -212,8 +214,9 @@ function rawHtmlBlockEnd(line: string) {
   return null;
 }
 
-function withoutBlockquoteContainers(line: string) {
-  return line.replace(/^(?:[ \t]{0,3}>[ \t]?)+/, "");
+function withoutMarkdownContainers(line: string) {
+  const container = referenceContainer(line);
+  return line.slice(container.length);
 }
 
 function htmlBlockContinues(end: RegExp, openingLine: string) {
@@ -277,11 +280,11 @@ function rewriteLinks(source: string) {
 
     if (htmlEnd) {
       output.push(lineWithEnding);
-      if (htmlEnd.test(withoutBlockquoteContainers(line))) htmlEnd = null;
+      if (htmlEnd.test(withoutMarkdownContainers(line))) htmlEnd = null;
       continue;
     }
 
-    const htmlLine = withoutBlockquoteContainers(line);
+    const htmlLine = withoutMarkdownContainers(line);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const typeSevenHtml = nextHtmlEnd?.source === "^\\s*$"
       && !/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(htmlLine);
@@ -417,11 +420,11 @@ function cardListsOutsideFences(source: string) {
 
     if (htmlEnd) {
       output.push(lineWithEnding);
-      if (htmlEnd.test(withoutBlockquoteContainers(line))) htmlEnd = null;
+      if (htmlEnd.test(withoutMarkdownContainers(line))) htmlEnd = null;
       continue;
     }
 
-    const htmlLine = withoutBlockquoteContainers(line);
+    const htmlLine = withoutMarkdownContainers(line);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     if (!fence && nextHtmlEnd) {
       output.push(cardList(outsideFence), lineWithEnding);
@@ -513,7 +516,7 @@ function stripPresentationDirectives(source: string) {
 
     if (htmlEnd) {
       output.push(deindented);
-      if (htmlEnd.test(withoutBlockquoteContainers(deindented))) htmlEnd = null;
+      if (htmlEnd.test(withoutMarkdownContainers(deindented))) htmlEnd = null;
       continue;
     }
 
@@ -551,7 +554,7 @@ function stripPresentationDirectives(source: string) {
       continue;
     }
 
-    const htmlLine = withoutBlockquoteContainers(deindented);
+    const htmlLine = withoutMarkdownContainers(deindented);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     if (nextHtmlEnd) {
       output.push(deindented);

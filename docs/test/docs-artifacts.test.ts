@@ -176,6 +176,33 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("rejects backticks in backtick-fence info strings", () => {
+    expect(toRawMarkdown([
+      "```md `literal`",
+      "[Rendered link](/docs/rendered)",
+      "::warning",
+      "Rendered directive.",
+      "::",
+    ].join("\n"))).toContain("[Rendered link](https://vitehub.dev/docs/rendered)");
+  });
+
+  it("preserves raw HTML blocks inside list items", () => {
+    expect(toRawMarkdown([
+      "- <pre>",
+      "  [literal](/docs/literal)",
+      "  ::warning",
+      "  </pre>",
+      "[rendered](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "- <pre>",
+      "  [literal](/docs/literal)",
+      "  ::warning",
+      "  </pre>",
+      "[rendered](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
   it("builds a docs manifest from the unified content tree only", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const docsRoot = resolve(rootDir, "docs");
