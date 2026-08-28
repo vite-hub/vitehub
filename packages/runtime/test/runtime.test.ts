@@ -591,6 +591,26 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("falls back to private for WebAssembly.Module payloads unsupported by telemetry", async () => {
+    const WebAssemblyModule = (globalThis as typeof globalThis & {
+      WebAssembly: { Module: new (bytes: Uint8Array) => object }
+    }).WebAssembly.Module
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: {
+        value: { module: new WebAssemblyModule(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0)) },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
   it("isolates stored entries from returned and observed payloads", async () => {
     let observed: TraceEventLogEntry | undefined
     const log = createTraceEventLog({

@@ -440,6 +440,15 @@ function isCryptoKey(value: unknown): boolean {
   return hasRuntimeType(CryptoKeyConstructor, "function") && value instanceof CryptoKeyConstructor
 }
 
+function isWebAssemblyModule(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+  const constructor = hasRuntimeType(namespace, "object")
+    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
+    : undefined
+  return hasRuntimeType(constructor, "function") && value instanceof constructor
+}
+
 function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
   const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
@@ -527,7 +536,7 @@ function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
 
 function containsUnsafeStructuredCloneState(value: unknown, seen = new Set<object>()): boolean {
   if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
-  if (isCryptoKey(value)) return true
+  if (isCryptoKey(value) || isWebAssemblyModule(value)) return true
   seen.add(value)
   for (const key of Reflect.ownKeys(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
