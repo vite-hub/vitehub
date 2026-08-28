@@ -5123,7 +5123,7 @@ async function executeAgentInvocationWithCapacityLease<
   const outputExtensions = new Map<string, unknown>()
   const rawDriverUsageObserved = isAsyncIterable(result)
   const rawDriverUsageRecord = rawDriverUsageObserved
-    ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "", undefined, undefined, false)).usageRecord
+    ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "")).usageRecord
     : undefined
   let renderedResult = false
   let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined

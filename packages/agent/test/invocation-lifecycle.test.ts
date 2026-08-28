@@ -805,7 +805,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageRecordFromStreamChunk } = await import("../src/agent-output.ts")
     const finish = vi.fn()
-    const annotations = Object.defineProperties({ readable: "kept" }, {
+    const annotations = Object.defineProperties({ readable: "kept", source: "provider" }, {
       unreadable: {
         enumerable: true,
         get() {
@@ -824,11 +824,12 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
     const chunk = { type: "usage", usageRecord: { run, usage: { totalTokens: 2 } } }
     expect(usageRecordFromStreamChunk(chunk, undefined, {
-      annotations: { invocation: "kept" },
+      annotations: { invocation: "kept", source: "invocation" },
       messageId: "message-1",
+      runId: "invocation-run",
     })).toMatchObject({
       run: {
-        annotations: { invocation: "kept", readable: "kept" },
+        annotations: { invocation: "kept", readable: "kept", source: "provider" },
         messageId: "message-1",
         runId: "provider-run",
       },

@@ -6131,6 +6131,7 @@ describe("agent message protocol", () => {
   it("does not resolve unused usage for invocations without finish work", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const usage = {
+      // eslint-disable-next-line unicorn/no-thenable -- verifies invocations without finish work do not await usage
       then() {
         throw new Error("usage should be unused")
       },
@@ -6447,7 +6448,7 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const raw = Object.assign((async function* () {
       yield { text: "provider", type: "text-delta" }
-    })(), { usage: { totalTokens: 3 } })
+    })(), { usage: Promise.resolve({ totalTokens: 3 }) })
     const replacement = (async function* () {
       yield { text: "rendered", type: "text-delta" }
     })()
