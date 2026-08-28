@@ -508,6 +508,664 @@ describe("ViteHub Console", () => {
     })
   })
 
+  it("bounds each console response to the requested page size", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["pending", "pending", "pending", "completed", "completed", "completed"] as const).entries()) {
+      store.create({
+        createdAt: `2026-08-23T12:00:00.000Z`,
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations.map(invocation => invocation.id)).toEqual(["pending-2", "completed-5"])
+    expect(result.cursor).toBeDefined()
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(result.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    const next = await invocationsHandler(requestEvent)
+
+    expect(next.invocations.map(invocation => invocation.id)).toEqual(["pending-1", "completed-4"])
+    expect(next.cursor).toBeDefined()
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(next.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    const last = await invocationsHandler(requestEvent)
+
+    expect(last.invocations.map(invocation => invocation.id)).toEqual(["pending-0", "completed-3"])
+    expect(last.cursor).toBeDefined()
+  })
+
+  it("caps composite console pages at the invocation list maximum", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 240; index++) {
+      const status = index % 2 === 0 ? "pending" : "completed"
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=1000"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(100)
+    expect(result.cursor).toBeDefined()
+  })
+
+  it("backfills page capacity from a populated lifecycle", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 60; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=50"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(50)
+    expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(50)
+    expect(result.invocations.every(invocation => invocation.status === "pending")).toBe(true)
+    expect(result.cursor).toBeDefined()
+  })
+
+  it("rechecks later lifecycles after backfilling an earlier group", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 6; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let pendingReads = 0
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending") && ++pendingReads === 2) {
+        await store.update("pending-4", {
+          status: "running",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return list(options)
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=3"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toContainEqual(expect.objectContaining({
+      id: "pending-4",
+      status: "running",
+    }))
+    expect(result.invocations).toHaveLength(3)
+    expect(result.cursor).toBeDefined()
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "4" })
+  })
+
+  it("shares the backfill budget across lifecycle rechecks", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 10; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let pendingReads = 0
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending") && ++pendingReads === 2) {
+        for (const index of [6, 7, 8, 9]) {
+          await store.update(`pending-${index}`, {
+            status: index < 8 ? "running" : "completed",
+            timestamp: "2026-08-23T12:01:00.000Z",
+          })
+        }
+      }
+      return list(options)
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=6"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(6)
+    expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(6)
+    expect(result.invocations.some(invocation => invocation.status === "running")).toBe(true)
+    expect(result.invocations.some(invocation => invocation.status === "completed")).toBe(true)
+  })
+
+  it("caps replacement lifecycle rechecks to the remaining response budget", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 3; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let queuedRead = false
+    let workingRead = false
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending") && !queuedRead) {
+        queuedRead = true
+        for (let index = 0; index < 3; index++) {
+          await store.update(`pending-${index}`, {
+            status: "running",
+            timestamp: "2026-08-23T12:01:00.000Z",
+          })
+        }
+      }
+      else if (Array.isArray(options?.status) && options.status.includes("running") && !workingRead) {
+        workingRead = true
+        await store.update("pending-2", {
+          status: "completed",
+          timestamp: "2026-08-23T12:02:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(2)
+    expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(2)
+    expect(result.invocations).toContainEqual(expect.objectContaining({
+      id: "pending-2",
+      status: "completed",
+    }))
+  })
+
+  it("rechecks later lifecycles after refilling a rolled-back backfill", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 10; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let pendingReads = 0
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        pendingReads++
+        if (pendingReads === 2) {
+          for (const index of [6, 7, 8, 9]) {
+            await store.update(`pending-${index}`, {
+              status: index < 8 ? "running" : "completed",
+              timestamp: "2026-08-23T12:01:00.000Z",
+            })
+          }
+        }
+        if (pendingReads === 3) {
+          await store.update("pending-5", {
+            status: "running",
+            timestamp: "2026-08-23T12:02:00.000Z",
+          })
+        }
+      }
+      return list(options)
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=6"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toContainEqual(expect.objectContaining({
+      id: "pending-5",
+      status: "running",
+    }))
+    expect(result.invocations).toHaveLength(6)
+  })
+
+  it("keeps the cursor produced by the final refill", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 10; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let pendingReads = 0
+    const queuedCursors: (string | undefined)[] = []
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        pendingReads++
+        if (pendingReads === 2) {
+          for (const index of [6, 7, 8, 9]) {
+            await store.update(`pending-${index}`, {
+              status: index < 8 ? "running" : "completed",
+              timestamp: "2026-08-23T12:01:00.000Z",
+            })
+          }
+        }
+        if (pendingReads === 3) {
+          await store.update("pending-5", {
+            status: "running",
+            timestamp: "2026-08-23T12:02:00.000Z",
+          })
+        }
+        if (pendingReads === 4) {
+          await store.update("pending-4", {
+            status: "running",
+            timestamp: "2026-08-23T12:03:00.000Z",
+          })
+        }
+      }
+      const result = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        queuedCursors.push(result.cursor)
+      }
+      return result
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=6"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(6)
+    expect(queuedCursors).toHaveLength(4)
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: queuedCursors.at(-1) })
+    expect(result.remainingStatuses).toContain("pending")
+
+    const visited = new Set<string>()
+    let cursor = result.cursor
+    let transitioned
+    while (cursor && !visited.has(cursor)) {
+      visited.add(cursor)
+      requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(cursor)}`
+      requestEvent.req!.url = requestEvent.node!.req!.url
+      const next = await invocationsHandler(requestEvent)
+      transitioned = next.invocations.find(invocation => invocation.id === "pending-4")
+      if (transitioned) break
+      cursor = next.cursor
+    }
+
+    expect(transitioned).toMatchObject({ id: "pending-4", status: "running" })
+  })
+
+  it("preserves an earlier lifecycle cursor when transitions consume its refill", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 10; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    let pendingReads = 0
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (!Array.isArray(options?.status) || !options.status.includes("pending")) return list(options)
+      pendingReads++
+      if (pendingReads === 2) {
+        for (const index of [6, 7, 8, 9]) {
+          await store.update(`pending-${index}`, {
+            status: index < 8 ? "running" : "completed",
+            timestamp: "2026-08-23T12:01:00.000Z",
+          })
+        }
+      }
+      const page = await list(options)
+      if (pendingReads === 3) {
+        for (const index of [4, 5]) {
+          await store.update(`pending-${index}`, {
+            status: "running",
+            timestamp: "2026-08-23T12:02:00.000Z",
+          })
+        }
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=6"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(6)
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "5" })
+    expect(result.remainingStatuses).toContain("pending")
+  })
+
+  it("preserves empty opaque cursors across lifecycle pages", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const pending = (id: string) => ({
+      agentName: undefined,
+      createdAt: "2026-08-23T12:00:00.000Z",
+      cursor: id,
+      id,
+      status: "pending" as const,
+      traceId: `trace-${id}`,
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const listSpy = vi.spyOn(store, "list").mockImplementation(async (options) => {
+      if (Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === "") {
+        return { invocations: [pending("pending-older")] }
+      }
+      return Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === undefined
+        ? { cursor: "", invocations: [pending("pending-newer")] }
+        : { invocations: [] }
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=3"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const first = await invocationsHandler(requestEvent)
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-newer", "pending-older"])
+    expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ cursor: "", status: ["pending"] }))
+  })
+
+  it("deduplicates an invocation that becomes terminal between lifecycle reads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "transitioning",
+      observations: [],
+      status: "pending",
+      traceId: "trace-transitioning",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const list = store.list.bind(store)
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        await store.update("transitioning", {
+          status: "completed",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toMatchObject([{
+      id: "transitioning",
+      status: "completed",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    }])
+  })
+
+  it("reclaims page capacity after deduplicating lifecycle reads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const id of ["older", "transitioning"]) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${id}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === undefined) {
+        await store.update("transitioning", {
+          status: "completed",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations.map(invocation => invocation.id)).toEqual(["older", "transitioning"])
+    expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(2)
+  })
+
+  it("preserves an invocation that becomes terminal between pages", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const id of ["transitioning", "newer", "newest"]) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id,
+        observations: [],
+        status: "running",
+        traceId: `trace-${id}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const first = await invocationsHandler(requestEvent)
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["newest", "newer"])
+    await store.update("transitioning", {
+      status: "completed",
+      timestamp: "2026-08-23T12:01:00.000Z",
+    })
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    let page = await invocationsHandler(requestEvent)
+    while (!page.invocations.some(invocation => invocation.id === "transitioning") && page.cursor) {
+      requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(page.cursor)}`
+      requestEvent.req!.url = requestEvent.node!.req!.url
+      page = await invocationsHandler(requestEvent)
+    }
+
+    expect(page.invocations).toContainEqual(expect.objectContaining({
+      id: "transitioning",
+      status: "completed",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    }))
+  })
+
+  it("reports only terminal lifecycles while the unfiltered history cursor remains", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["running", "pending", "completed"] as const).entries()) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const cursor = encodeURIComponent(JSON.stringify({ history: null }))
+    const url = `http://localhost/api/_vitehub/console/invocations?limit=1&cursor=${cursor}`
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.cursor).toBeDefined()
+    expect(result.remainingStatuses).toEqual([
+      "cancelled",
+      "completed",
+      "failed",
+    ])
+  })
+
+  it("keeps an invocation that starts running between lifecycle reads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "starting",
+      observations: [],
+      status: "pending",
+      traceId: "trace-starting",
+      updatedAt: "2026-08-23T12:00:00.000Z",
+    })
+    const list = store.list.bind(store)
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        await store.update("starting", {
+          status: "running",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toMatchObject([{
+      id: "starting",
+      status: "running",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    }])
+  })
+
+  it("continues active pagination after terminal sessions are exhausted", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["completed", "pending", "pending", "pending"] as const).entries()) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const first = await invocationsHandler(requestEvent)
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-3", "completed-0"])
+    expect(first.cursor).toBeDefined()
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    const second = await invocationsHandler(requestEvent)
+    expect(second.invocations.map(invocation => invocation.id)).toEqual(["pending-2", "pending-1"])
+    expect(second.cursor).toBeDefined()
+  })
+
+  it("preserves deferred active pagination while serving terminal sessions", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [index, status] of (["completed", "completed", "pending", "pending"] as const).entries()) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `${status}-${index}`,
+        observations: [],
+        status,
+        traceId: `trace-${status}-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=1"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const ids: string[] = []
+    let cursor: string | undefined
+    do {
+      requestEvent.node!.req!.url = cursor ? `${url}&cursor=${encodeURIComponent(cursor)}` : url
+      requestEvent.req!.url = requestEvent.node!.req!.url
+      const page = await invocationsHandler(requestEvent)
+      ids.push(...page.invocations.map(invocation => invocation.id))
+      cursor = page.cursor
+    } while (cursor)
+
+    expect([...new Set(ids)]).toEqual(["pending-3", "completed-1", "pending-2", "completed-0"])
+  })
+
   it("searches session text through the console Collection", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
