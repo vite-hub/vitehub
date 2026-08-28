@@ -491,7 +491,7 @@ export function applyAgentInvocationStoreUpdate(
     ...record,
     ...(input.error ? { error: input.error } : {}),
     observations,
-    ...(input.observationsTruncated || (input.observation && record.observations.length >= MAX_OBSERVATIONS)
+    ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)
       ? { observationsTruncated: true }
       : {}),
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),

@@ -25,6 +25,32 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("does not mark a full journal truncated when retrying an identified observation", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const observations = Array.from({ length: 256 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:${index}` },
+      name: "agent.channel.delivery.effect",
+      sequence: index,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "duplicate-at-capacity",
+      observations,
+      status: "completed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: observations.at(-1),
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(256)
+    expect(record.observationsTruncated).toBeUndefined()
+  })
+
   it("keeps distinct observations that share a locally assigned sequence", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const first = {

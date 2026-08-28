@@ -923,6 +923,80 @@ describe("agent channels", () => {
     )
   })
 
+  it("traces rewritten GitHub review and failed update bodies through delivery", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42/reviews")) return Response.json({ ok: true }, { status: 201 })
+      if (href.endsWith("/issues/comments/99")) return Response.json({ message: "update rejected" }, { status: 500 })
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "1",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
+        fetch: fetcher as typeof fetch,
+        installationId: 123,
+        privateKey: privateKeyPem,
+      },
+    })
+    const reviewBody = "Review body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)"
+    const updateBody = "Updated body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)"
+    const artifact = {
+      alt: "Login badge",
+      mediaType: "image/png",
+      path: "screenshots/login.png",
+      placement: "inline" as const,
+      url: "https://assets.example/review/screenshots/login.png",
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "github-deliveries",
+        prepare(context) {
+          context.delivery.effect({ artifacts: [artifact], kind: "review", payload: { body: reviewBody } })
+          context.delivery.effect({ artifacts: [artifact], kind: "update", payload: { body: updateBody } })
+        },
+      })],
+      channels: { github: channel },
+      driver: { run: () => "ok" },
+    })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    try {
+      await expect(runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        traceLog,
+        waitUntil: vi.fn(),
+      }, "github.webhook", githubIssueCommentPayload())).resolves.toBe("ok")
+    }
+    finally {
+      error.mockRestore()
+    }
+
+    const deliveries = traceLog.entries().filter(event => event.name === "agent.channel.delivery.effect")
+    expect(deliveries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ attributes: expect.objectContaining({
+        "channel.effect.content": "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+        "channel.effect.kind": "review",
+      }) }),
+      expect.objectContaining({ attributes: expect.objectContaining({
+        "channel.effect.content": "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+        "channel.effect.kind": "update",
+        "error.message": expect.stringContaining("update rejected"),
+      }) }),
+    ]))
+  })
+
   it("publishes Workspace image paths before posting GitHub PR replies", async () => {
     const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
