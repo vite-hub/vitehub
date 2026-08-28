@@ -3,7 +3,7 @@ import { spawn } from "node:child_process"
 import { once } from "node:events"
 import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime"
@@ -156,6 +156,21 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
 
 const providerCleanupTimeoutMs = 10_000
 
+const codexSharedHomeDirectories = [
+  "sessions",
+  "archived_sessions",
+  "sqlite",
+  "shell_snapshots",
+  "worktrees",
+  "skills",
+  "plugins",
+  "cache",
+  "logs",
+  "mcp-oauth-locks",
+] as const
+const codexPrivateHomeEntries = new Set(["auth.json", "models_cache.json"])
+const codexLocalHomeEntries = new Set(["log", "memories", "tmp"])
+
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const providerHostEnvironmentKeys = [
   "APPDATA",
@@ -182,6 +197,27 @@ const providerHostEnvironmentKeys = [
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+}
+
+function resolveCodexSharedHome(homePath: unknown, environment: NodeJS.ProcessEnv): string {
+  if (homePath !== undefined && !hasRuntimeType(homePath, "string")) {
+    throw new TypeError("[vitehub] Codex Driver provider setting homePath must be a string when credentials are configured.")
+  }
+  const base = environment.HOME || environment.USERPROFILE || homedir()
+  const configured = homePath?.trim()
+  if (!configured) return resolve(base, ".codex")
+  if (configured === "~") return resolve(base)
+  if (configured.startsWith("~/") || configured.startsWith("~\\")) return resolve(base, configured.slice(2))
+  return resolve(configured)
+}
+
+async function materializeCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {
+  await mkdir(sharedHome, { recursive: true })
+  await Promise.all(codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })))
+  const entries = new Set([...codexSharedHomeDirectories, ...await readdir(sharedHome)])
+  await Promise.all([...entries]
+    .filter(entry => !codexPrivateHomeEntries.has(entry) && !codexLocalHomeEntries.has(entry))
+    .map(entry => symlink(join(sharedHome, entry), join(home, entry), process.platform === "win32" ? "junction" : undefined)))
 }
 
 async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1199,9 +1235,10 @@ async function* runProvider<
       await Promise.all([cleanupCredentialHome(), cleanupRoot()])
     }
     const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
+    const runtimeEnvironment = providerEnvironment(providerEnvironmentOverrides)
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
-      environment: providerEnvironment(providerEnvironmentOverrides),
+      environment: runtimeEnvironment,
       provider: options.provider,
     }
     const providerSettings: Record<string, unknown> = {}
@@ -1209,7 +1246,11 @@ async function* runProvider<
     for (const [key, value] of Object.entries(options.providerSettings || {})) {
       if (value !== undefined) providerSettings[key] = value
     }
-    if (credentialHome) providerSettings.shadowHomePath = credentialHome
+    if (credentialHome) {
+      await materializeCodexCredentialOverlay(credentialHome, resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment))
+      providerSettings.homePath = credentialHome
+      delete providerSettings.shadowHomePath
+    }
     const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = Object.keys(providerSettings).length
       ? { ...runtimeOptions, settings: providerSettings }
       : runtimeOptions

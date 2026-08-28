@@ -1,5 +1,6 @@
 import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
@@ -157,18 +158,24 @@ describe("Provider Agent Driver", () => {
   it("isolates resolved Codex credentials in a private shadow home and removes it after runtime shutdown", async () => {
     const threadId = "thread-credentials"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
     let shadowHome: string | undefined
     createProviderRuntime.mockImplementationOnce(async (options) => {
-      expect(options.settings?.shadowHomePath).toEqual(expect.any(String))
-      shadowHome = String(options.settings?.shadowHomePath)
+      expect(options.settings?.homePath).toEqual(expect.any(String))
+      shadowHome = String(options.settings?.homePath)
       expect(options.settings).toMatchObject({
         binaryPath: "/custom/codex",
+        homePath: expect.stringContaining("vitehub-codex-shadow-home-"),
         launchArgs: "--enable responses_websockets_v2",
-        shadowHomePath: expect.stringContaining("vitehub-codex-shadow-home-"),
       })
+      expect(options.settings).not.toHaveProperty("shadowHomePath")
       expect((await lstat(shadowHome)).mode & 0o777).toBe(0o700)
       expect((await lstat(join(shadowHome, "auth.json"))).mode & 0o777).toBe(0o600)
+      expect((await lstat(join(shadowHome, "auth.json"))).isSymbolicLink()).toBe(false)
       expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
+      expect(await readlink(join(shadowHome, "sessions"))).toBe(join(sharedHome, "sessions"))
+      expect(await readlink(join(shadowHome, "config.toml"))).toBe(join(sharedHome, "config.toml"))
       return providerRuntimes.shift()
     })
     const credentials = vi.fn(async (metadata: { actor: { id: string } }) => {
@@ -181,6 +188,7 @@ describe("Provider Agent Driver", () => {
       provider: "codex",
       providerSettings: {
         binaryPath: "/custom/codex",
+        homePath: sharedHome,
         launchArgs: "--enable responses_websockets_v2",
       },
     })
@@ -192,6 +200,8 @@ describe("Provider Agent Driver", () => {
     expect(shadowHome).toBeDefined()
     if (!shadowHome) throw new Error("Expected a Codex shadow home")
     await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(access(join(sharedHome, "sessions"))).resolves.toBeUndefined()
+    await rm(sharedHome, { force: true, recursive: true })
   })
 
   it("passes Codex reasoning selections to provider session startup", async () => {
@@ -1864,8 +1874,8 @@ describe("Provider Agent Driver", () => {
       const result = adapter.generate(runContext as never)
 
       await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
-      expect(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath).toEqual(expect.any(String))
-      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath)
+      expect(createProviderRuntime.mock.lastCall?.[0].settings?.homePath).toEqual(expect.any(String))
+      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
       await expect(access(shadowHome)).resolves.toBeUndefined()
       controller.abort("cancelled")
       await expect(result).rejects.toBe("cancelled")
@@ -1896,8 +1906,8 @@ describe("Provider Agent Driver", () => {
       const result = adapter.generate(runContext as never)
 
       await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
-      expect(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath).toEqual(expect.any(String))
-      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.shadowHomePath)
+      expect(createProviderRuntime.mock.lastCall?.[0].settings?.homePath).toEqual(expect.any(String))
+      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
       await expect(access(shadowHome)).resolves.toBeUndefined()
       controller.abort("cancelled")
       await expect(result).rejects.toBe("cancelled")
@@ -1942,8 +1952,8 @@ describe("Provider Agent Driver", () => {
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
-      expect(runtimeCall?.[0].settings?.shadowHomePath).toEqual(expect.any(String))
-      const shadowHome = String(runtimeCall?.[0].settings?.shadowHomePath)
+      expect(runtimeCall?.[0].settings?.homePath).toEqual(expect.any(String))
+      const shadowHome = String(runtimeCall?.[0].settings?.homePath)
       await expect(access(shadowHome)).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10_000)
 
