@@ -1,5 +1,6 @@
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -467,6 +468,25 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it("rejects an oversized named-profile config before reading it", async () => {
+    const profile = `provider-oversized-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), "a".repeat(1_048_577), { mode: 0o600 })
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context("thread-oversized-profile-config") as never)).rejects.toThrow("profile config must not exceed 1048576 bytes")
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
   it("serializes a named Codex credential profile across Agent Drivers", async () => {
     const profile = `provider-shared-${crypto.randomUUID()}`
     const credentials = () => JSON.stringify({ tokens: { access_token: "shared" } })
@@ -629,6 +649,33 @@ cli_auth_credentials_store = "keyring"
     await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
 
     await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges an invocation-private credential root after its PID is reused", async () => {
+    const liveProcess = spawn(process.execPath, ["-e", "setInterval(() => {}, 1_000)"])
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await once(liveProcess, "spawn")
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: liveProcess.pid,
+      startedAt: 1,
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    try {
+      const threadId = "thread-scavenge-reused-private-credentials-pid"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      liveProcess.kill()
+      await once(liveProcess, "close")
+      await rm(staleRoot, { force: true, recursive: true })
+    }
   })
 
   it("ignores an abandoned credential root with a linked owner file", async () => {
@@ -2571,7 +2618,7 @@ cli_auth_credentials_store = "keyring"
       await vi.advanceTimersByTimeAsync(10_000)
       const cleanupError = await rejection
       expect(cleanupError).toBeInstanceOf(AggregateError)
-      expect(cleanupError).toHaveProperty("message", "Provider Agent Driver cleanup failed")
+      expect(cleanupError).toHaveProperty("message", "[vitehub] Provider Agent Driver cleanup failed.")
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
@@ -2588,6 +2635,7 @@ cli_auth_credentials_store = "keyring"
   it("quarantines a named credential profile while deferred runtime and Capability cleanup stall", async () => {
     vi.useFakeTimers()
     let client: McpClient | undefined
+    const toolCallController = new AbortController()
     let resolveExecute: (() => void) | undefined
     let toolCall: Promise<void> | undefined
     try {
@@ -2602,7 +2650,7 @@ cli_auth_credentials_store = "keyring"
             requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
           })
           await client.connect(transport)
-          toolCall = client.callTool({ arguments: {}, name: "stalled" }).then(() => undefined, () => undefined)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).then(() => undefined, () => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
           await turnPending
         },
@@ -2630,9 +2678,11 @@ cli_auth_credentials_store = "keyring"
       resolveTurn()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       resolveExecute?.()
+      toolCallController.abort()
       await toolCall
     }
     finally {
+      toolCallController.abort()
       await client?.close().catch(() => undefined)
       vi.useRealTimers()
     }

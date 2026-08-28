@@ -197,6 +197,7 @@ const unavailableCodexCredentialProfiles = new Map<string, unknown>()
 const codexCredentialProcessStartedAt = Date.now() - Math.round(process.uptime() * 1_000)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 const codexCredentialSeedMaxBytes = 65
+const codexCredentialConfigMaxBytes = 1_048_576
 let codexCredentialScavenging = Promise.resolve()
 
 function codexRuntimeCleanupFailure(reason: unknown): unknown {
@@ -349,6 +350,7 @@ async function configureCodexCredentialHome(homePath: string): Promise<void> {
   const configEntry = await lstat(configPath).catch(() => undefined)
   if (configEntry?.isSymbolicLink()) throw new Error(`[vitehub] Codex Driver profile config must not be a symbolic link: ${configPath}`)
   if (configEntry && (!configEntry.isFile() || configEntry.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile config must be a singly linked file: ${configPath}`)
+  if (configEntry && configEntry.size > codexCredentialConfigMaxBytes) throw new Error(`[vitehub] Codex Driver profile config must not exceed ${codexCredentialConfigMaxBytes} bytes: ${configPath}`)
   const config = await readFile(configPath, "utf8").catch((error) => {
     if (hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ENOENT") return ""
     throw error
@@ -358,12 +360,27 @@ async function configureCodexCredentialHome(homePath: string): Promise<void> {
   else await chmod(configPath, 0o600)
 }
 
-function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, startedAt: number }): boolean {
+async function processStartedAt(pid: number): Promise<number | undefined> {
+  const child = spawn("ps", ["-o", "etimes=", "-p", String(pid)], { stdio: ["ignore", "pipe", "ignore"] })
+  let stdout = ""
+  child.stdout.setEncoding("utf8")
+  child.stdout.on("data", chunk => stdout += chunk)
+  const code = await new Promise<number | null | undefined>((resolve) => {
+    child.once("close", resolve)
+    child.once("error", () => resolve(undefined))
+  })
+  const elapsedSeconds = Number.parseInt(stdout.trim(), 10)
+  if (code !== 0 || !Number.isSafeInteger(elapsedSeconds) || elapsedSeconds < 0) return
+  return Date.now() - elapsedSeconds * 1_000
+}
+
+async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, startedAt: number }): Promise<boolean> {
   if (owner.hostname !== hostname()) return true
   if (owner.pid === process.pid) return owner.startedAt === codexCredentialProcessStartedAt
   try {
     process.kill(owner.pid, 0)
-    return true
+    const liveStartedAt = await processStartedAt(owner.pid).catch(() => undefined)
+    return liveStartedAt === undefined || Math.abs(liveStartedAt - owner.startedAt) < 2_000
   }
   catch (error) {
     return !(hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ESRCH")
@@ -392,7 +409,7 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
         || owner.pid < 1
         || !hasRuntimeType(owner.startedAt, "number")
         || !Number.isFinite(owner.startedAt)
-        || codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, startedAt: owner.startedAt })) return
+        || await codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, startedAt: owner.startedAt })) return
       await rm(root, { force: true, recursive: true }).catch(() => undefined)
     }))
 }
