@@ -266,6 +266,37 @@ describe("Agent Invocations", () => {
       .toEqual(["journal:earliest", "journal:later", "journal:terminal"])
   })
 
+  it("keeps synchronous delivery before a later finish observation below capacity", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "delivery-before-finish",
+      observations: [{
+        attributes: { "vitehub.observation.id": "journal:delivery" },
+        name: "agent.channel.delivery.effect",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      }],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:finish" },
+        name: "agent.invocation.finish",
+        sequence: 2,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .toEqual(["journal:delivery", "journal:finish"])
+  })
+
   it("keeps unidentified observations that share a locally assigned sequence", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const record = applyAgentInvocationStoreUpdate({

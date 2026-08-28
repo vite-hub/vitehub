@@ -473,13 +473,7 @@ export function applyAgentInvocationStoreUpdate(
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
           const observation = cloneObservation(boundedObservation(input.observation))
-          const priority = outcomeObservationPriority(observation)
-          const insertAt = record.observations.findIndex((candidate) => {
-            const candidatePriority = outcomeObservationPriority(candidate)
-            return candidatePriority !== undefined && (priority === undefined
-              || candidatePriority > priority
-              || (candidatePriority === priority && candidate.sequence > observation.sequence))
-          })
+          const insertAt = record.observations.findIndex(candidate => candidate.sequence > observation.sequence)
           return insertAt < 0
             ? [...record.observations, observation]
             : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
