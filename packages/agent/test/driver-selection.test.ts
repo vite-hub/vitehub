@@ -180,10 +180,51 @@ describe("built-in Agent Driver selection", () => {
     expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);
   });
 
+  it("normalizes adaptive driver capacity defaults", () => {
+    const sample = () => ({ concurrency: 2, reason: "host healthy" });
+
+    expect(normalizeAgentDriver({
+      driver: {
+        capacity: {
+          adaptive: { sample },
+          concurrency: 4,
+          queue: { maxPending: 20 },
+        },
+        run: () => "ok",
+      },
+    })).toMatchObject({
+      capacity: {
+        adaptive: {
+          fallbackConcurrency: 1,
+          intervalMs: 5_000,
+          rampUp: 1,
+          sample,
+          sampleTimeoutMs: 1_000,
+        },
+        concurrency: 4,
+        queue: { maxPending: 20 },
+      },
+    });
+  });
+
   it.each([
     [null, "driver.capacity }) must be an object"],
+    [{ concurrency: 1, unsupported: true }, "driver.capacity }) does not support option: unsupported"],
     [{ concurrency: 0 }, "driver.capacity.concurrency }) must be a positive integer"],
     [{ concurrency: 1.5 }, "driver.capacity.concurrency }) must be a positive integer"],
+    [{ adaptive: null, concurrency: 1 }, "driver.capacity.adaptive }) must be an object"],
+    [{ adaptive: {}, concurrency: 1 }, "driver.capacity.adaptive.sample }) must be a function"],
+    [{ adaptive: { sample: "invalid" }, concurrency: 1 }, "driver.capacity.adaptive.sample }) must be a function"],
+    [{ adaptive: { fallbackConcurrency: -1, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.fallbackConcurrency }) must be an integer between zero and concurrency"],
+    [{ adaptive: { fallbackConcurrency: 2, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.fallbackConcurrency }) must be an integer between zero and concurrency"],
+    [{ adaptive: { intervalMs: 99, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.intervalMs }) must be a finite number between 100 and 2147483647"],
+    [{ adaptive: { intervalMs: Number.POSITIVE_INFINITY, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.intervalMs }) must be a finite number between 100 and 2147483647"],
+    [{ adaptive: { rampUp: 0, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.rampUp }) must be a positive integer"],
+    [{ adaptive: { rampUp: 1.5, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.rampUp }) must be a positive integer"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), sampleTimeoutMs: 0 }, concurrency: 1 }, "driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), sampleTimeoutMs: Number.POSITIVE_INFINITY }, concurrency: 1 }, "driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), sampleTimeoutMs: 2_147_483_648 }, concurrency: 1 }, "driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), unsupported: true }, concurrency: 1 }, "driver.capacity.adaptive }) does not support option: unsupported"],
     [{ concurrency: 1, queue: null }, "driver.capacity.queue }) must be an object"],
     [{ concurrency: 1, queue: { maxPending: 0 } }, "driver.capacity.queue.maxPending }) must be a positive integer"],
     [{ concurrency: 1, queue: { maxPending: 1, timeout: 0 } }, "driver.capacity.queue.timeout }) must be a positive finite number"],

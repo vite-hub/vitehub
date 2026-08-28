@@ -1,9 +1,11 @@
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
+import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
 
 import type {
   AgentAdapterInstructions,
   AgentAttachmentExecutionOptions,
+  AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
@@ -63,26 +65,65 @@ function assertNoUnsupportedOptions(value: Record<string, unknown>, allowed: Set
 function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOptions | undefined {
   if (value === undefined) return
   if (!isPlainObject(value)) throw new TypeError("[vitehub] defineAgent({ driver.capacity }) must be an object.")
-  assertNoUnsupportedOptions(value, new Set(["concurrency", "queue"]), "defineAgent({ driver.capacity })")
+  assertNoUnsupportedOptions(value, new Set(["adaptive", "concurrency", "queue"]), "defineAgent({ driver.capacity })")
   if (!isRuntimeNumber(value.concurrency) || !Number.isInteger(value.concurrency) || value.concurrency <= 0) {
     throw new TypeError("[vitehub] defineAgent({ driver.capacity.concurrency }) must be a positive integer.")
   }
-  if (value.queue === undefined) return { concurrency: value.concurrency }
-  if (!isPlainObject(value.queue)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.")
-  assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })")
-  if (!isRuntimeNumber(value.queue.maxPending) || !Number.isInteger(value.queue.maxPending) || value.queue.maxPending <= 0) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.")
+  let queue: AgentDriverCapacityOptions["queue"]
+  if (value.queue !== undefined) {
+    if (!isPlainObject(value.queue)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.")
+    assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })")
+    if (!isRuntimeNumber(value.queue.maxPending) || !Number.isInteger(value.queue.maxPending) || value.queue.maxPending <= 0) {
+      throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.")
+    }
+    if (value.queue.timeout !== undefined
+      && (!isRuntimeNumber(value.queue.timeout) || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0 || value.queue.timeout > 2_147_483_647)) {
+      throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number no greater than 2147483647.")
+    }
+    queue = { maxPending: value.queue.maxPending }
+    if (value.queue.timeout !== undefined) queue.timeout = value.queue.timeout
   }
-  if (value.queue.timeout !== undefined
-    && (!isRuntimeNumber(value.queue.timeout) || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0 || value.queue.timeout > 2_147_483_647)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number no greater than 2147483647.")
+
+  let adaptive: AgentDriverAdaptiveCapacityOptions | undefined
+  if (value.adaptive !== undefined) {
+    if (!isPlainObject(value.adaptive)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive }) must be an object.")
+    assertNoUnsupportedOptions(value.adaptive, new Set(["fallbackConcurrency", "intervalMs", "rampUp", "sample", "sampleTimeoutMs"]), "defineAgent({ driver.capacity.adaptive })")
+    if (!isRuntimeFunction(value.adaptive.sample)) {
+      throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.sample }) must be a function.")
+    }
+    if (value.adaptive.fallbackConcurrency !== undefined
+      && (!isRuntimeNumber(value.adaptive.fallbackConcurrency) || !Number.isInteger(value.adaptive.fallbackConcurrency) || value.adaptive.fallbackConcurrency < 0 || value.adaptive.fallbackConcurrency > value.concurrency)) {
+      throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.fallbackConcurrency }) must be an integer between zero and concurrency.")
+    }
+    if (value.adaptive.intervalMs !== undefined
+      && (!isRuntimeNumber(value.adaptive.intervalMs) || !Number.isFinite(value.adaptive.intervalMs) || value.adaptive.intervalMs < 100 || value.adaptive.intervalMs > 2_147_483_647)) {
+      throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.intervalMs }) must be a finite number between 100 and 2147483647.")
+    }
+    if (value.adaptive.rampUp !== undefined
+      && (!isRuntimeNumber(value.adaptive.rampUp) || !Number.isInteger(value.adaptive.rampUp) || value.adaptive.rampUp <= 0)) {
+      throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.rampUp }) must be a positive integer.")
+    }
+    if (value.adaptive.sampleTimeoutMs !== undefined
+      && (!isRuntimeNumber(value.adaptive.sampleTimeoutMs) || !Number.isFinite(value.adaptive.sampleTimeoutMs) || value.adaptive.sampleTimeoutMs <= 0 || value.adaptive.sampleTimeoutMs > 2_147_483_647)) {
+      throw new TypeError("[vitehub] defineAgent({ driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647.")
+    }
+    adaptive = {
+      fallbackConcurrency: value.adaptive.fallbackConcurrency ?? 1,
+      intervalMs: value.adaptive.intervalMs ?? 5_000,
+      rampUp: value.adaptive.rampUp ?? 1,
+      // SAFETY: Callability is validated above; the typed AgentSettings boundary establishes the sample contract.
+      sample: value.adaptive.sample as AgentDriverAdaptiveCapacityOptions["sample"],
+      sampleTimeoutMs: value.adaptive.sampleTimeoutMs ?? 1_000,
+    }
   }
-  const queue: NonNullable<AgentDriverCapacityOptions["queue"]> = { maxPending: value.queue.maxPending }
-  if (value.queue.timeout !== undefined) queue.timeout = value.queue.timeout
-  return {
+
+  const normalized: AgentDriverCapacityOptions = {
+    ...(adaptive ? { adaptive } : {}),
     concurrency: value.concurrency,
-    queue,
+    ...(queue ? { queue } : {}),
   }
+  inheritSharedAgentCapacityOptions(value, normalized)
+  return normalized
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
