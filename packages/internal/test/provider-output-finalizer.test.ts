@@ -34,12 +34,29 @@ describe("Provider Output finalizer", () => {
     const generations = createProviderDeploymentOutputGenerationState()
     const environmentA = {}
     const environmentB = {}
+    const rootDir = await createTempProject()
+    const writes: string[] = []
     generations.capture({ environment: environmentA }, catalog)
-    await resetProviderDeploymentOutputs(catalog, new Error("build A failed"))
     generations.capture({ environment: environmentB }, catalog)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("A") },
+    }, generations.get({ environment: environmentA }))
+    await generations.reset({ environment: environmentA }, catalog, new Error("build A failed"))
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("stale A") },
+    }, generations.get({ environment: environmentA }))
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async () => { writes.push("B") },
+    }, generations.get({ environment: environmentB }))
+    await finalizeProviderDeploymentOutputs(catalog)
 
-    expect(generations.get({ environment: environmentA })).toBe(0)
-    expect(generations.get({ environment: environmentB })).toBe(1)
+    expect(writes).toEqual(["B"])
   })
 
   it("settles contributions in stable owner order and replaces duplicates", async () => {

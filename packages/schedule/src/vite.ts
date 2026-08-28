@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
-import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -618,7 +618,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput, error)
+        await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
@@ -660,12 +660,12 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        await resetProviderDeploymentOutputs(providerOutput, error)
+        await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }
     },
     async renderError(error) {
-      await resetProviderDeploymentOutputs(providerOutput, error)
+      await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {
       order: "post",

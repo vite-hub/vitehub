@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
@@ -181,7 +181,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput, error)
+        await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
@@ -221,7 +221,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       }, providerOutputGenerations.get(this))
     },
     async renderError(error) {
-      await resetProviderDeploymentOutputs(providerOutput, error)
+      await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {
       order: "post",

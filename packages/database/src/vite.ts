@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
@@ -181,7 +181,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput, error)
+        await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
@@ -216,7 +216,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        await resetProviderDeploymentOutputs(providerOutput, error)
+        await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }
     },
@@ -238,7 +238,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     async renderError(error) {
-      await resetProviderDeploymentOutputs(providerOutput, error)
+      await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {
       order: "post",

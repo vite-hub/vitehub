@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -2926,7 +2926,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput, error)
+        await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
       if (!resolved || resolved.command !== "build") return
@@ -2966,7 +2966,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }, providerOutputGenerations.get(this))
     },
     async renderError(error) {
-      await resetProviderDeploymentOutputs(providerOutput, error)
+      await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {
       order: "post",

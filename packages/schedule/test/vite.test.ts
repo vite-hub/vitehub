@@ -482,6 +482,7 @@ describe("Vite schedule integration", () => {
     const write = vi.fn(async () => undefined)
     contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir: root, write })
 
+    // SAFETY: This focused hook test supplies no Vite plugin context because the failing discovery path does not read it.
     await expect((plugin.buildEnd as (this: never) => Promise<void>).call({} as never)).rejects.toThrow()
     await finalizeProviderDeploymentOutputs(catalog)
 

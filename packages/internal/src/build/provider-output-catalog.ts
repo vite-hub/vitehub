@@ -68,12 +68,19 @@ export type ProviderRuntimeContribution = {
   } & (Product extends "blob" ? { vercelRuntimePackages?: VercelFunctionRuntimePackage[] } : Record<never, never>)
 }[ProviderOutputProduct]
 
+export interface ProviderDeploymentOutputGeneration {
+  valid: boolean
+}
+
 export class ProviderOutputCatalog {
   #appliedCloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #cloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #runtimeContributions = new Map<ProviderOutputProduct, ProviderRuntimeContribution>()
-  #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], ProviderDeploymentOutputContribution>()
-  #deploymentGeneration = 0
+  #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], {
+    contribution: ProviderDeploymentOutputContribution
+    generation?: ProviderDeploymentOutputGeneration
+  }>()
+  #deploymentGenerations = new Set<ProviderDeploymentOutputGeneration>()
 
   appliedCloudflareContributions(): IterableIterator<CloudflareProviderOutputValue> {
     return this.#appliedCloudflareContributions.values()
@@ -122,18 +129,29 @@ export class ProviderOutputCatalog {
     this.#runtimeContributions.clear()
   }
 
-  deploymentGeneration(): number {
-    return this.#deploymentGeneration
+  createDeploymentGeneration(): ProviderDeploymentOutputGeneration {
+    const generation = { valid: true }
+    this.#deploymentGenerations.add(generation)
+    return generation
   }
 
-  replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution, generation: number = this.#deploymentGeneration): void {
-    if (generation !== this.#deploymentGeneration) return
-    this.#deploymentContributions.set(contribution.owner, contribution)
+  replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution, generation?: ProviderDeploymentOutputGeneration): void {
+    if (generation && !generation.valid) return
+    this.#deploymentContributions.set(contribution.owner, { contribution, generation })
   }
 
-  resetDeploymentContributions(): void {
-    this.#deploymentGeneration++
-    this.#deploymentContributions.clear()
+  resetDeploymentContributions(generation?: ProviderDeploymentOutputGeneration): void {
+    if (!generation) {
+      for (const current of this.#deploymentGenerations) current.valid = false
+      this.#deploymentGenerations.clear()
+      this.#deploymentContributions.clear()
+      return
+    }
+    generation.valid = false
+    this.#deploymentGenerations.delete(generation)
+    for (const [owner, entry] of this.#deploymentContributions) {
+      if (entry.generation === generation) this.#deploymentContributions.delete(owner)
+    }
   }
 
   hasDeploymentContributions(): boolean {
@@ -141,7 +159,7 @@ export class ProviderOutputCatalog {
   }
 
   takeDeploymentContributions(): ProviderDeploymentOutputContribution[] {
-    const contributions = [...this.#deploymentContributions.values()]
+    const contributions = [...this.#deploymentContributions.values()].map(({ contribution }) => contribution)
     this.#deploymentContributions.clear()
     return contributions
   }

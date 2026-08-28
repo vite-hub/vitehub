@@ -10,7 +10,7 @@ import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProvider
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
-import type { ProviderOutputCatalog as ProviderOutputCatalogType } from "./provider-output-catalog.ts"
+import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog as ProviderOutputCatalogType } from "./provider-output-catalog.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { composeNitroCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
@@ -762,13 +762,13 @@ async function withProviderDeploymentOutputRootTransaction<T>(
 export function contributeProviderDeploymentOutput(
   catalog: ProviderOutputCatalogType | undefined,
   contribution: ProviderDeploymentOutputContribution,
-  generation?: number,
+  generation?: ProviderDeploymentOutputGeneration,
 ): void {
   catalog?.replaceDeploymentContribution(contribution, generation)
 }
 
-export function captureProviderDeploymentOutputGeneration(catalog: ProviderOutputCatalogType | undefined): number | undefined {
-  return catalog?.deploymentGeneration()
+export function captureProviderDeploymentOutputGeneration(catalog: ProviderOutputCatalogType | undefined): ProviderDeploymentOutputGeneration | undefined {
+  return catalog?.createDeploymentGeneration()
 }
 
 interface ProviderDeploymentOutputPluginContext {
@@ -777,9 +777,10 @@ interface ProviderDeploymentOutputPluginContext {
 
 export function createProviderDeploymentOutputGenerationState(): {
   capture: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined) => void
-  get: (context: ProviderDeploymentOutputPluginContext | undefined) => number | undefined
+  get: (context: ProviderDeploymentOutputPluginContext | undefined) => ProviderDeploymentOutputGeneration | undefined
+  reset: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined, failure?: unknown) => Promise<void>
 } {
-  const generations = new WeakMap<object, number | undefined>()
+  const generations = new WeakMap<object, ProviderDeploymentOutputGeneration | undefined>()
   const fallback = {}
   const environment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context
     ? context.environment ?? context
@@ -791,10 +792,17 @@ export function createProviderDeploymentOutputGenerationState(): {
     get(context) {
       return generations.get(environment(context))
     },
+    async reset(context, catalog, failure) {
+      await resetProviderDeploymentOutputs(catalog, failure, generations.get(environment(context)))
+    },
   }
 }
 
-export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined, failure?: unknown): Promise<void> {
+export async function resetProviderDeploymentOutputs(
+  catalog: ProviderOutputCatalogType | undefined,
+  failure?: unknown,
+  generation?: ProviderDeploymentOutputGeneration,
+): Promise<void> {
   if (!catalog) return
   const completedReset = providerDeploymentOutputCompletedResets.get(catalog)
   if (completedReset && failure !== undefined && completedReset.failures.has(failure)) {
@@ -806,14 +814,14 @@ export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCata
   if (active?.reset) {
     if (failure !== undefined && !active.reset.failures.has(failure)) {
       active.reset.failures.add(failure)
-      catalog.resetDeploymentContributions()
+      catalog.resetDeploymentContributions(generation)
     }
     providerDeploymentOutputCompletedResets.set(catalog, active.reset)
     await active.reset.promise
     return
   }
   active?.controller.abort(new Error("Provider Output finalization reset"))
-  catalog?.resetDeploymentContributions()
+  catalog?.resetDeploymentContributions(generation)
   if (active) {
     active.reset = {
       failures: new Set([failure]),

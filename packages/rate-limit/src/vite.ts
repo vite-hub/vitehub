@@ -8,7 +8,6 @@ import {
   contributeProviderRuntime,
   createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
-  resetProviderDeploymentOutputs,
   shouldSkipViteProviderBuild,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
@@ -204,7 +203,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(composedOutput, error)
+        await providerOutputGenerations.reset(this, composedOutput, error)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
@@ -243,12 +242,12 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        await resetProviderDeploymentOutputs(composedOutput, error)
+        await providerOutputGenerations.reset(this, composedOutput, error)
         throw error
       }
     },
     async renderError(error) {
-      await resetProviderDeploymentOutputs(composedOutput, error)
+      await providerOutputGenerations.reset(this, composedOutput, error)
     },
     closeBundle: {
       order: "post",
