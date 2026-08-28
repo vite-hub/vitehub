@@ -452,10 +452,11 @@ describe("hubWorkspace", () => {
 
     const { env, hubEnv } = await import("@vite-hub/env/vite")
     const envPlugin = hubEnv()
-    const envConfig = envPlugin.config as (config: { env?: unknown, root: string }, env: { command: "build", mode: string }) => Promise<unknown>
+    // SAFETY: this focused test preserves the Env config hook's private state for configResolved.
+    const envConfig = envPlugin.config as (config: { env?: unknown, root: string }, env: { command: "build", mode: string }) => Promise<Record<string, unknown>>
     const envConfigResolved = envPlugin.configResolved as unknown as (config: { logger: { info: () => void }, root: string }) => Promise<void>
 
-    await envConfig({
+    const envConfigResult = await envConfig({
       env: {
         server: {
           airtableToken: env({ secret: true }),
@@ -463,7 +464,11 @@ describe("hubWorkspace", () => {
       },
       root,
     }, { command: "build", mode: "production" })
-    await envConfigResolved({ logger: { info: vi.fn() }, root })
+    await envConfigResolved({
+      ...envConfigResult,
+      logger: { info: vi.fn() },
+      root,
+    })
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()

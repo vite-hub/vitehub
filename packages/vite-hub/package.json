@@ -100,6 +100,7 @@
     "./email/server": "./dist/email/server.js",
     "./env": "./dist/env.js",
     "./env/presets": "./dist/env/presets.js",
+    "./env/provider": "./dist/env/provider.js",
     "./env/schema": "./dist/env/schema.js",
     "./env/secret": "./dist/env/secret.js",
     "./env/server": "./dist/env/server.js",
