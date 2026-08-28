@@ -11,13 +11,13 @@ import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
-const workerMetaSchema = object({
+const packageManifestSchema = object({ name: string(), version: string() })
+const workerMetadataSchema = object({
   inputs: record(string(), unknown()),
   outputs: record(string(), object({
     imports: optional(array(object({ external: optional(boolean()), path: string() }))),
   })),
 })
-const packageIdentitySchema = object({ name: string(), version: string() })
 
 async function run(command: string, args: string[], cwd: string) {
   try {
@@ -34,7 +34,7 @@ async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
   for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
     const manifestValue: unknown = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8"))
-    const manifest = parse(packageIdentitySchema, manifestValue)
+    const manifest = parse(packageManifestSchema, manifestValue)
     await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
     const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
     overrides[manifest.name] = `file:${join(packDir, tarball)}`
@@ -80,7 +80,14 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "nodejs_compat",
   ], appDir)
   const metaValue: unknown = JSON.parse(await readFile(meta, "utf8"))
-  return parse(workerMetaSchema, metaValue)
+  return parse(workerMetadataSchema, metaValue)
+}
+
+function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {
+  return Object.values(outputs)
+    .flatMap(output => output.imports || [])
+    .filter(entry => entry.external)
+    .map(entry => entry.path)
 }
 
 describe("packed Source capability closures", () => {
@@ -171,9 +178,8 @@ console.log(item.content)
 
       const mcp = await buildWorker(appDir, "src/mcp.ts", "mcp")
       expect(Object.keys(mcp.inputs).join("\n")).toContain("@vite-hub/source/dist/mcp.js")
-      const externalMcpImports = Object.values(mcp.outputs)
-        .flatMap(output => output.imports || [])
-        .filter(entry => entry.external && /@modelcontextprotocol|pkce-challenge/.test(entry.path))
+      const externalMcpImports = externalImports(mcp.outputs)
+        .filter(path => /@modelcontextprotocol|pkce-challenge/.test(path))
       expect(externalMcpImports).toEqual([])
 
       const runtime = await run("node", ["mcp-run.mjs"], appDir)
