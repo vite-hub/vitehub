@@ -1086,7 +1086,7 @@ describe("AI SDK recovery", () => {
           stream: new ReadableStream({
             start(controller) {
               controller.enqueue({ type: "stream-start", warnings: [] })
-              controller.enqueue({ output: "found", toolCallId: "call-1", toolName: "search", type: "tool-result" })
+              controller.enqueue({ input: "{\"query\":\"users\"}", toolCallId: "call-1", toolName: "search", type: "tool-call" })
               controller.enqueue({ finishReason: { raw: "tool-calls", unified: "tool-calls" }, type: "finish", usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } } })
               controller.close()
             },
@@ -1094,9 +1094,9 @@ describe("AI SDK recovery", () => {
         }
       },
     }
-    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(), undefined, undefined, true), runtime, { prompt: "Search" })
-    // SAFETY: streamAgentInline returns the documented streamed result contract.
-    const reader = (result as { fullStream: ReadableStream<unknown> }).fullStream.getReader()
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, { prompt: "Search" }, { output: "ui-message-stream" })
+    // SAFETY: UI-message output is a ReadableStream under the selected output contract.
+    const reader = (result as ReadableStream<unknown>).getReader()
     const consumption = (async () => {
       while (!(await reader.read()).done) {}
     })()
