@@ -1254,7 +1254,14 @@ describe("agent CLI", () => {
       inspection: {
         config: {
           driver: {
-            capacity: { active: 1, concurrency: 2, pending: 3, queue: { maxPending: 20, timeout: 300_000 } },
+            capacity: {
+              active: 1,
+              concurrency: 6,
+              effectiveConcurrency: 2,
+              pending: 3,
+              queue: { maxPending: 20, timeout: 300_000 },
+              reason: "waiting for capacity",
+            },
             executionAuthority: {
               credentials: "ambient",
               environment: "ambient",
@@ -1298,7 +1305,7 @@ describe("agent CLI", () => {
       "Agent: support",
       "Metadata: ready",
       "Driver: Model-backed Agent Driver (openai/gpt-5)",
-      "Capacity: 1/2 active, 3/20 pending, 300000ms timeout",
+      "Capacity: 1 active, 2 admitted, 6 hard max, 3/20 pending, 300000ms timeout, waiting for capacity",
       "Execution authority:",
       "  Filesystem: host, read-write",
       "  Network: unrestricted",
@@ -1319,6 +1326,32 @@ describe("agent CLI", () => {
         [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
       }),
     }))
+  })
+
+  it("preserves static capacity wording when no adaptive limit is reported", async () => {
+    const stdout = stream()
+    const exitCode = await runAgentInfoCli(["--agent", "support"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: (async () => Response.json({
+        inspection: {
+          config: {
+            driver: {
+              capacity: { active: 1, concurrency: 2, pending: 3, queue: { maxPending: 20 } },
+              kind: "run",
+            },
+          },
+          name: "support",
+        },
+      })) as never,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toContain("Capacity: 1/2 active, 3/20 pending")
   })
 
   it("prints execution authority in the existing Agent inspection contract as JSON", async () => {
