@@ -508,6 +508,7 @@ describe("Vite plugin", () => {
     expect(serverModule).toContain(`from "../../server/env/provider.mjs"`)
     expect(serverModule).toContain(`from "@example/env-provider"`)
 
+    // SAFETY: This test invokes the plugin's Vite load hook with its public string-id contract.
     const virtualModule = await (plugin.load as (id: string) => string)("\0#vitehub/env/server")
     expect(virtualModule).toContain(`from "/D:/shared/provider.mjs"`)
     expect(virtualModule).toContain(`from ${JSON.stringify(join(root, "server", "env", "provider.mjs").replace(/\\/g, "/"))}`)
@@ -535,6 +536,45 @@ describe("Vite plugin", () => {
     expect(firstModule).not.toContain(`${secondRoot}/server/provider.mjs`)
     expect(secondModule).toContain(`${secondRoot}/server/provider.mjs`)
     expect(secondModule).not.toContain(`${firstRoot}/server/provider.mjs`)
+  })
+
+  it("keeps server registries scoped to same-root Vite configurations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-same-root-"))
+    const plugin = hubEnv()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    const firstEnvironmentConfig = { root }
+    const secondEnvironmentConfig = { root }
+    const firstConfig = {
+      env: { server: { first: env({ source: env.source("FIRST_TOKEN") }) } },
+      environments: { client: firstEnvironmentConfig },
+      logger: { info: vi.fn() },
+      mode: "production",
+      root,
+    }
+    const secondConfig = {
+      env: { server: { second: env({ source: env.source("SECOND_TOKEN") }) } },
+      environments: { client: secondEnvironmentConfig },
+      logger: { info: vi.fn() },
+      mode: "production",
+      root,
+    }
+
+    const [firstResult, secondResult] = await Promise.all([
+      configHook(firstConfig, { command: "build", mode: "production" }),
+      configHook(secondConfig, { command: "build", mode: "production" }),
+    ])
+    Object.assign(firstConfig, firstResult)
+    Object.assign(secondConfig, secondResult)
+    await Promise.all([configResolvedHook(firstConfig), configResolvedHook(secondConfig)])
+
+    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const firstModule = loadHook.call({ environment: { config: firstEnvironmentConfig } }, "\0#vitehub/env/server")
+    const secondModule = loadHook.call({ environment: { config: secondEnvironmentConfig } }, "\0#vitehub/env/server")
+    expect(firstModule).toContain("FIRST_TOKEN")
+    expect(firstModule).not.toContain("SECOND_TOKEN")
+    expect(secondModule).toContain("SECOND_TOKEN")
+    expect(secondModule).not.toContain("FIRST_TOKEN")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {

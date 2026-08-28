@@ -43,6 +43,7 @@ const defaultRuntimeImports = {
   secret: "@vite-hub/env/secret",
   server: "@vite-hub/env/server",
 }
+let envVitePluginSequence = 0
 
 export { env }
 
@@ -86,6 +87,10 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   const resolvedStates = new Map<string, ResolvedEnvState>()
+  const resolvedConfigStates = new WeakMap<object, ResolvedEnvState>()
+  const pendingConfigStates = new Map<string, ResolvedEnvState>()
+  const configStateKey = `__vitehubEnvState${++envVitePluginSequence}`
+  let configStateSequence = 0
   const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
   const getPublicEnv = () => buildPublicConfig
   const getServerEnvRegistry = () => serverRegistry
@@ -98,6 +103,58 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     const registry = createRuntimeRegistry(config?.server, { prefix: options.prefix })
     assertConfiguredProviders(registry, resolveProviderModules(options.providers, root))
     await prepareEnvGeneratedTypes(root, packageRoot, config?.public, registry, runtimeImports)
+  }
+  const resolveState = async (config: UserConfig & EnvViteUserConfig, mode: string) => {
+    const envConfig = config.env
+    validateEnvConfigShape(envConfig, "vite")
+    const projectRoot = resolveProjectRoot(config.root || process.cwd())
+    const providerModules = resolveProviderModules(options.providers, projectRoot)
+    if (!envConfig) {
+      return {
+        defineValues: {},
+        projectRoot,
+        state: {
+          diagnosticsText: undefined,
+          providerModules,
+          publicConfig: {},
+          serverRegistry: {},
+        } satisfies ResolvedEnvState,
+      }
+    }
+
+    const loadedEnv = loadEnv(mode, projectRoot, "")
+    const context = createSourceContext({
+      env: { ...loadedEnv, ...process.env },
+      mode: "build",
+      rootDir: projectRoot,
+    })
+    const publicResult = await resolveEnvEntries(envConfig.public, {
+      context,
+      exposure: "build public",
+      prefix: options.prefix,
+      section: "env.public",
+      timing: "Vite config/dev/build",
+    })
+    const defineResult = await resolveBuildConfig(envConfig.define, {
+      context,
+      exposure: "compile-time replacement",
+      prefix: options.prefix,
+      section: "env.define",
+      timing: "Vite transform/build",
+    })
+    const publicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
+    const registry = createServerEnvRegistry(envConfig.server)
+    assertConfiguredProviders(registry, providerModules)
+    return {
+      defineValues: defineResult.values,
+      projectRoot,
+      state: {
+        diagnosticsText: formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics),
+        providerModules,
+        publicConfig,
+        serverRegistry: registry,
+      } satisfies ResolvedEnvState,
+    }
   }
 
   return {
@@ -112,73 +169,43 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
-      validateEnvConfigShape(envConfig, "vite")
-      const root = resolveProjectRoot(config.root || process.cwd())
-      const providerModules = resolveProviderModules(options.providers, root)
-      if (!envConfig) {
-        serverRegistry = {}
-        buildPublicConfig = {}
-        resolvedStates.set(root, {
-          diagnosticsText: undefined,
-          providerModules,
-          publicConfig: buildPublicConfig,
-          serverRegistry,
-        })
-        for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
-        return
-      }
-
-      const loadedEnv = loadEnv(env.mode, root, "")
-      const context = createSourceContext({
-        env: { ...loadedEnv, ...process.env },
-        mode: "build",
-        rootDir: root,
-      })
-
-      const publicResult = await resolveEnvEntries(envConfig.public, {
-        context,
-        exposure: "build public",
-        prefix: options.prefix,
-        section: "env.public",
-        timing: "Vite config/dev/build",
-      })
-      const defineResult = await resolveBuildConfig(envConfig.define, {
-        context,
-        exposure: "compile-time replacement",
-        prefix: options.prefix,
-        section: "env.define",
-        timing: "Vite transform/build",
-      })
-
-      buildPublicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
-      serverRegistry = createServerEnvRegistry(envConfig.server)
-      assertConfiguredProviders(serverRegistry, providerModules)
+      const { defineValues, projectRoot, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode)
+      buildPublicConfig = state.publicConfig
+      serverRegistry = state.serverRegistry
+      resolvedStates.set(projectRoot, state)
+      const configStateId = String(++configStateSequence)
+      pendingConfigStates.set(configStateId, state)
       for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
-      resolvedStates.set(root, {
-        diagnosticsText: formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics),
-        providerModules,
-        publicConfig: buildPublicConfig,
-        serverRegistry,
-      })
+      if (!envConfig) return { [configStateKey]: configStateId }
 
       return {
+        [configStateKey]: configStateId,
         define: {
-          ...Object.fromEntries(Object.entries(defineResult.values).map(([key, value]) => [key, JSON.stringify(value)])),
+          ...Object.fromEntries(Object.entries(defineValues).map(([key, value]) => [key, JSON.stringify(value)])),
           ...config.define,
         },
       }
     },
     async configResolved(config) {
       const projectRoot = resolveProjectRoot(config.root)
-      const state = resolvedStates.get(projectRoot)
+      const configStateId = String(Object.getOwnPropertyDescriptor(config, configStateKey)?.value ?? "")
+      const state = pendingConfigStates.get(configStateId) ?? resolvedStates.get(projectRoot)
       if (!state) throw new Error(`Missing resolved Env state for ${projectRoot}`)
+      pendingConfigStates.delete(configStateId)
+      resolvedConfigStates.set(config, state)
+      for (const environmentConfig of Object.values(config.environments || {})) {
+        resolvedConfigStates.set(environmentConfig, state)
+      }
+      Reflect.deleteProperty(config, configStateKey)
+      resolvedStates.set(projectRoot, state)
       if (state.diagnosticsText) config.logger.info(state.diagnosticsText)
       const packageRoot = await resolvePackageRoot(config.root, projectRoot)
       await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules)
     },
     load(id) {
-      const viteRoot = (this as { environment?: { config?: { root?: string } } } | undefined)?.environment?.config?.root
-      const state = (viteRoot ? resolvedStates.get(resolveProjectRoot(viteRoot)) : undefined)
+      const viteConfig = this?.environment?.config
+      const state = (viteConfig ? resolvedConfigStates.get(viteConfig) : undefined)
+        ?? (viteConfig?.root ? resolvedStates.get(resolveProjectRoot(viteConfig.root)) : undefined)
         ?? Array.from(resolvedStates.values()).at(-1)
       const publicConfig = state?.publicConfig ?? buildPublicConfig
       const registry = state?.serverRegistry ?? serverRegistry
