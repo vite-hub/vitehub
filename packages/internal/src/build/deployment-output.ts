@@ -1,5 +1,5 @@
 import { existsSync, renameSync, rmSync } from "node:fs"
-import { cp, mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -218,9 +218,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   signal?.throwIfAborted()
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
-  const previousOutputRoot = `${outputRoot}.previous`
   const staticOutputDir = options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir)
-  const previousStaticOutputDir = `${staticOutputDir}.previous`
   const copiesStaticOutput = Boolean(options.bundleEntry && staticIndex && resolve(clientDir) !== resolve(staticOutputDir))
   const files = Object.entries(options.files ?? {})
   const workerOutfile = options.bundleEntry
@@ -229,9 +227,14 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
     throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
   }
+  const backupRoot = copiesStaticOutput
+    ? await mkdtemp(resolve(dirname(clientDir), ".vitehub-cloudflare-output-"))
+    : undefined
+  const previousOutputRoot = backupRoot ? resolve(backupRoot, "output") : `${outputRoot}.previous`
+  const previousStaticOutputDir = backupRoot ? resolve(backupRoot, "static") : `${staticOutputDir}.previous`
 
-  await rm(previousOutputRoot, { force: true, recursive: true })
-  if (copiesStaticOutput) await rm(previousStaticOutputDir, { force: true, recursive: true })
+  if (!backupRoot) await rm(previousOutputRoot, { force: true, recursive: true })
+  if (copiesStaticOutput && !backupRoot) await rm(previousStaticOutputDir, { force: true, recursive: true })
   let hadPreviousOutput = false
   let hadPreviousStaticOutput = false
   let publicationSucceeded = false
@@ -296,13 +299,13 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   catch (error) {
     await rm(outputRoot, { force: true, recursive: true })
     if (hadPreviousOutput) {
-      await rename(previousOutputRoot, outputRoot)
+      await cp(previousOutputRoot, outputRoot, { recursive: true })
       outputRestorationSucceeded = true
     }
     if (copiesStaticOutput) {
       await rm(staticOutputDir, { force: true, recursive: true })
       if (hadPreviousStaticOutput) {
-        await rename(previousStaticOutputDir, staticOutputDir)
+        await cp(previousStaticOutputDir, staticOutputDir, { recursive: true })
         staticRestorationSucceeded = true
       }
     }
@@ -315,6 +318,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     if (copiesStaticOutput && (publicationSucceeded || staticRestorationSucceeded || !hadPreviousStaticOutput)) {
       await rm(previousStaticOutputDir, { force: true, recursive: true }).catch(() => undefined)
     }
+    if (backupRoot) await rmdir(backupRoot).catch(() => undefined)
   }
 }
 
@@ -364,6 +368,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   let replacedOutput = false
   let installedOutput = false
   let replacedExternalStatic = false
+  let installedExternalStatic = false
 
   try {
     await rm(stagedOutputRoot, { force: true, recursive: true })
@@ -422,6 +427,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
       }
       try {
         renameSync(stagedStaticOutputDir, staticOutputDir)
+        installedExternalStatic = true
       }
       catch (error) {
         if (replacedExternalStatic && existsSync(previousStaticOutputDir)) renameSync(previousStaticOutputDir, staticOutputDir)
@@ -445,8 +451,8 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   catch (error) {
     await rm(stagedOutputRoot, { force: true, recursive: true })
     if (externalStaticNeedsCommit) await rm(stagedStaticOutputDir, { force: true, recursive: true })
+    if (installedExternalStatic) rmSync(staticOutputDir, { force: true, recursive: true })
     if (replacedExternalStatic) {
-      rmSync(staticOutputDir, { force: true, recursive: true })
       if (existsSync(previousStaticOutputDir)) renameSync(previousStaticOutputDir, staticOutputDir)
     }
     if (installedOutput) rmSync(outputRoot, { force: true, recursive: true })

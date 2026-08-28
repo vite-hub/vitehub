@@ -126,7 +126,7 @@ export class ProviderOutputCatalog {
     return this.#deploymentGeneration
   }
 
-  replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution, generation = this.#deploymentGeneration): void {
+  replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution, generation: number = this.#deploymentGeneration): void {
     if (generation !== this.#deploymentGeneration) return
     this.#deploymentContributions.set(contribution.owner, contribution)
   }

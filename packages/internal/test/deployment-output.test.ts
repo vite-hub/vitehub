@@ -154,6 +154,33 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("keeps Cloudflare transaction backups out of client output", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const clientDir = join(rootDir, "dist")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const copiedBackup = join(rootDir, "dist", "client", `${relative(clientDir, cloudflareDir)}.previous`)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "<!doctype html>\n")
+    await writeFile(join(cloudflareDir, "index.js"), "old worker\n")
+    await writeFile(join(cloudflareDir, "wrangler.json"), "{\"main\":\"index.js\"}\n")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      cloudflare: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        wranglerConfig: { main: "index.js" },
+      },
+      rootDir,
+    })
+
+    expect(existsSync(copiedBackup)).toBe(false)
+  })
+
   it("excludes nested Cloudflare output from every Vercel static copy", async () => {
     const rootDir = await createTempProject()
     const {
@@ -915,6 +942,52 @@ describe("provider deployment outputs", () => {
     expect(existsSync(outputRoot)).toBe(false)
     expect(existsSync(`${outputRoot}.pending`)).toBe(false)
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+    expect(existsSync(`${staticDir}.pending`)).toBe(false)
+  })
+
+  it("removes first-time external Vercel static output when publication is cancelled", async () => {
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultVercelOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const clientDir = join(rootDir, "dist", "client")
+    const staticDir = join(rootDir, "public")
+    const catalog = createProviderOutputCatalog()
+    let reset: Promise<void> | undefined
+    await mkdir(clientDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "new static")
+    vi.mocked(renameSync).mockImplementation((source, destination) => {
+      actualFs.renameSync(source, destination)
+      if (source === `${staticDir}.pending` && destination === staticDir) {
+        reset = resetProviderDeploymentOutputs(catalog)
+      }
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+          staticOutputDir: staticDir,
+        },
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await reset
+
+    expect(existsSync(outputRoot)).toBe(false)
+    expect(existsSync(staticDir)).toBe(false)
     expect(existsSync(`${staticDir}.pending`)).toBe(false)
   })
 
