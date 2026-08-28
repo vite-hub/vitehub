@@ -231,10 +231,7 @@ async function installConsole(
     await Reflect.apply(uiModule, undefined, [{}, nuxt])
   }
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
-  if (installInvocations) {
-    if (fixture) installConsoleFixtureInvocations(projectRoot, fixture, undefined, undefined, invocationRootState?.binding)
-    else installConsoleInvocations(projectRoot)
-  }
+  if (installInvocations && !fixture) installConsoleInvocations(projectRoot)
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
   hookPages?.("pages:extend", (pages) => {

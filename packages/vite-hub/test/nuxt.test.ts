@@ -520,6 +520,32 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("does not retain Console fixture storage when plugin generation fails", async () => {
+    const root = "/tmp/vitehub-nuxt-fixture-generation-failure"
+    const fixture = resolve(root, "console.fixture.json")
+    await rm(root, { force: true, recursive: true })
+    await mkdir(resolve(root, ".vitehub/nitro"), { recursive: true })
+    await writeFile(resolve(root, "package.json"), "{}\n")
+    await writeFile(fixture, JSON.stringify(fixtureDocument("failed-generation")))
+    await writeFile(resolve(root, ".vitehub/nitro/console"), "not a directory\n")
+    vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+    const development = createNuxt(true)
+    development.nuxt.options.rootDir = root
+    development.nuxt.options.buildDir = resolve(root, ".nuxt")
+    development.nuxt.options.serverDir = resolve(root, "server")
+
+    try {
+      await expect(viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt))
+        .rejects.toThrow()
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
+      expect(nitroOptions(development.nuxt).plugins).toEqual([])
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("does not open Console storage during CLI discovery", async () => {
     const root = "/tmp/vitehub-nuxt-cli-discovery"
     await rm(root, { force: true, recursive: true })

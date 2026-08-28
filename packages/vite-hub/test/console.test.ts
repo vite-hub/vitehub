@@ -237,8 +237,10 @@ describe("Agent invocation console", () => {
 
       const first = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-a")
       const second = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-b")
+      const refreshedFirst = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-a")
 
       expect(second).not.toBe(first)
+      expect(refreshedFirst).toBe(first)
       expect(createConsoleInvocationsIdentity(root, file, revision, "runtime-a"))
         .not.toBe(createConsoleInvocationsIdentity(root, file, revision, "runtime-b"))
     }

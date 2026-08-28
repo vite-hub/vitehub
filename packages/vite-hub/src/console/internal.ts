@@ -61,6 +61,16 @@ export function resolveConsoleInvocationsRevision(
   return revisions?.get(identity)
 }
 
+export function resolveConsoleInvocationsByIdentity(
+  identity: string,
+  scope: ConsoleInvocationScope = globalThis,
+): AgentInvocations | undefined {
+  const registry = processRegistry(scope)
+  const registered = invocationsByRoot(registry?.[consoleInvocationsRegistryKey])
+  return registered?.get(identity)
+    ?? (scope[consoleInvocationsIdentityKey] === identity ? scope[consoleInvocationsKey] : undefined)
+}
+
 function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return

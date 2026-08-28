@@ -9,6 +9,7 @@ import {
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
+  resolveConsoleInvocationsByIdentity,
   resolveConsoleInvocationsIdentity,
   resolveConsoleInvocationsRevision,
 } from "../../internal.ts"
@@ -113,8 +114,8 @@ export function installConsoleFixtureInvocations(
   const fixture = generatedFixture ?? readConsoleFixture(resolvedFile)
   const revision = generatedRevision ?? consoleFixtureRevision(fixture)
   const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile, revision, runtimeBinding)
-  const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsIdentity() === identity && resolveConsoleInvocationsRevision(identity) === revision) return installed
+  const installed = resolveConsoleInvocationsByIdentity(identity)
+  if (installed && resolveConsoleInvocationsRevision(identity) === revision) return installed
   const invocations = createConsoleFixtureInvocationsFromSnapshot(fixture)
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity, revision)
   return invocations
