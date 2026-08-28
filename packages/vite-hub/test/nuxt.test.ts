@@ -400,6 +400,51 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroConfig.modules).toEqual([existingModule, nitroModule])
   })
 
+  it("finalizes Sandbox Wrangler config after every Nuxt replay contributor", async () => {
+    const configResolved = vi.fn((config: { nitro?: Record<string, unknown> }) => {
+      const migrations = ((config.nitro!.cloudflare as Record<string, unknown>).wrangler as Record<string, unknown>).migrations as Array<Record<string, unknown>>
+      migrations.splice(0, migrations.length, {
+        tag: "shared-v1",
+        new_sqlite_classes: migrations.flatMap(migration => migration.new_sqlite_classes as string[] || []),
+      })
+    })
+    mocks.vitehub.mockReturnValue([
+      {
+        name: "@vite-hub/sandbox/vite",
+        config: mocks.sandboxHook,
+        configResolved,
+      },
+      {
+        name: "vite-hub/later-cloudflare",
+        config(config: { nitro?: Record<string, unknown> }) {
+          const cloudflare = config.nitro?.cloudflare as Record<string, unknown>
+          const wrangler = cloudflare.wrangler as Record<string, unknown>
+          ;(wrangler.migrations as Array<Record<string, unknown>>).push({
+            tag: "shared-v1",
+            new_sqlite_classes: ["LaterObject"],
+          })
+        },
+      },
+    ])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig = {
+      cloudflare: {
+        wrangler: {
+          migrations: [{ tag: "shared-v1", new_sqlite_classes: ["Sandbox"] }],
+        },
+      },
+    }
+
+    await viteHubNuxtModule({ preset: "cloudflare", sandbox: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(configResolved).toHaveBeenCalledOnce()
+    expect(nitroConfig.cloudflare.wrangler.migrations).toEqual([{
+      tag: "shared-v1",
+      new_sqlite_classes: ["Sandbox", "LaterObject"],
+    }])
+  })
+
   it("installs the read-only console in Nuxt development and production", async () => {
     const development = createNuxt(true)
     const existingConsoleHandler = vi.fn()

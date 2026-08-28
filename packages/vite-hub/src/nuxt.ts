@@ -136,6 +136,11 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/kv/vite",
 ])
 
+const nitroConfigResolvedNames = new Set([
+  ...nitroRuntimeResolverNames,
+  "@vite-hub/sandbox/vite",
+])
+
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
   if (typeof plugin.resolveId === "function") return plugin.resolveId
   return plugin.resolveId?.handler
@@ -151,12 +156,12 @@ function pluginConfigResolvedHandler(plugin: Plugin): HookHandler<NonNullable<Pl
   return plugin.configResolved?.handler
 }
 
-async function initializeNitroRuntimeResolvers(plugins: Plugin[], config: UserConfig): Promise<void> {
+async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig): Promise<void> {
   for (const plugin of plugins) {
-    if (!nitroRuntimeResolverNames.has(plugin.name)) continue
+    if (!nitroConfigResolvedNames.has(plugin.name)) continue
     const configResolved = pluginConfigResolvedHandler(plugin)
     if (!configResolved) continue
-    // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime resolvers.
+    // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
     await configResolved.call({} as never, config as ResolvedConfig)
   }
 }
@@ -519,7 +524,7 @@ async function applyNitroConfig(
     }
   }
 
-  await initializeNitroRuntimeResolvers(plugins, config)
+  await finalizeNitroReplayPlugins(plugins, config)
 
   if (config.nitro) {
     installVitePluginNitroModules(config.nitro, plugins)

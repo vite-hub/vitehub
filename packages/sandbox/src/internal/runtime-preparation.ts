@@ -440,6 +440,7 @@ export async function prepareSandboxRuntime(options: {
       provider: undefined,
       rootDir,
       stateModule,
+      watchFiles: [],
     }
   }
 
@@ -468,6 +469,7 @@ export async function prepareSandboxRuntime(options: {
       provider: getSandboxFeatureProvider(context.config)?.provider,
       rootDir,
       stateModule,
+      watchFiles: plan.watchFiles || [],
     }
   }
 
@@ -495,5 +497,6 @@ export async function prepareSandboxRuntime(options: {
     provider: getSandboxFeatureProvider(context.config)?.provider,
     rootDir,
     stateModule,
+    watchFiles: plan.watchFiles || [],
   }
 }

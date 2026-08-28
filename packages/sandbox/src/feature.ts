@@ -19,7 +19,7 @@ import {
 import { extractSandboxDefinitionMetadata } from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
-import { resolveSandboxProject, type SandboxProject } from './project'
+import { getSandboxProjectSourceFiles, resolveSandboxProject, type SandboxProject } from './project'
 import { createSandboxTypeTemplateContents } from './type-template'
 import type { DiscoveredSandboxDefinition } from './discovery'
 
@@ -281,6 +281,9 @@ export async function createSandboxFeaturePlan(
 
   return {
     manifest,
+    watchFiles: [...new Set(definitionMetadata.flatMap(metadata => metadata.project
+      ? getSandboxProjectSourceFiles(metadata.project)
+      : []))],
     aliases: [
       { key: '#vitehub-sandbox-registry', artifactKey: 'sandbox-registry' },
       ...createSandboxProviderLoaderAliases(providerLoaderTarget),

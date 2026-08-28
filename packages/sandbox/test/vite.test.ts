@@ -1723,6 +1723,49 @@ describe("hubSandbox", () => {
     await expect(readPrompt()).resolves.toBe("updated prompt")
   })
 
+  it("refreshes generated projects when a pnpm patch input changes", async () => {
+    const rootDir = await createViteRoot()
+    const patch = join(rootDir, "patches/example.patch")
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    await mkdir(dirname(patch), { recursive: true })
+    await writeFile(patch, "initial patch")
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({
+      name: "vitehub-sandbox-vite-fixture",
+      packageManager: "pnpm@10.0.0",
+      pnpm: { patchedDependencies: { example: "patches/example.patch" } },
+      private: true,
+      type: "module",
+    }))
+    await writeFile(definition, [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ project: true, run: async () => ({ ok: true }) })`,
+      ``,
+    ].join("\n"))
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const artifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const initial = await readFile(artifact, "utf8")
+    await writeFile(patch, "updated patch")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: patch,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const updated = await readFile(artifact, "utf8")
+    expect(updated).not.toBe(initial)
+    expect(updated).toContain(Buffer.from("updated patch").toString("base64"))
+  })
+
   it("discovers a Sandbox when its package manifest is added during development", async () => {
     const rootDir = await createViteRoot()
     const projectDir = join(rootDir, "server/sandboxes/example")

@@ -54,6 +54,7 @@ export interface FeatureHandlerRegistration {
 
 export interface FeatureRuntimePlan {
   manifest: FeatureManifest
+  watchFiles?: string[]
   aliases?: FeatureAliasRegistration[]
   artifacts?: GeneratedArtifact[]
   handlers?: FeatureHandlerRegistration[]

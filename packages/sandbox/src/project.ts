@@ -24,6 +24,12 @@ export interface SandboxProject {
   packagePath: string
 }
 
+const sandboxProjectSourceFiles = new WeakMap<SandboxProject, string[]>()
+
+export function getSandboxProjectSourceFiles(project: SandboxProject): string[] {
+  return sandboxProjectSourceFiles.get(project) || []
+}
+
 type PackageManifest = {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
@@ -316,7 +322,7 @@ export async function resolveSandboxProject(
 
   const packagePath = relative(installRoot, packageRoot).replaceAll('\\', '/') || '.'
   const identity = JSON.stringify({ files, manager, packagePath })
-  return {
+  const project: SandboxProject = {
     digest: createHash('sha256').update(identity).digest('hex'),
     files,
     install: {
@@ -327,6 +333,11 @@ export async function resolveSandboxProject(
     ...(sandboxOptions ? { options: sandboxOptions } : {}),
     packagePath,
   }
+  sandboxProjectSourceFiles.set(
+    project,
+    Object.keys(files).map(path => resolve(installRoot, path)),
+  )
+  return project
 }
 
 async function firstDirectoryWithFile(directories: string[], file: string, root: string) {

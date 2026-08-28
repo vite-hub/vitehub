@@ -134,6 +134,7 @@ function isSandboxDefinitionUpdate(
   file: string,
   definitions: DiscoveredSandboxDefinition[],
   generatedFiles: string[],
+  watchFiles: string[],
   rootDir: string | undefined,
 ) {
   const changedFile = normalize(file)
@@ -141,6 +142,8 @@ function isSandboxDefinitionUpdate(
     return true
   if (generatedFiles.some(file => normalize(file) === changedFile))
     return false
+  if (watchFiles.some(file => normalize(file) === changedFile))
+    return true
   if (isSandboxProjectManifestUpdate(changedFile, rootDir))
     return true
   if (isSandboxProjectFileUpdate(changedFile, rootDir))
@@ -172,6 +175,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const mergeSandboxNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
+  let watchFiles: string[] = []
   let definitions: DiscoveredSandboxDefinition[] = []
   let rootDir: string | undefined
   let sandboxStateModule: string | undefined
@@ -224,6 +228,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     const prepared = await prepareCurrentSandboxRuntime()
     generatedAliases = prepared.aliases
     generatedFiles = prepared.files
+    watchFiles = prepared.watchFiles
     definitions = prepared.definitions
     rootDir = prepared.rootDir
     if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
@@ -283,6 +288,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       const prepared = await prepareCurrentSandboxRuntime(false)
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
+      watchFiles = prepared.watchFiles
       definitions = prepared.definitions
       rootDir = prepared.rootDir
       selectedProvider = prepared.provider
@@ -328,7 +334,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       }
     },
     async handleHotUpdate(context) {
-      if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, rootDir))
+      if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, watchFiles, rootDir))
         return
 
       await refreshSandboxRuntime(async (refresh) => {
