@@ -810,6 +810,34 @@ describe("framework generated types", () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
+  it("does not let a stalled restart owner block a successful owner", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const stalledRestart = vi.fn(() => new Promise<void>(() => {}))
+    const completedRestart = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(stalledRestart, { handlesHostRestart: true })
+    plugin.api.onGeneratedHandlersChanged(completedRestart, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+
+    expect(stalledRestart).toHaveBeenCalledWith([])
+    expect(completedRestart).toHaveBeenCalledWith([])
+    expect(restart).not.toHaveBeenCalled()
+  })
+
   it("retries a generated topology until a restart-owning listener succeeds", async () => {
     const { root } = await createNestedProject()
     const collection = join(root, "server/collections/meals.ts")
@@ -1071,6 +1099,40 @@ describe("framework generated types", () => {
     finishObserver?.()
     await oldRefresh
 
+    expect(oldRestart).not.toHaveBeenCalled()
+  })
+
+  it("prevents superseded Vite servers from replacing generated Source handlers", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "api/collections/meals.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["backend"] })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+
+    await oldListeners.get("change")?.(meals)
+
+    await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(drinks),
+    )
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     expect(oldRestart).not.toHaveBeenCalled()
   })
 

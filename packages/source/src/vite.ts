@@ -18,6 +18,7 @@ const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 const initialHostRefreshRetryDelay = 25
 const maximumHostRefreshRetryDelay = 1_000
+const hostRestartOwnerSettlementTimeout = 30_000
 
 export interface GeneratedSourceHandler {
   handler: string
@@ -363,6 +364,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let serverDirs: string[] | undefined
   let configuredHandlerKey = "[]"
   const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
+  const closeHostRefreshByRoot = new Map<string, () => void>()
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
     prepareSourceGeneration({ ...input, importBase: options.importBase })
@@ -425,6 +427,13 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const closeHostRefresh = () => {
         serverClosed = true
         clearHostRefreshRetry()
+        if (root && closeHostRefreshByRoot.get(root) === closeHostRefresh) {
+          closeHostRefreshByRoot.delete(root)
+        }
+      }
+      if (root) {
+        closeHostRefreshByRoot.get(root)?.()
+        closeHostRefreshByRoot.set(root, closeHostRefresh)
       }
       for (const environment of Object.values(server.environments)) {
         closeHostRefreshByEnvironment.set(environment, closeHostRefresh)
@@ -459,15 +468,32 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const hostRestartOwners = listeners.filter(([, listenerOptions]) =>
             listenerOptions.handlesHostRestart,
           )
-          const listenerResults = await Promise.allSettled(
-            hostRestartOwners.map(([listener]) => Promise.resolve().then(() => listener(handlers))),
-          )
+          const listenerResults = hostRestartOwners.map(async ([listener]) => {
+            try {
+              await listener(handlers)
+              return true
+            }
+            catch (error) {
+              server.config.logger.error(String(error))
+              return false
+            }
+          })
+          let ownerSettlementTimeout: ReturnType<typeof setTimeout> | undefined
+          const ownerSettlement = Promise.race([
+            Promise.all(listenerResults).then(results => results.some(Boolean)),
+            Promise.any(listenerResults.map(async result => (await result) || Promise.reject())).then(
+              () => true,
+              () => false,
+            ),
+            new Promise<false>((resolve) => {
+              ownerSettlementTimeout = setTimeout(() => resolve(false), hostRestartOwnerSettlementTimeout)
+              ownerSettlementTimeout.unref?.()
+            }),
+          ])
+          const hostRestartHandled = await ownerSettlement
+          if (ownerSettlementTimeout) clearTimeout(ownerSettlementTimeout)
           if (serverClosed) return
-          for (const result of listenerResults) {
-            if (result.status === "rejected") server.config.logger.error(String(result.reason))
-          }
           const hasHostRestartOwner = hostRestartOwners.length > 0
-          const hostRestartHandled = listenerResults.some(result => result.status === "fulfilled")
           if (hasHostRestartOwner && !hostRestartHandled) {
             scheduleHostRefreshRetry(file)
             return
