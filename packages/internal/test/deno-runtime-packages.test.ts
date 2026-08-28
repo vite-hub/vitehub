@@ -1071,6 +1071,22 @@ try { load("optional-native") } catch {}
     await expect(readFile(join(root, ".output/node_modules/optional-native/marker"), "utf8")).resolves.toBe("optional-native")
   })
 
+  it("keeps bundled native probes optional when their recorded package disappears", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-missing-bundled-optional-"))
+    const missingPackage = join(root, ".output/node_modules/optional-native")
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), `
+//#region ${relative(root, missingPackage).replaceAll("\\", "/")}/index.js
+try { require("optional-native") } catch {}
+//#endregion
+`)
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    expect(existsSync(join(root, ".output/node_modules/optional-native"))).toBe(false)
+  })
+
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-cycle-"))
     const plainDir = join(root, "node_modules/plain")

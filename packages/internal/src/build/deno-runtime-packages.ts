@@ -808,7 +808,16 @@ async function readRuntimePackages(
   for (const source of sources) {
     for (const name of collectImportedPackageNames(source)) {
       const existing = packages.get(name)
-      const resolvedPackageJsonPath = resolvedPackageJsonPaths.get(name)
+      let resolvedPackageJsonPath = resolvedPackageJsonPaths.get(name)
+      if (resolvedPackageJsonPath) {
+        try {
+          await access(resolvedPackageJsonPath)
+        }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+          resolvedPackageJsonPath = undefined
+        }
+      }
       packages.set(name, {
         ...existing,
         includeOptionalDependencies: true,
