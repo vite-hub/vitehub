@@ -1,5 +1,6 @@
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
+import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { basename, dirname, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
@@ -50,9 +51,7 @@ function mergeSandboxNitroProviderAliases(
   if (!Object.keys(providerAliases).length)
     return
 
-  const existing = nitro.alias && typeof nitro.alias === 'object' && !Array.isArray(nitro.alias)
-    ? nitro.alias as AliasMap
-    : {}
+  const existing = isPlainObject(nitro.alias) ? nitro.alias : {}
   nitro.alias = { ...existing, ...providerAliases }
 }
 
@@ -157,16 +156,29 @@ function isSandboxDefinitionUpdate(
 function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getModuleById: (id: string) => unknown, invalidateModule: (module: never) => void }) {
   for (const file of new Set(files.map(file => normalize(file)))) {
     const module = moduleGraph.getModuleById(file)
-    if (module)
+    if (module) {
+      // SAFETY: Vite returned this value from the same module graph that accepts it for invalidation.
       moduleGraph.invalidateModule(module as never)
+    }
   }
 }
 
+function publicSandboxOptions(options: AgentSandboxConfig & SandboxViteInternalOptions): SandboxPublicOptions {
+  // SAFETY: Removing the two package-private integration fields leaves the declared public Sandbox options.
+  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxPublicOptions
+}
+
+function mutableSandboxNitroTarget(value: unknown): Parameters<typeof configureCloudflareSandboxNitro>[0] {
+  // SAFETY: The caller first establishes Vite's Nitro config context before passing its Nitro value.
+  return value as Parameters<typeof configureCloudflareSandboxNitro>[0]
+}
+
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
+  // SAFETY: ViteHub adds these package-private integration fields before composing the Sandbox plugin.
   const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
-  const integrationOptions = options && typeof options === 'object'
-    ? Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxPublicOptions
-    : options
+  const integrationOptions = internalOptions
+    ? publicSandboxOptions(internalOptions)
+    : internalOptions
   const mergeSandboxNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
@@ -194,9 +206,12 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   }
 
   function cloneConfigValue<T>(value: T): T {
-    if (Array.isArray(value))
+    if (Array.isArray(value)) {
+      // SAFETY: Mapping an array recursively preserves the input array's generic structure.
       return value.map(cloneConfigValue) as T
-    if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    }
+    if (isPlainRecord(value) && Object.getPrototypeOf(value) === Object.prototype) {
+      // SAFETY: Reconstructing a plain record recursively preserves the input record's generic structure.
       return Object.fromEntries(
         Object.entries(value).map(([key, entry]) => [key, cloneConfigValue(entry)]),
       ) as T
@@ -249,8 +264,8 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
       return false
     config.nitro = await configureCloudflareSandboxNitro(
-      config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],
-      typeof config.root === 'string' ? config.root : process.cwd(),
+      mutableSandboxNitroTarget(config.nitro),
+      config.root ?? process.cwd(),
       prepared.cloudflare,
     )
     return true
@@ -261,6 +276,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     enforce: 'pre',
     nitro: { name: '@vite-hub/sandbox/provider-runtime', setup: sandboxNitroModule },
     async config(config, env) {
+      // SAFETY: Vite's config hook provides the mutable record stored for later Sandbox preparation.
       rawConfig = config as Record<string, unknown>
       rawEnv = env
       const prepared = await prepareCurrentSandboxRuntime(false)
@@ -268,9 +284,10 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedFiles = prepared.files
       definitions = prepared.definitions
       selectedProvider = prepared.provider
+      // SAFETY: Vite integrations may contribute Nitro config outside Vite's public UserConfig type.
       const nitro = (config as { nitro?: unknown }).nitro
-      if (nitro && typeof nitro === 'object') {
-        earlyNitroTarget = nitro as Record<string, unknown>
+      if (isPlainObject(nitro)) {
+        earlyNitroTarget = nitro
         earlyNitroSnapshot = cloneConfigValue(earlyNitroTarget)
       }
       composedCloudflareEarly = await composeCloudflareSandbox(config, prepared)
