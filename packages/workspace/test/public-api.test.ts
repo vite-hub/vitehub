@@ -165,8 +165,8 @@ describe("workspace public API", () => {
     expect(packageJson.peerDependenciesMeta?.["@vite-hub/sandbox"]).toBeUndefined()
     expect(packageJson.peerDependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
-    expect(packageJson.peerDependencies?.["@vercel/blob"]).toBe("catalog:storage")
-    expect(packageJson.peerDependenciesMeta?.["@vercel/blob"]).toEqual({ optional: true })
+    expect(packageJson.peerDependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(packageJson.peerDependenciesMeta?.["@vercel/blob"]).toBeUndefined()
     expect(builtServer).toContain("from \"h3\"")
     expect(declarations).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vercel/blob")
@@ -197,6 +197,7 @@ describe("workspace public API", () => {
     expect(builtVercelBlobStore).not.toContain('import("files-sdk/vercel-blob")')
     expect(builtVercelBlobStore).not.toContain('import("@vercel/blob")')
     expect(builtVercelBlobStore).not.toContain('from "@vercel/blob"')
+    expect(builtVercelBlobStore).not.toContain('from "undici"')
   })
 
   it("uses the writable facade for synced reads and writes", async () => {
