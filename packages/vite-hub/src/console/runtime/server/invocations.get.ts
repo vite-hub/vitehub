@@ -169,9 +169,13 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
         .filter(([pageKey]) => pageKey !== key)
         .flatMap(([, current]) => current.invocations.map(invocation => invocation.id)))
       const refillLimit = Math.max(0, pageLimit - otherIds.size)
-      pages[key] = refillLimit === 0
-        ? emptyPage
-        : await listLifecyclePage(statuses, refillLimit, cursor[key], agentName)
+      if (refillLimit === 0) {
+        pages[key] = emptyPage
+        deferredGroups.add(key)
+      }
+      else {
+        pages[key] = await listLifecyclePage(statuses, refillLimit, cursor[key], agentName)
+      }
       return refillLimit
     }
     if (await recheckLaterGroups(backfillBudget)) {
