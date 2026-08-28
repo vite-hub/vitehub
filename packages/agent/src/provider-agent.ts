@@ -304,7 +304,12 @@ async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> 
   }
 }
 
-async function materializeCodexCredentialOverlay(home: string, sharedHome: string, sharedHomeCaseInsensitive: boolean): Promise<void> {
+async function materializeCodexCredentialOverlay(
+  home: string,
+  sharedHome: string,
+  sharedHomeCaseInsensitive: boolean,
+  materializedEntries: Map<string, string>,
+): Promise<void> {
   await mkdir(sharedHome, { recursive: true })
   const discoveredEntries = await readdir(sharedHome)
   await Promise.all([
@@ -331,7 +336,6 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
   const entries = sharedHomeCaseInsensitive || shadowHomeCaseInsensitive
     ? new Map([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries].map(entry => [entry.toLowerCase(), entry])).values()
     : new Set([...discoveredEntries, ...codexSharedHomeDirectories, ...codexSharedHomeFiles])
-  const materializedEntries = new Set<string>()
   for (const entry of entries) {
     const comparableEntry = entry.toLowerCase()
     if (codexPrivateHomeEntries.has(comparableEntry) || codexLocalHomeEntries.has(comparableEntry)) continue
@@ -363,7 +367,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       else {
         await symlink(source, target, process.platform === "win32" && linkedEntry.isDirectory() ? "junction" : undefined)
       }
-      materializedEntries.add(comparableEntry)
+      materializedEntries.set(comparableEntry, entry)
     }
     catch (error) {
       // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
@@ -372,8 +376,14 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
   }
 }
 
-async function persistCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {
-  await settleAgentProviderCleanups((await readdir(home))
+async function persistCodexCredentialOverlay(home: string, sharedHome: string, materializedEntries: Map<string, string>): Promise<void> {
+  const homeEntries = await readdir(home)
+  const retainedEntries = new Set(homeEntries.map(entry => entry.toLowerCase()))
+  await settleAgentProviderCleanups([
+    ...[...materializedEntries]
+      .filter(([comparableEntry]) => !retainedEntries.has(comparableEntry))
+      .map(([, entry]) => rm(join(sharedHome, entry), { force: true, recursive: true })),
+    ...homeEntries
     .filter((entry) => {
       const comparableEntry = entry.toLowerCase()
       return !codexPrivateHomeEntries.has(comparableEntry) && !codexLocalHomeEntries.has(comparableEntry)
@@ -412,7 +422,8 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
       finally {
         await rm(temporary, { force: true, recursive: true })
       }
-    }))
+    }),
+  ])
 }
 
 async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1335,6 +1346,7 @@ async function* runProvider<
   const cleanupRoot = () => rootCleanup ??= removeProviderRoot(root)
   let credentialHome: string | undefined
   let credentialSharedHome: string | undefined
+  const credentialMaterializedEntries = new Map<string, string>()
   let releaseCredentialHomeLock: (() => void) | undefined
   let credentialOverlayRemoved = false
   const credentialOverlayOwners = new Set<Promise<void>>()
@@ -1358,7 +1370,9 @@ async function* runProvider<
   }
   const credentialCleanup = createAgentProviderCredentialCleanup(
     async () => {
-      if (credentialHome && credentialSharedHome) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome)
+      if (credentialHome && credentialSharedHome) {
+        await persistCodexCredentialOverlay(credentialHome, credentialSharedHome, credentialMaterializedEntries)
+      }
     },
     async () => {
       if (credentialHome) await rm(credentialHome, { force: true, recursive: true })
@@ -1544,7 +1558,7 @@ async function* runProvider<
       releaseCredentialHomeLock = await acquireCodexSharedHomeLock(sharedHomeKey, Boolean(credentialHome), effectiveSignal)
       if (credentialHome) {
         await waitForProviderOperation(
-          materializeCodexCredentialOverlay(credentialHome, credentialSharedHome, sharedHome.caseInsensitive),
+          materializeCodexCredentialOverlay(credentialHome, credentialSharedHome, sharedHome.caseInsensitive, credentialMaterializedEntries),
           effectiveSignal,
           () => undefined,
           (cleanup) => {

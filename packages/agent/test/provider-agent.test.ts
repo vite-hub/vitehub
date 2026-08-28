@@ -659,6 +659,33 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
+  it("persists removals from the Codex credential overlay", async () => {
+    const threadId = "thread-shared-codex-home-removal"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const sharedConfig = join(sharedHome, "config.toml")
+    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      await rm(join(String(options.settings?.homePath), "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
   it("serializes credential overlays that share a Codex home", async () => {
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     let releaseFirst!: () => void

@@ -60,7 +60,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build Agent test dependencies
-        run: vp run -t @vite-hub/agent#build
+        run: vp run -t @vite-hub/agent#build --filter '!@vite-hub/blob'
 
       - name: Codex credential ACLs
         shell: bash
