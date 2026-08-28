@@ -6411,6 +6411,33 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
   })
 
+  it("preserves raw usage after early UI message stream termination", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = { inputTokens: 2, outputTokens: 1, totalTokens: 3 }
+    const raw = Object.assign((async function* () {
+      yield { text: "partial", type: "text-delta" }
+      yield { text: " ignored", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    await expect(reader.read()).resolves.toMatchObject({ done: false })
+    await reader.cancel()
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({ usage: expect.objectContaining({ usage }) }),
+      result: expect.objectContaining({ usage }),
+    }))
+  })
+
   it("exposes explicit stream usage events to final output renderers", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

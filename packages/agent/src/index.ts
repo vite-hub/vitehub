@@ -5574,9 +5574,7 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
-    const driverUsageRecord = hasEagerFinishExtension
-      && (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
+    const driverUsageRecord = isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
       ? undefined
       : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
@@ -5650,11 +5648,14 @@ async function executeAgentInvocationWithCapacityLease<
         if (rejected) outcome = { error: rejected.reason, failed: true }
         const finishResult = await resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord, !outcome.failed && outcome.completed === true)
         if (!outcome.failed && !outcome.completed) {
+          const usage = finishResult && hasRuntimeType(finishResult, "object")
+            ? toAgentRunResult(finishResult).usageRecord
+            : undefined
           await lifecycle.finish({
             result: finishResult,
             status: "success",
-            ...(streamedUsageRecord
-              ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+            ...(usage
+              ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, invocation.run) }
               : {}),
             usageResolved: true,
           })
