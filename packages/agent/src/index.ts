@@ -1192,18 +1192,33 @@ async function applyChannelDeliveryEffectIntents<
       const deliveredIntent = intent.kind === "reply" && isAsyncIterable(intent.payload)
         ? {
             ...intent,
-            payload: (async function* () {
-              // SAFETY: isAsyncIterable establishes the asserted stream contract above.
-              for await (const chunk of intent.payload as AsyncIterable<string>) {
-                if (streamedReplyContent.length < 16 * 1024) {
-                  const remaining = 16 * 1024 - streamedReplyContent.length
-                  streamedReplyContent += chunk.slice(0, remaining)
-                  if (chunk.length > remaining) streamedReplyContentTruncated = true
+            payload: {
+              [Symbol.asyncIterator]() {
+                // SAFETY: isAsyncIterable establishes the asserted stream contract above.
+                const iterator = (intent.payload as AsyncIterable<string>)[Symbol.asyncIterator]()
+                return {
+                  async next() {
+                    const result = await iterator.next()
+                    if (result.done) return result
+                    const chunk = result.value
+                    if (streamedReplyContent.length < 16 * 1024) {
+                      const remaining = 16 * 1024 - streamedReplyContent.length
+                      streamedReplyContent += chunk.slice(0, remaining)
+                      if (chunk.length > remaining) streamedReplyContentTruncated = true
+                    }
+                    else if (chunk.length > 0) streamedReplyContentTruncated = true
+                    return result
+                  },
+                  async return() {
+                    return await iterator.return?.() ?? { done: true, value: undefined }
+                  },
+                  async throw(error?: unknown) {
+                    if (iterator.throw) return await iterator.throw(error)
+                    throw error
+                  },
                 }
-                else if (chunk.length > 0) streamedReplyContentTruncated = true
-                yield chunk
-              }
-            })(),
+              },
+            } satisfies AsyncIterable<string>,
           }
         : intent
       let handlerCompleted = false
