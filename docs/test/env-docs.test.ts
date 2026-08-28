@@ -6,6 +6,8 @@ import {
   forEachChild,
   isCallExpression,
   isIdentifier,
+  isImportDeclaration,
+  isNamedImports,
   isObjectLiteralExpression,
   isPropertyAccessExpression,
   isPropertyAssignment,
@@ -19,18 +21,19 @@ import {
 import { describe, expect, it } from "vitest";
 
 const docsRoot = resolve(import.meta.dirname, "..");
+const envDeclarationModules = new Set(["@vite-hub/env", "@vite-hub/env/vite", "vite-hub/env"]);
 
 function propertyName(node: Node) {
   return isIdentifier(node) || isStringLiteralLike(node) ? node.text : undefined;
 }
 
-function isEnvDeclaration(node: Node): node is CallExpression {
+function isEnvDeclaration(node: Node, bindings: ReadonlySet<string>): node is CallExpression {
   if (!isCallExpression(node)) return false;
-  if (isIdentifier(node.expression)) return node.expression.text === "env";
+  if (isIdentifier(node.expression)) return bindings.has(node.expression.text);
   return (
     isPropertyAccessExpression(node.expression) &&
     isIdentifier(node.expression.expression) &&
-    node.expression.expression.text === "env" &&
+    bindings.has(node.expression.expression.text) &&
     node.expression.name.text === "variable"
   );
 }
@@ -44,9 +47,25 @@ function envCalls(source: string) {
     ScriptKind.TS,
   );
   const calls: CallExpression[] = [];
+  const bindings = new Set(["env"]);
+
+  for (const statement of sourceFile.statements) {
+    if (
+      !isImportDeclaration(statement) ||
+      !isStringLiteralLike(statement.moduleSpecifier) ||
+      !envDeclarationModules.has(statement.moduleSpecifier.text) ||
+      !statement.importClause?.namedBindings ||
+      !isNamedImports(statement.importClause.namedBindings)
+    ) {
+      continue;
+    }
+    for (const element of statement.importClause.namedBindings.elements) {
+      if ((element.propertyName ?? element.name).text === "env") bindings.add(element.name.text);
+    }
+  }
 
   function visit(node: Node) {
-    if (isEnvDeclaration(node)) {
+    if (isEnvDeclaration(node, bindings)) {
       calls.push(node);
       return;
     }
@@ -107,10 +126,14 @@ describe("Env documentation", () => {
   it("parses supported declarations and ignores non-code calls", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
+import { env as declareEnv } from "@vite-hub/env/vite"
+import { env as unrelatedEnv } from "unrelated-env"
+
 const config = {
   public: {
-    appName: env({ source: env.source("APP_NAME"), mode: "build" }),
-    region: env.variable({ mode: "build" }),
+    appName: declareEnv({ source: declareEnv.source("APP_NAME"), mode: "build" }),
+    region: declareEnv.variable({ mode: "build" }),
+    ignored: unrelatedEnv({ mode: "runtime" }),
   },
 }
 // env({ mode: "runtime" })
