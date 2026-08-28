@@ -15,6 +15,7 @@ type H3EventWithHostContext = Omit<H3Event, "req"> & {
 }
 
 it("types the portable Rate Limit contract", async () => {
+  // SAFETY: This type-only fixture is never evaluated and exists to exercise the request event contract.
   const event = {} as H3EventWithHostContext
   expectTypeOf(await requireRateLimit(event, "uploads", { enforcement: "strict", failure: "deny", limit: 10, window: "1m" })).toEqualTypeOf<void>()
   expectTypeOf(await requireRateLimit(event, "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<void>()
