@@ -400,6 +400,34 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("allows progress observers to read the Source being materialized", async () => {
+    let view: ReturnType<typeof createWorkspaceSourceView>
+    const observed: string[] = []
+    view = createWorkspaceSourceView({
+      name: "lazy-progress-read",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# A\n" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({
+      async onProgress(event) {
+        if (event.status === "updating") observed.push(await view.readFile("docs/a.md", { encoding: "utf8" }))
+      },
+      sources: ["docs"],
+    })
+
+    expect(observed).toEqual(["# A\n"])
+  })
+
   it("reports failures during source fingerprinting", async () => {
     const progress: unknown[] = []
     const view = createWorkspaceSourceView({

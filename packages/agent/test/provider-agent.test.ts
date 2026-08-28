@@ -1476,6 +1476,35 @@ describe("Provider Agent Driver", () => {
     expect(activeSettled).toBe(true)
   })
 
+  it("keeps session materialization enabled after selected Source errors", async () => {
+    const threadId = "thread-workspace-materialization-error"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const materializeSources = vi.fn(async () => ({
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: "",
+      sources: [{ source: "docs", status: "error" }],
+    }))
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { name: "docs" },
+    }) as never)
+
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ materializeSources: false }))
+  })
+
   it("keeps colocated Skills readable and out of Workspace writeback", async () => {
     const threadId = "thread-workspace-colocated-skills"
     let root = ""

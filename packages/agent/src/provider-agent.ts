@@ -622,7 +622,8 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   })))
   const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
   if (failure) throw failure.reason
-  return true
+  return results.every(result => result.status === "fulfilled"
+    && result.value.sources.every(source => source.status === "ready"))
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
