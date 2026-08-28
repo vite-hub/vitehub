@@ -888,11 +888,11 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
         </li>
         <li>
           <strong>Deno:</strong> Agent chat and webhook routes and KV with <code>deno-kv</code> are
-          supported with their documented permissions. The standalone Schedule integration writes a
-          <code>Deno.cron</code> entrypoint, but
-          <code>vitehub({ preset: "deno", schedule: true })</code> rejects Schedule because that
-          output is outside the deployed Nitro entrypoint. ViteHub does not generate a general Deno
-          bundle or publish live proof.
+          supported with their documented permissions. A production build stages the Nitro
+          application and package-owned standalone Schedule output under <code>.output</code>.
+          Compose Schedule with <code>hubSchedule({ providerOutput: "standalone" })</code>;
+          <code>vitehub({ preset: "deno", schedule: true })</code> rejects Schedule because the
+          facade does not own that output. ViteHub does not publish live Deno proof.
         </li>
         <li>
           <strong>Nitro and UnJS:</strong> Auth and Agent handlers, the Schedule Nitro bridge,

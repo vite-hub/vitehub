@@ -21,7 +21,10 @@ export type McpServerConfig<
 > =
   | McpClient
   | McpClientConfig
-  | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<McpClient | McpClientConfig>)
+  | false
+  | null
+  | undefined
+  | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<McpClient | McpClientConfig | false | null | undefined>)
 
 export type McpToolFingerprints = Record<string, string>
 

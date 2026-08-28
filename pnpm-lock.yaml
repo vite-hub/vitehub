@@ -381,7 +381,7 @@ catalogs:
       specifier: ^1.38.7
       version: 1.38.7
     minimatch:
-      specifier: ^10.2.5
+      specifier: ^10.2.6
       version: 10.2.6
     mountx:
       specifier: 0.0.2

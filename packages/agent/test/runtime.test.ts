@@ -5590,16 +5590,13 @@ describe("agent message protocol", () => {
       waitUntil: vi.fn(),
     }, input)).resolves.toMatchObject({ text: "ok" })
 
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      input: expect.objectContaining(input),
-      invocation: expect.objectContaining({
-        durationMs: expect.any(Number),
-        run: { runId: "run-1" },
-      }),
-      result: { text: "ok" },
-      runtime: expect.objectContaining({ runtime: "unknown" }),
-    }))
+    expect(finish).toHaveBeenCalledOnce()
     const event = finish.mock.calls[0]![0]
+    expect(event.input).toMatchObject(input)
+    expect(event.invocation).toMatchObject({ run: { runId: "run-1" } })
+    expect(event.invocation.durationMs).toEqual(expect.any(Number))
+    expect(event.result).toEqual({ text: "ok" })
+    expect(event.runtime).toMatchObject({ runtime: "unknown" })
     expect(event.extensions.get("first")).toBe("ok:first")
     expect(event.extensions.get("second")).toEqual({ value: "second-value" })
     expect(event.extensions.get("second", "value")).toBe("second-value")

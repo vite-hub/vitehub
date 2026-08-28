@@ -701,9 +701,17 @@ async function readRuntimePackages(
   resolvedPackageJsonPaths: Map<string, string>,
 ): Promise<RuntimePackage[]> {
   const packages = new Map<string, RuntimePackage>()
+  const bundledPackageJsonPaths = new Map<string, Set<string>>()
   for (const file of (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()) {
     const source = await readFile(file, "utf8")
     for (const { name, path: packagePath } of collectBundledPackages(source)) {
+      const packageJsonPath = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
+      const bundledPaths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
+      bundledPaths.add(packageJsonPath)
+      bundledPackageJsonPaths.set(name, bundledPaths)
+      if (bundledPaths.size > 1) {
+        throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+      }
       const existing = packages.get(name)
       packages.set(name, {
         ...existing,
@@ -713,7 +721,7 @@ async function readRuntimePackages(
         name,
         onlyIfOptionalDependencies: existing?.onlyIfOptionalDependencies ?? true,
         optional: existing?.optional ?? true,
-        packageJsonPath: resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json"),
+        packageJsonPath,
       })
     }
     for (const name of collectImportedPackageNames(source)) {

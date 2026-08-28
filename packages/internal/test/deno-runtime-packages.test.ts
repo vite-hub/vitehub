@@ -361,7 +361,6 @@ import "real"
     await writeJson(join(second, "package.json"), { name: "shared-runtime", version: "2" })
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), [
-      'import "shared-runtime"',
       `//#region ${relative(root, first).replaceAll("\\", "/")}/index.js`,
       `//#region ${relative(root, second).replaceAll("\\", "/")}/index.js`,
     ].join("\n"))
