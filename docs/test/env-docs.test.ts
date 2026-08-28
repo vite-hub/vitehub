@@ -43,6 +43,7 @@ import {
   type Statement,
   ScriptKind,
   ScriptTarget,
+  SyntaxKind,
 } from "typescript";
 import { describe, expect, it } from "vitest";
 
@@ -356,6 +357,32 @@ function sectionObjects(sourceFile: Node) {
     });
   }
 
+  function deepEffectiveProperties(
+    expression: Expression,
+    prefix = "",
+    seen = new Set<ObjectLiteralExpression>(),
+  ): EffectiveProperties[] {
+    return effectiveProperties(expression, seen).flatMap((properties) => {
+      let alternatives: EffectiveProperties[] = [new Map()];
+      for (const [name, property] of properties) {
+        const value = propertyValue(property);
+        const nested = value
+          ? deepEffectiveProperties(value, `${prefix}${String(name)}.`, seen)
+          : [];
+        if (nested.length > 0) {
+          alternatives = alternatives.flatMap((effective) =>
+            nested.map((nestedProperties) => new Map([...effective, ...nestedProperties])),
+          );
+        } else {
+          for (const effective of alternatives) {
+            effective.set(`${prefix}${String(name)}`, property);
+          }
+        }
+      }
+      return alternatives;
+    });
+  }
+
   function propertyValue(property: Node) {
     if (isPropertyAssignment(property)) return property.initializer;
     if (isShorthandPropertyAssignment(property)) return property.name;
@@ -445,7 +472,7 @@ function sectionObjects(sourceFile: Node) {
             const sectionProperty = envProperties.get(section);
             const sectionValue = sectionProperty && propertyValue(sectionProperty);
             if (!sectionValue) continue;
-            const sectionAlternatives = effectiveProperties(sectionValue);
+            const sectionAlternatives = deepEffectiveProperties(sectionValue);
             if (sectionAlternatives.length === 0) continue;
             alternatives = alternatives.flatMap((configSections) =>
               sectionAlternatives.map((properties) => {
@@ -521,8 +548,8 @@ function sectionObjects(sourceFile: Node) {
     }
   }
 
-  function collectConfig(expression: Expression) {
-    for (const configSections of configSectionAlternatives(expression)) {
+  function collectConfig(expression: Expression | FunctionDeclaration) {
+    for (const configSections of configAlternativesFromResolved(expression)) {
       for (const [section, properties] of configSections) {
         for (const property of properties.values()) {
           sections.set(property, section);
@@ -545,6 +572,12 @@ function sectionObjects(sourceFile: Node) {
       if (node.arguments[0]) collectConfig(node.arguments[0]);
     } else if (isExportAssignment(node)) {
       collectConfig(node.expression);
+    } else if (
+      isFunctionDeclaration(node) &&
+      node.modifiers?.some(({ kind }) => kind === SyntaxKind.ExportKeyword) &&
+      node.modifiers.some(({ kind }) => kind === SyntaxKind.DefaultKeyword)
+    ) {
+      collectConfig(node);
     }
     forEachChild(node, collectSections);
   }
@@ -1045,6 +1078,25 @@ defineConfig(mergeConfig(
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, true, false]);
   });
 
+  it("recursively merges nested Define Env registries", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig, mergeConfig } from "vite"
+defineConfig(mergeConfig(
+  { env: { define: { group: { bad: env({ mode: "runtime" }) } } } },
+  { env: { define: { group: { label: "x" } } } },
+))
+defineConfig(mergeConfig(
+  { env: { define: { group: { replaced: env({ mode: "runtime" }) } } } },
+  { env: { define: { group: { replaced: env({ mode: "build" }) } } } },
+))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["define", "define"]);
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([false, true]);
+  });
+
   it("applies Vite config combinator overrides through callbacks and bindings", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -1096,6 +1148,19 @@ defineConfig(<UserConfig>{
 
     expect(calls.map(({ section }) => section)).toEqual(["public", "public", "define", "public"]);
     expect(calls.every(({ options }) => !hasBuildMode(options))).toBe(true);
+  });
+
+  it("follows default-exported configuration functions", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+export default function config() {
+  return { env: { public: { appName: env({ mode: "runtime" }) } } }
+}
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("follows referenced nested Define Env registries", () => {
