@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -83,7 +84,81 @@ describe("Provider Output finalizer", () => {
     const rootDir = await createTempProject()
     const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
     const outputFile = join(outputRoot, "index.js")
-    await mkdir(outputRoot, { recursive: true })
+    const customOutputRoot = join(rootDir, "custom-cloudflare")
+    const customOutputFile = join(customOutputRoot, "owner.js")
+    const ownershipFile = join(rootDir, ".vitehub/blob/cloudflare-output.json")
+    await Promise.all([
+      mkdir(outputRoot, { recursive: true }),
+      mkdir(customOutputRoot, { recursive: true }),
+      mkdir(dirname(ownershipFile), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(outputFile, "previous\n"),
+      writeFile(customOutputFile, "previous\n"),
+      writeFile(ownershipFile, "previous\n"),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await writeFile(outputFile, "replacement\n")
+        await write({
+          clientOutDir: "dist/client",
+          cloudflare: {
+            files: { "owner.js": "replacement\n" },
+            outputRoot: customOutputRoot,
+            wranglerConfig: {},
+          },
+          rootDir,
+        })
+        await writeFile(ownershipFile, "replacement\n")
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "database",
+      rootDir,
+      write: async () => { throw new Error("database failed") },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("database failed")
+    await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(customOutputFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
+  })
+
+  it("does not enter finalization when a root snapshot fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(dirname(outputRoot), { recursive: true })
+    const socket = createServer()
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject)
+      socket.listen(outputRoot, resolve)
+    })
+    const write = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir, write })
+
+    try {
+      await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow()
+      expect(write).not.toHaveBeenCalled()
+      expect(existsSync(outputRoot)).toBe(true)
+    }
+    finally {
+      await new Promise<void>(resolve => socket.close(() => resolve()))
+    }
+  })
+
+  it("restores snapshots across filesystems", async () => {
+    const memoryRoot = "/dev/shm"
+    if (!existsSync(memoryRoot)) return
+    const [temporaryFilesystem, memoryFilesystem] = await Promise.all([stat(tmpdir()), stat(memoryRoot)])
+    if (temporaryFilesystem.dev === memoryFilesystem.dev) return
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await mkdtemp(join(memoryRoot, "vitehub-provider-output-finalizer-"))
+    tempDirs.push(rootDir)
+    const outputFile = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    await mkdir(dirname(outputFile), { recursive: true })
     await writeFile(outputFile, "previous\n")
     contributeProviderDeploymentOutput(catalog, {
       owner: "agent",

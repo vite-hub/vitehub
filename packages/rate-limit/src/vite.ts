@@ -215,10 +215,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
           if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {
             throw new Error("[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves.")
           }
-          await writeRateLimitManifest(resolved.root, declarations, provider)
         }
         else {
-          await refreshDeclarations()
+          collectDeclarations()
         }
         const namespace = resolveRateLimitNamespace(rateLimit.namespace)
         const config = resolved

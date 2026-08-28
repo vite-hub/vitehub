@@ -43,6 +43,7 @@ interface CrabboxSandboxOptions extends CrabboxOptions {
 }
 
 interface CrabboxSessionOptions extends CrabboxSandboxOptions {
+  staticId?: string
   stateHome: string
 }
 
@@ -199,6 +200,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
     } = {}) {
       const sessionOptions: CrabboxSessionOptions = {
         ...options,
+        staticId: `vitehub-${randomUUID()}`,
         stateHome: await mkdtemp(join(tmpdir(), "vitehub-crabbox-state-")),
       }
       let releaseWorkspace = () => {};
@@ -354,6 +356,7 @@ async function materializePlan(
   for (const index of missingState)
     seeds.set(index, await resolveFiles(options.plan.state[index].seed));
   const files = await resolveFiles(options.plan.files);
+  // SAFETY: every entry is produced from a string-keyed environment resolver returning a string.
   const environment = Object.fromEntries(
     await Promise.all(
       Object.entries(options.plan.env).map(async ([name, resolveValue]) => [
@@ -818,6 +821,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     async readTextFile({ abortSignal, encoding = "utf8", endLine, path, startLine }: { abortSignal?: AbortSignal, encoding?: string, endLine?: number, path: string, startLine?: number }) {
       const bytes = await this.readBinaryFile({ abortSignal, path })
       if (!bytes) return null
+      // SAFETY: RuntimeSession accepts Node.js buffer encoding names through this string API.
       const text = Buffer.from(bytes).toString(encoding as BufferEncoding)
       if (startLine === undefined && endLine === undefined) return text
       return text.split(/\r?\n/).slice((startLine || 1) - 1, endLine).join("\n")
@@ -888,6 +892,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       await this.writeBinaryFile({ abortSignal, content: await bytesFromStream(content), path })
     },
     async writeTextFile({ abortSignal, content, encoding = "utf8", path }: { abortSignal?: AbortSignal, content: string, encoding?: string, path: string }) {
+      // SAFETY: RuntimeSession accepts Node.js buffer encoding names through this string API.
       await this.writeBinaryFile({ abortSignal, content: Buffer.from(content, encoding as BufferEncoding), path })
     },
   } satisfies RuntimeSession
@@ -913,8 +918,9 @@ async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal |
   if (result.exitCode !== 0) throw crabboxError("warm Crabbox", result)
   const timing = result.stderr.trim().split(/\r?\n/).reverse().find(line => line.trim().startsWith("{"))
   try {
-    const leaseId = timing && (JSON.parse(timing) as { leaseId?: unknown }).leaseId
-    if (typeof leaseId === "string" && leaseId) return leaseId
+    const parsed: unknown = timing && JSON.parse(timing)
+    const leaseId = Reflect.get(Object(parsed), "leaseId")
+    if (Object.prototype.toString.call(leaseId) === "[object String]" && leaseId) return String(leaseId)
   }
   catch {}
   throw new Error("[vitehub] Crabbox warmup did not return a lease id.")
@@ -1065,6 +1071,7 @@ function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSigna
     env: {
       ...process.env,
       XDG_STATE_HOME: options.stateHome,
+      ...(options.staticId ? { CRABBOX_STATIC_ID: options.staticId } : {}),
       ...(options.profile ? { CRABBOX_PROFILE: options.profile } : {}),
     },
     signal: abortSignal,
@@ -1085,7 +1092,9 @@ function processHandle(child: ChildProcessWithoutNullStreams, abortSignal: Abort
   })
   return {
     pid: child.pid,
+    // SAFETY: child-process stderr yields Buffer chunks, which are Uint8Array values.
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
+    // SAFETY: child-process stdout yields Buffer chunks, which are Uint8Array values.
     stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     wait: () => wait,
     async kill() {

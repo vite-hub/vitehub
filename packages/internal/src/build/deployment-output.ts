@@ -568,8 +568,10 @@ async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyP
 async function writeProviderDeploymentOutputsNow(
   options: ProviderDeploymentOutputOptions,
   signal?: AbortSignal,
+  transaction?: ProviderDeploymentOutputRootTransaction,
 ): Promise<void> {
   signal?.throwIfAborted()
+  await transaction?.snapshot(providerDeploymentOutputPaths(options))
   const writes: Array<Promise<void>> = []
   if (options.cloudflare) {
     writes.push(writeCloudflareDeploymentOutput({
@@ -597,20 +599,42 @@ async function writeProviderDeploymentOutputsNow(
   await options.afterWrite?.(signal)
   signal?.throwIfAborted()
 
-  const cleanups: Array<Promise<void>> = []
+  const cleanups: Array<() => Promise<void>> = []
+  const cleanupPaths: string[] = []
   if (!options.cloudflare && options.cleanup?.cloudflare) {
-    cleanups.push(cleanupCloudflareDeploymentOutput(options.rootDir, options.cleanup.cloudflare, signal))
+    const cleanup = typeof options.cleanup.cloudflare === "function"
+      ? await options.cleanup.cloudflare()
+      : options.cleanup.cloudflare
+    cleanupPaths.push(cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir))
+    cleanups.push(async () => await cleanupCloudflareDeploymentOutput(options.rootDir, cleanup, signal))
   }
   if (!options.netlify && options.cleanup?.netlify) {
-    cleanups.push(cleanupNetlifyDeploymentOutput(options.rootDir, options.cleanup.netlify, signal))
+    const cleanup = options.cleanup.netlify
+    cleanupPaths.push(cleanup.outputRoot ?? createDefaultNetlifyOutputRoot(options.rootDir))
+    cleanups.push(async () => await cleanupNetlifyDeploymentOutput(options.rootDir, cleanup, signal))
   }
   if (!options.vercel && options.cleanup?.vercel) {
     const cleanup = typeof options.cleanup.vercel === "function" ? await options.cleanup.vercel() : options.cleanup.vercel
     signal?.throwIfAborted()
-    if (cleanup) cleanups.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup, signal))
+    if (cleanup) {
+      const items = Array.isArray(cleanup) ? cleanup : [cleanup]
+      cleanupPaths.push(...items.map(item => item.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)))
+      cleanups.push(async () => await cleanupVercelDeploymentOutputs(options.rootDir, cleanup, signal))
+    }
   }
-  await settleWrites(cleanups)
+  await transaction?.snapshot(cleanupPaths)
+  await settleWrites(cleanups.map(cleanup => cleanup()))
   signal?.throwIfAborted()
+}
+
+function providerDeploymentOutputPaths(options: ProviderDeploymentOutputOptions): string[] {
+  return [
+    options.cloudflare?.outputRoot,
+    options.cloudflare?.staticOutputDir,
+    options.netlify?.outputRoot,
+    options.vercel?.outputRoot,
+    options.vercel?.staticOutputDir,
+  ].filter((path): path is string => Boolean(path))
 }
 
 async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operation: () => Promise<T>): Promise<T> {
@@ -626,26 +650,86 @@ async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operatio
   }
 }
 
-async function withProviderDeploymentOutputRootTransaction<T>(rootDir: string, operation: () => Promise<T>): Promise<T> {
+interface ProviderDeploymentOutputSnapshot {
+  backup: string
+  path: string
+  present: boolean
+}
+
+interface ProviderDeploymentOutputRootTransaction {
+  snapshot: (paths: string[]) => Promise<void>
+}
+
+function pathContains(parent: string, child: string): boolean {
+  const nested = relative(parent, child)
+  return !nested || (!nested.startsWith(`..${sep}`) && nested !== ".." && !isAbsolute(nested))
+}
+
+async function restoreProviderDeploymentOutputSnapshot(snapshot: ProviderDeploymentOutputSnapshot): Promise<void> {
+  if (!snapshot.present) {
+    await rm(snapshot.path, { force: true, recursive: true })
+    return
+  }
+  const restoreRoot = await mkdtemp(resolve(dirname(snapshot.path), ".vitehub-provider-output-restore-"))
+  const staged = resolve(restoreRoot, "snapshot")
+  let restored = false
+  try {
+    await cp(snapshot.backup, staged, { recursive: true })
+    await rm(snapshot.path, { force: true, recursive: true })
+    await rename(staged, snapshot.path)
+    restored = true
+  }
+  finally {
+    if (restored) await rm(restoreRoot, { force: true, recursive: true })
+  }
+}
+
+async function withProviderDeploymentOutputRootTransaction<T>(
+  rootDir: string,
+  operation: (transaction: ProviderDeploymentOutputRootTransaction) => Promise<T>,
+): Promise<T> {
   const roots = [
     createDefaultCloudflareOutputRoot(rootDir),
     createDefaultCloudflareStaticOutputDir(rootDir),
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
+    resolve(rootDir, ".vitehub"),
   ]
   const transactionRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-output-"))
-  const snapshots = roots.map((path, index) => ({ backup: resolve(transactionRoot, String(index)), path, present: existsSync(path) }))
+  const snapshots = new Map<string, ProviderDeploymentOutputSnapshot>()
+  let snapshotIndex = 0
+  const transaction: ProviderDeploymentOutputRootTransaction = {
+    async snapshot(paths) {
+      const candidates = [...new Set(paths.map(path => resolve(path)))]
+        .sort((left, right) => left.length - right.length)
+        .filter((path, index, all) => !all.slice(0, index).some(parent => pathContains(parent, path)))
+        .filter(path => ![...snapshots.keys()].some(parent => pathContains(parent, path)))
+      const expanding = candidates.find(path => [...snapshots.keys()].some(child => pathContains(path, child)))
+      if (expanding) throw new Error(`Provider Output transaction cannot expand over an active snapshot: ${expanding}`)
+      const pending = candidates.map(path => ({
+        backup: resolve(transactionRoot, String(snapshotIndex++)),
+        path,
+        present: existsSync(path),
+      }))
+      const results = await Promise.allSettled(pending.map(async (snapshot) => {
+        if (snapshot.present) await cp(snapshot.path, snapshot.backup, { recursive: true })
+      }))
+      const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+      if (failure) {
+        await Promise.all(pending.map(snapshot => rm(snapshot.backup, { force: true, recursive: true })))
+        throw failure.reason
+      }
+      for (const snapshot of pending) snapshots.set(snapshot.path, snapshot)
+    },
+  }
   try {
-    await Promise.all(snapshots.filter(snapshot => snapshot.present).map(snapshot => cp(snapshot.path, snapshot.backup, { recursive: true })))
-    const result = await operation()
+    await transaction.snapshot(roots)
+    const result = await operation(transaction)
     await rm(transactionRoot, { force: true, recursive: true })
     return result
   }
   catch (error) {
-    const restorations = await Promise.allSettled(snapshots.map(async (snapshot) => {
-      await rm(snapshot.path, { force: true, recursive: true })
-      if (snapshot.present) await rename(snapshot.backup, snapshot.path)
-    }))
+    const restorations = await Promise.allSettled([...snapshots.values()].map(restoreProviderDeploymentOutputSnapshot))
     if (restorations.every(result => result.status === "fulfilled")) {
       await rm(transactionRoot, { force: true, recursive: true })
     }
@@ -775,7 +859,7 @@ export async function finalizeProviderDeploymentOutputs(
         }
         await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
           await withProviderDeploymentOutputRootLock(rootDir, async () => {
-            await withProviderDeploymentOutputRootTransaction(rootDir, async () => {
+            await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
               for (const contribution of rootContributions) {
                 throwIfProviderOutputAborted(controller.signal)
                 try {
@@ -783,7 +867,7 @@ export async function finalizeProviderDeploymentOutputs(
                     signal: controller.signal,
                     write: async (writeOptions) => {
                       throwIfProviderOutputAborted(controller.signal)
-                      await writeProviderDeploymentOutputsNow(writeOptions, controller.signal)
+                      await writeProviderDeploymentOutputsNow(writeOptions, controller.signal, transaction)
                     },
                   })
                 }
