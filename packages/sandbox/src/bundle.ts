@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { builtinModules } from 'node:module'
 import { basename } from 'pathe'
 import { prepareExecutablePackageProject } from './internal/package-entry'
 import { bundleDiscoveredDefinitionModuleGraph } from './internal/shared/discovered-definition'
@@ -6,6 +7,10 @@ import type { SandboxDefinitionBundle } from './module-types'
 import type { SandboxProject } from './project'
 
 const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
+const builtinModuleSet = new Set([
+  ...builtinModules,
+  ...builtinModules.map(name => `node:${name}`),
+])
 
 export async function bundleSandboxDefinition(
   source: string,
@@ -28,7 +33,11 @@ export async function bundleSandboxDefinition(
     }
   }
 
-  const bundle = await bundleDiscoveredDefinitionModuleGraph({
+  const {
+    externalImports,
+    hasRuntimeModuleResolution,
+    ...bundle
+  } = await bundleDiscoveredDefinitionModuleGraph({
     alias: options.alias,
     filename: file,
     packages: options.project ? 'external' : 'bundle',
@@ -86,7 +95,8 @@ export async function bundleSandboxDefinition(
       },
     ],
   })
-  if (!options.project) {
+  const requiresProject = hasRuntimeModuleResolution || externalImports.some(specifier => !builtinModuleSet.has(specifier))
+  if (!options.project || !requiresProject) {
     return {
       ...bundle,
       ...(options.execution ? { execution: options.execution } : {}),

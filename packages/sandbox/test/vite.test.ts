@@ -347,6 +347,36 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
   })
 
+  it.each(["cloudflare", "vercel"] as const)("omits self-contained Definition projects for the %s provider", async (provider) => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "src/lib"), { recursive: true })
+    await writeFile(join(rootDir, "src/lib/message.ts"), `export const message = "self-contained"\n`)
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
+      `import { basename } from "node:path"`,
+      `import { message } from "../lib/message.ts"`,
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ run: async () => ({ message, name: basename("/tmp/value") }) })`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const generated = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"),
+      "utf8",
+    )
+    const artifact = JSON.parse(generated.slice("export default ".length))
+    expect(artifact.bundle).not.toHaveProperty("project")
+    expect(artifact.bundle.entry).toBe("definition.js")
+    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain('from "node:path"')
+    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain("self-contained")
+  })
+
   it("preserves the nearest package project for a Definition", async () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "node_modules/kleur"), { recursive: true })
