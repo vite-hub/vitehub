@@ -71,9 +71,31 @@ function isStandaloneCall(source: string, start: number) {
   return source[prefixIndex] !== '.' && source[prefixIndex] !== '#'
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function collectCreateRequireAliases(source: string): Set<string> {
+  const factories = new Set<string>()
+  for (const match of source.matchAll(/(?:^|[;\n])\s*import\s*\{([^}]*)\}\s*from\s*["']node:module["']/gm)) {
+    for (const specifier of match[1]!.split(",")) {
+      const imported = /^\s*createRequire(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(specifier)
+      if (imported) factories.add(imported[1] ?? "createRequire")
+    }
+  }
+  if (factories.size === 0) return new Set()
+
+  const aliases = new Set<string>()
+  const factoryPattern = [...factories].map(escapeRegExp).join("|")
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${factoryPattern})\\s*\\(`, "g")
+  for (const match of source.matchAll(declaration)) aliases.add(match[1]!)
+  return aliases
+}
+
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
-  const executableSource = maskInertImportText(source)
+  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
+  const executableSource = maskInertImportText(source, createRequireAliases)
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
@@ -84,9 +106,9 @@ function collectImportedPackageNames(source: string): Set<string> {
       if (name) names.add(name)
     }
   }
-  for (const match of executableSource.matchAll(
-    /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*(?:,|\))/g,
-  )) {
+  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
+  const requirePattern = new RegExp(`\\b(?:${requireNames})(?:\\s*\\.\\s*resolve)?\\s*\\(\\s*["']([^"']+)["']\\s*(?:,|\\))`, "g")
+  for (const match of executableSource.matchAll(requirePattern)) {
     if (!isStandaloneCall(executableSource, match.index))
       continue
     const name = packageNameFromSpecifier(match[1]!)
@@ -208,7 +230,7 @@ function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
   return imports
 }
 
-function maskInertImportText(source: string): string {
+function maskInertImportText(source: string, packageCallNames = new Set<string>()): string {
   let output = ""
   let index = 0
 
@@ -321,7 +343,10 @@ function maskInertImportText(source: string): string {
       }
       if (character === '"' || character === "'") {
         const prefix = output.slice(Math.max(0, output.length - 120))
-        const keep = /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
+        const keepPackageCall = [...packageCallNames].some((name) =>
+          new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*\\(\\s*$`).test(prefix),
+        )
+        const keep = keepPackageCall || /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
         let end = index + 1
         while (end < source.length) {
           if (source[end] === "\\") end += 2
@@ -706,8 +731,27 @@ async function readRuntimePackages(
   for (const file of (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()) {
     const source = await readFile(file, "utf8")
     for (const { name, path: packagePath } of collectBundledPackages(source)) {
-      const packageJsonPath = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
       const bundledPaths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
+      const candidates = isAbsolute(packagePath)
+        ? [resolve(packagePath, "package.json")]
+        : [
+            resolve(rootDir, packagePath, "package.json"),
+            resolve(dirname(file), packagePath, "package.json"),
+          ]
+      let packageJsonPath: string | undefined
+      for (const candidate of candidates) {
+        try {
+          packageJsonPath = await realpath(candidate)
+          break
+        }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        }
+      }
+      packageJsonPath ??= bundledPaths.size === 1 ? bundledPaths.values().next().value : undefined
+      packageJsonPath ??= resolvedPackageJsonPaths.get(name)
+      packageJsonPath ??= await resolvePackageJson(name, createRequire(join(rootDir, "package.json")), rootDir)
+      packageJsonPath = packageJsonPath ? await realpath(packageJsonPath) : candidates[0]!
       bundledPaths.add(packageJsonPath)
       bundledPackageJsonPaths.set(name, bundledPaths)
       if (bundledPaths.size > 1) {

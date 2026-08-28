@@ -72,6 +72,17 @@ await import(\`escaped\\u002dtemplate-package\`)
 `)).toEqual(["data-package", "escaped-template-package", "function-options", "identifier-options", "template-package"])
   })
 
+  it("finds packages loaded through createRequire aliases", () => {
+    expect(collectDenoRuntimePackageNames(`
+import { createRequire as makeRequire } from "node:module"
+const load = makeRequire(import.meta.url)
+load("aliased-runtime")
+load.resolve("@scope/aliased-resolve/entry")
+loader.load("member-runtime")
+const inert = 'load("inert-runtime")'
+`)).toEqual(["@scope/aliased-resolve", "aliased-runtime"])
+  })
+
   it("ignores import- and require-shaped member calls", () => {
     expect(collectDenoRuntimePackageNames(`
 loader.import("member-data", { with: { type: "json" } })
@@ -867,6 +878,22 @@ __require.resolve("@scope/bundled-runtime/entry")
 
     await expect(readFile(join(root, ".output/node_modules/direct-runtime/marker"), "utf8")).resolves.toBe("direct-runtime")
     await expect(readFile(join(root, ".output/node_modules/@scope/bundled-runtime/marker"), "utf8")).resolves.toBe("@scope/bundled-runtime")
+  })
+
+  it("stages packages loaded through createRequire aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-alias-"))
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "aliased-runtime")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), `
+import { createRequire as makeRequire } from "node:module"
+const load = makeRequire(import.meta.url)
+load("aliased-runtime")
+`)
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/aliased-runtime/marker"), "utf8")).resolves.toBe("aliased-runtime")
   })
 
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {

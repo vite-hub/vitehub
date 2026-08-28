@@ -23,20 +23,6 @@ const commandErrorSchema = object({
   stdout: optional(union([string(), instance(Buffer)])),
 })
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
-function isString(value: unknown): value is string {
-  return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
-}
-
-function parseRecord(value: string, label: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(value)
-  if (!isRecord(parsed)) throw new TypeError(`Expected ${label} to contain a JSON object`)
-  return parsed
-}
-
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
@@ -97,6 +83,13 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "nodejs_compat",
   ], appDir)
   return parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
+}
+
+function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {
+  return Object.values(outputs)
+    .flatMap(output => output.imports || [])
+    .filter(entry => entry.external)
+    .map(entry => entry.path)
 }
 
 describe("packed Source capability closures", () => {
