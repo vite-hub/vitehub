@@ -171,14 +171,18 @@ const codexSharedHomeDirectories = [
 const codexSharedHomeFiles = ["history.jsonl"] as const
 const codexPrivateHomeEntries = new Set(["auth.json", "models_cache.json"])
 const codexLocalHomeEntries = new Set(["log", "memories", "tmp"])
+const codexSharedHomeLocks = new Map<string, Promise<void>>()
 const providerHostPlatform = process.platform
 const restrictWindowsCodexCredentialHomeScript = String.raw`
 $ErrorActionPreference = "Stop"
 $path = $env:VITEHUB_CODEX_CREDENTIAL_HOME
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$security = [System.Security.AccessControl.DirectorySecurity]::new()
+$directory = [System.IO.DirectoryInfo]::new($path)
+$security = [System.IO.FileSystemAclExtensions]::GetAccessControl($directory)
 $security.SetAccessRuleProtection($true, $false)
-$security.SetOwner($identity)
+foreach ($existing in @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))) {
+  [void]$security.RemoveAccessRuleSpecific($existing)
+}
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
   $identity,
   [System.Security.AccessControl.FileSystemRights]::FullControl,
@@ -186,8 +190,7 @@ $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
   [System.Security.AccessControl.PropagationFlags]::None,
   [System.Security.AccessControl.AccessControlType]::Allow
 )
-$security.SetAccessRule($rule)
-$directory = [System.IO.DirectoryInfo]::new($path)
+$security.AddAccessRule($rule)
 [System.IO.FileSystemAclExtensions]::SetAccessControl($directory, $security)
 $applied = [System.IO.FileSystemAclExtensions]::GetAccessControl($directory)
 $owner = $applied.GetOwner([System.Security.Principal.SecurityIdentifier])
@@ -242,9 +245,12 @@ async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command], {
       env: providerEnvironment({ VITEHUB_CODEX_CREDENTIAL_HOME: home }),
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     })
+    const output: Buffer[] = []
+    child.stdout.on("data", chunk => output.push(Buffer.from(chunk)))
+    child.stderr.on("data", chunk => output.push(Buffer.from(chunk)))
     let settled = false
     const finish = (error?: unknown) => {
       if (settled) return
@@ -255,7 +261,10 @@ async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
     child.once("error", finish)
     child.once("close", (code, childSignal) => {
       if (code === 0) finish()
-      else finish(new Error(`[vitehub] Restricting the Codex credential home exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}.`))
+      else {
+        const detail = Buffer.concat(output).toString("utf8").trim()
+        finish(new Error(`[vitehub] Restricting the Codex credential home exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}${detail ? `: ${detail}` : "."}`))
+      }
     })
   })
 }
@@ -275,7 +284,14 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
     .map(async (entry) => {
       const source = join(sharedHome, entry)
       const target = join(home, entry)
-      const sourceEntry = await stat(source)
+      const sourceEntry = await lstat(source)
+      if (sourceEntry.isSymbolicLink()) {
+        const linkedEntry = await stat(source).catch((error) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+          throw error
+        })
+        if (!linkedEntry) return
+      }
       if (process.platform === "win32" && sourceEntry.isFile()) {
         await link(source, target).catch(async (error) => {
           const code = (error as NodeJS.ErrnoException).code
@@ -1177,6 +1193,7 @@ async function* runProvider<
   const cleanupRoot = () => rootCleanup ??= removeProviderRoot(root)
   let credentialHome: string | undefined
   let credentialSharedHome: string | undefined
+  let releaseCredentialHomeLock: (() => void) | undefined
   let credentialHomeCleanup: Promise<void> | undefined
   const cleanupCredentialHome = () => credentialHomeCleanup ??= (async () => {
     if (!credentialHome) return
@@ -1341,6 +1358,8 @@ async function* runProvider<
     }
     if (credentialHome) {
       credentialSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
+      const sharedHomeKey = providerHostPlatform === "win32" ? credentialSharedHome.toLowerCase() : credentialSharedHome
+      releaseCredentialHomeLock = await acquireProviderSessionLock(codexSharedHomeLocks, sharedHomeKey, effectiveSignal)
       await materializeCodexCredentialOverlay(credentialHome, credentialSharedHome)
       providerSettings.homePath = credentialHome
       delete providerSettings.shadowHomePath
@@ -1573,8 +1592,12 @@ async function* runProvider<
       cleanup.dispose()
     }
     const deferredCleanup = forcedCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
-    if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
-    else releaseSessionLock?.()
+    const releaseInvocationLocks = () => {
+      releaseCredentialHomeLock?.()
+      releaseSessionLock?.()
+    }
+    if (deferredCleanup) void deferredCleanup.then(releaseInvocationLocks, releaseInvocationLocks)
+    else releaseInvocationLocks()
     if (sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
         resumeCursors.set(sessionKey, pendingResumeCursor)

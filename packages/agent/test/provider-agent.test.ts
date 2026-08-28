@@ -312,6 +312,60 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it.runIf(process.platform !== "win32")("ignores dangling links in the shared Codex home", async () => {
+    const threadId = "thread-dangling-codex-home-link"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await symlink(join(sharedHome, "missing-skill"), join(sharedHome, "stale-skill"))
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await expect(adapter.generate(context(threadId) as never)).resolves.toBeDefined()
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes credential overlays that share a Codex home", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
+    const first = runtime("thread-shared-home-first", [event("turn.completed", "thread-shared-home-first", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => firstBlocked,
+    })
+    runtime("thread-shared-home-second", [event("turn.completed", "thread-shared-home-second", { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const firstInvocation = adapter.generate(context("thread-shared-home-first") as never)
+      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      const secondInvocation = adapter.generate(context("thread-shared-home-second") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseFirst()
+      await expect(firstInvocation).resolves.toBeDefined()
+      await expect(secondInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseFirst()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
   it("passes Codex reasoning selections to provider session startup", async () => {
     const threadId = "thread-reasoning-options"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
