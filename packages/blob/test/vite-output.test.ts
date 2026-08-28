@@ -1034,7 +1034,7 @@ describe("Vite provider outputs", () => {
 
     const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
     const serverContents = await readFile(join(functionRoot, "index.mjs"), "utf8")
-    const executableContents = (await transform(serverContents, { legalComments: "none", loader: "js" })).code
+    const executableContents = (await transform(serverContents, { legalComments: "none", loader: "js", minifySyntax: true })).code
     expect(executableContents).not.toMatch(/(?:from\s*|import\()\s*["']@azure\//)
     expect(executableContents).not.toMatch(/(?:from\s*|import\()\s*["']files-sdk(?:\/|["'])/)
     expect(existsSync(join(functionRoot, "node_modules", "@azure", "storage-blob"))).toBe(false)

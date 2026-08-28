@@ -139,7 +139,9 @@ function createListPageFetcher(options: NetlifyBlobsStoreConfig, connection: Res
   const storeName = options.deployScoped
     ? `deploy:${context.deployID}${options.name ? `:${options.name}` : ""}`
     : `site:${options.name}`
-  const edgeURL = options.consistency === "strong" ? context.uncachedEdgeURL : context.edgeURL
+  const edgeURL = context.edgeURL
+    ? options.consistency === "strong" ? context.uncachedEdgeURL : context.edgeURL
+    : undefined
   if (options.consistency === "strong" && context.edgeURL && !edgeURL) {
     throw new Error("Netlify Blobs strong consistency requires an uncached edge URL.")
   }

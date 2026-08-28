@@ -85,4 +85,29 @@ describe("Netlify Blobs runtime", () => {
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer explicit-token")
     }
   })
+
+  it("keeps strong listing on the API endpoint when edge mode is inactive", async () => {
+    vi.stubGlobal("netlifyBlobsContext", btoa(JSON.stringify({
+      apiURL: "https://api.example.test",
+      siteID: "context-site",
+      token: "context-token",
+      uncachedEdgeURL: "https://uncached.example.test",
+    })))
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => init?.method === "HEAD"
+      ? new Response(null, { status: 404 })
+      : new Response(JSON.stringify({ blobs: [], directories: [] }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { createDriver } = await import("../src/drivers/netlify-blobs.ts")
+    const driver = createDriver({ consistency: "strong", driver: "netlify-blobs", name: "vitehub-blob" })
+    await driver.head("proof.txt")
+    await driver.list()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    for (const [input] of fetchMock.mock.calls) {
+      const url = new URL(input.toString())
+      expect(url.origin).toBe("https://api.example.test")
+      expect(url.pathname).toContain("/api/v1/blobs/context-site/site:vitehub-blob")
+    }
+  })
 })
