@@ -611,7 +611,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
-  if (!materialize || (paths && !paths.length)) return
+  if (!materialize || (paths && !paths.length)) return false
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
   const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
@@ -622,6 +622,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   })))
   const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
   if (failure) throw failure.reason
+  return true
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
@@ -630,11 +631,11 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     throw new Error("[vitehub] Provider Agent Driver Workspaces require a POSIX Node host.")
   }
   const paths = selectedWorkspacePaths(context)
-  await materializeWorkspaceSources(context, paths)
+  const materializedSources = await materializeWorkspaceSources(context, paths)
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
-    materializeSources: false,
+    ...(materializedSources ? { materializeSources: false } : {}),
     onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,

@@ -1625,7 +1625,7 @@ describe("Provider Agent Driver", () => {
     expect(session.close).toHaveBeenCalledOnce()
   })
 
-  it("does not write back a read-only Workspace", async () => {
+  it("keeps session materialization and disables writeback for a read-only Workspace", async () => {
     const threadId = "thread-workspace-read"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const session = {
@@ -1650,6 +1650,7 @@ describe("Provider Agent Driver", () => {
     expect(session.diff).not.toHaveBeenCalled()
     expect(session.commit).not.toHaveBeenCalled()
     expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ writeBack: false }))
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ materializeSources: false }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
     expect(session.close).toHaveBeenCalledOnce()
