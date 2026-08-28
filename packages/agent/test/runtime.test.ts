@@ -981,6 +981,41 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("traces execution and cleanup stages when they throw the same value", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    for (const sharedFailure of [new Error("shared failure"), "shared failure"]) {
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          close: async () => { throw sharedFailure },
+          id: "shared-cleanup-failure",
+        })],
+        driver: { run: async () => { throw sharedFailure } },
+      })
+
+      let runFailure: unknown
+      try {
+        await runAgent(agent, {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        }, {})
+      }
+      catch (failure) {
+        runFailure = failure
+      }
+      expect(runFailure).toBeInstanceOf(AggregateError)
+      if (!(runFailure instanceof AggregateError)) throw runFailure
+      expect(runFailure.errors).toEqual([sharedFailure, sharedFailure])
+
+      expect(traceLog.entries().filter(event => event.name === "agent.invocation.error").map(event => event.activity)).toEqual([
+        { owner: "agent", phase: "execution" },
+        { owner: "vitehub", phase: "teardown" },
+      ])
+    }
+  })
+
   it("traces input hook and Capability cleanup failures with separate ownership", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

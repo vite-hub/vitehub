@@ -4254,7 +4254,8 @@ async function finishAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
 ): Promise<void> {
   const durationMs = Date.now() - context.startedAt
-  let failed = outcome.status === "error"
+  const outcomeFailed = outcome.status === "error"
+  let failed = outcomeFailed
   let error = outcome.status === "error" ? outcome.error : undefined
   let result = outcome.status === "success" ? outcome.result : undefined
   let usage = outcome.status === "success" ? outcome.usage : undefined
@@ -4263,10 +4264,15 @@ async function finishAgentInvocation<
   let text = runResult?.text
   let closeError: unknown
   let finishFailureActivity: TraceActivityContext | undefined
-  const tracedErrors = new Set<unknown>()
-  const traceFinishError = async (failure: unknown, activity?: TraceActivityContext) => {
-    if (tracedErrors.has(failure)) return
-    tracedErrors.add(failure)
+  let throwingCloseError = false
+  const tracedFailureStages = new Set<"finish" | "outcome" | "teardown">()
+  const traceFinishError = async (
+    failure: unknown,
+    stage: "finish" | "outcome" | "teardown",
+    activity?: TraceActivityContext,
+  ) => {
+    if (tracedFailureStages.has(stage)) return
+    tracedFailureStages.add(stage)
     await traceAgentInvocationError(toTraceContext(context), failure, activity)
   }
   const runFinishActivity = async <T>(activity: TraceActivityContext, operation: () => MaybePromise<T>): Promise<T> => {
@@ -4441,31 +4447,27 @@ async function finishAgentInvocation<
       })
     }
     else {
-      await traceFinishError(error, error === closeError ? teardownActivity : undefined)
-      if (closeError !== undefined && closeError !== error) {
-        await traceFinishError(closeError, teardownActivity)
-      }
+      if (outcomeFailed) await traceFinishError(error, "outcome")
+      if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
     await context.invocationJournal?.finish(
       failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
       error,
     )
-    if (closeError !== undefined) throw closeError
+    if (closeError !== undefined) {
+      throwingCloseError = true
+      throw closeError
+    }
   }
   catch (finishError) {
-    if (failed) await traceFinishError(error, error === closeError ? teardownActivity : undefined)
-    await traceFinishError(
-      finishError,
-      finishError === closeError ? teardownActivity : finishFailureActivity,
-    )
-    if (closeError !== undefined && closeError !== error && closeError !== finishError) {
-      await traceFinishError(closeError, teardownActivity)
-    }
+    if (outcomeFailed) await traceFinishError(error, "outcome")
+    if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
+    if (!throwingCloseError) await traceFinishError(finishError, "finish", finishFailureActivity)
     await context.invocationJournal?.finish(
       failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
       failed ? error : finishError,
     )
-    if (closeError !== undefined && finishError !== closeError) {
+    if (closeError !== undefined && !throwingCloseError) {
       throw new AggregateError([closeError, finishError], "[vitehub] Capability cleanup and Agent finish lifecycle both failed.")
     }
     throw finishError
