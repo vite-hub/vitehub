@@ -2204,6 +2204,36 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/b.md")).resolves.toBe("commit-3:b.md\n")
   })
 
+  it("invalidates sibling lazy coverage after a scoped revision refresh", async () => {
+    let revision = 0
+    const getItem = vi.fn(async (key: string, context) => ({
+      key,
+      content: `${context.revision.id}:${key}\n`,
+    }))
+    const view = createWorkspaceSourceView({
+      name: "sibling-scoped-revision-refresh",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async resolveRevision() {
+            revision++
+            return { id: `commit-${revision}`, immutable: true }
+          },
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          getItem,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
+    await view.materializeSources({ path: "docs/b.md", sources: ["docs"] })
+    await expect(view.readFile("docs/a.md")).resolves.toBe("commit-3:a.md\n")
+    expect(getItem).toHaveBeenCalledTimes(3)
+  })
+
   it("rejects keyed lazy source items that escape the source mount", async () => {
     const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({

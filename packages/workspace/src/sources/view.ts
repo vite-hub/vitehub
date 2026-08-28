@@ -64,6 +64,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const sourceContextUsers = new Map<string, number>()
   const materializeBySource = new Map<string, Promise<void>>()
   const materializedPathsBySource = new Map<string, Set<string>>()
+  const materializedRevisionBySource = new Map<string, string>()
   let materializationQueue = Promise.resolve()
 
   function invalidateMaterializedPath(sourceKey: string, path: string) {
@@ -77,7 +78,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (!paths.size) materializedPathsBySource.delete(sourceKey)
   }
 
-  function recordMaterializedPath(sourceKey: string, path: string) {
+  function recordMaterializedPath(sourceKey: string, path: string, revision?: { id: string }) {
+    const previousRevision = materializedRevisionBySource.get(sourceKey)
+    if (revision && previousRevision && revision.id !== previousRevision) {
+      materializedPathsBySource.delete(sourceKey)
+    }
     if (path) invalidateMaterializedPath(sourceKey, path)
     let paths = materializedPathsBySource.get(sourceKey)
     if (!paths) {
@@ -85,6 +90,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       materializedPathsBySource.set(sourceKey, paths)
     }
     paths.add(path)
+    if (revision) materializedRevisionBySource.set(sourceKey, revision.id)
   }
 
   async function materializeSources(
@@ -212,7 +218,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
             sourceContexts.delete(source.key)
             continue
           }
-          if (operationCompleted.has(source.key)) recordMaterializedPath(source.key, path)
+          if (operationCompleted.has(source.key)) {
+            recordMaterializedPath(source.key, path, operationContexts.get(source.key)?.revision)
+          }
         }
       }
       throw error
@@ -224,7 +232,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         sourceContexts.delete(source.source)
         continue
       }
-      recordMaterializedPath(source.source, path)
+      recordMaterializedPath(source.source, path, source.revision)
     }
     return result
   }
