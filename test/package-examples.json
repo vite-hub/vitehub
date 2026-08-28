@@ -1,6 +1,13 @@
 {
   "examples": [
     {
+      "artifact": "server-bundle",
+      "framework": "vite",
+      "id": "agent",
+      "mode": "build",
+      "outputs": ["dist/server.js"]
+    },
+    {
       "artifact": "provider-output",
       "framework": "vite",
       "id": "blob",
