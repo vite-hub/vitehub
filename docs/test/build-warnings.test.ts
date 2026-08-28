@@ -18,6 +18,12 @@ describe("docs build warning budget", () => {
     )).not.toThrow()
   })
 
+  it("rejects non-timeout loading warnings for allowed icons", () => {
+    expect(() => assertBuildWarningBudget(
+      "[warn] [Icon] loading icon `vscode-icons:file-type-css` returned malformed data",
+    )).toThrow("unbudgeted warning")
+  })
+
   it("rejects an exceeded warning budget and an unbudgeted warning", () => {
     const timing = buildWarningBudget.find(entry => entry.name === "build plugin timings")
     if (!timing) throw new Error("missing plugin timing budget")
