@@ -21,7 +21,7 @@ import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./intern
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
-import type { HookHandler, Plugin, PluginOption, UserConfig } from "vite"
+import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
@@ -144,6 +144,21 @@ function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin[
 function pluginLoadHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["load"]>> | undefined {
   if (typeof plugin.load === "function") return plugin.load
   return plugin.load?.handler
+}
+
+function pluginConfigResolvedHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["configResolved"]>> | undefined {
+  if (typeof plugin.configResolved === "function") return plugin.configResolved
+  return plugin.configResolved?.handler
+}
+
+async function initializeNitroRuntimeResolvers(plugins: Plugin[], config: UserConfig): Promise<void> {
+  for (const plugin of plugins) {
+    if (!nitroRuntimeResolverNames.has(plugin.name)) continue
+    const configResolved = pluginConfigResolvedHandler(plugin)
+    if (!configResolved) continue
+    // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime resolvers.
+    await configResolved.call({} as never, config as unknown as ResolvedConfig)
+  }
 }
 
 function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
@@ -496,6 +511,8 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
       })
     }
   }
+
+  await initializeNitroRuntimeResolvers(plugins, config)
 
   if (config.nitro) {
     installVitePluginNitroModules(config.nitro, plugins)

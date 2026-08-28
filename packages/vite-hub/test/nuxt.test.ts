@@ -322,15 +322,35 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
+    let resolvedKv: unknown
+    let resolvedBlob: unknown
     const kvResolveId = vi.fn((id: string) => id === "#vitehub/kv/config" ? "\0#vitehub/kv/config" : undefined)
-    const kvLoad = vi.fn((id: string) => id === "\0#vitehub/kv/config" ? "export const kv = false" : undefined)
+    const kvLoad = vi.fn((id: string) => id === "\0#vitehub/kv/config" ? `export const kv = ${JSON.stringify(resolvedKv)}` : undefined)
     const blobResolveId = vi.fn((id: string) => id === "#vitehub/blob/config" ? "\0#vitehub/blob/config" : undefined)
-    const blobLoad = vi.fn((id: string) => id === "\0#vitehub/blob/config" ? "export const blob = false" : undefined)
+    const blobLoad = vi.fn((id: string) => id === "\0#vitehub/blob/config" ? `export const blob = ${JSON.stringify(resolvedBlob)}` : undefined)
     mocks.vitehub.mockReturnValue([
-      { load: kvLoad, name: "@vite-hub/kv/vite", resolveId: kvResolveId },
-      { load: blobLoad, name: "@vite-hub/blob/vite", resolveId: blobResolveId },
+      {
+        configResolved(config: { kv?: unknown }) {
+          resolvedKv = config.kv
+        },
+        load: kvLoad,
+        name: "@vite-hub/kv/vite",
+        resolveId: kvResolveId,
+      },
+      {
+        configResolved(config: { blob?: unknown }) {
+          resolvedBlob = config.blob
+        },
+        load: blobLoad,
+        name: "@vite-hub/blob/vite",
+        resolveId: blobResolveId,
+      },
     ])
     const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options.vite, {
+      blob: { driver: "r2" },
+      kv: { driver: "cloudflare-kv" },
+    })
     const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
     const nitroConfig: { rollupConfig: { plugins: Plugin } } = {
       rollupConfig: { plugins: existingPlugin },
@@ -349,9 +369,13 @@ describe("ViteHub Nuxt integration", () => {
     const blobResolver = plugins[2]!
     const context = { marker: "nitro-context" }
     expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
-    expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe("export const kv = false")
+    expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
+      'export const kv = {"driver":"cloudflare-kv"}',
+    )
     expect(Reflect.apply(blobResolver.resolveId as Function, context, ["#vitehub/blob/config"])).toBe("\0#vitehub/blob/config")
-    expect(Reflect.apply(blobResolver.load as Function, context, ["\0#vitehub/blob/config"])).toBe("export const blob = false")
+    expect(Reflect.apply(blobResolver.load as Function, context, ["\0#vitehub/blob/config"])).toBe(
+      'export const blob = {"driver":"r2"}',
+    )
     expect(kvResolveId.mock.contexts[0]).toBe(context)
     expect(kvLoad.mock.contexts[0]).toBe(context)
     expect(blobResolveId.mock.contexts[0]).toBe(context)
