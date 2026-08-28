@@ -1451,10 +1451,11 @@ async function* runProvider<
       () => credentialOverlayOwners.delete(cleanup),
     ).then(releaseCredentialOverlayLock)
   }
+  const persistCredentialOverlay = async () => {
+    if (credentialHome && credentialSharedHome) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome, credentialOverlay)
+  }
   const credentialCleanup = createAgentProviderCredentialCleanup(
-    async () => {
-      if (credentialHome && credentialSharedHome) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome, credentialOverlay)
-    },
+    persistCredentialOverlay,
     async () => {
       if (credentialHome) await rm(credentialHome, { force: true, recursive: true })
     },
@@ -1880,6 +1881,21 @@ async function* runProvider<
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
         if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanupTask)
+        if (completed && credentialHome && credentialSharedHome) {
+          const persistence = persistCredentialOverlay()
+          if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(persistence)
+          const persistenceCleanup = createProviderCleanupSignal(undefined)
+          try {
+            await waitForProviderOperation(persistence, persistenceCleanup.signal)
+          }
+          catch (persistenceError) {
+            cleanupErrors.push(persistenceError)
+            void persistence.catch(() => undefined)
+          }
+          finally {
+            persistenceCleanup.dispose()
+          }
+        }
         forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), credentialCleanup.forceRemove()])
         observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)

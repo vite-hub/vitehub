@@ -2956,12 +2956,14 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const root = (runtimeCall![0] as { cwd: string }).cwd
       await expect(access(shadowHome)).resolves.toBeUndefined()
       await expect(access(root)).resolves.toBeUndefined()
+      await writeFile(join(shadowHome, "aborted-state.json"), "must not persist\n")
       controller.abort("cancelled")
       await expect(result).rejects.toBe("cancelled")
       await vi.advanceTimersByTimeAsync(10_000)
 
       await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
       await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+      await expect(access(join(sharedHome, "aborted-state.json"))).rejects.toMatchObject({ code: "ENOENT" })
 
       const runtimeCalls = createProviderRuntime.mock.calls.length
       const concurrentEvents = [
@@ -3140,6 +3142,43 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
     finally {
       finishClose?.()
+      vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists completed Codex state before forcing credentials cleanup when close stalls", async () => {
+    vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const threadId = "thread-completed-state-stalled-close"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    providerRuntimes.pop()
+    provider.close.mockImplementationOnce(() => new Promise(() => undefined))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      await writeFile(join(String(options.settings?.homePath), "completed-state.json"), "persist me\n")
+      return provider
+    })
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const stream = await adapter.stream!(context(threadId) as never)
+      const result = collect(stream)
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      await expect(result).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ recoverable: true, type: "error" }),
+      ]))
+      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      expect(await readFile(join(sharedHome, "completed-state.json"), "utf8")).toBe("persist me\n")
+    }
+    finally {
       vi.useRealTimers()
       await rm(sharedHome, { force: true, recursive: true })
     }
