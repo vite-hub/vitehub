@@ -1002,7 +1002,7 @@ describe("ViteHub Console", () => {
         attributes: expect.objectContaining({ "tool.error": "Lookup failed" }),
         name: "agent.tool.error",
       }))
-      expect(observation?.attributes["content.omitted"] ?? []).not.toContain("tool.error")
+      expect(observation?.attributes?.["content.omitted"] ?? []).not.toContain("tool.error")
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
