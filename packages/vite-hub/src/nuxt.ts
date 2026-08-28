@@ -157,7 +157,7 @@ function pluginConfigResolvedHandler(plugin: Plugin): HookHandler<NonNullable<Pl
 }
 
 function asReplayResolvedConfig(config: UserConfig): ResolvedConfig {
-  // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
   return config as unknown as ResolvedConfig
 }
 
