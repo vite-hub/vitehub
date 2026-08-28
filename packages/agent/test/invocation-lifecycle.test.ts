@@ -692,6 +692,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     const raw = Object.assign((async function* () {})(), { usage: new Usage() })
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
@@ -711,6 +712,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
     const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
 
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
     const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
     for await (const _event of stream) {}
 

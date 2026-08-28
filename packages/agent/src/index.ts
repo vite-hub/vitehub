@@ -4736,6 +4736,7 @@ async function finalizeAgentInvocationResult<
   finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
   options: {
+    fallbackUsageRecord?: AgentUsageRecord
     finalizeResponse?: (response: Response) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: Response | TResult } | undefined>
     finalizeRawStreams?: boolean
     holdOutput?: boolean
@@ -4789,7 +4790,7 @@ async function finalizeAgentInvocationResult<
       const enrichedStream = withEagerStreamUsageExtensions(source.stream, context, result)
       const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
-        const streamed = withStreamedResult(stream, result, undefined, context.toolResults, context.tools)
+        const streamed = withStreamedResult(stream, result, options.fallbackUsageRecord, context.toolResults, context.tools)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishResult = await streamed.finishResult(result, !outcome.failed && outcome.completed === true)
@@ -5109,7 +5110,8 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   const outputExtensions = new Map<string, unknown>()
-  const rawDriverUsageRecord = isAsyncIterable(result)
+  const rawDriverUsageObserved = isAsyncIterable(result)
+  const rawDriverUsageRecord = rawDriverUsageObserved
     ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "", undefined, undefined, false)).usageRecord
     : undefined
   let renderedResult = false
@@ -5137,7 +5139,7 @@ async function executeAgentInvocationWithCapacityLease<
 
   if (options.kind === "run") {
     return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-      const driverUsageRecord = rawDriverUsageRecord ?? (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+      const driverUsageRecord = rawDriverUsageObserved ? rawDriverUsageRecord : (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
       )
@@ -5610,6 +5612,7 @@ async function executeAgentInvocationWithCapacityLease<
       finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
       holdOutput: options.holdCapacity,
       outputExtensions,
+      fallbackUsageRecord: rawDriverUsageRecord,
       ...(customRun
         ? {
             // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -5620,7 +5623,7 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const driverUsageRecord = rawDriverUsageRecord ?? (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+    const driverUsageRecord = rawDriverUsageObserved ? rawDriverUsageRecord : (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result))
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
@@ -5869,6 +5872,7 @@ async function executeAgentInvocationWithCapacityLease<
     finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
     holdOutput: options.holdCapacity,
     outputExtensions,
+    fallbackUsageRecord: rawDriverUsageRecord,
     ...(customRun
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
