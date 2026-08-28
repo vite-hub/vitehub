@@ -332,7 +332,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let configuredHandlerKey = generatedHandlerKey([])
-  let refreshQueue = Promise.resolve()
   const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
@@ -385,6 +384,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       server.watcher.add(effectiveServerDirs)
       let hostRefreshRetry: ReturnType<typeof setTimeout> | undefined
       let hostRefreshRetryDelay = initialHostRefreshRetryDelay
+      let refreshQueue = Promise.resolve()
       let serverClosed = false
       const clearHostRefreshRetry = () => {
         if (hostRefreshRetry) clearTimeout(hostRefreshRetry)

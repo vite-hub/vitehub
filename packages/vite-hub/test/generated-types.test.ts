@@ -840,13 +840,17 @@ describe("framework generated types", () => {
       restart: replacementRestart,
       watcher: { add: vi.fn(), on: (event, callback) => replacementListeners.set(event, callback) },
     })
+
+    const replacementRefresh = replacementListeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(2))
+    await replacementRefresh
+    expect(replacementRestart).toHaveBeenCalledOnce()
+
     await closeBundle(plugin, oldEnvironment)()
     finishObserver?.()
     await oldRefresh
 
-    await replacementListeners.get("unlink")?.(collection)
     expect(oldRestart).not.toHaveBeenCalled()
-    expect(replacementRestart).toHaveBeenCalledOnce()
   })
 
   it("watches custom Source directories and recovers after refresh errors", async () => {
