@@ -443,6 +443,20 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
       const trackedTarget = overlay?.entries.find(candidate => overlay.sharedHomeCaseInsensitive
         ? candidate.name.toLowerCase() === entry.toLowerCase()
         : candidate.name === entry)
+      if (overlay?.sharedHomeCaseInsensitive && trackedTarget && renamedEntries.has(trackedTarget) && trackedTarget.name !== entry) {
+        const currentTarget = await lstat(trackedTarget.target)
+        if (!await codexCredentialOverlayOwnsTarget(trackedTarget, currentTarget)) return
+        const temporary = join(sharedHome, `.${entry}.${crypto.randomUUID()}.rename`)
+        await rename(trackedTarget.target, temporary)
+        try {
+          await rename(temporary, target)
+        }
+        catch (error) {
+          await rename(temporary, trackedTarget.target).catch(() => undefined)
+          throw error
+        }
+        return
+      }
       const targetEntry = await lstat(target).catch((error) => {
         // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined

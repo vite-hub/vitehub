@@ -429,21 +429,20 @@ describe("Provider Agent Driver", () => {
     }
   })
 
-  it.runIf(process.platform !== "win32")("preserves case-only rename on case-insensitive Codex homes", async () => {
+  it.runIf(process.platform !== "win32")("persists case-only rename on case-insensitive Codex homes", async () => {
     const threadId = "thread-insensitive-case-rename-codex-state"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const originalConfig = join(sharedHome, "Config.toml")
     const renamedConfig = join(sharedHome, "config.toml")
     await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
+    const originalEntry = await lstat(originalConfig)
     readCodexHomeStat.mockImplementation(async (path) => String(path).toLowerCase().includes(".vitehub-case-probe-")
       ? { dev: 1, ino: 1 }
       : lstat(originalConfig))
     createProviderRuntime.mockImplementationOnce(async (options) => {
       const shadowHome = String(options.settings?.homePath)
       await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
-      // SAFETY: This alias models the same durable inode being addressable under the renamed casing.
-      await symlink(originalConfig, renamedConfig)
       return providerRuntimes.shift()
     })
 
@@ -456,6 +455,9 @@ describe("Provider Agent Driver", () => {
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
       await adapter.generate(context(threadId) as never)
 
+      expect((await readdir(sharedHome)).filter(entry => entry.toLowerCase() === "config.toml")).toEqual(["config.toml"])
+      const renamedEntry = await lstat(renamedConfig)
+      expect({ dev: renamedEntry.dev, ino: renamedEntry.ino }).toEqual({ dev: originalEntry.dev, ino: originalEntry.ino })
       expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
     }
     finally {
