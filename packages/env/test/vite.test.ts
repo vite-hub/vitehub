@@ -388,7 +388,7 @@ describe("Vite plugin", () => {
 
     const loadHook = plugin.load as (this: unknown, id: string) => string
     const virtualModule = loadHook.call({ environment: { config: { root } } }, "\0#vitehub/env/server")
-    expect(virtualModule).toContain(`${root.replace(/\\/g, "/")}/server/env%23blue%3F%25/secrets.mjs`)
+    expect(virtualModule).toContain(`${root.replace(/\\/g, "/")}/server/env#blue?%/secrets.mjs`)
 
     const serverTypes = await readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")
     expect(serverTypes).toContain("loadServerEnv(event?: unknown")
@@ -444,6 +444,37 @@ describe("Vite plugin", () => {
       env: { server: { token: env({ source: env.provider("secrets", "token") }) } },
       root,
     }, { command: "build", mode: "production" })).rejects.toThrow("hubEnv({ providers })")
+  })
+
+  it("bundles virtual provider modules with URL-significant paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-vite-"))
+    const providerDir = join(root, "server", "env#blue?%")
+    const entry = join(root, "entry.ts")
+    await mkdir(providerDir, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-vite-app", private: true, type: "module" }), "utf8")
+    await writeFile(join(providerDir, "provider.mjs"), `export default { read: ({ keys }) => Object.fromEntries(keys.map(key => [key, "provider-value"])) }\n`, "utf8")
+    await writeFile(entry, [
+      `import { loadServerEnv } from "#vitehub/env/server"`,
+      `export async function readToken() { return (await loadServerEnv()).token }`,
+      ``,
+    ].join("\n"), "utf8")
+
+    await build({
+      build: {
+        emptyOutDir: true,
+        lib: { entry, fileName: () => "entry.mjs", formats: ["es"] },
+        outDir: join(root, "dist"),
+      },
+      configFile: false,
+      env: {
+        server: { token: env({ source: env.provider("secrets", "token") }) },
+      },
+      logLevel: "silent",
+      plugins: [hubEnv({ providers: { secrets: "./server/env#blue?%/provider.mjs" } })],
+      root,
+    })
+
+    await expect(readFile(join(root, "dist", "entry.mjs"), "utf8")).resolves.toContain("provider-value")
   })
 
   it("emits portable provider module specifiers", async () => {

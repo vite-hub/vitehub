@@ -67,12 +67,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: unknown } {
+function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: Record<string, unknown> } {
   return isRecord(value) && isRecord(value.source) && typeof value.secret === "boolean"
 }
 
-function rejectSecretDefaults(value: unknown, path = "email.options"): void {
+function validateEmailRuntimeOptions(value: unknown, path = "email.options"): void {
   if (isRuntimeEnvEntry(value)) {
+    if (value.source.kind === "provider") {
+      throw new TypeError(`[vitehub] Email declaration ${path} cannot use env.provider() because Email options are resolved synchronously.`)
+    }
     if (value.secret && typeof value.default !== "undefined") {
       throw new TypeError(`[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.`)
     }
@@ -80,7 +83,7 @@ function rejectSecretDefaults(value: unknown, path = "email.options"): void {
   }
   if (!isRecord(value) || value.kind === "literal") return
   for (const [key, child] of Object.entries(value)) {
-    rejectSecretDefaults(child, `${path}.${key}`)
+    validateEmailRuntimeOptions(child, `${path}.${key}`)
   }
 }
 
@@ -106,7 +109,7 @@ function resolveDriverImport(driver: string): string {
 
 function configuredDefinition(options: EmailVitePluginOptions): Omit<GeneratedEmailDefinition, "handler"> {
   const runtimeOptions = createRuntimeEnvRegistry(options.options, { path: "email.options" })
-  rejectSecretDefaults(runtimeOptions)
+  validateEmailRuntimeOptions(runtimeOptions)
   return {
     driver: options.driver,
     name: "default",

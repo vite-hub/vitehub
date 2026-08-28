@@ -177,7 +177,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules)
     },
     load(id) {
-      const viteRoot = (this as { environment?: { config?: { root?: string } } }).environment?.config?.root
+      const viteRoot = (this as { environment?: { config?: { root?: string } } } | undefined)?.environment?.config?.root
       const state = (viteRoot ? resolvedStates.get(resolveProjectRoot(viteRoot)) : undefined)
         ?? Array.from(resolvedStates.values()).at(-1)
       const publicConfig = state?.publicConfig ?? buildPublicConfig
@@ -401,7 +401,10 @@ function createServerEnvModule(
 function providerImportSpecifier(specifier: string, outputPath: string | undefined): string {
   const windowsAbsolute = win32.isAbsolute(specifier)
   if (!isAbsolute(specifier) && !windowsAbsolute) return specifier
-  if (!outputPath) return absoluteProviderImportSpecifier(specifier)
+  if (!outputPath) {
+    const normalized = specifier.replace(/\\/g, "/")
+    return /^[A-Za-z]:\//.test(normalized) ? `/${normalized}` : normalized
+  }
   const outputIsWindows = win32.isAbsolute(outputPath)
   if (windowsAbsolute !== outputIsWindows) return absoluteProviderImportSpecifier(specifier)
   const target = windowsAbsolute
