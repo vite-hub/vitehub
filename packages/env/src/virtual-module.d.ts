@@ -16,7 +16,7 @@ declare module "#vitehub/env/server" {
     entries: readonly ServerEnvInspectionEntry[]
   }
   export type ReadonlyServerEnv = DeepReadonly<ServerEnv>
-  type DeepReadonly<T> = T extends SecretEnv<unknown>
+  type DeepReadonly<T> = T extends import("@vite-hub/env/secret").SecretEnv<unknown>
     ? T
     : T extends (...args: infer TArguments) => infer TResult
     ? (...args: TArguments) => TResult
