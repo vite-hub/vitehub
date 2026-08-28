@@ -340,7 +340,8 @@ export async function materializeWorkspaceSources(
     if (!control.isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
   }
   const started = Date.now()
-  const sources = normalizeWorkspaceSources(definition.sources).filter(source => shouldMaterializeSource(source, options))
+  const configuredSources = normalizeWorkspaceSources(definition.sources)
+  const sources = configuredSources.filter(source => shouldMaterializeSource(source, options))
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
   let directories = 0
@@ -452,7 +453,7 @@ export async function materializeWorkspaceSources(
         }
       }
       throwIfAborted(options.abortSignal)
-      await removeStaleMaterializedSourceFiles(store, source, sources, nextPaths, options, control, new Set(Object.keys(existing?.items || {})))
+      await removeStaleMaterializedSourceFiles(store, source, configuredSources, nextPaths, options, control, new Set(Object.keys(existing?.items || {})))
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []

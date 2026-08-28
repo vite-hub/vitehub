@@ -637,6 +637,36 @@ describe("lazy sources", () => {
     await expect(store.readFile("ingestion/globex/models/orders.sql")).resolves.toBeUndefined()
   })
 
+  it("preserves files beneath a child mount during an explicit parent refresh", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/generated/result.md", {
+      path: "docs/generated/result.md",
+      content: "# Generated\n",
+    })
+    const view = createWorkspaceSourceView({
+      name: "explicit-parent-refresh",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+          sync: { stale: "remove" },
+        }),
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          files: [{ path: "result.md", content: "# Generated\n" }],
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+
+    await expect(store.readFile("docs/generated/result.md")).resolves.toMatchObject({
+      content: "# Generated\n",
+    })
+  })
+
   it("rejects keyed lazy source items that escape the source mount", async () => {
     const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({

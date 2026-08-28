@@ -541,7 +541,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           await ensureMaterialized(resolution.sourceKey)
         }
         const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge
+        let shouldRefreshCachedLazy = false
         if (resolution.source.materialize === "lazy" && Number.isFinite(cacheMaxAge)) {
+          shouldRefreshCachedLazy = materializedSources.has(resolution.sourceKey)
+            || await hasCurrentSourceSnapshot(store, resolution.source)
+        }
+        if (shouldRefreshCachedLazy) {
           await ensureMaterialized(resolution.sourceKey)
         }
         const file = await store.readFile(resolution.workspacePath)
