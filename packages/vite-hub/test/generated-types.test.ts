@@ -8,6 +8,26 @@ import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createEvent } from "h3-v1"
 
+const generatedHandlerReadGate = vi.hoisted(() => ({
+  path: undefined as string | undefined,
+  started: undefined as (() => void) | undefined,
+  wait: undefined as Promise<void> | undefined,
+}))
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...fs,
+    async readFile(...args: Parameters<typeof fs.readFile>) {
+      if (String(args[0]) === generatedHandlerReadGate.path) {
+        generatedHandlerReadGate.started?.()
+        await generatedHandlerReadGate.wait
+      }
+      return fs.readFile(...args)
+    },
+  }
+})
+
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
@@ -928,6 +948,8 @@ describe("framework generated types", () => {
   it("does not dispatch a Source refresh after its Vite server closes", async () => {
     const { root } = await createNestedProject()
     const collection = join(root, "server/collections/meals.ts")
+    const replacementCollection = join(root, "server/collections/meals.js")
+    const generatedHandler = join(root, ".vitehub/source/routes/meals.mjs")
     await mkdir(join(root, "server/collections"), { recursive: true })
     await writeFile(collection, collectionModule("meals"))
     const plugin = sourcePlugin()
@@ -942,10 +964,25 @@ describe("framework generated types", () => {
       watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
     })
 
-    await rm(collection)
+    let releaseHandlerRead: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedHandler
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseHandlerRead = resolve
+    })
+    const handlerReadStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+
+    await rename(collection, replacementCollection)
     const refresh = listeners.get("unlink")?.(collection)
+    await handlerReadStarted
     await closeBundle(plugin, environment)()
+    releaseHandlerRead?.()
     await refresh
+
+    generatedHandlerReadGate.path = undefined
+    generatedHandlerReadGate.started = undefined
+    generatedHandlerReadGate.wait = undefined
 
     expect(observer).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
