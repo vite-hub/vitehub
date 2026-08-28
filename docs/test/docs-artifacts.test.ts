@@ -117,6 +117,20 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("keeps reference definitions inside multiline code spans literal", () => {
+    expect(toRawMarkdown([
+      "`code",
+      "[literal]: /docs/literal",
+      "`",
+      "[rendered]: /docs/rendered",
+    ].join("\n"))).toContain([
+      "`code",
+      "[literal]: /docs/literal",
+      "`",
+      "[rendered]: https://vitehub.dev/docs/rendered",
+    ].join("\n"));
+  });
+
   it("keeps link-like text inside inline HTML attributes literal", () => {
     expect(toRawMarkdown('<span title="[literal](/docs/literal)">label</span> [rendered](/docs/rendered)')).toBe(
       '<span title="[literal](/docs/literal)">label</span> [rendered](https://vitehub.dev/docs/rendered)\n',
@@ -404,6 +418,39 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("preserves raw HTML in padded list continuations", () => {
+    expect(toRawMarkdown([
+      "-   item",
+      "",
+      "    <pre>",
+      "    [literal](/docs/literal)",
+      "    ::warning",
+      "    </pre>",
+      "[rendered](/docs/rendered)",
+    ].join("\n"))).toContain([
+      "    <pre>",
+      "    [literal](/docs/literal)",
+      "    ::warning",
+      "    </pre>",
+      "[rendered](https://vitehub.dev/docs/rendered)",
+    ].join("\n"));
+  });
+
+  it("uses CommonMark list marker widths for fence and indentation parsing", () => {
+    expect(toRawMarkdown([
+      "1234567890. ```md",
+      "[rendered](/docs/ten-digit-marker)",
+      "-\titem",
+      "",
+      "      [list paragraph](/docs/list-paragraph)",
+    ].join("\n"))).toContain([
+      "[rendered](https://vitehub.dev/docs/ten-digit-marker)",
+      "-\titem",
+      "",
+      "      [list paragraph](https://vitehub.dev/docs/list-paragraph)",
+    ].join("\n"));
+  });
+
   it("preserves fenced and raw HTML blocks in quoted list items", () => {
     expect(toRawMarkdown([
       "> - ```md",
@@ -583,6 +630,26 @@ describe("writeDocsArtifacts", () => {
       utimesSync(lockDir, new Date(0), new Date(0));
 
       expect(recoverAbandonedLock(lockDir)).toBe(false);
+      expect(readFileSync(resolve(lockDir, "owner.json"), "utf8")).toContain('"token":"live"');
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not recover a live lock when process identity is unavailable", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-live-portable-lock-"));
+    const lockDir = resolve(rootDir, ".raw-artifacts.lock");
+
+    try {
+      mkdirSync(lockDir);
+      writeText(resolve(lockDir, "owner.json"), JSON.stringify({
+        identity: "unavailable-on-this-platform",
+        pid: process.pid,
+        token: "live",
+      }));
+      utimesSync(resolve(lockDir, "owner.json"), new Date(0), new Date(0));
+
+      expect(recoverAbandonedLock(lockDir, () => null)).toBe(false);
       expect(readFileSync(resolve(lockDir, "owner.json"), "utf8")).toContain('"token":"live"');
     } finally {
       rmSync(rootDir, { force: true, recursive: true });

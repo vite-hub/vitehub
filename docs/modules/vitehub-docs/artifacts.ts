@@ -60,12 +60,13 @@ function linuxProcessIdentity(pid: number) {
 
 const currentProcessIdentity = linuxProcessIdentity(process.pid) || `node:${randomUUID()}`;
 
-function lockOwnerIsRunning(owner: { identity?: string, pid: number }, evidencePath: string) {
+type ProcessIdentityResolver = (pid: number) => string | null;
+
+function lockOwnerIsRunning(owner: { identity?: string, pid: number }, resolveProcessIdentity: ProcessIdentityResolver) {
   if (!processIsRunning(owner.pid)) return false;
   if (!owner.identity) return true;
-  const identity = owner.pid === process.pid ? currentProcessIdentity : linuxProcessIdentity(owner.pid);
-  if (identity !== null) return identity === owner.identity;
-  return Date.now() - statSync(evidencePath).mtimeMs < lockStaleAfterMs;
+  const identity = resolveProcessIdentity(owner.pid);
+  return identity === null || identity === owner.identity;
 }
 
 function hasRecoveryClaim(lockDir: string) {
@@ -77,7 +78,7 @@ function hasRecoveryClaim(lockDir: string) {
   }
 }
 
-function claimLockRecovery(lockDir: string) {
+function claimLockRecovery(lockDir: string, resolveProcessIdentity: ProcessIdentityResolver) {
   const claimPath = resolve(lockDir, ".recovery-claim");
   while (true) {
     const owner = {
@@ -105,7 +106,7 @@ function claimLockRecovery(lockDir: string) {
       throw error;
     }
     const parsedOwner = safeParse(lockOwnerSchema, existingOwner);
-    if (!parsedOwner.success || lockOwnerIsRunning(parsedOwner.output, claimPath)) return false;
+    if (!parsedOwner.success || lockOwnerIsRunning(parsedOwner.output, resolveProcessIdentity)) return false;
 
     const abandonedPath = resolve(lockDir, `.recovery-abandoned-${randomUUID()}.json`);
     try {
@@ -129,9 +130,9 @@ function restoreQuarantinedLock(lockDir: string, quarantinePath: string) {
   if (!existsSync(lockDir)) renameSync(quarantinePath, lockDir);
 }
 
-function recoverMalformedLock(lockDir: string) {
+function recoverMalformedLock(lockDir: string, resolveProcessIdentity: ProcessIdentityResolver) {
   if (Date.now() - statSync(lockDir).mtimeMs < lockStaleAfterMs) return false;
-  const claimToken = claimLockRecovery(lockDir);
+  const claimToken = claimLockRecovery(lockDir, resolveProcessIdentity);
   if (claimToken === null) return true;
   if (claimToken === false) return false;
 
@@ -158,22 +159,22 @@ function recoverMalformedLock(lockDir: string) {
   }
 }
 
-export function recoverAbandonedLock(lockDir: string) {
+export function recoverAbandonedLock(lockDir: string, resolveProcessIdentity: ProcessIdentityResolver = linuxProcessIdentity) {
   try {
     let owner: unknown;
     try {
       owner = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
     } catch (error) {
       if (fileSystemErrorCode(error) === "ENOENT" || error instanceof SyntaxError) {
-        return recoverMalformedLock(lockDir);
+        return recoverMalformedLock(lockDir, resolveProcessIdentity);
       }
       throw error;
     }
     const parsedOwner = safeParse(lockOwnerSchema, owner);
-    if (!parsedOwner.success) return recoverMalformedLock(lockDir);
-    if (lockOwnerIsRunning(parsedOwner.output, resolve(lockDir, "owner.json"))) return false;
+    if (!parsedOwner.success) return recoverMalformedLock(lockDir, resolveProcessIdentity);
+    if (lockOwnerIsRunning(parsedOwner.output, resolveProcessIdentity)) return false;
 
-    const claimToken = claimLockRecovery(lockDir);
+    const claimToken = claimLockRecovery(lockDir, resolveProcessIdentity);
     if (claimToken === null) return true;
     if (claimToken === false) return false;
 
@@ -185,7 +186,7 @@ export function recoverAbandonedLock(lockDir: string) {
         || parsedCurrentOwner.output.pid !== parsedOwner.output.pid
         || parsedCurrentOwner.output.identity !== parsedOwner.output.identity
         || parsedCurrentOwner.output.token !== parsedOwner.output.token
-        || lockOwnerIsRunning(parsedCurrentOwner.output, resolve(lockDir, "owner.json"))
+        || lockOwnerIsRunning(parsedCurrentOwner.output, resolveProcessIdentity)
       ) return false;
 
       const quarantinePath = `${lockDir}.recovery-${claimToken}`;

@@ -25,7 +25,7 @@ function fenceRun(line: string) {
   let quoteDepth = 0;
 
   while (true) {
-    const container = rest.match(/^[ \t]*(?:(>)|(?:[-+*]|\d+[.)])[ \t]+)/);
+    const container = rest.match(/^[ \t]*(?:(>)|(?:[-+*]|\d{1,9}[.)])[ \t]+)/);
     if (!container) break;
     if (container[1]) quoteDepth += 1;
     else listIndent = indentationColumns((consumed + container[0]).replace(/>[ \t]?/g, "").replace(/[^ \t]/g, " "));
@@ -313,9 +313,12 @@ function isTypeSevenHtml(line: string, end: RegExp) {
     && !/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(line);
 }
 
-function withoutMarkdownContainers(line: string) {
+function withoutMarkdownContainers(line: string, listIndent: number | null = null) {
   const container = referenceContainer(line);
-  return line.slice(container.length);
+  const content = line.slice(container.length);
+  return listIndent !== null && indentationColumns(content) >= listIndent
+    ? removeIndentation(content, listIndent)
+    : content;
 }
 
 function htmlBlockContinues(end: RegExp, openingLine: string) {
@@ -343,7 +346,7 @@ function isEscaped(source: string, index: number) {
   return backslashes % 2 === 1;
 }
 
-function rewriteInlineLinks(source: string) {
+function protectCodeSpans(source: string) {
   let protectedSource = "";
   let offset = 0;
   const codeSpans: string[] = [];
@@ -367,6 +370,20 @@ function rewriteInlineLinks(source: string) {
   }
 
   protectedSource += source.slice(offset);
+  return {
+    protectedSource,
+    restore(transformed: string) {
+      return transformed.replace(
+        new RegExp(`${placeholderPrefix}(\\d+)__`, "g"),
+        (_match, index: string) => codeSpans[Number(index)]!,
+      );
+    },
+  };
+}
+
+function rewriteInlineLinks(source: string) {
+  const codeSpans = protectCodeSpans(source);
+  let protectedSource = codeSpans.protectedSource;
   const htmlTags: string[] = [];
   let htmlPlaceholderPrefix = "__VITEHUB_RAW_HTML_TAG_";
   while (protectedSource.includes(htmlPlaceholderPrefix)) htmlPlaceholderPrefix += "_";
@@ -377,13 +394,37 @@ function rewriteInlineLinks(source: string) {
       : `${htmlPlaceholderPrefix}${htmlTags.push(tag) - 1}__`,
   );
 
-  return rewriteMarkdownLinks(protectedSource, htmlPlaceholderPrefix).replace(
+  return codeSpans.restore(rewriteMarkdownLinks(protectedSource, htmlPlaceholderPrefix).replace(
     new RegExp(`${htmlPlaceholderPrefix}(\\d+)__`, "g"),
     (_match, index: string) => htmlTags[Number(index)]!,
-  ).replace(
-    new RegExp(`${placeholderPrefix}(\\d+)__`, "g"),
-    (_match, index: string) => codeSpans[Number(index)]!,
-  );
+  ));
+}
+
+type MarkdownListState = {
+  indent: number | null;
+  quotePrefix: string;
+};
+
+function updateMarkdownListState(line: string, state: MarkdownListState) {
+  const quotePrefix = line.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] || "";
+  const content = line.slice(quotePrefix.length);
+  const listItem = content.match(/^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+/);
+  if (listItem) {
+    state.indent = indentationColumns(listItem[0].replace(/[^ \t]/g, " "));
+    state.quotePrefix = quotePrefix;
+  } else if (
+    content.trim()
+    && (state.indent === null || quotePrefix !== state.quotePrefix || indentationColumns(content) < state.indent)
+  ) {
+    state.indent = null;
+  }
+}
+
+function activeListIndent(line: string, state: MarkdownListState) {
+  if (state.indent === null) return null;
+  const quotePrefix = line.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] || "";
+  if (quotePrefix !== state.quotePrefix) return null;
+  return indentationColumns(line.slice(quotePrefix.length)) >= state.indent ? state.indent : null;
 }
 
 function rewriteLinks(source: string) {
@@ -393,20 +434,24 @@ function rewriteLinks(source: string) {
   let htmlEnd: RegExp | null = null;
   let htmlListIndent: number | null = null;
   let htmlQuoteDepth = 0;
-  let listIndent: number | null = null;
-  let listQuotePrefix = "";
+  const listState: MarkdownListState = { indent: null, quotePrefix: "" };
   let paragraphOpen = false;
   let paragraphListIndent: number | null = null;
   let paragraphQuoteDepth = 0;
   const protectedLines: string[] = [];
-  const rewriteOutside = () => rewriteReferenceDefinitions(rewriteInlineLinks(outsideFence)).replace(
-    /\0INDENT(\d+)\0/g,
-    (_match, index: string) => protectedLines[Number(index)]!,
-  );
+  const rewriteOutside = () => {
+    const codeSpans = protectCodeSpans(outsideFence);
+    return codeSpans.restore(rewriteReferenceDefinitions(rewriteInlineLinks(codeSpans.protectedSource))).replace(
+      new RegExp(`${String.fromCodePoint(0)}INDENT(\\d+)${String.fromCodePoint(0)}`, "g"),
+      (_match, index: string) => protectedLines[Number(index)]!,
+    );
+  };
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
     if (!lineWithEnding) continue;
     const line = lineWithEnding.endsWith("\n") ? lineWithEnding.slice(0, -1) : lineWithEnding;
+    updateMarkdownListState(line, listState);
+    const listContinuationIndent = activeListIndent(line, listState);
     const parsedFence = fenceRun(line);
 
     if (htmlEnd) {
@@ -416,7 +461,7 @@ function rewriteLinks(source: string) {
         htmlQuoteDepth = 0;
       } else {
         output.push(lineWithEnding);
-        if (htmlEnd.test(withoutMarkdownContainers(line))) {
+        if (htmlEnd.test(withoutMarkdownContainers(line, htmlListIndent))) {
           htmlEnd = null;
           htmlListIndent = null;
           htmlQuoteDepth = 0;
@@ -425,7 +470,7 @@ function rewriteLinks(source: string) {
       }
     }
 
-    const htmlLine = withoutMarkdownContainers(line);
+    const htmlLine = withoutMarkdownContainers(line, listContinuationIndent);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
     const quoteDepth = leadingQuoteDepth(referenceContainer(line));
@@ -444,7 +489,7 @@ function rewriteLinks(source: string) {
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
         const htmlContainer = markdownContainer(line);
         htmlEnd = nextHtmlEnd;
-        htmlListIndent = htmlContainer.listIndent;
+        htmlListIndent = htmlContainer.listIndent ?? listContinuationIndent;
         htmlQuoteDepth = htmlContainer.quoteDepth;
       }
       paragraphOpen = false;
@@ -491,18 +536,7 @@ function rewriteLinks(source: string) {
     const quotePrefix = line.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] || "";
     const content = line.slice(quotePrefix.length);
     const contentIndent = indentationColumns(content);
-    const listItem = content.match(/^(\s*)(?:[-+*]|\d+[.)])\s+/);
-    if (listItem) {
-      listIndent = listItem[0].length;
-      listQuotePrefix = quotePrefix;
-    } else if (
-      content.trim()
-      && (listIndent === null || quotePrefix !== listQuotePrefix || contentIndent < listIndent)
-    ) {
-      listIndent = null;
-    }
-
-    const codeIndent = listIndent !== null && quotePrefix === listQuotePrefix ? listIndent + 4 : 4;
+    const codeIndent = listState.indent !== null && quotePrefix === listState.quotePrefix ? listState.indent + 4 : 4;
     if ((!paragraphOpen || quoteDepth !== paragraphQuoteDepth) && contentIndent >= codeIndent) {
       const index = protectedLines.push(line) - 1;
       outsideFence += `\0INDENT${index}\0${lineWithEnding.endsWith("\n") ? "\n" : ""}`;
