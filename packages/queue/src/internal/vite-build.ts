@@ -19,7 +19,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const queuePackageName = "@vite-hub/queue"
@@ -313,8 +313,9 @@ function createProviderRuntimeAliases(
   providerOutput: ProviderOutputCatalog | undefined,
   provider: QueueProvider,
   providerImportAliases: Record<string, string> = {},
+  generation?: ProviderDeploymentOutputGeneration,
 ): Record<string, string> {
-  const blobRuntime = getProviderRuntimeModule(providerOutput, "blob", provider)
+  const blobRuntime = getProviderRuntimeModule(providerOutput, "blob", provider, generation)
   return {
     ...providerImportAliases,
     ...(blobRuntime ? { "@vite-hub/blob": blobRuntime } : {}),
@@ -324,13 +325,14 @@ function createProviderRuntimeAliases(
 export function captureQueueProviderRuntimeInputs(
   providerOutput: ProviderOutputCatalog | undefined,
   providerImportAliases: Record<string, string> = {},
+  generation?: ProviderDeploymentOutputGeneration,
 ): QueueProviderRuntimeInputs {
   return {
     aliases: {
-      cloudflare: createProviderRuntimeAliases(providerOutput, "cloudflare", providerImportAliases),
-      vercel: createProviderRuntimeAliases(providerOutput, "vercel", providerImportAliases),
+      cloudflare: createProviderRuntimeAliases(providerOutput, "cloudflare", providerImportAliases, generation),
+      vercel: createProviderRuntimeAliases(providerOutput, "vercel", providerImportAliases, generation),
     },
-    vercelPackages: getVercelRuntimePackages(providerOutput, "blob").map(runtimePackage => ({ ...runtimePackage })),
+    vercelPackages: getVercelRuntimePackages(providerOutput, "blob", generation).map(runtimePackage => ({ ...runtimePackage })),
   }
 }
 

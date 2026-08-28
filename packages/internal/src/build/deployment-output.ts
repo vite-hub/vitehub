@@ -25,6 +25,7 @@ export {
   resetProviderOutputRuntime,
   useProviderOutputCatalog,
 } from "./provider-output-catalog.ts"
+export type { ProviderDeploymentOutputGeneration } from "./provider-output-catalog.ts"
 export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
@@ -248,7 +249,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
   }
   const backupRoot = copiesStaticOutput
-    ? await mkdtemp(resolve(dirname(clientDir), ".vitehub-cloudflare-output-"))
+    ? await mkdtemp(resolve(options.rootDir, ".vitehub-cloudflare-output-"))
     : undefined
   const previousOutputRoot = backupRoot ? resolve(backupRoot, "output") : `${outputRoot}.previous`
   const previousStaticOutputDir = backupRoot ? resolve(backupRoot, "static") : `${staticOutputDir}.previous`

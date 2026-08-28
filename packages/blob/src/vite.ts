@@ -353,7 +353,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
           providerOutput,
           rootDir: blobRootDir,
         })
-        registerSupportedProviderRuntimeModules(providerOutput, providerArtifacts, blobOptions, blobCloudflareOwnedByNitro)
+        registerSupportedProviderRuntimeModules(providerOutput, providerArtifacts, blobOptions, blobCloudflareOwnedByNitro, generation)
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => {

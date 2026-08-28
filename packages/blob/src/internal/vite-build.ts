@@ -13,7 +13,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const blobPackageName = "@vite-hub/blob"
@@ -608,6 +608,7 @@ export function registerSupportedProviderRuntimeModules(
   artifacts: GeneratedBlobArtifacts,
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
   cloudflareOwnedByNitro = false,
+  generation?: ProviderDeploymentOutputGeneration,
 ): void {
   const runtimeModuleFiles: Record<string, string> = shouldCreateProviderOutput(blob)
     ? cloudflareOwnedByNitro
@@ -620,7 +621,7 @@ export function registerSupportedProviderRuntimeModules(
     ...(!cloudflareOwnedByNitro && shouldCreateProviderOutput(blob)
       ? { vercelRuntimePackages: getVercelBlobRuntimePackages(blob) }
       : {}),
-  })
+  }, generation)
 }
 
 export async function generateProviderOutputs(

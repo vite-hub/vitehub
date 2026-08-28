@@ -298,12 +298,13 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const nitro = (config as { nitro?: unknown }).nitro
+        const generation = providerOutputGenerations.get(this)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
           owner: "queue",
           rootDir,
           write: async ({ signal, write }) => {
-            const providerRuntimeInputs = captureQueueProviderRuntimeInputs(providerOutput, retainedProviderImportAliases)
+            const providerRuntimeInputs = captureQueueProviderRuntimeInputs(providerOutput, retainedProviderImportAliases, generation)
             const retainedRuntimeSources = await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "runtime-sources"),
               paths: Object.values(providerRuntimeInputs.aliases).flatMap(aliases => Object.values(aliases)),
@@ -322,7 +323,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
               providerImportAliases: retainedProviderImportAliases,
               providerRuntimeInputs: {
                 aliases: typedRetainedRuntimeAliases,
-                vercelPackages: providerRuntimeInputs.vercelPackages,
+                vercelPackages: [],
               },
               queue: queue ?? (resolveNitroHosting(cloneNitroConfig(nitro))
                 ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
@@ -335,7 +336,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
             signal.throwIfAborted()
             await writeQueueRegistry(rootDir, definitions)
           },
-        }, providerOutputGenerations.get(this))
+        }, generation)
       }
       catch (error) {
         if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
