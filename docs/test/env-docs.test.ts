@@ -108,9 +108,23 @@ function envCalls(source: string) {
 
 function sectionObjects(sourceFile: Node) {
   const bindings = new Map<string, Expression>();
+  const configBindings = new Set(["defineConfig"]);
   const sections = new Map<Node, "define" | "public">();
 
   function collectBindings(node: Node) {
+    if (
+      isImportDeclaration(node) &&
+      isStringLiteralLike(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === "vite" &&
+      node.importClause?.namedBindings &&
+      isNamedImports(node.importClause.namedBindings)
+    ) {
+      for (const element of node.importClause.namedBindings.elements) {
+        if ((element.propertyName ?? element.name).text === "defineConfig") {
+          configBindings.add(element.name.text);
+        }
+      }
+    }
     if (isVariableDeclaration(node) && isIdentifier(node.name) && node.initializer) {
       bindings.set(node.name.text, node.initializer);
     }
@@ -152,7 +166,7 @@ function sectionObjects(sourceFile: Node) {
     return initializer ? resolveObjects(initializer, new Set(seen).add(expression.text)) : [];
   }
 
-  function resolveSectionObjects(expression: Expression) {
+  function resolveSpreadObjects(expression: Expression) {
     const objects: ObjectLiteralExpression[] = [];
     const seen = new Set<ObjectLiteralExpression>();
 
@@ -187,16 +201,16 @@ function sectionObjects(sourceFile: Node) {
     if (
       isCallExpression(node) &&
       isIdentifier(node.expression) &&
-      node.expression.text === "defineConfig"
+      configBindings.has(node.expression.text)
     ) {
-      const configs = node.arguments[0] ? resolveObjects(node.arguments[0]) : [];
+      const configs = node.arguments[0] ? resolveSpreadObjects(node.arguments[0]) : [];
       for (const config of configs) {
         const env = propertyValue(config, "env");
-        const envConfigs = env ? resolveObjects(env) : [];
+        const envConfigs = env ? resolveSpreadObjects(env) : [];
         for (const envConfig of envConfigs) {
           for (const section of ["define", "public"] as const) {
             const value = propertyValue(envConfig, section);
-            const objects = value ? resolveSectionObjects(value) : [];
+            const objects = value ? resolveSpreadObjects(value) : [];
             for (const object of objects) sections.set(object, section);
           }
         }
@@ -360,6 +374,30 @@ defineConfig({ env: { public: { ...nested, appName: env({ mode: "build" }) } } }
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public", "public", "public"]);
+  });
+
+  it("follows objects spread into Env configurations", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const shared = { public: { appName: env({ mode: "runtime" }) } }
+defineConfig({ env: { ...shared } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+  });
+
+  it("follows aliased Vite config helpers", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig as viteConfig } from "vite"
+viteConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.call)).toBe(false);
   });
 
   it("requires the last effective top-level mode to be build", () => {
