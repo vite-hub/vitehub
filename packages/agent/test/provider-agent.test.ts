@@ -398,6 +398,53 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
+  it("serializes case-equivalent Codex homes on macOS", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const equivalentHome = sharedHome.toUpperCase()
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    vi.resetModules()
+    const macosProviderAgent = await import("../src/provider-agent.ts")
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
+    const first = runtime("thread-macos-home-first", [event("turn.completed", "thread-macos-home-first", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => firstBlocked,
+    })
+    runtime("thread-macos-home-second", [event("turn.completed", "thread-macos-home-second", { state: "completed" }, { turnId: "turn-1" })])
+    const firstAdapter = macosProviderAgent.createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const secondAdapter = macosProviderAgent.createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: equivalentHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const firstInvocation = firstAdapter.generate(context("thread-macos-home-first") as never)
+      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      const secondInvocation = secondAdapter.generate(context("thread-macos-home-second") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseFirst()
+      await expect(firstInvocation).resolves.toBeDefined()
+      await expect(secondInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseFirst()
+      platform.mockRestore()
+      await Promise.all([
+        rm(sharedHome, { force: true, recursive: true }),
+        rm(equivalentHome, { force: true, recursive: true }),
+      ])
+    }
+  })
+
   it("passes Codex reasoning selections to provider session startup", async () => {
     const threadId = "thread-reasoning-options"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -2143,16 +2190,18 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
-  it("keeps a completed turn successful when provider cleanup stalls", async () => {
+  it("keeps the shared-home lock until stalled provider cleanup settles", async () => {
     vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     try {
-      const threadId = "thread-cleanup-timeout"
+      const threadId = "thread-cleanup-timeout-first"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       let finishClose!: () => void
       provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
       const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
+        providerSettings: { homePath: sharedHome },
       })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const stream = await adapter.stream!(context(threadId) as never)
@@ -2170,9 +2219,10 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
         expect.objectContaining({ recoverable: true, type: "error" }),
       ]))
       await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
-      const nextProvider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      const nextThreadId = "thread-cleanup-timeout-second"
+      const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      const nextResult = adapter.generate(context(threadId) as never)
+      const nextResult = adapter.generate(context(nextThreadId) as never)
       await vi.advanceTimersByTimeAsync(25)
       expect(nextProvider.startSession).not.toHaveBeenCalled()
 
@@ -2183,6 +2233,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
     finally {
       vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
     }
   })
 

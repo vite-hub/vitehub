@@ -1213,20 +1213,29 @@ async function* runProvider<
   let credentialSharedHome: string | undefined
   let releaseCredentialHomeLock: (() => void) | undefined
   let credentialHomeCleanup: Promise<void> | undefined
+  let credentialHomeRemoval: Promise<void> | undefined
+  let credentialHomeForced = false
   const releaseCredentialOverlayLock = () => {
     const release = releaseCredentialHomeLock
     releaseCredentialHomeLock = undefined
     release?.()
   }
+  const removeCredentialHome = () => credentialHomeRemoval ??= credentialHome
+    ? rm(credentialHome, { force: true, recursive: true })
+    : Promise.resolve()
+  const forceRemoveCredentialHome = () => {
+    credentialHomeForced = true
+    return credentialHomeCleanup ?? removeCredentialHome()
+  }
   const cleanupCredentialHome = () => credentialHomeCleanup ??= (async () => {
     if (!credentialHome) return
     try {
-      if (credentialSharedHome) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome)
+      if (credentialSharedHome && !credentialHomeForced) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome)
     }
     finally {
-      await rm(credentialHome, { force: true, recursive: true })
+      await removeCredentialHome()
     }
-  })().finally(releaseCredentialOverlayLock)
+  })()
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1254,7 +1263,7 @@ async function* runProvider<
       new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
     ]).finally(async () => {
       if (timeout) clearTimeout(timeout)
-      await cleanupCredentialHome()
+      if (credentialHomeCleanup === undefined) await forceRemoveCredentialHome()
     })
     observeLateCleanup(boundedCredentialCleanup)
   }
@@ -1381,7 +1390,7 @@ async function* runProvider<
     }
     if (credentialHome) {
       credentialSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
-      const sharedHomeKey = providerHostPlatform === "win32" ? credentialSharedHome.toLowerCase() : credentialSharedHome
+      const sharedHomeKey = providerHostPlatform === "win32" || providerHostPlatform === "darwin" ? credentialSharedHome.toLowerCase() : credentialSharedHome
       releaseCredentialHomeLock = await acquireProviderSessionLock(codexSharedHomeLocks, sharedHomeKey, effectiveSignal)
       await materializeCodexCredentialOverlay(credentialHome, credentialSharedHome)
       providerSettings.homePath = credentialHome
@@ -1594,7 +1603,7 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
-        forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), cleanupCredentialHome()])
+        forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), forceRemoveCredentialHome()])
         observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)
       }
@@ -1605,7 +1614,7 @@ async function* runProvider<
           new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
         ]).finally(async () => {
           if (timeout) clearTimeout(timeout)
-          await settleAgentProviderCleanups([cleanupRoot(), cleanupCredentialHome()])
+          await settleAgentProviderCleanups([cleanupRoot(), forceRemoveCredentialHome()])
         })
         observeLateCleanup(invocationCleanupDeferred)
         void cleanupTask.catch(() => undefined)
@@ -1617,6 +1626,9 @@ async function* runProvider<
     const deferredSessionCleanup = cleanupTimedOut ? cleanupTask : invocationCleanupDeferred || deferredRuntimeCleanup || deferredWorkspaceCleanup
     if (deferredSessionCleanup) void deferredSessionCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
+    const credentialLockCleanup = runtimeCleanupDeferred ? deferredRuntimeCleanup : cleanupTask
+    if (credentialLockCleanup) void credentialLockCleanup.then(releaseCredentialOverlayLock, releaseCredentialOverlayLock)
+    else releaseCredentialOverlayLock()
     if (sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
         resumeCursors.set(sessionKey, pendingResumeCursor)
