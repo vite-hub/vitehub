@@ -66,7 +66,7 @@ function collectImportedPackageNames(source: string): Set<string> {
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
-    /\b(?:__require|require)\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*\)/g,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -292,7 +292,7 @@ function maskInertImportText(source: string): string {
       }
       if (character === '"' || character === "'") {
         const prefix = output.slice(Math.max(0, output.length - 120))
-        const keep = /(?:\b(?:from|import|export)|\b(?:__require|import|require)\s*\(|\bnew\s+URL\s*\()\s*$/.test(prefix)
+        const keep = /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(|\bimport\s*\(|\bnew\s+URL\s*\()\s*$/.test(prefix)
         let end = index + 1
         while (end < source.length) {
           if (source[end] === "\\") end += 2

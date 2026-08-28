@@ -618,6 +618,23 @@ import "plain"
     await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
   })
 
+  it("stages packages referenced through require.resolve", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-require-resolve-"))
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "direct-runtime")
+    await writeRuntimePackage(root, "@scope/bundled-runtime")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), `
+require.resolve("direct-runtime")
+__require.resolve("@scope/bundled-runtime/entry")
+`)
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/direct-runtime/marker"), "utf8")).resolves.toBe("direct-runtime")
+    await expect(readFile(join(root, ".output/node_modules/@scope/bundled-runtime/marker"), "utf8")).resolves.toBe("@scope/bundled-runtime")
+  })
+
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-cycle-"))
     const plainDir = join(root, "node_modules/plain")
