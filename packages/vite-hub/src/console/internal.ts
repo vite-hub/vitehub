@@ -81,7 +81,7 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = global
     ? scopeIdentity && registered?.get(scopeIdentity) ? scopeIdentity : identities?.get(root) ?? root
     : scope[consoleInvocationsIdentityKey]
   if (root) {
-    return registered?.get(identity ?? root) ?? scope[consoleInvocationsKey]
+    return scope[consoleInvocationsKey] ?? registered?.get(identity ?? root)
   }
   if (!root && registered && registered.size > 1) {
     return scope[consoleInvocationsKey]

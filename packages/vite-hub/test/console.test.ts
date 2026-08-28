@@ -883,6 +883,21 @@ describe("Agent invocation console", () => {
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
   })
 
+  it("keeps concurrent fixture revisions bound to their runtime journal", () => {
+    const first = fakeInvocations("first")
+    const second = fakeInvocations("second")
+    const firstScope = { process }
+    const secondScope = { process }
+    const identity = "fixture:/project:/fixture.json"
+
+    installConsoleInvocationFallback(first, "/project", firstScope, identity, "first-revision")
+    installConsoleInvocationFallback(second, "/project", secondScope, identity, "second-revision")
+
+    expect(resolveConsoleInvocations(firstScope)).toBe(first)
+    expect(resolveConsoleInvocations(secondScope)).toBe(second)
+    expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
+  })
+
   it("keeps process-shared journals scoped to their project root", () => {
     const first = fakeInvocations("first")
     const second = fakeInvocations("second")
