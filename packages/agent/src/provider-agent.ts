@@ -260,6 +260,7 @@ async function configureCodexCredentialHome(homePath: string): Promise<void> {
   const configPath = join(homePath, "config.toml")
   const configEntry = await lstat(configPath).catch(() => undefined)
   if (configEntry?.isSymbolicLink()) throw new Error(`[vitehub] Codex Driver profile config must not be a symbolic link: ${configPath}`)
+  if (configEntry && (!configEntry.isFile() || configEntry.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile config must be a singly linked file: ${configPath}`)
   const config = await readFile(configPath, "utf8").catch((error) => {
     if (hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ENOENT") return ""
     throw error
@@ -355,9 +356,11 @@ async function ensureCodexProfileHome(profile: string): Promise<string> {
 async function openCodexProfileHome(profile: string, credentials: string): Promise<string> {
   const homePath = await ensureCodexProfileHome(profile)
   const seedHash = (await readFile(join(homePath, ".vitehub-seed.sha256"), "utf8").catch(() => "")).trim()
-  const auth = await lstat(join(homePath, "auth.json")).catch(() => undefined)
+  const authPath = join(homePath, "auth.json")
+  const auth = await lstat(authPath).catch(() => undefined)
+  if (auth && (!auth.isFile() || auth.isSymbolicLink() || auth.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile auth must be a singly linked file: ${authPath}`)
   if (seedHash === codexCredentialSeedHash(credentials) && auth?.isFile() && !auth.isSymbolicLink()) {
-    await chmod(join(homePath, "auth.json"), 0o600)
+    await chmod(authPath, 0o600)
     return homePath
   }
   await writeCodexCredentials(homePath, credentials)

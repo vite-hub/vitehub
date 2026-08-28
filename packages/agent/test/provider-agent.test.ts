@@ -1,4 +1,4 @@
-import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
@@ -195,6 +195,35 @@ describe("Provider Agent Driver", () => {
 
       expect((await stat(externalConfig)).mode & 0o777).toBe(0o644)
       await expect(readFile(externalConfig, "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\n')
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+      await rm(externalRoot, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    ["config", "config.toml", 'cli_auth_credentials_store = "file"\n'],
+    ["auth", "auth.json", '{"OPENAI_API_KEY":"external"}\n'],
+  ])("rejects a hard-linked named-profile %s without changing its target", async (kind, name, contents) => {
+    const profile = `provider-${kind}-hard-link-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const externalRoot = await mkdtemp(join(tmpdir(), `vitehub-codex-${kind}-target-`))
+    const externalFile = join(externalRoot, name)
+    await mkdir(homePath, { recursive: true })
+    await writeFile(externalFile, contents, { mode: 0o644 })
+    await link(externalFile, join(homePath, name))
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context(`thread-hard-linked-profile-${kind}`) as never)).rejects.toThrow(`profile ${kind} must be a singly linked file`)
+
+      expect((await stat(externalFile)).mode & 0o777).toBe(0o644)
+      await expect(readFile(externalFile, "utf8")).resolves.toBe(contents)
     }
     finally {
       await rm(homePath, { force: true, recursive: true })
