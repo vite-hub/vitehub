@@ -1442,7 +1442,6 @@ describe("Provider Agent Driver", () => {
 
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
     const threadId = "thread-workspace-materialization-cancellation"
-    runtime(threadId, [])
     const abort = new AbortController()
     let releaseActive!: () => void
     let activeSettled = false

@@ -799,6 +799,36 @@ describe("lazy sources", () => {
     expect(resolveRevision).toHaveBeenCalledOnce()
   })
 
+  it("resolves a new immutable revision for each materialization", async () => {
+    const revisions = [
+      { id: "commit-123", immutable: true, ref: "main" },
+      { id: "commit-456", immutable: true, ref: "main" },
+    ]
+    const resolveRevision = vi.fn(async () => revisions.shift())
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      resolveRevision,
+      async getKeys() {
+        return ["current.md"]
+      },
+      async getItem(key, context) {
+        return { key, path: key, content: context.revision?.id || "missing revision" }
+      },
+    })
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({ name: "materialization-refreshed-revision", sources: { docs: source } }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ revision: { id: "commit-123" }, status: "ready" }],
+    })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ revision: { id: "commit-456" }, status: "ready" }],
+    })
+    await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "commit-456" })
+    expect(resolveRevision).toHaveBeenCalledTimes(2)
+  })
+
   it("prepares the persistent non-live Source context after signaled explicit materialization", async () => {
     const clients = new WeakMap<object, { keys: string[] }>()
     const prepare = vi.fn(async (context: SourceContext) => {

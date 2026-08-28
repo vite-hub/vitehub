@@ -66,16 +66,22 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const pending = materializationQueue.then(async () => {
       started = true
       options?.abortSignal?.throwIfAborted()
+      const preparedForMaterialization = new Set<string>()
       await Promise.all(sources
         .filter(source => !options?.sources?.length || options.sources.includes(source.key))
-        .map(async source => await prepareBySource.get(source.key)?.catch(() => undefined)))
+        .map(async (source) => {
+          const preparation = prepareBySource.get(source.key)
+          if (!preparation) return
+          await preparation.catch(() => undefined)
+          preparedForMaterialization.add(source.key)
+        }))
       options?.abortSignal?.throwIfAborted()
       return await materializeWorkspaceSources(definition, store, options, {
         getContext: getSourceContext,
-        isPrepared: source => preparedSources.has(source.key),
+        isPrepared: source => preparedForMaterialization.has(source.key),
         onPrepared(source) {
           preparedSources.add(source.key)
-          prepareBySource.set(source.key, Promise.resolve())
+          preparedForMaterialization.add(source.key)
         },
       })
     })
@@ -218,11 +224,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     await materializationPreparationBySource.get(sourceKey)
+    if (preparedSources.has(sourceKey)) return
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
       pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(
         () => {
           preparedSources.add(sourceKey)
+          prepareBySource.delete(sourceKey)
         },
         (error) => {
           prepareBySource.delete(sourceKey)
