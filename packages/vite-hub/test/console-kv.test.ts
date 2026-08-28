@@ -101,6 +101,7 @@ describe("Console KV inspection", () => {
         ["config", { enabled: true }],
         ["nullable", null],
         ["large", "x".repeat(256 * 1_024 + 1)],
+        ["large-bytes", new Uint8Array(128 * 1_024 + 1).fill(0xab)],
         [" spaced ", "preserved"],
         ["unicode", "🟠".repeat(65_537)],
       ]),
@@ -148,6 +149,12 @@ describe("Console KV inspection", () => {
       found: true,
       truncated: true,
       value: "🟠".repeat(65_536),
+    })
+    await expect(kvHandler(event("?key=large-bytes"))).resolves.toMatchObject({
+      found: true,
+      truncated: true,
+      type: "bytes",
+      value: "ab".repeat(128 * 1_024),
     })
     expect(writes).not.toHaveBeenCalled()
   })

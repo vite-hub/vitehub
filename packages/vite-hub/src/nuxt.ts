@@ -24,6 +24,7 @@ import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./intern
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
+import type { KVModuleOptions } from "@vite-hub/kv"
 import type { HookHandler, Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
@@ -56,7 +57,7 @@ type NuxtLike = {
     rootDir?: string
     serverDir?: string
     srcDir?: string
-    vite?: UserConfig & { auth?: AuthModuleOptions }
+    vite?: UserConfig & { auth?: AuthModuleOptions, kv?: KVModuleOptions }
     vitehub?: ViteHubNuxtOptions
     typescript?: Record<string, unknown>
   }
@@ -543,9 +544,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
-  const consoleSections = resolveConsoleSectionIds(options)
-  const configuredConsoleKV = options.kv && options.kv !== true ? options.kv : undefined
-  const resolvedConsoleKV = options.kv
+  const effectiveKV = nuxt.options.vite?.kv ?? options.kv
+  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV })
+  const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
+  const resolvedConsoleKV = effectiveKV
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
     : false
   const consoleKVStores = resolvedConsoleKV

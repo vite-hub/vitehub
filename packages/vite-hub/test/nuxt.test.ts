@@ -11,6 +11,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 
+import type { KVModuleOptions } from "@vite-hub/kv"
 import type { Plugin, PluginOption } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
@@ -111,7 +112,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
       srcDir: "/tmp/vitehub-nuxt/app",
-      vite: { plugins },
+      vite: { kv: undefined as KVModuleOptions | undefined, plugins },
     },
   }
   return {
@@ -431,6 +432,32 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["kv"])`)
     expect(generated).not.toContain("installConsoleInvocations")
     expect(generated).toContain(`installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`)
+  })
+
+  it("uses the effective Vite KV configuration for the Nuxt Console", async () => {
+    const named = createNuxt(true)
+    named.nuxt.options.vite.kv = {
+      stores: {
+        cache: { driver: "fs-lite" },
+        sessions: { driver: "fs-lite" },
+      },
+    }
+
+    await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, named.nuxt)
+
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["cache","sessions"])`,
+    )
+
+    const disabled = createNuxt(true)
+    disabled.nuxt.options.vite.kv = false
+
+    await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, disabled.nuxt)
+    const pages: Array<{ file: string; name: string; path: string }> = []
+    disabled.runPagesHook(pages)
+
+    expect(pages).not.toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
+    expect(disabled.nuxt.options.nitro?.handlers).not.toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/kv" }))
   })
 
   it("rejects non-Node production console storage while preserving development", async () => {

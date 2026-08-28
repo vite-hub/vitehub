@@ -69,6 +69,7 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
   const type = valueType(value)
   let format: "json" | "text" = "json"
   let rendered: string
+  let truncated = false
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- KV drivers return unknown values, so string identity is validated at this formatting boundary.
   if (typeof value === "string") {
     format = "text"
@@ -76,7 +77,9 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
   }
   else if (value instanceof Uint8Array) {
     format = "text"
-    rendered = Array.from(value, byte => byte.toString(16).padStart(2, "0")).join("")
+    const maximumBytes = maximumValueBytes / 2
+    truncated = value.byteLength > maximumBytes
+    rendered = Array.from(value.subarray(0, maximumBytes), byte => byte.toString(16).padStart(2, "0")).join("")
   }
   else {
     try {
@@ -93,7 +96,7 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
     type,
     value: result.value,
   }
-  if (result.truncated) formatted.truncated = true
+  if (truncated || result.truncated) formatted.truncated = true
   return formatted
 }
 
