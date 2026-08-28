@@ -672,7 +672,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     api?: {
       onGeneratedHandlersChanged?: (
         listener: (handlers: GeneratedSourceHandler[]) => Promise<void> | void,
-        options?: { handlesHostRestart?: boolean },
+        options?: { handlesHostRestart?: boolean, projectRoot?: string },
       ) => () => void
       prepareSources?: (options: {
         projectRoot: string
@@ -701,7 +701,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     })
     generatedSourceRestart = restart.catch(() => {})
     return restart
-  }, { handlesHostRestart: true })
+  }, { handlesHostRestart: true, projectRoot })
   if (removeGeneratedHandlersListener) {
     nuxt.hook?.("close", () => {
       generatedSourceRestartClosed = true

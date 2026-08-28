@@ -1208,6 +1208,7 @@ describe("framework generated types", () => {
     let releaseOldPreparation: (() => void) | undefined
     generatedHandlerReadGate.path = generatedMealsHandler
     generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.error = new Error("preparation failed")
     generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
       releaseOldPreparation = resolve
     })
@@ -1299,6 +1300,59 @@ describe("framework generated types", () => {
 
     expect(firstRestart).toHaveBeenCalledOnce()
     await expect(readFile(join(first.root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("keeps generated-handler restart owners scoped to their project root", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const plugin = sourcePlugin()
+    await config(plugin)({ root: first.root })
+    const firstRestartOwner = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(firstRestartOwner, { handlesHostRestart: true })
+
+    await config(plugin)({ root: second.root })
+    const secondListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const secondRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: secondRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => secondListeners.set(event, callback) },
+    })
+
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await mkdir(dirname(secondCollection), { recursive: true })
+    await writeFile(secondCollection, collectionModule("drinks"))
+    await secondListeners.get("add")?.(secondCollection)
+
+    expect(firstRestartOwner).not.toHaveBeenCalled()
+    expect(secondRestart).toHaveBeenCalledOnce()
+  })
+
+  it("resumes the old Source lifecycle after replacement config validation fails", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "server/collections/meals.ts")
+    const drinks = join(root, "server/collections/drinks.ts")
+    await mkdir(dirname(meals), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await expect(config(plugin)({
+      nitro: { handlers: [{ handler: "server/api/meals.ts", method: "get", route: "/api/meals" }] },
+      root,
+    })).rejects.toThrow('Generated Collection route "/api/meals" conflicts with an existing GET handler')
+
+    await writeFile(drinks, collectionModule("drinks"))
+    await oldListeners.get("add")?.(drinks)
+
+    expect(oldRestart).toHaveBeenCalledOnce()
   })
 
   it("watches custom Source directories and recovers after refresh errors", async () => {

@@ -40,6 +40,7 @@ export type GeneratedSourceHandlersListener = (handlers: GeneratedSourceHandler[
 
 export interface GeneratedSourceHandlersListenerOptions {
   handlesHostRestart?: boolean
+  projectRoot?: string
 }
 
 interface DiscoveredCollection {
@@ -370,7 +371,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     resume: () => void
   }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
-  const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
+  const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, {
+    handlesHostRestart?: boolean
+    projectRoot?: string
+  }>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
@@ -392,7 +396,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     listener: GeneratedSourceHandlersListener,
     listenerOptions: GeneratedSourceHandlersListenerOptions = {},
   ) => {
-    generatedHandlersListeners.set(listener, listenerOptions)
+    generatedHandlersListeners.set(listener, {
+      ...listenerOptions,
+      projectRoot: listenerOptions.projectRoot
+        ? resolve(listenerOptions.projectRoot)
+        : projectRoot,
+    })
     return () => generatedHandlersListeners.delete(listener)
   }
   return {
@@ -407,22 +416,21 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const previousLifecycle = hostRefreshLifecycleByRoot.get(projectRoot)
       previousLifecycle?.pause()
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
-      let handlers: GeneratedSourceHandler[]
       try {
-        handlers = await prepareSources({ projectRoot, serverDirs })
+        const handlers = await prepareSources({ projectRoot, serverDirs })
+        configuredHandlerKey = await generatedHandlerKey(handlers)
+        const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
+        const contribution: SourcePluginConfig = {
+          define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
+          ...(nitro ? { nitro } : {}),
+        }
+        previousLifecycle?.close()
+        return contribution
       }
       catch (error) {
         previousLifecycle?.resume()
         throw error
       }
-      previousLifecycle?.close()
-      configuredHandlerKey = await generatedHandlerKey(handlers)
-      const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
-      const contribution: SourcePluginConfig = {
-        define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
-        ...(nitro ? { nitro } : {}),
-      }
-      return contribution
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
@@ -488,7 +496,9 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const handlerKey = await generatedHandlerKey(handlers)
           if (serverClosed || serverPaused) return
           if (handlerKey === activeHandlerKey) return
-          const listeners = [...generatedHandlersListeners]
+          const listeners = [...generatedHandlersListeners].filter(([, listenerOptions]) =>
+            listenerOptions.projectRoot === root,
+          )
           const passiveListeners = listeners.filter(([, listenerOptions]) =>
             !listenerOptions.handlesHostRestart,
           )
