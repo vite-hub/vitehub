@@ -972,6 +972,20 @@ load("@img/sharp-linux-x64/sharp.node")
     expect(existsSync(completedStage)).toBe(false)
   })
 
+  it("cleans an interrupted pre-swap staging directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-interrupted-stage-"))
+    const interruptedStage = join(root, "..output.vitehub-interrupted")
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await mkdir(join(interruptedStage, "output/server"), { recursive: true })
+    await writeFile(join(interruptedStage, "output/server/index.mjs"), "stale\n", "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    expect(existsSync(interruptedStage)).toBe(false)
+  })
+
   it("does not recover deployment output owned by another process", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-concurrent-output-"))
     await writeJson(join(root, "package.json"), {})

@@ -869,7 +869,7 @@ async function readRuntimePackages(
   for (const source of sources) {
     const staticNames = collectStaticPackageNames(source)
     const requiredNames = new Set([
-      ...collectImportedPackageNames(maskBundledPackageRegions(source)),
+      ...collectImportedPackageNames(source),
       ...staticNames,
     ])
     for (const name of requiredNames) {
@@ -1086,26 +1086,54 @@ export async function finalizeDenoDeploymentOutput(
 
 async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promise<void>> {
   const lockPath = `${outputDir}.vitehub-lock`
+  const reclaimPath = `${lockPath}.reclaim`
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      await access(reclaimPath).then(() => {
+        throw Object.assign(new Error("lock reclamation in progress"), { code: "EEXIST" })
+      }).catch((error) => {
+        // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      })
       const lock = await open(lockPath, "wx")
       await lock.writeFile(`${process.pid}\n`, "utf8")
       await lock.close()
       return () => rm(lockPath, { force: true })
     }
     catch (error) {
+      // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-      const owner = Number.parseInt(await readFile(lockPath, "utf8").catch(() => ""), 10)
-      let ownerAlive = Number.isSafeInteger(owner) && owner > 0
-      if (ownerAlive) {
-        try { process.kill(owner, 0) }
-        catch (signalError) {
-          if ((signalError as NodeJS.ErrnoException).code === "ESRCH") ownerAlive = false
-          else throw signalError
-        }
+      try {
+        await mkdir(reclaimPath)
       }
-      if (ownerAlive) throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized by process ${owner}.`)
-      await rm(lockPath, { force: true })
+      catch (reclaimError) {
+        // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+        if ((reclaimError as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized.`)
+        }
+        throw reclaimError
+      }
+      try {
+        const owner = Number.parseInt(await readFile(lockPath, "utf8").catch(() => ""), 10)
+        let ownerAlive = Number.isSafeInteger(owner) && owner > 0
+        if (ownerAlive) {
+          try { process.kill(owner, 0) }
+          catch (signalError) {
+            // SAFETY: Node process errors expose their stable code through ErrnoException.
+            if ((signalError as NodeJS.ErrnoException).code === "ESRCH") ownerAlive = false
+            else throw signalError
+          }
+        }
+        if (ownerAlive) throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized by process ${owner}.`)
+        await rm(lockPath, { force: true })
+        const lock = await open(lockPath, "wx")
+        await lock.writeFile(`${process.pid}\n`, "utf8")
+        await lock.close()
+        return async () => rm(lockPath, { force: true })
+      }
+      finally {
+        await rm(reclaimPath, { force: true, recursive: true })
+      }
     }
   }
   throw new Error(`Could not acquire the Deno deployment output lock for ${JSON.stringify(outputDir)}.`)
@@ -1135,7 +1163,8 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return
         throw error
       })
-      return previous && { previousOutputDir, stageRoot, updatedAt: previous.mtimeMs }
+      const stage = await stat(stageRoot)
+      return { previousOutputDir: previous ? previousOutputDir : undefined, stageRoot, updatedAt: previous?.mtimeMs ?? stage.mtimeMs }
     })))
     .filter(recovery => recovery !== undefined)
     .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -1143,8 +1172,8 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
     await Promise.all(recoveries.map(recovery => rm(recovery.stageRoot, { force: true, recursive: true })))
     return
   }
-  const recovery = recoveries[0]
-  if (!recovery) return
+  const recovery = recoveries.find(entry => entry.previousOutputDir)
+  if (!recovery?.previousOutputDir) return
   await rename(recovery.previousOutputDir, outputDir)
   await Promise.all(recoveries.map(entry => rm(entry.stageRoot, { force: true, recursive: true })))
 }
