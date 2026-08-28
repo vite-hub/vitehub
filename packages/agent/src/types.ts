@@ -1145,7 +1145,28 @@ export interface AgentDriverCapacityQueueOptions {
   timeout?: number
 }
 
+export interface AgentDriverCapacitySampleContext {
+  active: number
+  concurrency: number
+  pending: number
+  signal: AbortSignal
+}
+
+export interface AgentDriverCapacitySample {
+  concurrency: number
+  reason?: string
+}
+
+export interface AgentDriverAdaptiveCapacityOptions {
+  fallbackConcurrency?: number
+  intervalMs?: number
+  rampUp?: number
+  sample: (context: AgentDriverCapacitySampleContext) => MaybePromise<AgentDriverCapacitySample>
+  sampleTimeoutMs?: number
+}
+
 export interface AgentDriverCapacityOptions {
+  adaptive?: AgentDriverAdaptiveCapacityOptions
   concurrency: number
   queue?: AgentDriverCapacityQueueOptions
 }
@@ -1801,9 +1822,12 @@ export interface AgentInspectionProviderMetadata {
 }
 
 export interface AgentInspectionDriverMetadata {
-  capacity?: AgentDriverCapacityOptions & {
+  capacity?: Omit<AgentDriverCapacityOptions, "adaptive"> & {
     active: number
+    effectiveConcurrency?: number
+    lastSampleAt?: number
     pending: number
+    reason?: string
   }
   readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata
