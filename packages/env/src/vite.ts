@@ -222,6 +222,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     },
     load(id) {
       const viteConfig = this?.environment?.config
+      // SAFETY: environmentStateKey is defined only with ResolvedEnvState values above.
       const environmentState = viteConfig ? Reflect.get(viteConfig, environmentStateKey) as ResolvedEnvState | undefined : undefined
       const state = environmentState
         ?? (viteConfig ? resolvedConfigStates.get(viteConfig) : undefined)

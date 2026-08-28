@@ -67,7 +67,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: Record<string, unknown> } {
-  return isRecord(value) && isRecord(value.source) && typeof value.secret === "boolean"
+  return isRecord(value) && isRecord(value.source) && (value.secret === true || value.secret === false)
 }
 
 function validateEmailRuntimeOptions(value: unknown, path = "email.options"): void {
@@ -75,7 +75,7 @@ function validateEmailRuntimeOptions(value: unknown, path = "email.options"): vo
     if (value.source.kind === "provider") {
       throw new TypeError(`[vitehub] Email declaration ${path} cannot use env.provider() because Email options are resolved synchronously.`)
     }
-    if (value.secret && typeof value.default !== "undefined") {
+    if (value.secret && value.default !== undefined) {
       throw new TypeError(`[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.`)
     }
     return

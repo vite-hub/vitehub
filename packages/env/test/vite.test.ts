@@ -631,9 +631,10 @@ describe("Vite plugin", () => {
       const configResult = await configHook(userConfig, { command: "serve", mode: "development" })
       await configResolvedHook({
         ...userConfig,
+        // SAFETY: this config hook returns the private state marker consumed by configResolved.
         ...configResult as object,
         logger: { info: vi.fn() },
-      } as never)
+      })
       return new Proxy(environmentConfig, {})
     }
 
