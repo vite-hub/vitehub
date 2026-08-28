@@ -196,7 +196,6 @@ interface CodexCredentialOverlayEntry {
 interface CodexCredentialOverlay {
   entries: CodexCredentialOverlayEntry[]
   sharedHomeCaseInsensitive: boolean
-  shadowHomeCaseInsensitive: boolean
 }
 
 const codexSharedHomeLocks = new Map<string, CodexSharedHomeLockState>()
@@ -392,7 +391,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !materializedEntries.has(comparableEntry)) throw error
     }
   }
-  return { entries: overlayEntries, sharedHomeCaseInsensitive, shadowHomeCaseInsensitive }
+  return { entries: overlayEntries, sharedHomeCaseInsensitive }
 }
 
 async function codexCredentialOverlayOwnsTarget(entry: CodexCredentialOverlayEntry, targetEntry: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
@@ -403,8 +402,8 @@ async function codexCredentialOverlayOwnsTarget(entry: CodexCredentialOverlayEnt
 
 async function persistCodexCredentialOverlay(home: string, sharedHome: string, overlay: CodexCredentialOverlay | undefined): Promise<void> {
   const shadowEntries = await readdir(home)
-  const shadowEntryNames = new Set(shadowEntries.map(entry => overlay?.shadowHomeCaseInsensitive ? entry.toLowerCase() : entry))
-  const missingEntries = (overlay?.entries || []).filter(entry => !shadowEntryNames.has(overlay?.shadowHomeCaseInsensitive ? entry.name.toLowerCase() : entry.name))
+  const shadowEntryNames = new Set(shadowEntries)
+  const missingEntries = (overlay?.entries || []).filter(entry => !shadowEntryNames.has(entry.name))
   const renamedEntries = new Set<CodexCredentialOverlayEntry>()
   await settleAgentProviderCleanups(shadowEntries
     .filter((entry) => {
@@ -414,11 +413,19 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
     .map(async (entry) => {
       const source = join(home, entry)
       let sourceEntry = await lstat(source)
+      let sourcePath = source
       if (sourceEntry.isSymbolicLink()) {
         const linkedTarget = resolve(dirname(source), await readlink(source))
         const renamedEntry = missingEntries.find(candidate => !renamedEntries.has(candidate) && candidate.target === linkedTarget)
         if (!renamedEntry) return
+        const currentTarget = await lstat(renamedEntry.target).catch((error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+          throw error
+        })
+        if (!currentTarget || !await codexCredentialOverlayOwnsTarget(renamedEntry, currentTarget)) return
         sourceEntry = await stat(source)
+        if (sourceEntry.isDirectory()) sourcePath = await realpath(renamedEntry.target)
         renamedEntries.add(renamedEntry)
       }
       if (!sourceEntry.isFile() && !sourceEntry.isDirectory()) return
@@ -442,8 +449,8 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
       }
       const temporary = join(sharedHome, `.${entry}.${crypto.randomUUID()}.tmp`)
       try {
-        if (sourceEntry.isDirectory()) await cp(source, temporary, { recursive: true })
-        else await copyFile(source, temporary)
+        if (sourceEntry.isDirectory()) await cp(sourcePath, temporary, { recursive: true })
+        else await copyFile(sourcePath, temporary)
         await rename(temporary, target).catch(async (error) => {
           // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           const code = (error as NodeJS.ErrnoException).code

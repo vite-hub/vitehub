@@ -23,6 +23,7 @@ const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
 const beforeCodexCredentialChmod = vi.hoisted(() => vi.fn())
 const beforeCodexHomeSymlink = vi.hoisted(() => vi.fn())
 const beforeCodexHomeLink = vi.hoisted(() => vi.fn())
+const readCodexHomeStat = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
@@ -44,6 +45,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     realpath: (...args: Parameters<typeof original.realpath>) => canonicalizeCodexSharedHome.getMockImplementation()
       ? canonicalizeCodexSharedHome(...args)
       : original.realpath(...args),
+    stat: (...args: Parameters<typeof original.stat>) => readCodexHomeStat.getMockImplementation()
+      ? readCodexHomeStat(...args)
+      : original.stat(...args),
     symlink: async (...args: Parameters<typeof original.symlink>) => {
       await beforeCodexHomeSymlink(...args)
       return await original.symlink(...args)
@@ -396,6 +400,88 @@ describe("Provider Agent Driver", () => {
     }
     finally {
       await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists case-only rename from a case-insensitive shadow to a case-sensitive Codex home", async () => {
+    const threadId = "thread-mixed-case-rename-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const originalConfig = join(sharedHome, "Config.toml")
+    const renamedConfig = join(sharedHome, "config.toml")
+    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
+    readCodexHomeStat.mockImplementation(async (path) => {
+      const value = String(path)
+      if (value.toLowerCase().includes(".vitehub-case-probe-")) {
+        if (value.includes("vitehub-codex-shadow-home-")) return { dev: 1, ino: 1 }
+        return { dev: 1, ino: value.includes(".VITEHUB-CASE-PROBE-") ? 2 : 1 }
+      }
+      return { isDirectory: () => false, isFile: () => true }
+    })
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(originalConfig)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+    }
+    finally {
+      readCodexHomeStat.mockReset()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists tracked directory renames without following nested links or removing external referents", async () => {
+    const threadId = "thread-rename-linked-codex-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const externalRules = join(externalHome, "rules")
+    const nestedReferent = join(externalHome, "nested.rules")
+    const sharedRules = join(sharedHome, "rules")
+    const renamedRules = join(sharedHome, "archived-rules")
+    await mkdir(externalRules)
+    await writeFile(join(externalRules, "default.rules"), "allow read\n")
+    await writeFile(nestedReferent, "allow nested\n")
+    await symlink(nestedReferent, join(externalRules, "nested.rules"))
+    await symlink(externalRules, sharedRules)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "rules"), join(shadowHome, "archived-rules"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(sharedRules)).rejects.toMatchObject({ code: "ENOENT" })
+      expect((await lstat(renamedRules)).isDirectory()).toBe(true)
+      expect(await readFile(join(renamedRules, "default.rules"), "utf8")).toBe("allow read\n")
+      expect((await lstat(join(renamedRules, "nested.rules"))).isSymbolicLink()).toBe(true)
+      expect(await readlink(join(renamedRules, "nested.rules"))).toBe(nestedReferent)
+      expect(await readFile(join(externalRules, "default.rules"), "utf8")).toBe("allow read\n")
+      expect(await readFile(nestedReferent, "utf8")).toBe("allow nested\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
     }
   })
 
