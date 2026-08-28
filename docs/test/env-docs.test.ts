@@ -7,6 +7,7 @@ import {
   isArrowFunction,
   isAsExpression,
   isAwaitExpression,
+  isBinaryExpression,
   isBlock,
   isCallExpression,
   isConditionalExpression,
@@ -128,6 +129,7 @@ function envCalls(source: string) {
 
 function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
   const bindings = new Map<Node, Map<string, Expression | FunctionDeclaration>>();
+  const reassignedBindings = new Map<Node, Set<string>>();
   const configBindings = new Set(["defineConfig"]);
   const configCombinators = new Set(["mergeConfig"]);
   const configNamespaces = new Set<string>();
@@ -172,6 +174,17 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
         bindings.get(scope) ?? new Map<string, Expression | FunctionDeclaration>();
       scopeBindings.set(node.name.text, node);
       bindings.set(scope, scopeBindings);
+    }
+    if (
+      isBinaryExpression(node) &&
+      isIdentifier(node.left) &&
+      node.operatorToken.kind >= SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= SyntaxKind.LastAssignment
+    ) {
+      const scope = bindingScope(node);
+      const scopeReassignments = reassignedBindings.get(scope) ?? new Set<string>();
+      scopeReassignments.add(node.left.text);
+      reassignedBindings.set(scope, scopeReassignments);
     }
     forEachChild(node, collectBindings);
   }
@@ -688,7 +701,10 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
     for (let current: Node | undefined = expression; current; current = current.parent) {
       if (!isBlock(current) && !isSourceFile(current)) continue;
       initializer = bindings.get(current)?.get(expression.text);
-      if (initializer) break;
+      if (initializer) {
+        if (reassignedBindings.get(current)?.has(expression.text)) return undefined;
+        break;
+      }
     }
     return initializer && !isFunctionDeclaration(initializer)
       ? resolveString(initializer, new Set(seen).add(expression.text))
@@ -1444,6 +1460,18 @@ defineConfig({ env: { public: { appName: env({ mode }) } } })
     `);
 
     expect(hasBuildMode(calls[0]!.options)).toBe(true);
+  });
+
+  it("rejects reassigned shorthand mode bindings", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+let mode = "build"
+mode = "runtime"
+defineConfig({ env: { public: { appName: env({ mode }) } } })
+\`\`\`
+    `);
+
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("resolves declaration option spreads with last-write semantics", () => {
