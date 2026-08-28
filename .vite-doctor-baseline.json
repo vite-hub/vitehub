@@ -168,41 +168,6 @@
     },
     {
       "ruleId": "typescript/evidence/no-chained-type-assertions",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "09cfcf96de0f997bdd532426e22e71a9bdb98139807e8b8fa448f260326f5945"
-    },
-    {
-      "ruleId": "typescript/evidence/no-chained-type-assertions",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "4f595a9296aabef4f43d75bfc8a8baadd64a0b1716aee02fe2371f9431250a22"
-    },
-    {
-      "ruleId": "typescript/evidence/no-chained-type-assertions",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "52e7826790a0f2e9829281b3b864a80e96f468fccce42bc26c6080ce5016f689"
-    },
-    {
-      "ruleId": "typescript/evidence/no-chained-type-assertions",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "5fba619994124ef16ac1c574bd67a0a3e24630f12d86c17770c3a89836ce8673"
-    },
-    {
-      "ruleId": "typescript/evidence/no-chained-type-assertions",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "7634b60122cef957c80ccd7fe7d7748afbed51258d2a7e824380ed4b9154254a"
-    },
-    {
-      "ruleId": "typescript/evidence/no-chained-type-assertions",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "7e764fd3afa77a44f766a7d3a354d2fb030822c3ce258eea1ba830f5b079f02d"
-    },
-    {
-      "ruleId": "typescript/evidence/no-chained-type-assertions",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "810704962100bd8064dfaf9a70dd6c881eb3c2d9962dc3168bf5acdc77e79656"
-    },
-    {
-      "ruleId": "typescript/evidence/no-chained-type-assertions",
       "file": "packages/auth/test/vite.test.ts",
       "fingerprint": "3e2108c89ed660d8cfb5044a67cedfeee8c0cad9105dd391ebd13a0f7ea12da2"
     },
@@ -923,26 +888,6 @@
     },
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
-      "file": "packages/agent/src/vite/runtime-adapter.ts",
-      "fingerprint": "731ea34f778d928ea759fa85c90ce33f674108aac84a17e8d0a49c3d54ad12ae"
-    },
-    {
-      "ruleId": "typescript/strict/no-runtime-typeof",
-      "file": "packages/agent/src/vite/runtime-adapter.ts",
-      "fingerprint": "8f6687a8642c070d6ed9295d33349388283fbc7cad6d522316cf13a0d79edcaa"
-    },
-    {
-      "ruleId": "typescript/strict/no-runtime-typeof",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "77cc997fe336dab717876d0098a9aafed1934c2befeb9751f8710aa0d676366c"
-    },
-    {
-      "ruleId": "typescript/strict/no-runtime-typeof",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "83ced6bfa98b1c9e992cc00963da08441b2e1262f2754825db441872a7f01754"
-    },
-    {
-      "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/agent/test/agent-capacity.test.ts",
       "fingerprint": "36a4af4ed81fe1bb7bde0400f105748c94c567d1a8c77cd9414db8726e9dec7f"
     },
@@ -973,11 +918,6 @@
     },
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
-      "file": "packages/agent/test/input-commands.test.ts",
-      "fingerprint": "4d435bc9d95f9f47da5b820427cf1733143f0c4b7863a97e87a86adb4af00841"
-    },
-    {
-      "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/agent/test/invocations.test.ts",
       "fingerprint": "4852e15c4846eebf256d12c4b1687a002bb4873e46e76b57815920618f1ca765"
     },
@@ -995,11 +935,6 @@
       "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/agent/test/runtime.test.ts",
       "fingerprint": "5ffd148b69ed5c4dd4d6af9fc6993ac00c94bcaf5975e41ec9e78b0987b5efef"
-    },
-    {
-      "ruleId": "typescript/strict/no-runtime-typeof",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "33105d97e57ca40b1b977a7187562821cec39e4e30c31f85cac2f1dd6c28e27c"
     },
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
@@ -2603,71 +2538,6 @@
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/src/vite/runtime-adapter.ts",
-      "fingerprint": "97cde89a5fa635c754d7d518519f64a52ed694b6b9b9ea5081467dd81d597b5c"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "017da482dbc86d6e4cf4081b6dfd9b151b7380d07514ab6c708ec82641ede9c4"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "1155c9f4cf863d6bfa8b56e7ad403a253976dbe2bb5315526b9c24ab90d32509"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "11bdd3689ba1cdb5deac464e3103925f62813a6fb207c09018c01706d64f5385"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "12fb7740e49d7f7c2352a0c0f4eed09f832140f928334922fcdb4992ed188909"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "20a1018d8f24f27f7383d075c43d1000dbd66820fbc0d558f2b83508c3b0781a"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "284c69386a9a65aed9a3a2296b658be740d93b79dfa8784cd41aa7a8db571094"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "4db27eea6b38c9830432d60f69ba9ee028ad766af2e29fc449c7a289b285166c"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "51b09af8693fba0a844952bfad3cef9af4a3e27c0dd01bd30cdae09185c52186"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "a499cb77f39e527a825cd72b9f44fd083fe72b4ae8bca0df142d0cd6c4e14b02"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "ba78f98995b7148f3d16597c7b61d1dd6103cb41da10e543c815bcee4537b73b"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "e4e7424d9ac8421060191cd9dbce084a5ec9dc6e5548f447debd7cce870e61f1"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/capability-runtime.test.ts",
-      "fingerprint": "ee325530ff472eeb1b75e8f09fc622743abac428646c56600d8ddb90790d80e1"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/agent-capacity.test.ts",
       "fingerprint": "008c123ae328f2ec0b702e8339abcf4e3d96d7e125bcb1f2d75207a03f907e86"
     },
@@ -2923,11 +2793,6 @@
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/input-commands.test.ts",
-      "fingerprint": "bc8e7143254f5e0a4b4d9519be4e29e98d840864849dac4cac2384b35fe358be"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/invocations-vue.test.ts",
       "fingerprint": "f4a91536881f814ace5bc5ae7450f5c2ea3044c7faef2d316dd42c0573fae40c"
     },
@@ -2935,21 +2800,6 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/invocations.test.ts",
       "fingerprint": "dff9a1ee3ba1b56fb888446d18ae847bcfb8c80941baf16030dad134526c309a"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/mcp-capability.test.ts",
-      "fingerprint": "33c06a736a12f280c78bc8fe4bc657a4cb24d08330ef75db08fa1f865d704e77"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/model.test.ts",
-      "fingerprint": "030d63aa7a5e744648ee31acaef3cea0b3e17f47461295e521fdb88207433c59"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/model.test.ts",
-      "fingerprint": "c6159631c17bfba6bac0914df9b8558e162c92f66b7b11b75bd305c8c227902a"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
@@ -2965,11 +2815,6 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/openapi-capability.test.ts",
       "fingerprint": "4ebf691ba8a4bfacb2176decd8fae3424a79d292dc45260f0712e27aac31abf9"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/papercuts-capability.test.ts",
-      "fingerprint": "4b1901532e560d457847b55491fa6080903f22544f8f0c208a616428910f1587"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
@@ -3345,176 +3190,6 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/schedule-process-integration.test.ts",
       "fingerprint": "fec6a423f92545611f7f53f0d4e88d6c554ede01c18b4ab5a7c9a9e752f5c1e4"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "03b82d43f793da7068e3832cecec7a73014e08af274a4e498f7c723653532ad5"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "080404ad8e98789dddee4dfbe915bc446f47a83a5ff92883e7e7bc0f9f29b043"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "15761f6104cd145052670024cd68c8c965ea380242e83f954e9b205fa595ecc2"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "16b9f288f344b2123686cb0572ae606d52788c7583def4e0b62472066411b05a"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "182b72f7e6dc34fb9e51fea6fe97b95ec90743ff817be650a84c9061d0d95c5e"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "1d37178565ecc32cfe6038b42fd9a415c66e3cb4750badc5ed8f7d0c03a5144f"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "1ea746023a91345f2dc32f13a9af171d739cb099937090f5393323aac0045a8d"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "23de898366c91b1d5b45ad969fd332993d202cfa74c03f1372e6a7b3ecd8050e"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "2845a644c413bfe04c432490870b0f8f47cf568b3ddcd2a0db2340696f2dd491"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "2d612fddd91e8f491f518928f26a4418998a0f04a74cceda2b10464915a3e8b1"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "2f74d32895ee511a5af10ebe6e1b2dc173da37a9ac1e20b784dbf0e29131b184"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "32db5ee9ac20d3031f3cfe405aff20b2df628308b6a020102ff2081181b074db"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "3b122c63c0be1bc2706a20cfe7b23c6e34f393f3adf268f093c5368f1f672f15"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "3e4129053ac85485337a54179b0edbdcf3696af0f604f9235d586ba54ff4f30c"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "43574fe598782dbe5a01a70633cfe9ed7751895ae6f62e8c162f21c5e10755d6"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "5a5ee2bb07410652b1009130786ea49166e9379a74fcdd6f6dde869c1aa661c2"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "5d897fe8f7a99afc4b252a4a2828b93b2ce47c1d12625056874a4ebb0c8c5ed1"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "67918513ded8309516b97f667548fff1728be755bb147aad16f7179f36306d0d"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "6bbf30e3ced22312c785e7584632bd0b50f1385975888490c1a2c42935d4b4be"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "78bb310e6184467825381d8ab5a52a461c982751825665f25497b1fd5fc6c93e"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "7c2bed923020568efde01ce4cc0ddd89d6b615e9f2fb206f3a80c66ca755ca16"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "8e7671b0b676b1ab536f805caa89f5b439abb09af361a32134c98a37a0cbd1d8"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "a026b3c0db2f0ee0a6853d609a78e67d9bef59295099e9d5bc9be2618cd36289"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "a4c3433e569b014b5302512fa985c5fa5f7446a627df98a14c228dd278a49ddf"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "c6e38ad12a59381dc5da5e9d36f08e1c52cd2177efdad3ea5f8fcb4e79f85574"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "c83f426d5bd3abe316bbf81dfc7ec62200046179a806153627a5ade4c40fe1ae"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "c85af6e3e4ad3a6c62f60a5714887425036f790114c0bfc0a5ac1b6aedaf32e1"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "cbb473dbd1a4e40fa888741dd980d399582f10bdf116276e34cb747e6f0b9211"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "d714b3d972cdc72332b3bd530157e923eac808eacd36b436837575d1f8432282"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "ded625b8810f89a1daf2d8abf20e1a1adf94c78f34bec2d95f9b8a145b01724e"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "f524374108e6b331dff793afb80bb9618ba16de8ac36860277d89f8e053cd90a"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "f989654a42cb1ae1d196433ba425d78ff8ddcade6db42acb73de8a262ababf50"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "fc289ed73ccc82ddd1bb90d472efb4a0467ec9d2fcce23a73c799619a6acb7f2"
-    },
-    {
-      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
-      "file": "packages/agent/test/workspace.test.ts",
-      "fingerprint": "fe1c6b8cb10702e4a72ca503017b1cd325f976ba806fb3d2c18a3ed30d98cf45"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
@@ -5858,16 +5533,6 @@
     },
     {
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
-      "file": "packages/agent/src/vite/runtime-adapter.ts",
-      "fingerprint": "86f8b4e55c92395bbeeb9455777be911192d58486037a8b9f551fd90889469b5"
-    },
-    {
-      "ruleId": "typescript/style/no-conditional-empty-object-spread",
-      "file": "packages/agent/src/vite/runtime-adapter.ts",
-      "fingerprint": "90b22bfda0595ea42b7fde917575f76d164f983315eeb6fba167a38bdfa51008"
-    },
-    {
-      "ruleId": "typescript/style/no-conditional-empty-object-spread",
       "file": "packages/agent/src/workspace-agent.ts",
       "fingerprint": "2486cf0ff6d65a654f597966abf158b968c8848671e3886ffff4f201d8236af2"
     },
@@ -5980,11 +5645,6 @@
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
       "file": "packages/agent/test/runtime.test.ts",
       "fingerprint": "32c49dc939eb01b49d827d8c3b4e0e13c0c0fbea74677d4ba572235c5bc66755"
-    },
-    {
-      "ruleId": "typescript/style/no-conditional-empty-object-spread",
-      "file": "packages/agent/test/webhook-verification.test.ts",
-      "fingerprint": "be9b2ce990af51211cbb10d1e5b4f1a4ff54ad7df9474eebb920d15ba294e9aa"
     },
     {
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
@@ -6267,6 +5927,411 @@
       "fingerprint": "bf8b9da65d3f66d4a302613b2a462c7a7211adebe35027d4e2f254d90da662fb"
     },
     {
+      "ruleId": "typescript/evidence/no-object-parameters",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "f914d23f69f1cd338c86ce2547391fefb2eaf1d3d113964220ed0b02de5f30fe"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "0356deb8d47fb8b967cb8548e3bfddc1a581bfd0de5c87c521bc997d1534b50e"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "c6e8ed3e41c95ba6713fdf5e91418bb116716b3dd68812e41026f5a15144132a"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "7242a76ff21bd9b33bc3ae1879549fbaaf6561449e0d1a930e3bda553bb8321d"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "b04013e74625384c764a779a0f04954ab6d913b562cabae042b0f6aaddc48e01"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "2e236c0bc9e0044bf707880bd06454dac45347f7a5611612d1e4dd660d97a90f"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "bbdbde685d3154153afaecf8f74972a1199580a32581de556ac055f5a89379d6"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capability-runtime.ts",
+      "fingerprint": "354178e5c826628c65b9dbf630fb6d819123b3ed51a5c59b96c7ecc1e75659b9"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capability-runtime.ts",
+      "fingerprint": "d7bb07df8bd49af97efe5913e6736e2c0d4d1f41a199961bd7067b234476691c"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capability-runtime.ts",
+      "fingerprint": "a1c3f809aafb5fae5d3f8aa9dc78595b2d531c13dce0c8b70c18085deaf47c4e"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/agent/src/capability-runtime.ts",
+      "fingerprint": "bf0847eca612e9348d4cbd16d09239d49724dc06d0e64146d7fe7a1d2eea4b4e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "7ef296a101be3f33e7a59a1b61f128675e16a47423c754e89cbd74c3c64e7d97"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "f56dc253b6cef6c3d3637644e166977fdc3da4aa79caf5e7320637a117348ab4"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "0732c1bd027ae2890ba204d6a705420c63eb7224954d876082e707388da9ec2e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "0cc1867c59ac93ac8b6fe31f212b5aa9e3ac248985c9e3e5a83f4dae1a86a9e5"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "682e2eeca2ade6612c1925b0f4d480f5687d18ae112c94441f03fd3f75349379"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "927d64dd5fd96d009cf99ff5149e4cafd161b602c9eea2ab8dbbaace8c21acc6"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "5a1d797db2e2cf8c52046b74b3d036c187b90130a201e344d9c59656685c1310"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "0c668b9b2ebfebbf25613ce6569e3b579789ac5d9dd125fb0d72f4fb87f58560"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "bf30ab5db76def6ef8b31c26a4f030affec074c3d0d0725528d3c7558a41c40a"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "88157c505f3d75a39a8808ed055cf5304dc6a5eb2005c16eb3e57295d247bbbf"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "282c8d9c773f5746f4caf7dbe4ae413fe9572f1c831c2ddeb3711c46d2ef581c"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "83ced6bfa98b1c9e992cc00963da08441b2e1262f2754825db441872a7f01754"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "77cc997fe336dab717876d0098a9aafed1934c2befeb9751f8710aa0d676366c"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "bd509dd5f718c230ce60c5d7a3fe4b05c60ffd0b8efded7623f9f7dcd69727e1"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/workspace/test/github-store.test.ts",
+      "fingerprint": "1cfcd7939939c1198068a70b29b1ce536b249efe249a6dd446d728a5e1e040e4"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/workspace/test/github-store.test.ts",
+      "fingerprint": "df563879b9399a9f9bd6cceeaf6c6cb88ad30f51c12c24950fb6fa41c5aaf058"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/workspace/test/vercel-blob-store.test.ts",
+      "fingerprint": "86ad5f6414109e07445733f786dda8c7e1a35bad2540b83eb11fcfa7041f24cd"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/access-runtime.ts",
+      "fingerprint": "5d114a845b84501b892ff38a4d01d158263310267813b49dbe3fe8be0dad07ce"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "168b062ae72922990ea4c23656bd0a3ca575875047f15969fb0aa8dc04c6ca86"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "a198c76c433bfd7f458e33c238bd22209bc397d7b8334691b37b0e2ffe432813"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "e665894d18dcf86607f99a86527e9b049b67355c32256a04ea88eb08edbb8163"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "e3e91ba9d9ef7b61ea226404614c9109f5b080582202a128e704cf70a942e588"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "b8e982b55f192042effbe71952247d8a2b73c4bd0568714294416e3e3fdd2b42"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "25bb0effe61f4b24d76f707aebfedd3b5a0514ddde4dc1d5fc0f066fa235ceaf"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "ca518dfb8724d873e1626051a14a04f867b372334bade1e1cd90edef212db611"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "146a46749b35584f56fb5aa5f9fb4e03dd0960901f2dcaad3130286b0b80ef29"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "f6a687e15a38e41553c3b1bd195a2b3efd122bf80ce03ce8933f81e2d26a0464"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "ca12139347600ca1a577a516cd4a79d39980fda1772ac9005f937d4dda016dda"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "f8102bbfc10659f108a51477d502d75fb52426fa91deed06c49968aac2434ec9"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "9c54f09661d93652d047ebdd5d6f3fe34276f8cdeae8ffb62e514844c2016798"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "e17581ff2117763cf377e430fbf67c8323c81f563516da8a4ef335376980c1b4"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "dbe20d7e989bf103e6df9a18f384c4701ca3de14ad58d3cf89c60f5a7882003e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "4f61a02c7e8822ed56c8276ab69b51951b3afec771ef938ec1b1a4aaad04f97d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "c6e1949503d0828ccd40c6d48efe16ad334e42440b116c30666a8279661b810a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "44adc917004c3995bcec1fb0888ea1edd0a30ac72c3e71e75e23bf92133d466f"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/capabilities/access.ts",
+      "fingerprint": "e2b2c3689d58091c69419538527825f1fdb9f190b61ba9f67e1ad07dfe58ec9d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/access-capability.test.ts",
+      "fingerprint": "f0ab0e10370cf3c1822ad796b59f32ae81ab6943e4d431e176dc8277027945f0"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/access-capability.test.ts",
+      "fingerprint": "8089e91b970e9c1fe243e7bd64e63bdc1d5bbc9f694628bef015684e1d13262f"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/access-capability.test.ts",
+      "fingerprint": "5b3489de6b4428470f90a070a46330c70061f7773aa2789bf5efc4a56b3be711"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/access-capability.test.ts",
+      "fingerprint": "f28c1c9c485f439cf90909eff4cec2fdb522ba698f1304220d66d626e6419033"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/access-capability.test.ts",
+      "fingerprint": "39e02b636167ae8215fa1f645e21f2fce978105f5a5073d98b2130b5a2cbce38"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/access-capability.test.ts",
+      "fingerprint": "193aee0e9e0db03c8f5473dbe40c9c52872ec2042f9f30422c2871a91e58934f"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/access-capability.test.ts",
+      "fingerprint": "f90a7a5dc8373127e81ee234b86da144297839be0884728d15d5c94949f6e316"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "1155c9f4cf863d6bfa8b56e7ad403a253976dbe2bb5315526b9c24ab90d32509"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "a499cb77f39e527a825cd72b9f44fd083fe72b4ae8bca0df142d0cd6c4e14b02"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "20a1018d8f24f27f7383d075c43d1000dbd66820fbc0d558f2b83508c3b0781a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "284c69386a9a65aed9a3a2296b658be740d93b79dfa8784cd41aa7a8db571094"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "ee325530ff472eeb1b75e8f09fc622743abac428646c56600d8ddb90790d80e1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "4db27eea6b38c9830432d60f69ba9ee028ad766af2e29fc449c7a289b285166c"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "5a1041648eb0b8e129e6b8d53133efbb8cb7a7fc95d8e1386069aaed3dfe25e3"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "51b09af8693fba0a844952bfad3cef9af4a3e27c0dd01bd30cdae09185c52186"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "ba78f98995b7148f3d16597c7b61d1dd6103cb41da10e543c815bcee4537b73b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "017da482dbc86d6e4cf4081b6dfd9b151b7380d07514ab6c708ec82641ede9c4"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "e4e7424d9ac8421060191cd9dbce084a5ec9dc6e5548f447debd7cce870e61f1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "12fb7740e49d7f7c2352a0c0f4eed09f832140f928334922fcdb4992ed188909"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/capability-runtime.test.ts",
+      "fingerprint": "11bdd3689ba1cdb5deac464e3103925f62813a6fb207c09018c01706d64f5385"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/test/cloudflare-artifacts-store.test.ts",
+      "fingerprint": "1b1243f4d2915dfe151c30a1de2616b31df3dc67435113a10e8d8a74788de49a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/test/cloudflare-artifacts-store.test.ts",
+      "fingerprint": "a24a89cc8456046c6f2f82a4f86d93b7f29e1d7e06d17310e5725216c5b81ca5"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/test/cloudflare-artifacts-store.test.ts",
+      "fingerprint": "42a48bae4424b7a76314a681c0ea13236d857a417beb077709d761e67b57c47d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/test/cloudflare-artifacts-store.test.ts",
+      "fingerprint": "fd1db48d17db3ad0c7af34b94950d699afb558a0c4c51389e0df245fb37d0ee7"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/test/cloudflare-artifacts-store.test.ts",
+      "fingerprint": "948951679208853cfdbff64436bcb5fc2b000dcacab035bda10b6a3877cee267"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/test/github-store.test.ts",
+      "fingerprint": "5372d821df8683bdcdeca5c1daa45dc60be9fd6a7837a377c25490ff35d4e177"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/test/github-store.test.ts",
+      "fingerprint": "67ae6928e8766ab0e41e935bd1c37e4d38f047d76b4431e57b3723fa8b897d65"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "52e7826790a0f2e9829281b3b864a80e96f468fccce42bc26c6080ce5016f689"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "7e764fd3afa77a44f766a7d3a354d2fb030822c3ce258eea1ba830f5b079f02d"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "5fba619994124ef16ac1c574bd67a0a3e24630f12d86c17770c3a89836ce8673"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "810704962100bd8064dfaf9a70dd6c881eb3c2d9962dc3168bf5acdc77e79656"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "4f595a9296aabef4f43d75bfc8a8baadd64a0b1716aee02fe2371f9431250a22"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "7634b60122cef957c80ccd7fe7d7748afbed51258d2a7e824380ed4b9154254a"
+    },
+    {
+      "ruleId": "typescript/evidence/no-chained-type-assertions",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "09cfcf96de0f997bdd532426e22e71a9bdb98139807e8b8fa448f260326f5945"
+    },
+    {
       "ruleId": "typescript/boundaries/no-unvalidated-deserialization",
       "file": "test/consumer/source-closures.test.ts",
       "fingerprint": "8000127e08272883e5a1fa862de76df77dd788c7deeba857bcb93f9399e15ee9"
@@ -6280,6 +6345,11 @@
       "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/agent/test/test-runner.test.ts",
       "fingerprint": "b508518c4ce6bbcc7f377eb94df8686e34f45c430690772a5192f8b290f02b0d"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "33105d97e57ca40b1b977a7187562821cec39e4e30c31f85cac2f1dd6c28e27c"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
@@ -6300,6 +6370,176 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/test-runner.test.ts",
       "fingerprint": "1dc693187760a6646e884a95d03ac7d90b1392204186ee577e27ce5e777b05c4"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "15761f6104cd145052670024cd68c8c965ea380242e83f954e9b205fa595ecc2"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "cbb473dbd1a4e40fa888741dd980d399582f10bdf116276e34cb747e6f0b9211"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "f989654a42cb1ae1d196433ba425d78ff8ddcade6db42acb73de8a262ababf50"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "7c2bed923020568efde01ce4cc0ddd89d6b615e9f2fb206f3a80c66ca755ca16"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "32db5ee9ac20d3031f3cfe405aff20b2df628308b6a020102ff2081181b074db"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "5a5ee2bb07410652b1009130786ea49166e9379a74fcdd6f6dde869c1aa661c2"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "3e4129053ac85485337a54179b0edbdcf3696af0f604f9235d586ba54ff4f30c"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "3b122c63c0be1bc2706a20cfe7b23c6e34f393f3adf268f093c5368f1f672f15"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "43574fe598782dbe5a01a70633cfe9ed7751895ae6f62e8c162f21c5e10755d6"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "5d897fe8f7a99afc4b252a4a2828b93b2ce47c1d12625056874a4ebb0c8c5ed1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "c85af6e3e4ad3a6c62f60a5714887425036f790114c0bfc0a5ac1b6aedaf32e1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "67918513ded8309516b97f667548fff1728be755bb147aad16f7179f36306d0d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "fe1c6b8cb10702e4a72ca503017b1cd325f976ba806fb3d2c18a3ed30d98cf45"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "16b9f288f344b2123686cb0572ae606d52788c7583def4e0b62472066411b05a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "1d37178565ecc32cfe6038b42fd9a415c66e3cb4750badc5ed8f7d0c03a5144f"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "6bbf30e3ced22312c785e7584632bd0b50f1385975888490c1a2c42935d4b4be"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "a4c3433e569b014b5302512fa985c5fa5f7446a627df98a14c228dd278a49ddf"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "2845a644c413bfe04c432490870b0f8f47cf568b3ddcd2a0db2340696f2dd491"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "fc289ed73ccc82ddd1bb90d472efb4a0467ec9d2fcce23a73c799619a6acb7f2"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "2d612fddd91e8f491f518928f26a4418998a0f04a74cceda2b10464915a3e8b1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "a026b3c0db2f0ee0a6853d609a78e67d9bef59295099e9d5bc9be2618cd36289"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "d714b3d972cdc72332b3bd530157e923eac808eacd36b436837575d1f8432282"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "03b82d43f793da7068e3832cecec7a73014e08af274a4e498f7c723653532ad5"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "c83f426d5bd3abe316bbf81dfc7ec62200046179a806153627a5ade4c40fe1ae"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "78bb310e6184467825381d8ab5a52a461c982751825665f25497b1fd5fc6c93e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "080404ad8e98789dddee4dfbe915bc446f47a83a5ff92883e7e7bc0f9f29b043"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "c6e38ad12a59381dc5da5e9d36f08e1c52cd2177efdad3ea5f8fcb4e79f85574"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "8e7671b0b676b1ab536f805caa89f5b439abb09af361a32134c98a37a0cbd1d8"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "2f74d32895ee511a5af10ebe6e1b2dc173da37a9ac1e20b784dbf0e29131b184"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "1ea746023a91345f2dc32f13a9af171d739cb099937090f5393323aac0045a8d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "ded625b8810f89a1daf2d8abf20e1a1adf94c78f34bec2d95f9b8a145b01724e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "23de898366c91b1d5b45ad969fd332993d202cfa74c03f1372e6a7b3ecd8050e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "f524374108e6b331dff793afb80bb9618ba16de8ac36860277d89f8e053cd90a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/workspace.test.ts",
+      "fingerprint": "182b72f7e6dc34fb9e51fea6fe97b95ec90743ff817be650a84c9061d0d95c5e"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
