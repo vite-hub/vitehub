@@ -484,6 +484,7 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
       }
     }))
   await settleAgentProviderCleanups(missingEntries.map(async (entry) => {
+    if (overlay?.sharedHomeCaseInsensitive && renamedEntries.has(entry)) return
     const targetEntry = await lstat(entry.target).catch((error) => {
       // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
