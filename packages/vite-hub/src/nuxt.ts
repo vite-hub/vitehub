@@ -300,6 +300,20 @@ function flattenPlugins(options: readonly unknown[]): Plugin[] {
   return plugins
 }
 
+function filterPluginOptions(
+  options: readonly unknown[],
+  keep: (plugin: Plugin) => boolean,
+): unknown[] {
+  return options.flatMap((option) => {
+    if (Array.isArray(option)) {
+      const nested = filterPluginOptions(option, keep)
+      return nested.length > 0 ? [nested] : []
+    }
+    if (option && typeof option === "object" && "name" in option && !keep(option as Plugin)) return []
+    return [option]
+  })
+}
+
 function configHandler(plugin: Plugin) {
   if (typeof plugin.config === "function") return plugin.config
   return plugin.config?.handler
@@ -540,11 +554,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
   )
-  const existingNames = new Set(
-    flattenPlugins(existing)
-      .map(plugin => plugin.name)
-      .filter(Boolean),
-  )
   const existingPluginsByName = new Map(
     flattenPlugins(existing)
       .filter(plugin => plugin.name)
@@ -644,8 +653,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
   const installedVitePlugins: unknown = [
     ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
-    ...flattenPlugins(existing).filter(plugin => !existingNames.has(plugin.name)
-      || !plugins.some(candidate => candidate.name === plugin.name)),
+    ...filterPluginOptions(existing, plugin => !plugins.some(candidate => candidate.name === plugin.name)),
   ]
   // SAFETY: Both arrays contain Vite plugins normalized or preserved by this integration.
   nuxt.options.vite.plugins = installedVitePlugins as PluginOption[]

@@ -519,7 +519,7 @@ describe("framework generated types", () => {
     await writeFile(collection, collectionModule("meals"))
     const plugin = sourcePlugin()
     await config(plugin)({ root })
-    const listeners = new Map<string, (file: string) => void>()
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
     const restart = vi.fn(async () => {})
     const watcherAdd = vi.fn()
 
@@ -531,18 +531,17 @@ describe("framework generated types", () => {
     expect(watcherAdd).toHaveBeenCalledWith([join(root, "server")])
 
     await writeFile(collection, `${collectionModule("meals")}\n`)
-    listeners.get("change")?.(collection)
-    await vi.waitFor(() => expect(restart).not.toHaveBeenCalled())
+    await listeners.get("change")?.(collection)
     expect(restart).not.toHaveBeenCalled()
 
     await rm(collection)
-    listeners.get("unlink")?.(collection)
-    await vi.waitFor(() => expect(restart).toHaveBeenCalledOnce())
+    await listeners.get("unlink")?.(collection)
+    expect(restart).toHaveBeenCalledOnce()
 
     await config(plugin)({ root })
     await writeFile(collection, collectionModule("meals"))
-    listeners.get("add")?.(collection)
-    await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(2))
+    await listeners.get("add")?.(collection)
+    expect(restart).toHaveBeenCalledTimes(2)
   })
 
   it("keeps the Vite restart fallback for passive generated-handler observers", async () => {
@@ -552,13 +551,16 @@ describe("framework generated types", () => {
     await writeFile(collection, collectionModule("meals"))
     const plugin = sourcePlugin()
     await config(plugin)({ root })
-    const observer = vi.fn()
+    const observer = vi.fn(async () => {
+      throw new Error("passive observer failed")
+    })
     plugin.api.onGeneratedHandlersChanged(observer)
     const listeners = new Map<string, (file: string) => void>()
     const restart = vi.fn(async () => {})
+    const loggerError = vi.fn()
 
     configureServer(plugin)({
-      config: { logger: { error: vi.fn() } },
+      config: { logger: { error: loggerError } },
       restart,
       watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
     })
@@ -569,6 +571,7 @@ describe("framework generated types", () => {
     await vi.waitFor(() => {
       expect(observer).toHaveBeenCalledWith([])
       expect(restart).toHaveBeenCalledOnce()
+      expect(loggerError).toHaveBeenCalledWith("Error: passive observer failed")
     })
   })
 

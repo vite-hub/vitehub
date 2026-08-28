@@ -379,7 +379,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const handlerKey = generatedHandlerKey(handlers)
           if (handlerKey === configuredHandlerKey) return
           const listeners = [...generatedHandlersListeners]
-          await Promise.all(listeners.map(([listener]) => listener(handlers)))
+          const listenerResults = await Promise.allSettled(listeners.map(([listener]) => listener(handlers)))
+          for (const result of listenerResults) {
+            if (result.status === "rejected") server.config.logger.error(String(result.reason))
+          }
           if (!listeners.some(([, listenerOptions]) => listenerOptions.handlesHostRestart)) {
             await server.restart()
           }
@@ -387,6 +390,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         })
         refreshQueue = result.catch(() => {})
         void result.catch(error => server.config.logger.error(String(error)))
+        return result
       }
       server.watcher.on("add", refreshHost)
       server.watcher.on("change", refreshHost)

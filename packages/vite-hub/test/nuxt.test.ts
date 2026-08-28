@@ -759,6 +759,18 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toContain(existingEnvPlugin)
   })
 
+  it("preserves promised Vite plugins during module setup", async () => {
+    const promisedPlugin = Promise.resolve({ name: "promised-vite-plugin" })
+    const nestedPromisedPlugin = Promise.resolve({ name: "nested-promised-vite-plugin" })
+    const { nuxt } = createNuxt(false, [promisedPlugin, [nestedPromisedPlugin]])
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+
+    const configuredPlugins = nuxt.options.vite.plugins as unknown[]
+    expect(configuredPlugins).toContain(promisedPlugin)
+    expect(configuredPlugins.flat(Infinity)).toContain(nestedPromisedPlugin)
+  })
+
   it("replays configured Nuxt Vite options into Nitro hooks", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options.vite, {
