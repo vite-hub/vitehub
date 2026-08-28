@@ -88,7 +88,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   const resolvedStates = new Map<string, ResolvedEnvState>()
-  const activeGeneratedStates = new Map<string, { count: number, signature: string }>()
+  const generatedStateWrites = new Map<string, Promise<void>>()
   const resolvedConfigStates = new WeakMap<object, ResolvedEnvState>()
   const pendingConfigStates = new Map<string, ResolvedEnvState>()
   const configStateKey = `__vitehubEnvState${++envVitePluginSequence}`
@@ -196,31 +196,28 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const state = pendingConfigStates.get(configStateId) ?? resolvedStates.get(projectRoot)
       if (!state) throw new Error(`Missing resolved Env state for ${projectRoot}`)
       pendingConfigStates.delete(configStateId)
-      const generatedStateSignature = createGeneratedStateSignature(projectRoot, state, runtimeImports)
-      const activeGeneratedState = activeGeneratedStates.get(projectRoot)
-      if (activeGeneratedState && activeGeneratedState.signature !== generatedStateSignature) {
-        throw new TypeError(`[vitehub] One hubEnv() plugin cannot resolve incompatible Env configurations for the same project root ${JSON.stringify(projectRoot)}.`)
+      resolvedConfigStates.set(config, state)
+      for (const environmentConfig of Object.values(config.environments || {})) {
+        resolvedConfigStates.set(environmentConfig, state)
+        Reflect.defineProperty(environmentConfig, environmentStateKey, {
+          configurable: true,
+          value: state,
+        })
       }
-      if (activeGeneratedState) activeGeneratedState.count++
-      else activeGeneratedStates.set(projectRoot, { count: 1, signature: generatedStateSignature })
-      try {
-        resolvedConfigStates.set(config, state)
-        for (const environmentConfig of Object.values(config.environments || {})) {
-          resolvedConfigStates.set(environmentConfig, state)
-          Reflect.defineProperty(environmentConfig, environmentStateKey, {
-            configurable: true,
-            value: state,
-          })
-        }
-        Reflect.deleteProperty(config, configStateKey)
-        resolvedStates.set(projectRoot, state)
-        if (state.diagnosticsText) config.logger.info(state.diagnosticsText)
+      Reflect.deleteProperty(config, configStateKey)
+      resolvedStates.set(projectRoot, state)
+      if (state.diagnosticsText) config.logger.info(state.diagnosticsText)
+      const previousGeneratedStateWrite = generatedStateWrites.get(projectRoot) ?? Promise.resolve()
+      const generatedStateWrite = previousGeneratedStateWrite.catch(() => undefined).then(async () => {
         const packageRoot = await resolvePackageRoot(config.root, projectRoot)
         await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules)
+      })
+      generatedStateWrites.set(projectRoot, generatedStateWrite)
+      try {
+        await generatedStateWrite
       }
       finally {
-        const active = activeGeneratedStates.get(projectRoot)
-        if (active && --active.count === 0) activeGeneratedStates.delete(projectRoot)
+        if (generatedStateWrites.get(projectRoot) === generatedStateWrite) generatedStateWrites.delete(projectRoot)
       }
     },
     load(id) {
@@ -261,21 +258,6 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       )
     },
   }
-}
-
-function createGeneratedStateSignature(
-  root: string,
-  state: ResolvedEnvState,
-  runtimeImports: Required<EnvRuntimeImportSpecifiers>,
-): string {
-  const publicTypes = createPublicTypeEntries(state.publicConfig)
-  return JSON.stringify([
-    createViteTypes(publicTypes, state.serverRegistry, runtimeImports),
-    createPublicEnvModule(state.publicConfig),
-    createPublicEnvModuleTypes(publicTypes),
-    createServerEnvModule(state.serverRegistry, runtimeImports, state.providerModules, viteHubEnvServerModulePath(root)),
-    createServerEnvModuleTypes(state.serverRegistry, runtimeImports),
-  ])
 }
 
 async function prepareEnvGeneratedTypes(

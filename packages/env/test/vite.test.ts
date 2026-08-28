@@ -572,7 +572,7 @@ describe("Vite plugin", () => {
     expect(secondModule).not.toContain(`${firstRoot}/server/provider.mjs`)
   })
 
-  it("rejects incompatible Env configurations that generate into the same project root", async () => {
+  it("serializes generated files while preserving same-root Env configurations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-same-root-"))
     const plugin = hubEnv()
     const resolve = (key: string) => resolveConfig({
@@ -583,25 +583,18 @@ describe("Vite plugin", () => {
       root,
     }, "serve", "development")
 
-    const results = await Promise.allSettled([resolve("first"), resolve("second")])
-    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
-    const rejected = results.find(result => result.status === "rejected")
-    expect(rejected).toMatchObject({
-      reason: expect.objectContaining({
-        message: expect.stringContaining("cannot resolve incompatible Env configurations for the same project root"),
-      }),
-      status: "rejected",
-    })
+    const [first, second] = await Promise.all([resolve("first"), resolve("second")])
 
     const generated = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
     expect(generated.includes("FIRST_TOKEN")).not.toBe(generated.includes("SECOND_TOKEN"))
 
-    const fulfilled = results.find(result => result.status === "fulfilled")
-    const resolvedConfig = fulfilled?.status === "fulfilled" ? fulfilled.value : undefined
     const loadHook = plugin.load as (this: unknown, id: string) => string
-    const virtualModule = loadHook.call({ environment: { config: resolvedConfig } }, "\0#vitehub/env/server")
-    expect(virtualModule.includes("FIRST_TOKEN")).toBe(generated.includes("FIRST_TOKEN"))
-    expect(virtualModule.includes("SECOND_TOKEN")).toBe(generated.includes("SECOND_TOKEN"))
+    const firstModule = loadHook.call({ environment: { config: first } }, "\0#vitehub/env/server")
+    const secondModule = loadHook.call({ environment: { config: second } }, "\0#vitehub/env/server")
+    expect(firstModule).toContain("FIRST_TOKEN")
+    expect(firstModule).not.toContain("SECOND_TOKEN")
+    expect(secondModule).toContain("SECOND_TOKEN")
+    expect(secondModule).not.toContain("FIRST_TOKEN")
   })
 
   it("regenerates Env after completed same-root configuration reuse", async () => {
