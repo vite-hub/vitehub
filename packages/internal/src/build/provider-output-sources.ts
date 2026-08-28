@@ -97,6 +97,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         await rename(stagedRoot, retainedRoot)
       }
       catch (error) {
+        // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error
         await cp(stagedRoot, retainedRoot, { recursive: true })
       }

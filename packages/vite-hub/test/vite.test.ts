@@ -286,7 +286,7 @@ describe("vitehub", () => {
       auth: true,
       blob: true,
       database: true,
-      email: { driver: "unemail/driver/resend" },
+      email: { driver: "resend" },
       channels: true,
       kv: true,
       preset: "cloudflare",
@@ -366,7 +366,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
     })
@@ -457,7 +457,7 @@ describe("vitehub", () => {
 
   it("passes configured Email drivers through the canonical integration", () => {
     const email = {
-      driver: "unemail/driver/resend" as const,
+      driver: "resend" as const,
       options: { endpoint: "https://api.resend.com" },
     }
 
@@ -478,7 +478,7 @@ describe("vitehub", () => {
     vitehub({ email: true, preset: "cloudflare" })
 
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
-      driver: "unemail/driver/cloudflare-email",
+      driver: "cloudflare-email",
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,

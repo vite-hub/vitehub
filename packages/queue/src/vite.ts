@@ -287,10 +287,13 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         }))
         const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
           .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
+        const retainedRuntimeAliases = Object.fromEntries(Object.entries(providerRuntimeInputs.aliases)
+          .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases)
+            .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))]))
+        // SAFETY: The outer entries preserve provider keys and each inner entry preserves string alias targets.
+        const typedRetainedRuntimeAliases = retainedRuntimeAliases as QueueProviderRuntimeInputs["aliases"]
         const retainedProviderRuntimeInputs: QueueProviderRuntimeInputs = {
-          aliases: Object.fromEntries(Object.entries(providerRuntimeInputs.aliases)
-            .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases)
-              .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))])) as QueueProviderRuntimeInputs["aliases"],
+          aliases: typedRetainedRuntimeAliases,
           vercelPackages: providerRuntimeInputs.vercelPackages,
         }
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.

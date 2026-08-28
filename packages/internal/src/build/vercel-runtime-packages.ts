@@ -24,15 +24,13 @@ interface NodeRuntimePackagesOptions {
 
 interface VercelFunctionRuntimePackagesOptions {
   outputRoot?: string
-  packages: VercelFunctionRuntimePackage[]
+  packages: VercelFunctionRuntimePackage[] | (() => VercelFunctionRuntimePackage[] | Promise<VercelFunctionRuntimePackage[]>)
   rootDir: string
   serverFunctionName?: string
   signal?: AbortSignal
 }
 
 export async function copyVercelFunctionRuntimePackages(options: VercelFunctionRuntimePackagesOptions): Promise<void> {
-  if (!options.packages.length) return
-
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
   const serverFunctionName = options.serverFunctionName ?? "__server.func"
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
@@ -44,6 +42,9 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return
     throw error
   }
+
+  const packages = Array.isArray(options.packages) ? options.packages : await options.packages()
+  if (!packages.length) return
 
   const outputNodeModules = resolve(serverDir, "node_modules")
   const stagingRoot = await mkdtemp(resolve(serverDir, ".vitehub-runtime-packages-"))
@@ -65,7 +66,7 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
 
     await copyNodeRuntimePackages({
       outputNodeModules: stagedNodeModules,
-      packages: options.packages,
+      packages,
       rootDir: options.rootDir,
     })
     options.signal?.throwIfAborted()

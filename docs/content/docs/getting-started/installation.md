@@ -64,10 +64,11 @@ import { defineWorkspace } from "vite-hub/workspace"
 
 Install third-party model providers and chat adapters separately. Built-in coding
 providers use the provider runtime pinned by ViteHub, but ViteHub does not install
-the large Codex native binary for applications that do not use it. Add
-`@openai/codex@0.149.1` when you select the Codex Driver. Self-hosted Node builds
-on macOS and Linux then package only the build host's OS/CPU payload; build on
-the same OS and CPU architecture as the deployment host. The distribution includes the
+their large native binaries for applications that do not use them. Add
+`@openai/codex@0.149.1` for Codex or `@anthropic-ai/claude-agent-sdk@0.3.246`
+for Claude Code. Self-hosted Node builds on macOS and Linux then package only
+the build host's OS, CPU, and Linux libc payload; build on the same host type as
+the deployment host. The distribution includes the
 Workflow DevKit runtime and builders for Vercel Workflow; install other provider
 SDKs only when you use them.
 

@@ -21,7 +21,7 @@ import {
 import { normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions, discoverAgentEvalFiles } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
-import { resolveCodexRuntimePackages } from "./internal/codex-runtime-package.ts"
+import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
@@ -61,12 +61,14 @@ const resolvedScheduleTargetsId = "\0#vitehub/schedule/targets"
 const scheduleRuntimeImport = "@vite-hub/schedule/runtime"
 const scheduleVitePluginName = "@vite-hub/schedule/vite"
 const workspacePackageName = "@vite-hub/workspace"
-const optionalMessageAdapterRuntimeExternals = [
+const optionalAgentRuntimeExternals = [
+  "@anthropic-ai/claude-agent-sdk",
   "bufferutil",
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
+const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
+const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp"]
 const optionalNetlifyAgentBundleExternals = [
   "@t3tools/provider-runtime",
   "@ai-sdk/mcp",
@@ -79,7 +81,7 @@ const optionalNetlifyAgentBundleExternals = [
   "@vite-hub/workflow/*",
   "agents",
   "evalite/*",
-  ...optionalMessageAdapterRuntimeExternals,
+  ...optionalAgentRuntimeExternals,
   "vitest/*",
 ]
 
@@ -648,7 +650,7 @@ function mergeRollupExternals(external: RollupExternalOption | undefined, additi
 }
 
 function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefined): RollupExternalOption | undefined {
-  return mergeRollupExternals(external, ["cloudflare:workers", ...optionalMessageAdapterRuntimeExternals])
+  return mergeRollupExternals(external, ["cloudflare:workers", ...optionalAgentRuntimeExternals])
 }
 
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
@@ -715,6 +717,13 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
     ? true
     : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
   nitro.externals = externals
+  nitro.rollupConfig ||= {}
+  // SAFETY: Nitro forwards this field to Rolldown, whose external option accepts the shared Rollup shape.
+  const existingExternal = nitro.rollupConfig.external as RollupExternalOption | undefined
+  nitro.rollupConfig.external = mergeRollupExternals(
+    existingExternal,
+    agentRuntimeExternals,
+  )
   return nitro
 }
 
@@ -748,7 +757,7 @@ function createAgentProviderRuntimePackagesNitroModule(rootDir: string): (nitro:
   return (nitro) => {
     if (nitro.options.dev !== false || deploymentPresetFromNitro(nitro.options.preset) !== "node") return
     nitro.hooks.hook("compiled", async () => {
-      const packages = resolveCodexRuntimePackages({ rootDir })
+      const packages = resolveProviderRuntimePackages({ rootDir })
       if (!packages.length) return
       await copyNodeRuntimePackages({
         outputNodeModules: join(nitro.options.output.serverDir, "node_modules"),
@@ -2885,7 +2894,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (agent !== undefined) result.agent = agent
       if (nitroHandlers.length) {
         // SAFETY: Vite's build options accept the Rolldown external field merged by this boundary.
-        result.build = mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals)
+        result.build = mergeBuildExternal(config as BuildWithRolldownOptions, agentRuntimeExternals)
       }
       if (nitroContext || nitroHandlers.length || installCloudflareState || installProcessDiscordGateway) {
         result.nitro = mergedNitro
@@ -2983,9 +2992,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           }
           signal.throwIfAborted()
           await copyVercelFunctionRuntimePackages({
-            packages: [
+            packages: () => [
               { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
               { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
+              ...resolveProviderRuntimePackages({ rootDir: config.root }),
             ],
             rootDir: config.root,
             signal,
