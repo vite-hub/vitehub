@@ -4,14 +4,19 @@ import { resolve } from "node:path";
 import {
   createSourceFile,
   forEachChild,
+  isArrowFunction,
+  isBlock,
   isCallExpression,
+  isFunctionExpression,
   isIdentifier,
   isImportDeclaration,
   isNamedImports,
   isNamespaceImport,
   isObjectLiteralExpression,
+  isParenthesizedExpression,
   isPropertyAccessExpression,
   isPropertyAssignment,
+  isReturnStatement,
   isShorthandPropertyAssignment,
   isSpreadAssignment,
   isStringLiteralLike,
@@ -115,7 +120,13 @@ function sectionObjects(sourceFile: Node) {
     expression: Expression,
     seen = new Set<string>(),
   ): ObjectLiteralExpression | undefined {
+    if (isParenthesizedExpression(expression)) return resolveObject(expression.expression, seen);
     if (isObjectLiteralExpression(expression)) return expression;
+    if (isArrowFunction(expression) || isFunctionExpression(expression)) {
+      if (!isBlock(expression.body)) return resolveObject(expression.body, seen);
+      const returned = expression.body.statements.find(isReturnStatement)?.expression;
+      return returned && resolveObject(returned, seen);
+    }
     if (!isIdentifier(expression) || seen.has(expression.text)) return;
     seen.add(expression.text);
     const initializer = bindings.get(expression.text);
@@ -259,6 +270,20 @@ defineConfig({
     `);
 
     expect(calls).toEqual([]);
+  });
+
+  it("follows configs returned by callbacks", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const publicEnv = { appName: env({ mode: "build" }) }
+defineConfig(() => ({ env: { public: publicEnv } }))
+defineConfig(function () {
+  return { env: { define: { __TARGET__: env({ mode: "build" }) } } }
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public", "define"]);
   });
 
   it("requires the last effective top-level mode to be build", () => {
