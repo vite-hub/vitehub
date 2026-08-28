@@ -1300,6 +1300,55 @@ describe("AI SDK recovery", () => {
     await expect(result).rejects.toBe(stopped)
   })
 
+  it.each(["events", "ui-message-stream"] as const)("aborts pending tool-call repair when the %s consumer cancels", async (output) => {
+    let markRepairStarted!: () => void
+    const repairStarted = new Promise<void>((resolve) => { markRepairStarted = resolve })
+    let repairAbortReason: unknown
+    const fakeModel = streamingRepairModel()
+    fakeModel.doGenerate.mockImplementation(async (options?: ModelCall) => {
+      const abortSignal = options?.abortSignal
+      markRepairStarted()
+      if (!abortSignal) throw new Error("Expected repair to inherit stream cancellation")
+      return await new Promise<never>((_resolve, reject) => {
+        const abort = () => {
+          repairAbortReason = abortSignal.reason
+          reject(abortSignal.reason)
+        }
+        if (abortSignal.aborted) abort()
+        else abortSignal.addEventListener("abort", abort, { once: true })
+      })
+    })
+    const result = await streamAgentInline(
+      toolCallingAgent(fakeModel, vi.fn(() => "found")),
+      runtime,
+      { prompt: "Search" },
+      output === "events" ? undefined : { output },
+    )
+
+    if (output === "ui-message-stream") {
+      // SAFETY: UI-message output is a ReadableStream under the selected output contract.
+      const reader = (result as ReadableStream<unknown>).getReader()
+      const consumption = (async () => {
+        while (!(await reader.read()).done) {}
+      })().catch(() => undefined)
+      await repairStarted
+      await reader.cancel()
+      await consumption
+    }
+    else {
+      // SAFETY: events output implements the documented async iterable result contract.
+      const iterator = (result as AsyncIterable<unknown>)[Symbol.asyncIterator]()
+      const consumption = (async () => {
+        while (!(await iterator.next()).done) {}
+      })().catch(() => undefined)
+      await repairStarted
+      await iterator.return?.()
+      await consumption
+    }
+
+    expect(repairAbortReason).toMatchObject({ name: "AbortError" })
+  })
+
   it("propagates operational failures from tool-call repair", async () => {
     const unavailable = new Error("repair provider unavailable")
     const fakeModel = model([

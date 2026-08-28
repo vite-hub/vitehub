@@ -1615,6 +1615,7 @@ async function createAgent(
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
   streamUsageCapture?: ReturnType<typeof createUsageCapture>,
   invocationDeadline?: AiSdkInvocationDeadline,
+  repairAbortSignal = context.input.abortSignal,
 ) {
   const aiSdk = await loadAiSdk()
   const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
@@ -1724,7 +1725,7 @@ async function createAgent(
   const builtInRepairToolCall: ToolCallRepairFunction<ToolSet> | undefined = Object.keys(toolSet).length
     ? async ({ error, inputSchema, toolCall, tools }) => {
         if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
-        const abortSignal = context.input.abortSignal
+        const abortSignal = repairAbortSignal
         try {
           abortSignal?.throwIfAborted()
           const schema = await inputSchema({ toolName: toolCall.toolName })
@@ -2044,7 +2045,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture, invocationDeadline)
+      const abortSignal = context.input.abortSignal
+      const streamCancellation = new AbortController()
+      const providerAbortSignal = abortSignal
+        ? AbortSignal.any([abortSignal, streamCancellation.signal])
+        : streamCancellation.signal
+      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture, invocationDeadline, providerAbortSignal)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
@@ -2056,11 +2062,6 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const usageReady = new Promise<void>((resolve) => { resolveUsageReady = resolve })
       if (!context.output) resolveUsageReady()
       const outputUsageLifecycle: AgentOutputUsageLifecycle = { complete: resolveUsageReady }
-      const abortSignal = context.input.abortSignal
-      const streamCancellation = new AbortController()
-      const providerAbortSignal = abortSignal
-        ? AbortSignal.any([abortSignal, streamCancellation.signal])
-        : streamCancellation.signal
       const repairCallInput = () => {
         const repairUsageCapture = createUsageCapture()
         repairUsageCaptures.push(repairUsageCapture)
