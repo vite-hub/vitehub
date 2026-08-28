@@ -3894,11 +3894,11 @@ async function resultWithStreamedTextAndUsage(
   text: string,
   usageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
-  resolveUsage = true,
+  _resolveUsage = true,
 ): Promise<unknown> {
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
   if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result)
-    || (usageRecord !== undefined && hasTraceableStreamResult(result)))) {
+    || (streamedUsageRecord !== undefined && hasTraceableStreamResult(result)))) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
     const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
     const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
@@ -3916,7 +3916,7 @@ async function resultWithStreamedTextAndUsage(
         // Ignore provider totalUsage getters that cannot be read during finalization.
       }
     }
-    if (resolveUsage && resolvedUsage && hasRuntimeType(resolvedUsage, "object")) {
+    if (resolvedUsage && hasRuntimeType(resolvedUsage, "object")) {
       let then: unknown
       try {
         then = Reflect.get(resolvedUsage, "then")

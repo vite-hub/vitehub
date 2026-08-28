@@ -6544,6 +6544,7 @@ describe("agent message protocol", () => {
           id: "nested-lazy-renderer-stream",
           output(context) {
             context.output.render(source => ({
+              usageRecord: { model: "renderer-model" },
               [streamProperty]: (async function* () {
                 for await (const _event of source as AsyncIterable<unknown>) {}
                 yield { text: "rendered", type: "text-delta" }
@@ -6568,6 +6569,10 @@ describe("agent message protocol", () => {
 
     expect(finish.mock.calls[0]![0].result).toMatchObject({
       usage: { totalTokens: 7 },
+      usageRecord: {
+        model: "renderer-model",
+        usage: { totalTokens: 7 },
+      },
     })
   })
 
@@ -6601,8 +6606,12 @@ describe("agent message protocol", () => {
   it("preserves raw usage after early UI message stream termination", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
-    const usage = { inputTokens: 2, outputTokens: 1, totalTokens: 3 }
+    let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
+    const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
     const raw = Object.assign((async function* () {
+      resolveUsage({ inputTokens: 2, outputTokens: 1, totalTokens: 3 })
       yield { text: "partial", type: "text-delta" }
       yield { text: " ignored", type: "text-delta" }
     })(), { usage })
@@ -6620,8 +6629,10 @@ describe("agent message protocol", () => {
 
     expect(finish).toHaveBeenCalledOnce()
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      invocation: expect.objectContaining({ usage: expect.objectContaining({ usage }) }),
-      result: expect.objectContaining({ usage }),
+      invocation: expect.objectContaining({ usage: expect.objectContaining({
+        usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+      }) }),
+      result: expect.objectContaining({ usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 } }),
     }))
   })
 
