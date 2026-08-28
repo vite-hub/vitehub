@@ -215,6 +215,42 @@ import "real"
     await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toContain("mapped-config")
   })
 
+  it.each(["application", "schedule"])("stages %s externals from their original importer", async (target) => {
+    const root = await mkdtemp(join(tmpdir(), `vitehub-deno-${target}-external-importer-`))
+    const helperDir = join(root, "packages/helper")
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "nested-only")
+    await writeFile(join(root, "node_modules/nested-only/marker"), "root", "utf8")
+    await writeJson(join(helperDir, "node_modules/nested-only/package.json"), {
+      name: "nested-only",
+      version: "2",
+    })
+    await writeFile(join(helperDir, "node_modules/nested-only/marker"), "nested", "utf8")
+    await mkdir(join(helperDir, "src"), { recursive: true })
+    await writeFile(join(helperDir, "src/index.ts"), 'import "nested-only"\n', "utf8")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(
+      join(root, ".vitehub/schedule/deno-cron.mjs"),
+      target === "schedule" ? 'import "#helper"\n' : "void 0\n",
+      "utf8",
+    )
+    await writeFile(join(root, "main.ts"), [
+      ...(target === "application" ? ['import "#helper"'] : []),
+      'await import("./schedule/deno-cron.mjs")',
+      'await import("./server/index.mjs")',
+      "",
+    ].join("\n"), "utf8")
+
+    await finalizeDenoDeploymentOutput({
+      alias: [{ find: "#helper", replacement: join(helperDir, "src/index.ts") }],
+      rootDir: root,
+    })
+
+    await expect(readFile(join(root, ".output/node_modules/nested-only/marker"), "utf8")).resolves.toBe("nested")
+  })
+
   it("rejects computed local application imports that cannot survive relocation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-entry-"))
     await mkdir(join(root, ".output/server"), { recursive: true })

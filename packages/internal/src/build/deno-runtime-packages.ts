@@ -409,6 +409,38 @@ function packageImportPlugin(): Plugin {
   }
 }
 
+function runtimePackageResolutionPlugin(
+  rootDir: string,
+  aliases: ViteAlias[] | undefined,
+  packageJsonPaths: Map<string, string>,
+): Plugin {
+  return {
+    name: "vitehub-deno-runtime-packages",
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, async (args) => {
+        const name = packageNameFromSpecifier(args.path)
+        if (!name || aliases?.some((alias) => {
+          if (typeof alias.find === "string") return args.path === alias.find || args.path.startsWith(`${alias.find}/`)
+          alias.find.lastIndex = 0
+          const matches = alias.find.test(args.path)
+          alias.find.lastIndex = 0
+          return matches
+        })) return
+        const fromDir = args.resolveDir || (isAbsolute(args.importer) ? dirname(args.importer) : rootDir)
+        const resolver = createRequire(isAbsolute(args.importer) ? args.importer : join(fromDir, "package.json"))
+        const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
+        if (!packageJsonPath) return
+        const resolvedPackageJsonPath = await realpath(packageJsonPath)
+        const existing = packageJsonPaths.get(name)
+        if (existing && existing !== resolvedPackageJsonPath) {
+          throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+        }
+        packageJsonPaths.set(name, resolvedPackageJsonPath)
+      })
+    },
+  }
+}
+
 export function collectDenoRuntimePackageNames(source: string): string[] {
   return [...new Set([
     ...collectBundledPackageNames(source),
@@ -606,7 +638,11 @@ async function runtimeSourceFiles(serverDir: string): Promise<string[]> {
     .map((entry) => resolve(entry.parentPath, entry.name))
 }
 
-async function readRuntimePackages(runtimeDirs: string[], rootDir: string): Promise<RuntimePackage[]> {
+async function readRuntimePackages(
+  runtimeDirs: string[],
+  rootDir: string,
+  resolvedPackageJsonPaths: Map<string, string>,
+): Promise<RuntimePackage[]> {
   const packages = new Map<string, RuntimePackage>()
   for (const file of (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()) {
     const source = await readFile(file, "utf8")
@@ -624,13 +660,15 @@ async function readRuntimePackages(runtimeDirs: string[], rootDir: string): Prom
       })
     }
     for (const name of collectImportedPackageNames(source)) {
+      const existing = packages.get(name)
       packages.set(name, {
-        ...packages.get(name),
+        ...existing,
         includeOptionalDependencies: true,
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
         optional: false,
+        packageJsonPath: resolvedPackageJsonPaths.get(name) ?? existing?.packageJsonPath,
       })
     }
   }
@@ -750,6 +788,7 @@ export async function finalizeDenoDeploymentOutput(
   const serverDir = join(outputDir, "server")
   const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
   const applicationEntrySource = join(options.rootDir, "main.ts")
+  const resolvedPackageJsonPaths = new Map<string, string>()
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
   try {
@@ -771,7 +810,7 @@ export async function finalizeDenoDeploymentOutput(
         format: "esm",
         packages: "external",
         platform: "neutral",
-        plugins: [packageImportPlugin()],
+        plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
         rootDir: options.rootDir,
         workingDir: options.rootDir,
       })
@@ -791,7 +830,7 @@ export async function finalizeDenoDeploymentOutput(
         format: "esm",
         packages: "external",
         platform: "neutral",
-        plugins: [packageImportPlugin()],
+        plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
         rootDir: options.rootDir,
         workingDir: options.rootDir,
       })
@@ -816,7 +855,7 @@ export async function finalizeDenoDeploymentOutput(
   const packages = await readRuntimePackages([
     serverDir,
     ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
-  ], options.rootDir)
+  ], options.rootDir, resolvedPackageJsonPaths)
 
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
