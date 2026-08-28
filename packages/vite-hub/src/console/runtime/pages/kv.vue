@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { useHead, useRuntimeConfig } from "#imports"
+import { useHead, useRuntimeConfig } from "#imports";
 
-import ConsoleHome from "../components/console-home.vue"
-import ConsoleProvider from "../components/console-provider.vue"
+import ConsoleKv from "../components/console-kv.vue";
+import ConsoleProvider from "../components/console-provider.vue";
 
-const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "")
+const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
 
-useHead({ title: "ViteHub Console" })
+useHead({ title: "KV · ViteHub Console" });
 </script>
 
 <template>
   <ClientOnly>
     <ConsoleProvider>
-      <ConsoleHome
+      <ConsoleKv
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"

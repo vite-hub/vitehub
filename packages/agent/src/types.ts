@@ -74,7 +74,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
+  AgentRuntimeContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
+    runtimeConfig: TRuntimeConfig
+  }
 
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig"> & {
