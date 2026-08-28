@@ -174,7 +174,10 @@ export async function validateAgentOutput<TOutput>(
     validatedAgentOutputs.set(cacheableResult, outputValidations)
   }
   const existing = outputValidations.get(output.schema)
-  if (existing) return await existing as TOutput
+  if (existing) {
+    outputValidations.delete(output.schema)
+    return await existing as TOutput
+  }
   const validation = validateAgentOutputValue(output, result, options)
   outputValidations.set(output.schema, validation)
   try {
