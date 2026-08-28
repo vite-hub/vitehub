@@ -773,14 +773,15 @@ async function readRuntimePackages(
     }
     for (const name of collectImportedPackageNames(source)) {
       const existing = packages.get(name)
+      const resolvedPackageJsonPath = resolvedPackageJsonPaths.get(name)
       packages.set(name, {
         ...existing,
         includeOptionalDependencies: true,
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
-        optional: existing?.packageJsonPath ? false : existing?.optional ?? false,
-        packageJsonPath: resolvedPackageJsonPaths.get(name) ?? existing?.packageJsonPath,
+        optional: resolvedPackageJsonPath ? false : existing?.optional ?? false,
+        packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
       })
     }
   }

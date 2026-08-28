@@ -911,6 +911,23 @@ try { load("@img/sharp-linux-x64/sharp.node") } catch {}
     expect(existsSync(join(root, ".output/node_modules/@img/sharp-linux-x64"))).toBe(false)
   })
 
+  it("keeps bundled createRequire probes optional when their bundle marker resolves", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-bundled-optional-"))
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "optional-native")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), `
+//#region node_modules/optional-native/index.js
+import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+try { load("optional-native") } catch {}
+`)
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/optional-native/marker"), "utf8")).resolves.toBe("optional-native")
+  })
+
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-cycle-"))
     const plainDir = join(root, "node_modules/plain")
