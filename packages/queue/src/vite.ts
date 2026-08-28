@@ -10,7 +10,7 @@ import { resolve } from "pathe"
 
 import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
-import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
+import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration, writeQueueRegistry } from "./internal/vite-build.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "./types.ts"
@@ -290,6 +290,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           rootDir,
           write: async ({ signal, write }) => {
             await generateProviderOutputs({
+              artifactDir: resolve(contributionArtifactDir, "output"),
               clientOutDir: config.build.outDir,
               cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
               definitions: retainedDefinitions,
@@ -303,6 +304,8 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
               serverFunctionName: resolveNitroVercelFunctionName(config, "queue"),
               signal,
             }, write)
+            signal.throwIfAborted()
+            await writeQueueRegistry(rootDir, definitions)
           },
         }, providerOutputGenerations.get(this))
       }

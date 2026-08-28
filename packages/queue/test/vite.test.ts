@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -539,7 +539,9 @@ describe("hubQueue", () => {
 
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
     expect(registry).toContain("current.queue.ts")
+    expect(registry).not.toContain("queue-generations")
     expect(registry).not.toContain("failed-rebuild.queue.ts")
+    await expect(readdir(join(root, ".vitehub", "queue-generations")).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error))).resolves.toEqual([])
   })
 
   it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("keeps standalone output after Blob's Nitro bridge when selected by %s", async (environmentVariable) => {

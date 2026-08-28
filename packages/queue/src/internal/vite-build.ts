@@ -80,6 +80,7 @@ interface GeneratedQueueArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  artifactDir?: string
   clientOutDir: string
   cloudflareOwnedByNitro?: boolean
   definitions?: DiscoveredQueueDefinition[]
@@ -144,14 +145,14 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined, definitions = discoverQueueDefinitions({ rootDir }), sourceRootDir = rootDir) {
-  const generatedDir = ensureGeneratedDir(rootDir, productName)
+async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined, definitions = discoverQueueDefinitions({ rootDir }), sourceRootDir = rootDir, artifactDir?: string) {
+  const generatedDir = artifactDir ?? ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const userAppEntry = resolveUserAppEntry(sourceRootDir)
 
-  await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
+  await writeQueueRegistry(rootDir, definitions, generatedDir)
 
   const entryFiles: Record<QueueProvider, string> = { cloudflare: "", vercel: "" }
   for (const spec of providerEntrySpecs) {
@@ -175,6 +176,12 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
     registryFile,
     vercelServerFile: entryFiles.vercel,
   }
+}
+
+export async function writeQueueRegistry(rootDir: string, definitions: DiscoveredQueueDefinition[], generatedDir = ensureGeneratedDir(rootDir, productName)): Promise<void> {
+  await mkdir(generatedDir, { recursive: true })
+  const registryFile = resolve(generatedDir, generatedRegistryFileName)
+  await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 }
 
 function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefinition[], namePrefix = ""): Record<string, string> {
@@ -594,7 +601,7 @@ export async function generateProviderOutputs(
   options: GenerateProviderOutputsOptions,
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<GeneratedQueueArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions, options.sourceRootDir)
+  const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions, options.sourceRootDir, options.artifactDir)
   options.signal?.throwIfAborted()
   const cloudflareQueueConfig = resolveOutputQueueConfig(options.queue, "cloudflare")
   const usesCloudflare = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare"

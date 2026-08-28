@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs"
-import { cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, rename, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -33,6 +33,13 @@ function packageRoot(file: string): string {
     if (parent === current) return statSync(file).isDirectory() ? file : dirname(file)
     current = parent
   }
+}
+
+function dependencyRoot(root: string): string | undefined {
+  const nested = resolve(root, "node_modules")
+  if (existsSync(nested)) return nested
+  const parent = dirname(root)
+  return basename(parent) === "node_modules" ? parent : undefined
 }
 
 /** Retains one build generation's source trees while preserving every module's import base. */
@@ -68,6 +75,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           const nested = relative(root, resolvedSource)
           if (!nested) return true
           const first = nested.split(sep)[0]!
+          if (first === "node_modules") return false
           if (first === ".vitehub" || ignoredSourceDirectories.has(first)) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
           }
@@ -81,6 +89,10 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error
         await cp(stagedRoot, retainedRoot, { recursive: true })
+      }
+      const dependencies = dependencyRoot(root)
+      if (dependencies) {
+        await symlink(dependencies, resolve(retainedRoot, "node_modules"), process.platform === "win32" ? "junction" : "dir")
       }
     }
     finally {
