@@ -7,6 +7,7 @@ import {
   isArrowFunction,
   isBlock,
   isCallExpression,
+  isConditionalExpression,
   isFunctionExpression,
   isIdentifier,
   isImportDeclaration,
@@ -121,6 +122,12 @@ function sectionObjects(sourceFile: Node) {
     seen = new Set<string>(),
   ): ObjectLiteralExpression[] {
     if (isParenthesizedExpression(expression)) return resolveObjects(expression.expression, seen);
+    if (isConditionalExpression(expression)) {
+      return [
+        ...resolveObjects(expression.whenTrue, new Set(seen)),
+        ...resolveObjects(expression.whenFalse, new Set(seen)),
+      ];
+    }
     if (isObjectLiteralExpression(expression)) return [expression];
     if (isArrowFunction(expression) || isFunctionExpression(expression)) {
       if (!isBlock(expression.body)) return resolveObjects(expression.body, seen);
@@ -143,6 +150,25 @@ function sectionObjects(sourceFile: Node) {
     if (!isIdentifier(expression) || seen.has(expression.text)) return [];
     const initializer = bindings.get(expression.text);
     return initializer ? resolveObjects(initializer, new Set(seen).add(expression.text)) : [];
+  }
+
+  function resolveSectionObjects(expression: Expression) {
+    const objects: ObjectLiteralExpression[] = [];
+    const seen = new Set<ObjectLiteralExpression>();
+
+    function collect(value: Expression) {
+      for (const object of resolveObjects(value)) {
+        if (seen.has(object)) continue;
+        seen.add(object);
+        objects.push(object);
+        for (const property of object.properties) {
+          if (isSpreadAssignment(property)) collect(property.expression);
+        }
+      }
+    }
+
+    collect(expression);
+    return objects;
   }
 
   function propertyValue(object: ObjectLiteralExpression, name: string) {
@@ -170,7 +196,7 @@ function sectionObjects(sourceFile: Node) {
         for (const envConfig of envConfigs) {
           for (const section of ["define", "public"] as const) {
             const value = propertyValue(envConfig, section);
-            const objects = value ? resolveObjects(value) : [];
+            const objects = value ? resolveSectionObjects(value) : [];
             for (const object of objects) sections.set(object, section);
           }
         }
@@ -305,6 +331,11 @@ defineConfig(({ mode }) => {
       return { env: { public: { apiUrl: env({ mode: "build" }) } } }
   }
 })
+defineConfig(({ mode }) =>
+  mode === "production"
+    ? { env: { public: { apiUrl: env({ mode: "build" }) } } }
+    : { env: { define: { __DEV__: env({ mode: "build" }) } } },
+)
 \`\`\`
     `);
 
@@ -314,7 +345,21 @@ defineConfig(({ mode }) => {
       "public",
       "define",
       "public",
+      "public",
+      "define",
     ]);
+  });
+
+  it("follows objects spread into build-backed sections", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const shared = { apiUrl: env({ mode: "build" }) }
+const nested = { ...shared, region: env({ mode: "build" }) }
+defineConfig({ env: { public: { ...nested, appName: env({ mode: "build" }) } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public", "public", "public"]);
   });
 
   it("requires the last effective top-level mode to be build", () => {
