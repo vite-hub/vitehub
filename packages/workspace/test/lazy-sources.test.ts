@@ -467,6 +467,45 @@ describe("lazy sources", () => {
     expect(observed).toEqual(["# B\n"])
   })
 
+  it("materializes a later Source read by an earlier Source progress observer", async () => {
+    let view: ReturnType<typeof createWorkspaceSourceView>
+    const observed: string[] = []
+    view = createWorkspaceSourceView({
+      name: "lazy-progress-later-source-read",
+      sources: {
+        reference: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["b.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# B\n" }
+          },
+        }),
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# A\n" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({
+      async onProgress(event) {
+        if (event.source === "reference" && event.status === "updating") {
+          observed.push(await view.readFile("docs/a.md", { encoding: "utf8" }))
+        }
+      },
+      sources: ["reference", "docs"],
+    })
+
+    expect(observed).toEqual(["# A\n"])
+  })
+
   it("allows progress observers to materialize an unselected Source", async () => {
     let view: ReturnType<typeof createWorkspaceSourceView>
     const observed: string[] = []
@@ -1038,6 +1077,36 @@ describe("lazy sources", () => {
     })
     await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "commit-456" })
     expect(resolveRevision).toHaveBeenCalledTimes(2)
+  })
+
+  it("invalidates sibling coverage when revision resolution disappears", async () => {
+    const revisions = [
+      { id: "commit-123", immutable: true },
+      undefined,
+      undefined,
+    ]
+    const resolveRevision = vi.fn(async () => revisions.shift())
+    const reads: string[] = []
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      resolveRevision,
+      async getKeys() {
+        return ["a.md", "b.md"]
+      },
+      async getItem(key) {
+        reads.push(key)
+        return { key, path: key, content: key }
+      },
+    })
+    const view = createWorkspaceSourceView({ name: "materialization-missing-revision", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
+    await view.materializeSources({ path: "docs/b.md", sources: ["docs"] })
+    await view.readFile("docs/a.md")
+
+    expect(reads).toEqual(["a.md", "b.md", "a.md"])
+    expect(resolveRevision).toHaveBeenCalledTimes(3)
   })
 
   it("keeps an active Source read on its original revision during refresh", async () => {

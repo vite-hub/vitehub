@@ -80,7 +80,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   function recordMaterializedPath(sourceKey: string, path: string, revision?: { id: string, immutable: boolean }) {
     const previousRevision = materializedRevisionBySource.get(sourceKey)
-    if (revision && previousRevision && (!previousRevision.immutable || !revision.immutable || revision.id !== previousRevision.id)) {
+    if (previousRevision && (!revision || !previousRevision.immutable || !revision.immutable || revision.id !== previousRevision.id)) {
       materializedPathsBySource.delete(sourceKey)
     }
     if (path) invalidateMaterializedPath(sourceKey, path)
@@ -91,6 +91,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
     paths.add(path)
     if (revision) materializedRevisionBySource.set(sourceKey, revision)
+    else materializedRevisionBySource.delete(sourceKey)
   }
 
   async function materializeSources(
@@ -100,7 +101,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     let started = false
     const selectedSources = sources
       .filter(source => !options?.sources?.length || options.sources.includes(source.key))
-    const selectedSourceKeys = new Set(selectedSources.map(source => source.key))
     const concurrentPreparations = new Map(selectedSources
       .map(source => [source.key, prepareBySource.get(source.key)] as const)
       .filter((entry): entry is readonly [string, Promise<void>] => Boolean(entry[1])))
@@ -140,7 +140,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           ? {
               ...options,
               onProgress: async (event: WorkspaceMaterializeSourcesProgressEvent) => await materializationProgressSources.run(
-                selectedSourceKeys,
+                new Set([...operationCompleted, event.source]),
                 async () => await options.onProgress!(event),
               ),
             }
