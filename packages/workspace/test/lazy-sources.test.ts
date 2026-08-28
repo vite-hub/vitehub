@@ -1292,7 +1292,7 @@ describe("lazy sources", () => {
   })
 
   it("counts streamed bytes when the Store omits size", async () => {
-    const store = createMemoryWorkspaceStore()
+    const store = createLocalWorkspaceStore(await createRoot())
     const writeFileStream = store.writeFileStream!.bind(store)
     store.writeFileStream = async (path, file) => {
       const result = await writeFileStream(path, file)
@@ -1302,7 +1302,7 @@ describe("lazy sources", () => {
       name: "lazy-stream-size",
       sources: {
         docs: custom({
-          cache: { maxAge: 3600 },
+          cache: false,
           materialize: "lazy",
           async getKeys() { return ["asset.bin"] },
           async getItem(key) {
@@ -1324,6 +1324,38 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       bytes: 5,
       sources: [{ bytes: 5, status: "ready" }],
+    })
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 5,
+      sources: [{
+        bytes: 5,
+        counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
+        paths: [{ path: "docs/asset.bin", status: "unchanged" }],
+      }],
+    })
+  })
+
+  it("keeps scoped bytes aligned with the persisted snapshot after Store drift", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-scoped-byte-drift",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() { return ["a.md"] },
+          async getItem(key) { return { key, content: "# A\n" } },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    await store.rm("docs/a.md")
+    await expect(view.materializeSources({ path: "docs/a.md", sources: ["docs"] })).resolves.toMatchObject({ bytes: 4, files: 1 })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 4,
+      files: 1,
+      sources: [{ bytes: 4, files: 1 }],
     })
   })
 
