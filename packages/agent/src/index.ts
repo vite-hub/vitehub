@@ -5262,7 +5262,7 @@ async function executeAgentInvocationWithCapacityLease<
   try {
     const shouldRenderStream = options.kind === "run"
       ? customRun && options.renderOutput && isAsyncIterable(result)
-      : isAsyncIterable(result) && options.output !== "ui-message-stream" && !invocation.finalOutputRenderers.length
+      : isAsyncIterable(result) && !invocation.finalOutputRenderers.length
     if (shouldRenderStream) {
       rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -5891,6 +5891,7 @@ async function executeAgentInvocationWithCapacityLease<
         }
       }
       else if (isUIMessageStreamResult(rendered)) {
+        // SAFETY: Agent definition normalization establishes the asserted UI-message stream result contract.
         const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
         capacityRendered = cloneWithPropertyDescriptors(rendered, {
           toUIMessageStream: {
