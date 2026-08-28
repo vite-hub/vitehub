@@ -1252,6 +1252,114 @@ describe("lazy sources", () => {
     await expect(store.stat("c.bin")).resolves.toBeUndefined()
   })
 
+  it("keeps cache-hit aggregates after scoped materialization", async () => {
+    const files = new Map([["a.md", "# A\n"]])
+    const view = createWorkspaceSourceView({
+      name: "materialization-scoped-cache",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() { return [...files.keys()] },
+          async getItem(key) { return { key, path: key, content: files.get(key) || "" } },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    files.set("b.md", "# B\n")
+    await expect(view.materializeSources({ path: "docs/b.md", sources: ["docs"] })).resolves.toMatchObject({ bytes: 4, files: 1 })
+
+    const progress: unknown[] = []
+    await expect(view.materializeSources({
+      details: "paths",
+      onProgress(event) { progress.push(event) },
+      sources: ["docs"],
+    })).resolves.toMatchObject({
+      bytes: 8,
+      files: 2,
+      sources: [{
+        bytes: 8,
+        counts: { added: 0, removed: 0, unchanged: 2, updated: 0 },
+        files: 2,
+        paths: [
+          { path: "docs/a.md", status: "unchanged" },
+          { path: "docs/b.md", status: "unchanged" },
+        ],
+      }],
+    })
+    expect(progress.at(-1)).toMatchObject({ bytes: 8, files: 2, status: "completed" })
+  })
+
+  it("counts streamed bytes when the Store omits size", async () => {
+    const store = createMemoryWorkspaceStore()
+    const writeFileStream = store.writeFileStream!.bind(store)
+    store.writeFileStream = async (path, file) => {
+      const result = await writeFileStream(path, file)
+      return { ...result, size: undefined }
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-size",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() { return ["asset.bin"] },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new Uint8Array([0, 1, 2]))
+                  controller.enqueue(new Uint8Array([3, 4]))
+                  controller.close()
+                },
+              }),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 5,
+      sources: [{ bytes: 5, status: "ready" }],
+    })
+  })
+
+  it("reports materialized file attribute changes as updates", async () => {
+    let mediaType: string | undefined
+    let metadata = { category: "draft" }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-attribute-deltas",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getItems() {
+            return [{ key: "a.md", path: "a.md", content: "# Same\n", mediaType, metadata }]
+          },
+          async getKeys() { return ["a.md"] },
+          async getItem(key) { return { key, path: key, content: "# Same\n", mediaType, metadata } },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    mediaType = "text/markdown"
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ counts: { added: 0, removed: 0, unchanged: 0, updated: 1 } }],
+    })
+    metadata = { category: "published" }
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ counts: { added: 0, removed: 0, unchanged: 0, updated: 1 } }],
+    })
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ counts: { added: 0, removed: 0, unchanged: 1, updated: 0 } }],
+    })
+  })
+
   it("uses a complete source snapshot after materialization", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })
