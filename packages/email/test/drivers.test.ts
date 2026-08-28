@@ -427,6 +427,34 @@ describe("Resend Email driver", () => {
     },
   );
 
+  it.each([
+    {
+      headers: {
+        "List-Unsubscribe": "<https://example.com/unsubscribe>",
+        "LIST-UNSUBSCRIBE-POST": "List-Unsubscribe=One-Click",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+      unsubscribe: { url: "https://example.com/unsubscribe" },
+    },
+    {
+      headers: {
+        "List-Unsubscribe": "<http://example.com/unsubscribe>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+      unsubscribe: { oneClick: false, url: "http://example.com/unsubscribe" },
+    },
+  ])("rejects ambiguous one-click headers before dispatch", async (options) => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(
+      driver.send({ ...message, ...options } as typeof message, context),
+    ).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "resend" },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("rejects one-click unsubscribe without a URL before dispatch", async () => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
@@ -894,6 +922,36 @@ describe("Cloudflare Email driver", () => {
       expect(send).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    {
+      headers: {
+        "List-Unsubscribe": "<https://example.com/unsubscribe>",
+        "LIST-UNSUBSCRIBE-POST": "List-Unsubscribe=One-Click",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+      unsubscribe: { url: "https://example.com/unsubscribe" },
+    },
+    {
+      headers: {
+        "List-Unsubscribe": "<http://example.com/unsubscribe>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+      unsubscribe: { oneClick: false, url: "http://example.com/unsubscribe" },
+    },
+  ])("rejects ambiguous one-click headers before delivery", async (options) => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(
+      driver.send({ ...message, ...options } as typeof message, context),
+    ).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it("rejects one-click unsubscribe without a URL before delivery", async () => {
     const send = vi.fn();
