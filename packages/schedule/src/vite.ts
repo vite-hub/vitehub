@@ -626,6 +626,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       }
       const config = resolved
       const rootDir = projectRoot ?? config.root
+      const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
       const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
         .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
         ?.vitehub?.workflow?.prepareScheduleRuntime
@@ -645,7 +646,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             },
             ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
             clientOutDir: resolve(config.root, config.build.outDir),
-            definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
+            definitions,
             rootDir,
             runtimeImport: internalOptions.runtimeImport,
             signal,

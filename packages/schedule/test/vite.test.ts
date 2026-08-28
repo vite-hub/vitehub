@@ -432,6 +432,33 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
   })
 
+  it("snapshots schedules before deferred Provider Output finalization", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-output-snapshot-"))
+    const scheduleFile = join(root, "src", "cleanup.schedule.ts")
+    await mkdir(join(root, "src"), { recursive: true })
+    await mkdir(join(root, "dist", "client"), { recursive: true })
+    await writeFile(scheduleFile, "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
+
+    const plugin = hubSchedule({ providerOutput: "standalone" })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+
+    await writeFile(scheduleFile, "export default defineSchedule({ cron: '5 0 * * *', handler: () => {} })\n", "utf8")
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.not.toContain("\"5 0 * * *\"")
+  })
+
   it("preserves forwarded server directories in standalone Provider Output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-forwarded-standalone-output-"))
     const serverDir = join(root, "backend")
