@@ -38,8 +38,12 @@ function packageRoot(file: string): string {
 function dependencyRoot(root: string): string | undefined {
   const nested = resolve(root, "node_modules")
   if (existsSync(nested)) return nested
-  const parent = dirname(root)
-  return basename(parent) === "node_modules" ? parent : undefined
+  let current = dirname(root)
+  while (current !== dirname(current)) {
+    if (basename(current) === "node_modules") return current
+    current = dirname(current)
+  }
+  return undefined
 }
 
 function sourceClosureRoot(root: string): string {

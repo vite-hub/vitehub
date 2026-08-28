@@ -140,6 +140,19 @@ describe("process Agent capacity", () => {
     })
   })
 
+  it("honors configured concurrency above host CPU count", async () => {
+    resources.availableMemory = 16 * GiB
+    resources.memoryHigh = 20 * GiB
+    resources.memoryMax = 20 * GiB
+    resources.parallelism = 2
+    const sample = createBuiltInSample({ concurrency: 10 })
+
+    await expect(sample({ active: 0, concurrency: 10, pending: 1, signal: new AbortController().signal })).resolves.toEqual({
+      concurrency: 10,
+      reason: "capacity available (16.0 GiB memory headroom)",
+    })
+  })
+
   it("bounds cgroup headroom by Node available memory", async () => {
     resources.availableMemory = 3 * GiB
     const sample = createBuiltInSample({

@@ -1053,6 +1053,16 @@
     },
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite/runtime-adapter.ts",
+      "fingerprint": "731ea34f778d928ea759fa85c90ce33f674108aac84a17e8d0a49c3d54ad12ae"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite/runtime-adapter.ts",
+      "fingerprint": "8f6687a8642c070d6ed9295d33349388283fbc7cad6d522316cf13a0d79edcaa"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/agent/test/agent-capacity.test.ts",
       "fingerprint": "36a4af4ed81fe1bb7bde0400f105748c94c567d1a8c77cd9414db8726e9dec7f"
     },
@@ -1080,6 +1090,11 @@
       "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/agent/test/fetch-capability.test.ts",
       "fingerprint": "ced50414a7a5ef8ccec4cc10889454d6dd01c048f501fe4b3ffee570762095da"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/test/input-commands.test.ts",
+      "fingerprint": "4d435bc9d95f9f47da5b820427cf1733143f0c4b7863a97e87a86adb4af00841"
     },
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
@@ -3168,6 +3183,11 @@
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite/runtime-adapter.ts",
+      "fingerprint": "97cde89a5fa635c754d7d518519f64a52ed694b6b9b9ea5081467dd81d597b5c"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/agent-capacity.test.ts",
       "fingerprint": "008c123ae328f2ec0b702e8339abcf4e3d96d7e125bcb1f2d75207a03f907e86"
     },
@@ -3423,6 +3443,11 @@
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/input-commands.test.ts",
+      "fingerprint": "bc8e7143254f5e0a4b4d9519be4e29e98d840864849dac4cac2384b35fe358be"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/invocations-vue.test.ts",
       "fingerprint": "f4a91536881f814ace5bc5ae7450f5c2ea3044c7faef2d316dd42c0573fae40c"
     },
@@ -3430,6 +3455,16 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/invocations.test.ts",
       "fingerprint": "dff9a1ee3ba1b56fb888446d18ae847bcfb8c80941baf16030dad134526c309a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/model.test.ts",
+      "fingerprint": "030d63aa7a5e744648ee31acaef3cea0b3e17f47461295e521fdb88207433c59"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/model.test.ts",
+      "fingerprint": "c6159631c17bfba6bac0914df9b8558e162c92f66b7b11b75bd305c8c227902a"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
@@ -3445,6 +3480,11 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/agent/test/openapi-capability.test.ts",
       "fingerprint": "4ebf691ba8a4bfacb2176decd8fae3424a79d292dc45260f0712e27aac31abf9"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/papercuts-capability.test.ts",
+      "fingerprint": "4b1901532e560d457847b55491fa6080903f22544f8f0c208a616428910f1587"
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
