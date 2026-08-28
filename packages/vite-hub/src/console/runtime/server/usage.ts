@@ -172,6 +172,7 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
   const usage = object(record.usage)
   const inputDetails = object(usage?.inputTokenDetails)
   const outputDetails = object(usage?.outputTokenDetails)
+  const usageDetails = object(usage?.details)
   const cost = object(record.cost)
   const costUsd = stringValue(cost?.usd)
   const costValue = decimal(costUsd)
@@ -188,6 +189,8 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
   const calls = directCalls.flatMap(projected => projected?.calls?.length ? projected.calls : projected ? [projected] : [])
   const inputTokens = finiteNumber(usage?.inputTokens)
   const outputTokens = finiteNumber(usage?.outputTokens)
+  const reasoningTokens = detailNumber(outputDetails, "reasoningTokens", "reasoningOutputTokens", "reasoning")
+    ?? detailNumber(usageDetails, "reasoningOutputTokens")
   const model = stringValue(record.model)?.trim()
   const projected: ConsoleInvocationUsage = {
     ...(model ? { model } : {}),
@@ -204,12 +207,10 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
     ...(detailNumber(inputDetails, "cacheWriteTokens", "cacheWrite") !== undefined
       ? { cacheWriteTokens: detailNumber(inputDetails, "cacheWriteTokens", "cacheWrite") }
       : {}),
-    ...(detailNumber(outputDetails, "reasoningTokens", "reasoningOutputTokens", "reasoning") !== undefined
-      ? { reasoningTokens: detailNumber(outputDetails, "reasoningTokens", "reasoningOutputTokens", "reasoning") }
-      : {}),
     ...(projectedCost ? { cost: projectedCost } : {}),
     ...(calls.length ? { calls } : {}),
   }
+  if (reasoningTokens !== undefined) projected.reasoningTokens = reasoningTokens
   if (rawCalls.length && allPresent(directCalls)) {
     const assign = <Key extends keyof ConsoleInvocationUsage>(key: Key, value: ConsoleInvocationUsage[Key]) => {
       if (projected[key] === undefined && value !== undefined) projected[key] = value
