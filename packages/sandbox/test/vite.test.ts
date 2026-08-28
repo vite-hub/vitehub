@@ -2,10 +2,35 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } fro
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { build, type AliasOptions } from "vite"
 
 const tempDirs: string[] = []
+const runtimePreparationMock = vi.hoisted(() => ({
+  afterPrepare: undefined as (() => Promise<void>) | undefined,
+  beforePrepare: undefined as (() => Promise<void>) | undefined,
+}))
+
+vi.mock("../src/internal/runtime-preparation.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/internal/runtime-preparation.ts")>()
+  return {
+    ...original,
+    async prepareSandboxRuntime(...args: Parameters<typeof original.prepareSandboxRuntime>) {
+      await runtimePreparationMock.beforePrepare?.()
+      const prepared = await original.prepareSandboxRuntime(...args)
+      await runtimePreparationMock.afterPrepare?.()
+      return prepared
+    },
+  }
+})
+
+function createDeferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 
 function readAlias(alias: AliasOptions | undefined, id: string) {
   if (Array.isArray(alias)) {
@@ -75,6 +100,8 @@ async function createViteRoot() {
 }
 
 afterEach(async () => {
+  runtimePreparationMock.afterPrepare = undefined
+  runtimePreparationMock.beforePrepare = undefined
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
@@ -1166,6 +1193,69 @@ describe("hubSandbox", () => {
     })
     const generations = await readdir(join(rootDir, ".vitehub/sandbox/.runtime-generations"))
     expect(generations).toHaveLength(2)
+  })
+
+  it("invalidates each generated runtime before starting the next hot refresh", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    const invalidated: string[] = []
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => { id: string }
+          invalidateModule: (module: { id: string }) => void
+        }
+      }
+    }) => Promise<void>
+    const context = {
+      file: definition,
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => ({ id }),
+          invalidateModule: (module: { id: string }) => invalidated.push(module.id),
+        },
+      },
+    }
+
+    const firstPrepared = createDeferred()
+    const releaseFirst = createDeferred()
+    const secondStarted = createDeferred()
+    let preparation = 0
+    runtimePreparationMock.beforePrepare = async () => {
+      preparation += 1
+      if (preparation === 2)
+        secondStarted.resolve()
+    }
+    runtimePreparationMock.afterPrepare = async () => {
+      if (preparation === 1) {
+        firstPrepared.resolve()
+        await releaseFirst.promise
+      }
+    }
+
+    await writeFile(definition, "export default { run: async () => ({ message: 'first' }) }\n")
+    const firstUpdate = handleHotUpdate(context)
+    await firstPrepared.promise
+    const firstGenerationSandbox = await realpath(sandboxAlias)
+
+    await writeFile(definition, "export default { run: async () => ({ message: 'second' }) }\n")
+    const secondUpdate = handleHotUpdate(context)
+    releaseFirst.resolve()
+    await secondStarted.promise
+
+    expect(invalidated).toContain(firstGenerationSandbox)
+    await Promise.all([firstUpdate, secondUpdate])
+    await expect(readFile(sandboxAlias, "utf8")).resolves.toContain("setSandboxRuntimeConfig")
   })
 
   it("removes generated bundles for definitions that no longer exist", async () => {

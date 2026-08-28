@@ -220,33 +220,39 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     return prepared
   }
 
-  async function refreshSandboxRuntime() {
-    const refresh = sandboxRuntimeRefresh.then(async () => {
-      const prepared = await prepareCurrentSandboxRuntime()
-      generatedAliases = prepared.aliases
-      generatedFiles = prepared.files
-      definitions = prepared.definitions
-      rootDir = prepared.rootDir
-      if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
-        const facade = generatedAliases[SANDBOX_PACKAGE_ID]
-        if (facade) {
-          internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
-          internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = sandboxPackageRuntime()
-        }
-        else {
-          delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
-          delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
-        }
-        for (const specifier of sandboxProviderLoaderSpecifiers) {
-          const providerLoader = generatedAliases[specifier]
-          if (providerLoader)
-            internalOptions.providerImportAliases[specifier] = providerLoader
-          else
-            delete internalOptions.providerImportAliases[specifier]
-        }
+  async function activateCurrentSandboxRuntime() {
+    const prepared = await prepareCurrentSandboxRuntime()
+    generatedAliases = prepared.aliases
+    generatedFiles = prepared.files
+    definitions = prepared.definitions
+    rootDir = prepared.rootDir
+    if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
+      const facade = generatedAliases[SANDBOX_PACKAGE_ID]
+      if (facade) {
+        internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
+        internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = sandboxPackageRuntime()
       }
-      return prepared
-    })
+      else {
+        delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
+        delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
+      }
+      for (const specifier of sandboxProviderLoaderSpecifiers) {
+        const providerLoader = generatedAliases[specifier]
+        if (providerLoader)
+          internalOptions.providerImportAliases[specifier] = providerLoader
+        else
+          delete internalOptions.providerImportAliases[specifier]
+      }
+    }
+    return prepared
+  }
+
+  async function refreshSandboxRuntime(
+    transaction: (
+      refresh: () => ReturnType<typeof activateCurrentSandboxRuntime>,
+    ) => ReturnType<typeof activateCurrentSandboxRuntime> = refresh => refresh(),
+  ) {
+    const refresh = sandboxRuntimeRefresh.then(() => transaction(activateCurrentSandboxRuntime))
     sandboxRuntimeRefresh = refresh.then(() => undefined, () => undefined)
     return await refresh
   }
@@ -323,15 +329,18 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, rootDir))
         return
 
-      const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]
-      const previousResolvedFiles = await resolveGeneratedSandboxModuleIds(previousFiles)
-      const prepared = await refreshSandboxRuntime()
-      selectedProvider = prepared.provider
-      if (resolvedConfig)
-        await composeCloudflareSandbox(resolvedConfig, prepared)
-      const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]
-      const currentResolvedFiles = await resolveGeneratedSandboxModuleIds(currentFiles)
-      invalidateGeneratedSandboxModules([...previousFiles, ...previousResolvedFiles, ...currentFiles, ...currentResolvedFiles], context.server.moduleGraph)
+      await refreshSandboxRuntime(async (refresh) => {
+        const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]
+        const previousResolvedFiles = await resolveGeneratedSandboxModuleIds(previousFiles)
+        const prepared = await refresh()
+        selectedProvider = prepared.provider
+        if (resolvedConfig)
+          await composeCloudflareSandbox(resolvedConfig, prepared)
+        const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]
+        const currentResolvedFiles = await resolveGeneratedSandboxModuleIds(currentFiles)
+        invalidateGeneratedSandboxModules([...previousFiles, ...previousResolvedFiles, ...currentFiles, ...currentResolvedFiles], context.server.moduleGraph)
+        return prepared
+      })
     },
     configEnvironment(name, config) {
       const result = config.consumer === 'server'
