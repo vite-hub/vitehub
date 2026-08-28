@@ -470,6 +470,7 @@ describe("ViteHub Nuxt integration", () => {
       await development.runBuilderWatchHook()
       await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
 
+      // SAFETY: Nuxt stores Vite plugin options in the nested array shape flattened and guarded below.
       const invocationRootPlugin = (development.nuxt.options.vite.plugins as unknown[])
         .flat(Infinity)
         .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")

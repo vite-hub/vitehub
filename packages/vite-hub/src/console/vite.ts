@@ -9,7 +9,7 @@ import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/intern
 
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import type { Plugin } from "vite"
+import type { Environment, Plugin } from "vite"
 
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
@@ -360,7 +360,7 @@ export function consoleInvocationRootPlugin(
   state: ConsoleInvocationRootState = {},
 ): Plugin {
   const frameworkAgentEntries = new Set<string>()
-  const activeEnvironments = new Set<object>()
+  const activeEnvironments = new Set<Environment>()
   let projectRoot = configuredProjectRoot
   let identity = configuredIdentity
   let fixtureConfigured = false
@@ -369,7 +369,7 @@ export function consoleInvocationRootPlugin(
     frameworkAgentEntries.add(normalizeModuleId(id))
   }
 
-  async function closeEnvironment(environment: object | undefined): Promise<void> {
+  async function closeEnvironment(environment: Environment | undefined): Promise<void> {
     if (environment) activeEnvironments.delete(environment)
     if (activeEnvironments.size > 0) return
     await closeConsoleInvocationRootState(state)
