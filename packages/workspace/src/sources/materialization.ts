@@ -633,11 +633,6 @@ export async function materializeWorkspaceSources(
         provider: source.source.name,
       }
       if (reportedPaths) resultSource.paths = reportedPaths
-      resultSources.push(resultSource)
-      files += sourceFiles
-      bytes += sourceBytes
-      directories += directorySet.size
-      lifecycle?.onCompleted(source)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,
         cacheStatus,
@@ -648,6 +643,11 @@ export async function materializeWorkspaceSources(
         revision,
         status: "completed",
       })
+      resultSources.push(resultSource)
+      files += sourceFiles
+      bytes += sourceBytes
+      directories += directorySet.size
+      lifecycle?.onCompleted(source)
     }
     catch (error) {
       revision = ctx.revision ?? revision
@@ -681,7 +681,13 @@ export async function materializeWorkspaceSources(
             : storeMutationStarted
               ? { ...failed, status: "updating" as const, error: undefined }
             : undefined
-        : failed
+        : !completeSource && existing?.configHash === configHash
+          ? {
+              ...failed,
+              bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
+              files: Object.keys(itemMetadata).length,
+            }
+          : failed
       if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint).catch(() => undefined)
       const durationMs = Date.now() - sourceStarted
       const reportedPaths = materializationPaths(options, paths)

@@ -25,6 +25,7 @@ const optionalPackages = [
   "@vercel/sandbox",
   "askweb",
   "evalite",
+  "files-sdk",
   "openworkflow",
   "vitest",
 ]
@@ -201,7 +202,7 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
   })
 
   for (const [name, spec] of Object.entries(manifest.dependencies || {})) {
-    if (name.startsWith("@vite-hub/")) {
+    if (name.startsWith("@vite-hub/") && !spec.startsWith("npm:")) {
       expect(spec, `${manifest.name} should pin ${name} to its tested release matrix`).toBe(manifest.version)
     }
   }
@@ -344,10 +345,10 @@ async function assertProviderRuntimeLoads(appDir: string) {
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
 
-async function assertBlobDriverPackagesOwned(appDir: string) {
+async function assertBlobProviderPackagesOwned(appDir: string) {
   const script = [
     "const viteHub = import.meta.resolve(\"vite-hub/package.json\")",
-    "for (const specifier of [\"files-sdk\", \"@google-cloud/storage\"]) import.meta.resolve(specifier, viteHub)",
+    "import.meta.resolve(\"@google-cloud/storage\", viteHub)",
   ].join("\n")
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
@@ -899,7 +900,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
-      await assertBlobDriverPackagesOwned(appDir)
+      await assertBlobProviderPackagesOwned(appDir)
       await assertEffectMsgpackFallback(appDir)
       await assertProviderRuntimeLoads(appDir)
 

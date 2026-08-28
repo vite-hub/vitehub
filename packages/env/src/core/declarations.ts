@@ -30,6 +30,7 @@ interface EnvNamespace {
   gitSha: (options?: { short?: boolean }) => EnvSource
   gitTag: () => EnvSource
   packageJson: (path: string) => EnvSource
+  provider: (provider: string, key: string) => EnvSource
   source: (name: string | string[]) => EnvSource
   variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
 }
@@ -117,6 +118,22 @@ function packageJson(path: string): EnvSource {
   }
 }
 
+function provider(provider: string, key: string): EnvSource {
+  if (typeof provider !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(provider.trim())) {
+    throw new TypeError("env.provider() requires a provider name that starts with a letter and contains only letters, numbers, underscores, or hyphens.")
+  }
+  if (typeof key !== "string" || !key.trim() || key.length > 512) {
+    throw new TypeError("env.provider() requires a non-empty provider key.")
+  }
+  return {
+    key: key.trim(),
+    kind: "provider",
+    label: "provider",
+    provider: provider.trim(),
+    serializable: true,
+  }
+}
+
 function variable(options: EnvVariableOptions = {}): EnvVariableDeclaration {
   if (typeof options !== "object" || options === null || Array.isArray(options)) {
     throw new TypeError("env() only accepts a single options object.")
@@ -163,18 +180,25 @@ export const env: EnvNamespace = Object.assign(variable, {
   gitSha: gitSha,
   gitTag: gitTag,
   packageJson: packageJson,
+  provider: provider,
   source: source,
   variable: variable,
 })
 
 export function isDefaultStringEnvVariable(declaration: EnvVariableDeclaration): boolean {
+  const declarationToken = Object.getOwnPropertyDescriptor(declaration, defaultStringSchemaProperty)?.value
+  const schemaObject = typeof declaration.schema === "object" && declaration.schema !== null
+    ? declaration.schema
+    : undefined
+  const schemaToken = schemaObject
+    ? Object.getOwnPropertyDescriptor(schemaObject, defaultStringSchemaProperty)?.value
+    : undefined
   return defaultStringSchemas.get(declaration) === declaration.schema
     || (
-      (declaration as unknown as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
-      && typeof declaration.schema === "object"
-      && declaration.schema !== null
-      && (declaration.schema as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
-      && hasOnlyDefaultStringSchemaKeys(declaration.schema)
+      declarationToken === defaultStringSchemaToken
+      && schemaToken === defaultStringSchemaToken
+      && schemaObject !== undefined
+      && hasOnlyDefaultStringSchemaKeys(schemaObject)
     )
 }
 

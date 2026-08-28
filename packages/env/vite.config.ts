@@ -12,6 +12,7 @@ export default defineConfig({
     entry: [
       "src/index.ts",
       "src/presets.ts",
+      "src/provider.ts",
       "src/schema.ts",
       "src/server.ts",
       "src/secret.ts",

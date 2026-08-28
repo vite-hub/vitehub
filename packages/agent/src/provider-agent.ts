@@ -16,7 +16,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
-import { resolveInstalledCodexExecutable } from "./internal/codex-runtime-package.ts"
+import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
@@ -1152,14 +1152,14 @@ async function* runProvider<
       await workspaceCleanup
       await cleanupRoot()
     }
-    const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
+    const providerExecutable = resolveInstalledProviderExecutable(options.provider)
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
       environment: providerEnvironment(providerEnvironmentOverrides),
       provider: options.provider,
     }
-    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = codexExecutable
-      ? { ...runtimeOptions, settings: { binaryPath: codexExecutable } }
+    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = providerExecutable
+      ? { ...runtimeOptions, settings: { binaryPath: providerExecutable } }
       : runtimeOptions
     runtime = await waitForProviderOperation(
       createProviderRuntime(configuredRuntimeOptions),

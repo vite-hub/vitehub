@@ -1,10 +1,11 @@
 packages:
+  - ".github/ci-tools"
   - "docs"
   - "packages/*"
   - "packages/*/examples/*"
 catalog:
   '@cloudflare/vitest-plugin': ^1.1.0
-  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@99682f626b1d24843d3f82bd082644d77aa0de43
+  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@1248f5ddb9319be23980bb04d5a51ab297c69eaa
   vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
 
 catalogMode: prefer
@@ -12,7 +13,7 @@ catalogMode: prefer
 catalogs:
   ai:
     "@ai-sdk/gateway": 4.0.26
-    "@ai-sdk/mcp": 2.0.0
+    "@ai-sdk/mcp": 2.0.36
     "@ai-sdk/vue": 4.0.38
     "@modelcontextprotocol/sdk": ^1.29.0
     "@types/json-schema": ^7.0.15
@@ -89,10 +90,9 @@ catalogs:
     "@google-cloud/storage": ^7.19.0
     "@googleapis/drive": ^20.0.0
     "@microsoft/microsoft-graph-client": ^3.0.7
-    "@netlify/blobs": ^10.7.5
     "@supabase/storage-js": ^2.105.4
     "@upstash/redis": ^1.38.0
-    "@vercel/blob": ^2.6.1
+    "@vercel/blob": ^2.8.0
     aws4fetch: ^1.0.20
     box-typescript-sdk-gen: ^1.19.1
     dropbox: ^10.34.0
@@ -161,6 +161,7 @@ catalogs:
 ignoredOptionalDependencies:
   - fallow-type-aware
 overrides:
+  "@vercel/blob>undici": ^6.28.0
   "glob": ^13.0.6
   "parse-url>@types/parse-path": "-"
   "uuid": ^11.1.0
@@ -175,5 +176,7 @@ packageExtensions:
     dependencies:
       h3: ^1.15.11
 patchedDependencies:
+  '@netlify/blobs@11.0.1': patches/@netlify__blobs@11.0.1.patch
   '@pierre/diffs@1.3.5': patches/@pierre__diffs@1.3.5.patch
   '@pierre/trees@1.0.0-beta.6': patches/@pierre__trees@1.0.0-beta.6.patch
+  '@vercel/blob@2.8.0': patches/@vercel__blob@2.8.0.patch

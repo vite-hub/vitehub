@@ -1524,6 +1524,71 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/b.md")).resolves.toMatchObject({ type: "file" })
   })
 
+  it("records one failed status when a completion observer rejects", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "completion-observer-failure",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# A\n" }
+          },
+        }),
+      },
+    }, store)
+
+    const result = await view.materializeSources({
+      async onProgress(event) {
+        if (event.status === "completed") throw new Error("observer failed")
+      },
+      sources: ["docs"],
+    })
+
+    expect(result.sources).toEqual([
+      expect.objectContaining({ error: "observer failed", source: "docs", status: "error" }),
+    ])
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      error: "observer failed",
+      status: "error",
+    })
+  })
+
+  it("preserves complete aggregate totals after a scoped failure", async () => {
+    let fail = false
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "scoped-failure-aggregates",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          async getItem(key) {
+            if (fail && key === "b.md") throw new Error("refresh failed")
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    fail = true
+    await view.materializeSources({ path: "docs/b.md", sources: ["docs"] })
+
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      bytes: 14,
+      files: 2,
+      status: "error",
+    })
+  })
+
   it("does not rematerialize an explicitly materialized path during listing", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "# A\n" }))
     const prepare = vi.fn()

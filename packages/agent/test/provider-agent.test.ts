@@ -9,10 +9,12 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string> }) => providerRuntimes.shift()))
-const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
+const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
+  ? "/app/node_modules/@openai/codex/bin/codex.js"
+  : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
-vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
+vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
@@ -126,12 +128,24 @@ describe("Provider Agent Driver", () => {
   it("keeps the host Codex executable fallback when the package is absent", async () => {
     const threadId = "thread-host-codex"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    resolveInstalledCodexExecutable.mockReturnValueOnce(undefined)
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
+  })
+
+  it("uses the installed Claude SDK executable", async () => {
+    const threadId = "thread-project-claude"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: { binaryPath: "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude" },
+    }))
   })
 
   it("does not request another provider event after the turn completes", async () => {
