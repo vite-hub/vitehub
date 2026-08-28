@@ -985,7 +985,7 @@ describe("agent channels", () => {
         runtime: "unknown" as const,
         traceLog,
         waitUntil: vi.fn(),
-      }, "github.webhook", githubIssueCommentPayload())).resolves.toBe("ok")
+      }, "github.webhook", { payload: githubIssueCommentPayload() })).resolves.toBe("ok")
     }
     finally {
       error.mockRestore()
@@ -1000,7 +1000,7 @@ describe("agent channels", () => {
       expect.objectContaining({ attributes: expect.objectContaining({
         "channel.effect.content": "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
         "channel.effect.kind": "update",
-        "error.message": expect.stringContaining("update rejected"),
+        "error.message": expect.stringContaining("GitHub delivery effect failed with 500"),
       }) }),
     ]))
   })
