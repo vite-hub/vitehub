@@ -56,9 +56,9 @@ describe("Deno deployment output", () => {
   it("finds external packages without treating runtime protocols as npm packages", () => {
     expect(
       collectDenoRuntimePackageNames(
-        'import sharp from "sharp";import{image}from "minified-image";export{tool}from"minified-tool"; const tool = ready ? await import("@scope/tool/subpath") : undefined; module.exports = require("native-addon"); import "node:path"; import "cloudflare:workers"\n//#region node_modules/.pnpm/native-addon@1.0.0/node_modules/native-addon/index.js\n/** @example const got = require("got") */',
+        'import sharp from "sharp";import{image}from "minified-image";export{tool}from"minified-tool"; const tool = ready ? await import("@scope/tool/subpath") : undefined; module.exports = require("native-addon"); const commonjs = __require("commonjs-runtime"); import "node:path"; import "cloudflare:workers"\n//#region node_modules/.pnpm/native-addon@1.0.0/node_modules/native-addon/index.js\n/** @example const got = require("got") */',
       ),
-    ).toEqual(["@scope/tool", "minified-image", "minified-tool", "native-addon", "sharp"])
+    ).toEqual(["@scope/tool", "commonjs-runtime", "minified-image", "minified-tool", "native-addon", "sharp"])
   })
 
   it("finds literal dynamic imports with attributes", () => {
@@ -79,10 +79,13 @@ await import(\`escaped\\u002dtemplate-package\`)
   it("stages literal imports with expression options without resolving member calls", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-options-"))
     await writeRuntimePackage(root, "data-package")
+    await writeRuntimePackage(root, "commonjs-runtime")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/helper.cjs"), 'module.exports = require("commonjs-runtime")\n', "utf8")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), `
+import "./helper.cjs"
 const importOptions = { with: { type: "json" } }
 const loader = { import: () => {} }
 loader.import("member-data", importOptions)
@@ -94,6 +97,7 @@ await import("data-package", importOptions)
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     await expect(readFile(join(root, ".output/node_modules/data-package/marker"), "utf8")).resolves.toBe("data-package")
+    await expect(readFile(join(root, ".output/node_modules/commonjs-runtime/marker"), "utf8")).resolves.toBe("commonjs-runtime")
     expect(existsSync(join(root, ".output/node_modules/member-data"))).toBe(false)
     expect(existsSync(join(root, ".output/node_modules/private-member-data"))).toBe(false)
   })
@@ -631,6 +635,23 @@ import "plain"
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     await expect(readFile(join(root, ".output/node_modules/plain/node_modules/dependency/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
+  })
+
+  it("does not copy nested development node_modules from runtime packages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-nested-node-modules-"))
+    const packageDir = join(root, "node_modules/plain")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(packageDir, "package.json"), { name: "plain", version: "1" })
+    await writeFile(join(packageDir, "marker"), "plain", "utf8")
+    await mkdir(join(packageDir, "examples/vite/node_modules"), { recursive: true })
+    await symlink(packageDir, join(packageDir, "examples/vite/node_modules/plain"), "dir")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.ts"), 'import "plain"\n')
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/plain/marker"), "utf8")).resolves.toBe("plain")
+    expect(existsSync(join(root, ".output/node_modules/plain/examples/vite/node_modules"))).toBe(false)
   })
 
   it("does not demote imports found before bundle markers", async () => {
