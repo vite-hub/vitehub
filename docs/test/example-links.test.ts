@@ -103,6 +103,22 @@ describe("public example link checks", () => {
     ]);
   });
 
+  it("rejects template actions that do not target the generate endpoint", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => new Response(
+      String(input).startsWith("https://api.github.com/repos/")
+        ? JSON.stringify({ default_branch: "main", is_template: true })
+        : "ok",
+      { status: 200 },
+    ));
+    const result = await checkExampleLinks([
+      { name: "Template", kind: "template", status: "published", action: { to: "https://github.com/vite-hub/template" }, startPath: "app/index.ts" },
+    ], { attempts: 1, fetchImpl });
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({ category: "template-action", message: "action does not target the GitHub /generate endpoint" }),
+    ]);
+  });
+
   it("continues auditing after a malformed catalog URL", async () => {
     const fetchImpl = vi.fn(async () => new Response("ok", { status: 200 }));
     const result = await checkExampleLinks([

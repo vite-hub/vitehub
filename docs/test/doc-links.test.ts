@@ -158,9 +158,10 @@ https://vitehub.dev/docs/bare-autolink
     expect([...markdownAnchors("# A--B\n\n# A-B")]).toEqual(["a-b", "a-b-1"]);
     expect([...markdownAnchors("Install\n---")]).toEqual(["install"]);
     expect([...markdownAnchors("---\ntitle: Guide\n---\n\n# Install")]).toEqual(["install"]);
-    expect([...markdownAnchors(":span[Install]{#install}\n\n::card{#details}\nDetails\n::")]).toEqual([
+    expect([...markdownAnchors(":span[Install]{#install}\n\n::card{#details}\nDetails\n::\n\n::card\n---\nid: reference\n---\nReference\n::")]).toEqual([
       "install",
       "details",
+      "reference",
     ]);
   });
 
@@ -225,11 +226,19 @@ const links = [{ to: "/docs/missing-script" }]
 const objectTarget = "/missing-object"
 let mutableTarget = "/missing-stale"
 mutableTarget = dynamicTarget
-</script><template><NuxtLink :to="{ path: objectTarget }" /><NuxtLink :to="mutableTarget" /></template>`,
+</script><template>
+<NuxtLink :to="{ path: objectTarget }" />
+<NuxtLink v-bind:to="'/missing-long-form'" />
+<NuxtLink :to="{ path: '/docs', hash: '#missing-anchor' }" />
+<NuxtLink :to="mutableTarget" />
+</template>`,
+      "docs/content/docs/index.md": "# Docs",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/missing-object" does not exist'),
+      expect.stringContaining('route "/missing-long-form" does not exist'),
+      expect.stringContaining("anchor #missing-anchor does not exist"),
     ]);
   });
 
@@ -341,7 +350,8 @@ export const unused = [{ destination: "/missing-unused" }]
   it("resolves constant-backed imported destinations", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": '<script setup>import { links } from "../links"</script><template><NuxtLink v-for="link in links" :to="link.to" /></template>',
-      "docs/app/links.ts": 'const target = "/docs/missing-constant"; export const links = [{ to: target }]',
+      "docs/app/links.ts": 'import { target, unused } from "./targets"; export const links = [{ to: target }]',
+      "docs/app/targets.ts": 'export const target = "/docs/missing-constant"; export const unused = "/docs/missing-unused"',
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
@@ -453,10 +463,12 @@ export const unused = [{ destination: "/missing-unused" }]
   it("does not invent a route for fragment-only links in unassociated components", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": '<template><section id="home" /></template>',
-      "docs/app/components/SharedNavigation.vue": '<template><NuxtLink to="#missing" /></template>',
+      "docs/app/components/SharedNavigation.vue": '<template><NuxtLink to="#missing" /><NuxtLink to="./unknown" /><NuxtLink to="/missing-absolute" /></template>',
     });
 
-    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-absolute" does not exist'),
+    ]);
   });
 
   it("uses GitHub parsing for public package README destinations", () => {
@@ -519,11 +531,13 @@ export const unused = [{ destination: "/missing-unused" }]
 
   it("uses content anchors when a docs application route renders Markdown", () => {
     const repoRoot = fixture({
-      "docs/app/pages/docs/index.vue": "<template><ContentRenderer /></template>",
-      "docs/content/docs/index.md": "# Docs\n\n[Find](/docs#find-what-you-need)\n\n## Find what you need",
+      "docs/app/pages/docs/index.vue": '<template><NuxtLink to="#find-what-you-need" /><NuxtLink to="#missing" /><ContentRenderer /></template>',
+      "docs/content/docs/index.md": "# Docs\n\n## Find what you need",
     });
 
-    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining("anchor #missing does not exist"),
+    ]);
   });
 
   it("validates GitHub anchors when a README links to a package directory", () => {
@@ -642,6 +656,18 @@ description: |
     ]);
   });
 
+  it("validates schema-defined links in YAML docs pages", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/docs/[...slug].vue": "<template><ContentRenderer /></template>",
+      "docs/content/docs/guide.yaml": "title: Guide\nimage: /images/missing.png\nlinks:\n  - label: Missing\n    to: /docs/missing\n",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/images/missing.png" does not exist'),
+      expect.stringContaining('route "/docs/missing" does not exist'),
+    ]);
+  });
+
   it("maps only configured content collections to routes", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><h1>Home</h1></template>",
@@ -658,8 +684,8 @@ description: |
   it("accepts static anchors rendered by application page components", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><LandingPaths /></template>",
-      "docs/app/components/landing/Paths.vue": '<template><section id="start" /></template>',
-      "docs/content/docs/index.md": "# Docs\n\n[Start](/#start)",
+      "docs/app/components/landing/Paths.vue": '<script setup>const details = "details"</script><template><section id="start" /><section :id="details" /><section v-bind:id="\'finish\'" /></template>',
+      "docs/content/docs/index.md": "# Docs\n\n[Start](/#start)\n[Details](/#details)\n[Finish](/#finish)",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
@@ -687,6 +713,26 @@ description: |
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
       expect.stringContaining('route "/docs//guide" does not exist'),
+    ]);
+  });
+
+  it("normalizes dot segments in root-relative routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Install](/docs/guide/../installation)",
+      "docs/content/docs/installation.md": "# Installation",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
+  it("validates same-site URLs emitted by metadata helpers", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<script setup>useSchemaOrg([defineOrganization({ url: "https://vitehub.dev", logo: "https://vitehub.dev/missing-logo.png" })])</script><template />',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-logo.png" does not exist'),
     ]);
   });
 

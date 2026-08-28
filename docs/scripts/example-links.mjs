@@ -12,8 +12,8 @@ function githubRepository(actionUrl) {
     return undefined;
   }
   if (url.hostname !== "github.com") return undefined;
-  const [owner, repository] = url.pathname.split("/").filter(Boolean);
-  return owner && repository ? { owner, repository } : undefined;
+  const [owner, repository, ...rest] = url.pathname.split("/").filter(Boolean);
+  return owner && repository ? { owner, path: `/${rest.join("/")}`, repository } : undefined;
 }
 
 export async function fetchWithRetry(url, {
@@ -68,6 +68,9 @@ export async function checkExampleLinks(examples, options = {}) {
 
     const repository = githubRepository(actionResponse?.url) ?? githubRepository(example.action.to);
     if (!repository) continue;
+    if (example.kind === "template" && repository.path !== "/generate") {
+      failures.push({ category: "template-action", name: example.name, url: example.action.to, message: "action does not target the GitHub /generate endpoint" });
+    }
     const apiRoot = `https://api.github.com/repos/${repository.owner}/${repository.repository}`;
     const metadata = await check("default-branch", example.name, apiRoot);
     if (!metadata) continue;
