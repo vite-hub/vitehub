@@ -38,8 +38,13 @@ interface SandboxRuntimeGenerationLockOptions {
   host?: string
   pollMs?: number
   removeLock?: typeof rm
+  retireLock?: typeof rename
   staleMs?: number
   waitMs?: number
+  writeReleasedOwner?: (
+    ownerFile: Awaited<ReturnType<typeof open>>,
+    value: string,
+  ) => Promise<void>
 }
 
 function readNodeErrorCode(error: unknown) {
@@ -203,6 +208,7 @@ async function retireSandboxRuntimeGenerationLock(
   leasePath: string,
   observation: SandboxRuntimeGenerationLockObservation,
   markReleased: () => Promise<void>,
+  retireLock: typeof rename,
 ): Promise<string | undefined> {
   const claimPath = resolve(lockDir, '.reclaim')
   let claim: Awaited<ReturnType<typeof open>>
@@ -223,7 +229,7 @@ async function retireSandboxRuntimeGenerationLock(
       return
     await markReleased()
     const retiredDir = `${lockDir}.released-${randomUUID()}`
-    retired = await rename(lockDir, retiredDir).then(() => true, (error) => {
+    retired = await retireLock(lockDir, retiredDir).then(() => true, (error) => {
       if (readNodeErrorCode(error) === 'ENOENT')
         return false
       throw error
@@ -247,7 +253,12 @@ export async function withSandboxRuntimeGenerationLock<T>(
   const heartbeatMs = options.heartbeatMs ?? generationLockHeartbeatMs
   const pollMs = options.pollMs ?? 25
   const removeLock = options.removeLock ?? rm
+  const retireLock = options.retireLock ?? rename
   const staleMs = options.staleMs ?? generationLockStaleMs
+  const writeReleasedOwner = options.writeReleasedOwner ?? (async (file, value) => {
+    await file.write(value, 0, 'utf8')
+    await file.truncate(Buffer.byteLength(value))
+  })
   const ownerRecord = { host: options.host ?? hostname(), pid: process.pid, token: randomUUID() }
   const owner = JSON.stringify(ownerRecord)
   const deadline = Date.now() + (options.waitMs ?? generationLockWaitMs)
@@ -363,8 +374,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
     releasedSandboxRuntimeGenerationLocks.add(ownerRecord.token)
     const markReleased = async () => {
       const releasedOwner = JSON.stringify({ ...ownerRecord, released: true })
-      await ownerFile!.write(releasedOwner, 0, 'utf8')
-      await ownerFile!.truncate(Buffer.byteLength(releasedOwner))
+      await writeReleasedOwner(ownerFile!, releasedOwner)
       const expired = new Date(0)
       await leaseFile!.utimes(expired, expired)
     }
@@ -376,6 +386,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
         leasePath,
         active,
         markReleased,
+        retireLock,
       )
     }
     catch (releaseError) {
