@@ -1998,7 +1998,6 @@ describe("Agent invocation console", () => {
       models: [
         { costUsd: "0.01", invocations: 1, model: "model-a", totalTokens: 15 },
         { costUsd: "0.02", invocations: 1, model: "model-b", totalTokens: 15 },
-        expect.objectContaining({ costAvailable: false, invocations: 1, model: "Unknown model", totalTokensAvailable: false }),
       ],
       partial: false,
       resolution: "hour",
@@ -2014,6 +2013,17 @@ describe("Agent invocation console", () => {
         totalTokensAvailable: false,
       },
     })
+    const summary = await createUsageSummary(invocations, {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    }) as { buckets: Array<Record<string, unknown>> }
+    expect(summary.buckets).toContainEqual(expect.objectContaining({
+      costAvailable: true,
+      costUsd: "0",
+      invocations: 0,
+      start: "2026-08-27T11:00:00.000Z",
+      totalTokensAvailable: true,
+    }))
     expect(invocationUsage((await invocations.get("usage-invocation"))!)).toMatchObject({
       cost: { estimated: true, source: "mixed", usd: "0.03" },
       inputTokens: 18,
@@ -2080,6 +2090,104 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("preserves recursive usage evidence and arbitrary decimal scale", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      completedAt: "2026-08-27T10:00:00.000Z",
+      createdAt: "2026-08-27T09:59:00.000Z",
+      id: "recursive-usage",
+      observations: [{
+        attributes: {
+          "usage.record": {
+            calls: [{
+              calls: [
+                {
+                  cost: { display: "$0.000000000000000000005", estimated: false, source: "provider", usd: "0.000000000000000000005" },
+                  model: "leaf-a",
+                  usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+                },
+                {
+                  cost: { display: "$0.000000000000000000005", estimated: false, source: "provider", usd: "0.000000000000000000005" },
+                  model: "leaf-b",
+                  usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+                },
+              ],
+            }],
+          },
+        },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-27T10:00:00.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      traceId: "trace-recursive-usage",
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    })
+    const invocations = defineAgentInvocations({ store })
+    const projected = invocationUsage((await invocations.get("recursive-usage"))!)
+
+    expect(projected).toMatchObject({
+      calls: [{ model: "leaf-a" }, { model: "leaf-b" }],
+      cost: { usd: "0.00000000000000000001" },
+      totalTokens: 15,
+    })
+    await expect(createUsageSummary(invocations, {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      models: [{ model: "leaf-a" }, { model: "leaf-b" }],
+      totals: { costUsd: "0.00000000000000000001", totalTokens: 15 },
+    })
+  })
+
+  it("does not synthesize complete parent evidence across raw-only calls", async () => {
+    const record = {
+      observations: [{
+        attributes: {
+          "usage.record": {
+            calls: [
+              {
+                cost: { display: "$0.01", estimated: false, source: "provider", usd: "0.01" },
+                usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+              },
+              { raw: { requestId: "raw-only" } },
+            ],
+          },
+        },
+        name: "agent.invocation.finish",
+      }],
+    } as unknown as Parameters<typeof invocationUsage>[0]
+
+    const projected = invocationUsage(record)
+    expect(projected).not.toHaveProperty("cost")
+    expect(projected).not.toHaveProperty("inputTokens")
+    expect(projected).not.toHaveProperty("outputTokens")
+    expect(projected).not.toHaveProperty("totalTokens")
+  })
+
+  it("keeps completed sessions without usage in the no-usage state", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      completedAt: "2026-08-27T10:00:00.000Z",
+      createdAt: "2026-08-27T09:59:00.000Z",
+      id: "missing-only",
+      observations: [],
+      status: "completed",
+      traceId: "trace-missing-only",
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    })
+
+    await expect(createUsageSummary(defineAgentInvocations({ store }), {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      available: false,
+      models: [],
+      totals: { costAvailable: false, invocations: 1, totalTokensAvailable: false },
+    })
+  })
+
   it("scans creation-ordered pages for recent completions", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
@@ -2128,6 +2236,41 @@ describe("Agent invocation console", () => {
     requestEvent.req.url = url
 
     await expect(usageHandler(requestEvent)).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("keeps the all-Agent usage cache separate from an Agent named star", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const timestamp = new Date(Date.now() - 1_000).toISOString()
+    for (const [agentName, totalTokens] of [["*", 1], ["review", 2]] as const) {
+      store.create({
+        agentName,
+        completedAt: timestamp,
+        createdAt: timestamp,
+        id: `cache-${agentName}`,
+        observations: [{
+          attributes: { "usage.record": { usage: { totalTokens } } },
+          name: "agent.invocation.finish",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle",
+        }],
+        status: "completed",
+        traceId: `trace-cache-${agentName}`,
+        updatedAt: timestamp,
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const allEvent = event("127.0.0.1")
+    const starEvent = event("127.0.0.1")
+    const allUrl = "http://localhost/api/_vitehub/console/usage"
+    const starUrl = "http://localhost/api/_vitehub/console/usage?agent=*"
+    allEvent.node!.req!.url = allUrl
+    allEvent.req!.url = allUrl
+    starEvent.node!.req!.url = starUrl
+    starEvent.req!.url = starUrl
+
+    await expect(usageHandler(allEvent)).resolves.toMatchObject({ totals: { totalTokens: 3 } })
+    await expect(usageHandler(starEvent)).resolves.toMatchObject({ totals: { totalTokens: 1 } })
   })
 
   it("searches session text through the console Collection", async () => {

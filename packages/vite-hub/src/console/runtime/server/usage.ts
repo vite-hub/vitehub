@@ -31,7 +31,7 @@ interface UsageTotal {
   cachedInputTokensAvailable: boolean
   cachedInputTokens: number
   costAvailable: boolean
-  costUnits: bigint
+  cost: Decimal
   inputTokensAvailable: boolean
   inputTokens: number
   invocations: number
@@ -41,6 +41,11 @@ interface UsageTotal {
   reasoningTokens: number
   totalTokensAvailable: boolean
   totalTokens: number
+}
+
+interface Decimal {
+  scale: number
+  units: bigint
 }
 
 interface PublicUsageTotals {
@@ -74,8 +79,6 @@ export function parseConsoleUsageWindow(value: string): ConsoleUsageWindow | und
   if (value === "24h" || value === "7d" || value === "30d" || value === "90d") return value
 }
 
-const decimalPlaces = 18
-const decimalScale = 10n ** BigInt(decimalPlaces)
 const maximumUsageRecords = 10_000
 const finiteNumberSchema = v.pipe(v.number(), v.check(Number.isFinite), v.minValue(0))
 const stringSchema = v.string()
@@ -100,11 +103,13 @@ function detailNumber(details: unknown, ...keys: string[]): number | undefined {
   }
 }
 
-function decimalUnits(value: string | undefined): bigint | undefined {
+function decimal(value: string | undefined): Decimal | undefined {
   if (!value || !/^\d+(?:\.\d+)?$/.test(value)) return
   const [whole, fraction = ""] = value.split(".")
-  const padded = `${fraction}${"0".repeat(decimalPlaces)}`.slice(0, decimalPlaces)
-  return BigInt(whole!) * decimalScale + BigInt(padded)
+  return {
+    scale: fraction.length,
+    units: BigInt(`${whole}${fraction}`),
+  }
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -112,11 +117,22 @@ function stringValue(value: unknown): string | undefined {
   return result.success ? result.output : undefined
 }
 
-function decimalString(value: bigint): string {
-  const whole = value / decimalScale
-  const fraction = (value % decimalScale)
+function addDecimal(left: Decimal, right: Decimal): Decimal {
+  const scale = Math.max(left.scale, right.scale)
+  return {
+    scale,
+    units: left.units * 10n ** BigInt(scale - left.scale)
+      + right.units * 10n ** BigInt(scale - right.scale),
+  }
+}
+
+function decimalString(value: Decimal): string {
+  if (value.scale === 0) return value.units.toString()
+  const scale = 10n ** BigInt(value.scale)
+  const whole = value.units / scale
+  const fraction = (value.units % scale)
     .toString()
-    .padStart(decimalPlaces, "0")
+    .padStart(value.scale, "0")
     .replace(/0+$/, "")
   return fraction ? `${whole}.${fraction}` : whole.toString()
 }
@@ -131,9 +147,9 @@ function sumNumber(values: Array<number | undefined>): number | undefined {
 }
 
 function sumCost(values: Array<ConsoleUsageCost | undefined>): ConsoleUsageCost | undefined {
-  const units = values.map(value => decimalUnits(value?.usd))
-  if (!units.length || !allPresent(units)) return
-  const total = units.reduce((sum, value) => sum + value, 0n)
+  const decimals = values.map(value => decimal(value?.usd))
+  if (!decimals.length || !allPresent(decimals)) return
+  const total = decimals.reduce(addDecimal, { scale: 0, units: 0n })
   const estimated = values.some(value => value?.estimated === true)
   const sources = [...new Set(values.flatMap(value => value?.source ? [value.source] : []))]
   const usd = decimalString(total)
@@ -153,8 +169,8 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
   const outputDetails = object(usage?.outputTokenDetails)
   const cost = object(record.cost)
   const costUsd = stringValue(cost?.usd)
-  const costUnits = decimalUnits(costUsd)
-  const projectedCost: ConsoleUsageCost | undefined = costUnits === undefined || costUsd === undefined
+  const costValue = decimal(costUsd)
+  const projectedCost: ConsoleUsageCost | undefined = costValue === undefined || costUsd === undefined
     ? undefined
     : {
         display: stringValue(cost?.display) ?? `$${costUsd}`,
@@ -162,12 +178,9 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
         source: stringValue(cost?.source) ?? "provider",
         usd: costUsd,
       }
-  const calls = includeCalls && Array.isArray(record.calls)
-    ? record.calls.flatMap((call) => {
-        const projected = usageNode(call, false)
-        return projected ? [projected] : []
-      })
-    : []
+  const rawCalls = includeCalls && Array.isArray(record.calls) ? record.calls : []
+  const directCalls = rawCalls.map(call => usageNode(call, true))
+  const calls = directCalls.flatMap(projected => projected?.calls?.length ? projected.calls : projected ? [projected] : [])
   const inputTokens = finiteNumber(usage?.inputTokens)
   const outputTokens = finiteNumber(usage?.outputTokens)
   const model = stringValue(record.model)?.trim()
@@ -192,14 +205,17 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
     ...(projectedCost ? { cost: projectedCost } : {}),
     ...(calls.length ? { calls } : {}),
   }
-  if (calls.length) {
-    projected.inputTokens ??= sumNumber(calls.map(call => call.inputTokens))
-    projected.outputTokens ??= sumNumber(calls.map(call => call.outputTokens))
-    projected.totalTokens ??= sumNumber(calls.map(call => call.totalTokens))
-    projected.cachedInputTokens ??= sumNumber(calls.map(call => call.cachedInputTokens))
-    projected.cacheWriteTokens ??= sumNumber(calls.map(call => call.cacheWriteTokens))
-    projected.reasoningTokens ??= sumNumber(calls.map(call => call.reasoningTokens))
-    projected.cost ??= sumCost(calls.map(call => call.cost))
+  if (rawCalls.length && allPresent(directCalls)) {
+    const assign = <Key extends keyof ConsoleInvocationUsage>(key: Key, value: ConsoleInvocationUsage[Key]) => {
+      if (projected[key] === undefined && value !== undefined) projected[key] = value
+    }
+    assign("inputTokens", sumNumber(directCalls.map(call => call.inputTokens)))
+    assign("outputTokens", sumNumber(directCalls.map(call => call.outputTokens)))
+    assign("totalTokens", sumNumber(directCalls.map(call => call.totalTokens)))
+    assign("cachedInputTokens", sumNumber(directCalls.map(call => call.cachedInputTokens)))
+    assign("cacheWriteTokens", sumNumber(directCalls.map(call => call.cacheWriteTokens)))
+    assign("reasoningTokens", sumNumber(directCalls.map(call => call.reasoningTokens)))
+    assign("cost", sumCost(directCalls.map(call => call.cost)))
   }
   return Object.keys(projected).length ? projected : undefined
 }
@@ -242,7 +258,7 @@ function emptyTotals(): UsageTotal {
     cachedInputTokensAvailable: true,
     cachedInputTokens: 0,
     costAvailable: true,
-    costUnits: 0n,
+    cost: { scale: 0, units: 0n },
     inputTokensAvailable: true,
     inputTokens: 0,
     invocations: 0,
@@ -269,28 +285,39 @@ function addUsage(total: UsageTotal, usage: ConsoleInvocationUsage): void {
   total.cacheWriteTokens += usage.cacheWriteTokens ?? 0
   total.reasoningTokensAvailable &&= usage.reasoningTokens !== undefined
   total.reasoningTokens += usage.reasoningTokens ?? 0
-  const cost = decimalUnits(usage.cost?.usd)
+  const cost = decimal(usage.cost?.usd)
   total.costAvailable &&= cost !== undefined
-  total.costUnits += cost ?? 0n
+  if (cost) total.cost = addDecimal(total.cost, cost)
 }
 
-function publicTotals(total: UsageTotal): PublicUsageTotals {
-  const hasUsage = total.invocations > 0
+function addMissingUsage(total: UsageTotal): void {
+  total.invocations++
+  total.cacheWriteTokensAvailable = false
+  total.cachedInputTokensAvailable = false
+  total.costAvailable = false
+  total.inputTokensAvailable = false
+  total.outputTokensAvailable = false
+  total.reasoningTokensAvailable = false
+  total.totalTokensAvailable = false
+}
+
+function publicTotals(total: UsageTotal, complete = true): PublicUsageTotals {
+  const hasEvidence = total.invocations > 0 || complete
   return {
-    cacheWriteTokensAvailable: hasUsage && total.cacheWriteTokensAvailable,
+    cacheWriteTokensAvailable: hasEvidence && total.cacheWriteTokensAvailable,
     cacheWriteTokens: total.cacheWriteTokens,
-    cachedInputTokensAvailable: hasUsage && total.cachedInputTokensAvailable,
+    cachedInputTokensAvailable: hasEvidence && total.cachedInputTokensAvailable,
     cachedInputTokens: total.cachedInputTokens,
-    costAvailable: hasUsage && total.costAvailable,
-    costUsd: decimalString(total.costUnits),
-    inputTokensAvailable: hasUsage && total.inputTokensAvailable,
+    costAvailable: hasEvidence && total.costAvailable,
+    costUsd: decimalString(total.cost),
+    inputTokensAvailable: hasEvidence && total.inputTokensAvailable,
     inputTokens: total.inputTokens,
     invocations: total.invocations,
-    outputTokensAvailable: hasUsage && total.outputTokensAvailable,
+    outputTokensAvailable: hasEvidence && total.outputTokensAvailable,
     outputTokens: total.outputTokens,
-    reasoningTokensAvailable: hasUsage && total.reasoningTokensAvailable,
+    reasoningTokensAvailable: hasEvidence && total.reasoningTokensAvailable,
     reasoningTokens: total.reasoningTokens,
-    totalTokensAvailable: hasUsage && total.totalTokensAvailable,
+    totalTokensAvailable: hasEvidence && total.totalTokensAvailable,
     totalTokens: total.totalTokens,
   }
 }
@@ -320,6 +347,7 @@ export async function createUsageSummary(
   const bucketModels = new Map<string, Map<string, UsageTotal>>()
   const models = new Map<string, UsageTotal>()
   let cursor: string | undefined
+  let recordedUsage = 0
   let scanned = 0
   let partial = false
 
@@ -339,11 +367,18 @@ export async function createUsageSummary(
     const records = await Promise.all(summaries.map(summary => invocations.get(summary.id)))
     for (const record of records) {
       if (!record) continue
-      const usage = invocationUsage(record) ?? {}
       const bucket = bucketStart(usageTime(record), window.bucket)
       if (!bucket) continue
-      addUsage(totals, usage)
       const bucketTotal = buckets.get(bucket) ?? emptyTotals()
+      const usage = invocationUsage(record)
+      if (!usage) {
+        addMissingUsage(totals)
+        addMissingUsage(bucketTotal)
+        buckets.set(bucket, bucketTotal)
+        continue
+      }
+      recordedUsage++
+      addUsage(totals, usage)
       addUsage(bucketTotal, usage)
       buckets.set(bucket, bucketTotal)
       const calls = usage.calls?.length ? usage.calls : [usage]
@@ -363,14 +398,14 @@ export async function createUsageSummary(
     if (scanned >= maximumUsageRecords && cursor) partial = true
   } while (cursor && scanned < maximumUsageRecords)
 
-  const publicTotal = publicTotals(totals)
+  const publicTotal = publicTotals(totals, !partial)
 
   return {
-    available: totals.invocations > 0,
+    available: recordedUsage > 0,
     buckets: bucketStarts(from, to, window.bucket)
       .map(start => ({
         start,
-        ...publicTotals(buckets.get(start) ?? emptyTotals()),
+        ...publicTotals(buckets.get(start) ?? emptyTotals(), !partial),
         models: [...(bucketModels.get(start) ?? new Map<string, UsageTotal>()).entries()]
           .map(([model, modelTotal]) => ({ model, ...publicTotals(modelTotal) })),
       })),

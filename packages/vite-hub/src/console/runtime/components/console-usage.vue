@@ -85,10 +85,12 @@ function formatTokens(value: number): string {
 
 function formatCost(value: string | number): string {
   const resolved = Number(value) || 0
-  const digits = resolved > 0 && resolved < 0.01 ? 4 : 2
+  if (typeof value === "string" && resolved > 0 && resolved < 0.01 && /^0\.\d+$/.test(value)) {
+    return `$${value}`
+  }
   return new Intl.NumberFormat("en", {
     currency: "USD",
-    maximumFractionDigits: digits,
+    maximumFractionDigits: 2,
     minimumFractionDigits: 2,
     style: "currency",
   }).format(resolved)

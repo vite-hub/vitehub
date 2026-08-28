@@ -15,6 +15,9 @@ function cached(
   const cache = caches.get(invocations) ?? new Map()
   caches.set(invocations, cache)
   const now = Date.now()
+  for (const [cachedKey, entry] of cache) {
+    if (entry.expiresAt <= now) cache.delete(cachedKey)
+  }
   const current = cache.get(key)
   if (current && current.expiresAt > now) return current.value
   const value = Promise.resolve().then(resolve).catch((error) => {
@@ -44,7 +47,7 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
     })
   }
   const invocations = getConsoleInvocations()
-  return cached(invocations, `${agentName || "*"}:${window}`, () => createUsageSummary(
+  return cached(invocations, JSON.stringify([agentName ?? null, window]), () => createUsageSummary(
     invocations,
     { agentName, window },
   ))
