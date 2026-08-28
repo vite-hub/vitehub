@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { filesSdkDriverPeers, getFilesSdkPeerInstall } from "../src/internal/files-sdk-peers.ts"
 import { importOptionalPeer } from "../src/internal/optional-peer.ts"
 import isBuffer from "../src/internal/vercel-is-buffer.ts"
+import retry from "../src/internal/vercel-retry.ts"
 
 async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<string[]> {
   if (seen.has(entry.href)) return []
@@ -69,6 +70,26 @@ describe("optional peer imports", () => {
     expect(closure).toContain("new Uint8Array(result.value)")
     expect(closure).toContain("value.destroy(reason)")
     expect(closure).not.toContain("reason instanceof Error ? reason : void 0")
+  })
+
+  it("retries Vercel requests without a CommonJS runtime", async () => {
+    const attempts: number[] = []
+    await expect(retry((_, attempt) => {
+      attempts.push(attempt)
+      if (attempt === 1) throw new Error("retry")
+      return "done"
+    }, { minTimeout: 0, randomize: false, retries: 1 })).resolves.toBe("done")
+    expect(attempts).toEqual([1, 2])
+  })
+
+  it("stops Vercel retries when the request bails", async () => {
+    const error = new Error("stop")
+    let attempts = 0
+    await expect(retry((bail) => {
+      attempts++
+      bail(error)
+    }, { minTimeout: 0, retries: 2 })).rejects.toBe(error)
+    expect(attempts).toBe(1)
   })
 
   it("ships the patched Vercel Blob runtime through the public driver", async () => {
