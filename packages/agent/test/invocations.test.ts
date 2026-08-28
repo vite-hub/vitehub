@@ -387,7 +387,48 @@ describe("Agent Invocations", () => {
         data: { bytes: [1, 2, 3], type: "Uint8Array" },
         files: [["README.md", 42]],
         paths: ["README.md", "package.json"],
-        pattern: { flags: "gi", source: "vitehub" },
+        pattern: { flags: "gi", lastIndex: 0, source: "vitehub" },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("retains RegExp state and Error details when bounding invocation observations", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "built-in-details",
+      observations: [],
+      status: "running",
+      traceId: "built-in-details-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const pattern = /vitehub/gi
+    pattern.lastIndex = 3
+    const error = new AggregateError([new Error("first")], "outer", { cause: { code: "inner" } })
+    Object.assign(error, { code: "E_OUTER" })
+
+    await store.update("built-in-details", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error, pattern }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("built-in-details"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          cause: { code: "inner" },
+          code: "E_OUTER",
+          errors: [{ message: "first", name: "Error" }],
+          message: "outer",
+          name: "AggregateError",
+        },
+        pattern: { flags: "gi", lastIndex: 3, source: "vitehub" },
       },
       visibility: "public",
     })

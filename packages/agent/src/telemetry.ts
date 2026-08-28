@@ -82,9 +82,25 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
     }
   }
   if (value instanceof Blob) {
+    const FileConstructor = globalThis.File
+    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
     const bytes = new Uint8Array(await value.arrayBuffer())
     let binary = ""
     for (const byte of bytes) binary += String.fromCharCode(byte)
+    if (file) {
+      return {
+        kvlistValue: {
+          values: [
+            { key: "type", value: { stringValue: "File" } },
+            { key: "name", value: { stringValue: file.name } },
+            { key: "lastModified", value: { intValue: String(file.lastModified) } },
+            { key: "mediaType", value: { stringValue: file.type } },
+            { key: "size", value: { intValue: String(file.size) } },
+            { key: "bytes", value: { bytesValue: btoa(binary) } },
+          ],
+        },
+      }
+    }
     return {
       kvlistValue: {
         values: [

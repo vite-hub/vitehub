@@ -159,6 +159,7 @@ describe("Agent telemetry", () => {
             date: new Date("2026-01-01T00:00:00.000Z"),
             domException: new DOMException("stopped", "AbortError"),
             error: new Error("outer", { cause: { code: "inner" } }),
+            file: new File([new Uint8Array([3, 4])], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" }),
             invalidDate: new Date(Number.NaN),
             map: new Map<unknown, string>([[1, "number"], ["1", "string"]]),
             negativeZero: -0,
@@ -227,6 +228,14 @@ describe("Agent telemetry", () => {
               { key: "cause", value: { kvlistValue: { values: [{ key: "code", value: { stringValue: "inner" } }] } } },
             ] } },
           },
+          { key: "file", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "File" } },
+            { key: "name", value: { stringValue: "report.txt" } },
+            { key: "lastModified", value: { intValue: "1768435200000" } },
+            { key: "mediaType", value: { stringValue: "text/plain" } },
+            { key: "size", value: { intValue: "2" } },
+            { key: "bytes", value: { bytesValue: "AwQ=" } },
+          ] } } },
           { key: "invalidDate", value: { stringValue: "Invalid Date" } },
           {
             key: "map",

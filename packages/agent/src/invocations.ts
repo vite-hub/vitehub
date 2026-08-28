@@ -318,6 +318,20 @@ async function collectBoundedObservationBuiltIns(
     }
     return
   }
+  if (value instanceof Error) {
+    if (value instanceof AggregateError) {
+      await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
+    }
+    if (Object.hasOwn(value, "cause")) {
+      await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
+    }
+    for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+      if (key !== "cause" && key !== "errors") {
+        await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+      }
+    }
+    return
+  }
   const prototype = Object.getPrototypeOf(value)
   if (prototype !== null && prototype !== Object.prototype) return
   for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
@@ -436,15 +450,27 @@ function boundedObservationValue(
     budget.truncated = true
     return {
       flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength, builtIns),
+      lastIndex: boundedObservationValue(value.lastIndex, budget, depth + 1, maxStringLength, builtIns),
       source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength, builtIns),
     }
   }
   if (value instanceof Error) {
     budget.truncated = true
-    return {
-      message: boundedObservationValue(value.message, budget, depth + 1, maxStringLength, builtIns),
-      name: boundedObservationValue(value.name, budget, depth + 1, maxStringLength, builtIns),
+    const details: Array<[string, unknown]> = [
+      ["name", value.name],
+      ["message", value.message],
+    ]
+    if (value instanceof AggregateError) details.push(["errors", value.errors])
+    if (Object.hasOwn(value, "cause")) details.push(["cause", value.cause])
+    for (const [key, child] of Object.entries(value)) {
+      if (key !== "cause" && key !== "errors") details.push([key, child])
     }
+    const length = Math.min(details.length, MAX_OBSERVATION_COLLECTION_ITEMS)
+    if (length < details.length) budget.truncated = true
+    return Object.fromEntries(details.slice(0, length).map(([key, child]) => [
+      boundedString(key),
+      boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
+    ]))
   }
   if (!value || !hasRuntimeType(value, "object")) {
     const string = String(value)
