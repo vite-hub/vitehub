@@ -105,13 +105,19 @@ describe("writeDocsArtifacts", () => {
   });
 
   it("handles inline destination and code-span grammar boundaries", () => {
+    const maximumNesting = `${"(".repeat(32)}leaf${")".repeat(32)}`;
+    const excessiveNesting = `${"(".repeat(33)}leaf${")".repeat(33)}`;
     expect(toRawMarkdown([
       "[Guide](</docs/getting started>)",
       "[Spaced]( /docs/spaced)",
+      `[maximum nesting](/docs/${maximumNesting})`,
+      `[excessive nesting](/docs/${excessiveNesting})`,
       "`[literal](/docs/literal)\\` [rendered](/docs/rendered)",
     ].join("\n"))).toBe([
       "[Guide](<https://vitehub.dev/docs/getting started>)",
       "[Spaced]( https://vitehub.dev/docs/spaced)",
+      `[maximum nesting](https://vitehub.dev/docs/${maximumNesting})`,
+      `[excessive nesting](/docs/${excessiveNesting})`,
       "`[literal](/docs/literal)\\` [rendered](https://vitehub.dev/docs/rendered)",
       "",
     ].join("\n"));
@@ -456,6 +462,31 @@ describe("writeDocsArtifacts", () => {
       "- - item",
       "",
       "      [nested list paragraph](https://vitehub.dev/docs/nested-list-paragraph)",
+    ].join("\n"));
+  });
+
+  it("measures presentation directive indentation from list content", () => {
+    expect(toRawMarkdown([
+      "-   item",
+      "",
+      "    ::warning",
+      "    Rendered warning.",
+      "    ::",
+      "",
+      "        ::tip",
+      "        Literal indented code.",
+      "        ::",
+    ].join("\n"))).toBe([
+      "-   item",
+      "",
+      "    > **Warning**",
+      "",
+      "    Rendered warning.",
+      "",
+      "        ::tip",
+      "        Literal indented code.",
+      "        ::",
+      "",
     ].join("\n"));
   });
 

@@ -130,7 +130,13 @@ function rewriteInlineMarkdownLinks(line: string, protectedHtmlMarker?: string) 
       let invalidDestination = false;
       while (targetEnd < line.length) {
         const character = line[targetEnd]!;
-        if (character === "(" && !isEscaped(line, targetEnd)) parentheses += 1;
+        if (character === "(" && !isEscaped(line, targetEnd)) {
+          parentheses += 1;
+          if (parentheses > 32) {
+            invalidDestination = true;
+            break;
+          }
+        }
         else if (character === ")" && !isEscaped(line, targetEnd)) {
           if (parentheses === 0) break;
           parentheses -= 1;
@@ -752,10 +758,14 @@ function stripPresentationDirectives(source: string) {
   let htmlQuoteDepth = 0;
   let paragraphOpen = false;
   let paragraphQuoteDepth = 0;
+  const listState: MarkdownListState = { indent: null, quotePrefix: "" };
   for (const originalLine of source.split("\n")) {
+    updateMarkdownListState(originalLine, listState);
+    const listIndent = activeListIndent(originalLine, listState) ?? 0;
     const leadingColumns = indentationColumns(originalLine);
     const structuralDepth = directives.filter(Boolean).length;
-    const structuralIndent: number = fence?.indent ?? Math.min(leadingColumns, structuralDepth * 2);
+    const structuralIndent: number = fence?.indent
+      ?? Math.min(Math.max(leadingColumns - listIndent, 0), structuralDepth * 2);
     const deindented = removeIndentation(originalLine, structuralIndent);
 
     if (htmlEnd) {
@@ -782,7 +792,7 @@ function stripPresentationDirectives(source: string) {
       )
     ) fence = null;
 
-    if (!fence && leadingColumns >= structuralDepth * 2 + 4) {
+    if (!fence && leadingColumns - listIndent >= structuralDepth * 2 + 4) {
       output.push(deindented);
       continue;
     }
@@ -808,7 +818,7 @@ function stripPresentationDirectives(source: string) {
       continue;
     }
 
-    const htmlLine = withoutMarkdownContainers(deindented);
+    const htmlLine = withoutMarkdownContainers(deindented, listIndent || null);
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const quoteDepth = leadingQuoteDepth(referenceContainer(deindented));
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
@@ -817,7 +827,7 @@ function stripPresentationDirectives(source: string) {
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
         const htmlContainer = markdownContainer(deindented);
         htmlEnd = nextHtmlEnd;
-        htmlListIndent = htmlContainer.listIndent;
+        htmlListIndent = htmlContainer.listIndent ?? (listIndent || null);
         htmlQuoteDepth = htmlContainer.quoteDepth;
       }
       paragraphOpen = false;
@@ -846,7 +856,7 @@ function stripPresentationDirectives(source: string) {
         continue;
       }
       const label = directiveLabel(name, directive[2]);
-      if (label) output.push(label, "");
+      if (label) output.push(`${deindented.match(/^\s*/)?.[0] || ""}${label}`, "");
       continue;
     }
 
