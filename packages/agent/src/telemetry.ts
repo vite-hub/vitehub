@@ -97,7 +97,7 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
           values: [
             { key: "type", value: { stringValue: "File" } },
             { key: "name", value: { stringValue: file.name } },
-            { key: "lastModified", value: { intValue: String(file.lastModified) } },
+            { key: "lastModified", value: await otlpAnyValue(file.lastModified) },
             { key: "mediaType", value: { stringValue: file.type } },
             { key: "size", value: { intValue: String(file.size) } },
             { key: "bytes", value: { bytesValue: btoa(binary) } },
