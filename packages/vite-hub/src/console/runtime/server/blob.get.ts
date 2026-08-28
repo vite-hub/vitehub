@@ -60,16 +60,17 @@ function selectStore(storage: BlobStorage, stores: readonly string[], requested:
 }
 
 function serializeBlob(object: BlobObject): ConsoleBlobObject {
-  return {
+  const serialized: ConsoleBlobObject = {
     ...(object.contentType ? { contentType: object.contentType } : {}),
     customMetadata: { ...object.customMetadata },
     ...(object.httpEtag ? { httpEtag: object.httpEtag } : {}),
     httpMetadata: { ...object.httpMetadata },
     pathname: object.pathname,
-    ...(typeof object.size === "number" ? { size: object.size } : {}),
     uploadedAt: object.uploadedAt.toISOString(),
     ...(object.url ? { urlAvailable: true as const } : {}),
   }
+  if (object.size !== undefined) serialized.size = object.size
+  return serialized
 }
 
 export default async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBlobPage> {
