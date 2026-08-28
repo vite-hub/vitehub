@@ -102,6 +102,18 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
+  it("surfaces cleanup failures for unique default Cloudflare sessions", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
+    runtimeMocks.close.mockRejectedValueOnce(new Error("destroy failed"))
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result[0]).toMatchObject({ message: "destroy failed" })
+    expect(runtimeMocks.close).toHaveBeenCalledOnce()
+  })
+
   it("rejects removed Definition options before resolving a provider", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({

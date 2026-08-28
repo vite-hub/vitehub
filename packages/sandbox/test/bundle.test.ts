@@ -184,6 +184,35 @@ describe("bundleSandboxDefinition assets", () => {
     expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
   })
 
+  it("keeps project assets loaded through a createRequire alias", async () => {
+    const project: SandboxProject = {
+      digest: "create-require-fixture",
+      files: {
+        "prompt.md": {
+          contents: Buffer.from("Project prompt\n").toString("base64"),
+          encoding: "base64",
+        },
+      },
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+    const source = [
+      "import { createRequire as makeRequire } from 'node:module'",
+      "const localRequire = makeRequire(import.meta.url)",
+      "const { readFileSync } = localRequire('node:fs')",
+      "export default { run: async () => readFileSync('./prompt.md', 'utf8') }",
+      "",
+    ].join("\n")
+
+    const bundle = await bundleSandboxDefinition(source, "/fixture/run.sandbox.ts", {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project?.files).toHaveProperty("prompt.md")
+    expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
   it("keeps project assets used through named filesystem object imports", async () => {
     const project: SandboxProject = {
       digest: "named-object-fixture",

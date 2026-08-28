@@ -111,6 +111,24 @@ describe("bundleSandboxDefinition", () => {
 })
 
 describe("resolveSandboxProject", () => {
+  it("rejects pnpm patches outside a package install root", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandbox")
+    await mkdir(join(root, "patches"), { recursive: true })
+    await mkdir(sandbox, { recursive: true })
+    await writeFile(join(root, "patches/example.patch"), "patched dependency\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({
+      packageManager: "pnpm@10.33.0",
+      pnpm: { patchedDependencies: { example: "../patches/example.patch" } },
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(sandbox, "index.ts"), "export default null\n")
+
+    await expect(resolveSandboxProject(join(sandbox, "index.ts"), root))
+      .rejects.toThrow("Sandbox pnpm patch must stay inside its install root: ../patches/example.patch")
+  })
+
   it("includes pnpm patch files from the install root", async () => {
     const root = await createRoot()
     const sandbox = join(root, "sandboxes/task")

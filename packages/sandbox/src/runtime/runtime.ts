@@ -106,6 +106,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
           for (let attempt = 0; attempt < attempts; attempt++) {
             let sandbox: SandboxExecutionBox | undefined
             let handlerMayHaveStarted = false
+            let runError: Error | undefined
             try {
               const session = await box.open({ id: cloudflareSandboxId })
               sandbox = createSandboxExecutionBox(session, provider.provider)
@@ -127,6 +128,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
             }
             catch (error) {
               const sandboxError = toSandboxError(error)
+              runError = sandboxError
               const shouldRetry = !handlerMayHaveStarted
                 && provider.provider === 'cloudflare'
                 && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
@@ -138,8 +140,20 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
               await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
             }
             finally {
-              if (provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId))
-                await sandbox?.close().catch(() => {})
+              if (provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
+                try {
+                  await sandbox?.close()
+                }
+                catch (cleanupError) {
+                  if (runError) {
+                    throw new AggregateError(
+                      [runError, cleanupError],
+                      `${runError.message} Cleanup failed: ${toSandboxError(cleanupError).message}`,
+                    )
+                  }
+                  throw toSandboxError(cleanupError)
+                }
+              }
             }
           }
 

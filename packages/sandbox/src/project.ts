@@ -312,11 +312,23 @@ export async function resolveSandboxProject(
     : await isFile(installManifestPath, root)
       ? parseManifest(await readFile(installManifestPath, 'utf8'), installManifestPath)
       : undefined
-  for (const patchPath of pnpmPatchPaths(installManifest || {}))
+  for (const patchPath of pnpmPatchPaths(installManifest || {})) {
+    if (!isInside(installRoot, resolve(installRoot, patchPath))) {
+      throw new Error(
+        `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}`,
+      )
+    }
     await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+  }
   if (workspace) {
-    for (const patchPath of parsePnpmWorkspacePatchPaths(workspace.source))
+    for (const patchPath of parsePnpmWorkspacePatchPaths(workspace.source)) {
+      if (!isInside(installRoot, resolve(installRoot, patchPath))) {
+        throw new Error(
+          `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}`,
+        )
+      }
       await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+    }
   }
   if (lock) await addProjectFile(files, installRoot, lock.path, root)
 

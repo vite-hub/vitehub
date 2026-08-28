@@ -145,6 +145,8 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
   const namespaceBindings = new Set<string>()
   const pathFunctionBindings = new Set<string>()
   const pathNamespaceBindings = new Set<string>()
+  const requireBindings = new Set(['require'])
+  const createRequireBindings = new Set<string>()
   const variableInitializers = new Map<string, ts.Expression>()
   const ambiguousVariables = new Set<string>()
   const references: FilesystemPathReference[] = []
@@ -155,7 +157,7 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
     if (!expression
       || !typescript.isCallExpression(expression)
       || !typescript.isIdentifier(expression.expression)
-      || expression.expression.text !== 'require') {
+      || !requireBindings.has(expression.expression.text)) {
       return
     }
     const [specifier] = expression.arguments
@@ -178,6 +180,18 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
   }
 
   for (const statement of sourceFile.statements) {
+    if (typescript.isImportDeclaration(statement)
+      && typescript.isStringLiteralLike(statement.moduleSpecifier)
+      && (statement.moduleSpecifier.text === 'node:module' || statement.moduleSpecifier.text === 'module')
+      && !statement.importClause?.isTypeOnly) {
+      const bindings = statement.importClause?.namedBindings
+      if (bindings && typescript.isNamedImports(bindings)) {
+        for (const binding of bindings.elements) {
+          if (!binding.isTypeOnly && (binding.propertyName?.text ?? binding.name.text) === 'createRequire')
+            createRequireBindings.add(binding.name.text)
+        }
+      }
+    }
     if (typescript.isImportEqualsDeclaration(statement)
       && !statement.isTypeOnly
       && typescript.isExternalModuleReference(statement.moduleReference)
@@ -236,6 +250,13 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
 
   function collectCommonJSBindings(node: ts.Node) {
     if (typescript.isVariableDeclaration(node)) {
+      if (typescript.isIdentifier(node.name)
+        && node.initializer
+        && typescript.isCallExpression(node.initializer)
+        && typescript.isIdentifier(node.initializer.expression)
+        && createRequireBindings.has(node.initializer.expression.text)) {
+        requireBindings.add(node.name.text)
+      }
       if (node.initializer
         && typescript.isIdentifier(node.name)
         && typescript.isVariableDeclarationList(node.parent)
