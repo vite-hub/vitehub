@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { custom } from "@vite-hub/workspace"
+import { registerWorkspace } from "@vite-hub/workspace/runtime"
 
-import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts"
 
 describe("startup Source inspection", () => {
   it("reports an unprepared startup Source as pending", () => {
@@ -28,5 +29,38 @@ describe("startup Source inspection", () => {
       source: "docs",
       status: "lazy",
     }])
+  })
+
+  it("reports a partially materialized startup Source as failed", async () => {
+    const workspaceName = `startup-inspection-${crypto.randomUUID()}`
+    const workspace = {
+      sources: {
+        docs: custom({
+          async getItem(key) {
+            if (key === "z-failed.md") throw new Error("provider unavailable")
+            return { content: "# Ready", key }
+          },
+          async getKeys() { return ["a-ready.md", "z-failed.md"] },
+          materialize: "startup",
+        }),
+      },
+    }
+    registerWorkspace(workspaceName, workspace)
+    const agent = defineAgent({
+      name: workspaceName,
+      workspace,
+      driver: { run: () => "ok" },
+    })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(metadata.files).toEqual([
+      expect.objectContaining({
+        materialize: "startup",
+        materialized: false,
+        source: "docs",
+        status: "error",
+      }),
+    ])
   })
 })

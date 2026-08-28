@@ -213,6 +213,81 @@ describe("Workspace runtime preparation", () => {
     resetWorkspaceRegistry()
   })
 
+  it("shares definition synchronization across Workspace facades", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => { loading = resolve })
+    const load = vi.fn(async (ctx: { store: WorkspaceStore }) => {
+      loading()
+      await blocked
+      await ctx.store.writeFile("ready.md", { content: "# Ready", path: "ready.md" })
+    })
+    const publish = vi.fn(async () => {})
+    registerWorkspace(name, {
+      loaders: [{ name: "shared-loader", load }],
+      publish: [{ name: "shared-publisher", publish }],
+      store: { provider: "memory" },
+    })
+
+    const firstRead = useWorkspace(name).fs.readFile("ready.md", { encoding: "utf8" })
+    await loaderStarted
+    const secondRead = useWorkspace(name).fs.readFile("ready.md", { encoding: "utf8" })
+    await Promise.resolve()
+    expect(load).toHaveBeenCalledOnce()
+    release()
+
+    await expect(Promise.all([firstRead, secondRead])).resolves.toEqual(["# Ready", "# Ready"])
+    expect(publish).toHaveBeenCalledOnce()
+    resetWorkspaceRegistry()
+  })
+
+  it("retries canceled definition synchronization before publishing", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => { loading = resolve })
+    let attempts = 0
+    const publish = vi.fn(async () => {})
+    registerWorkspace(name, {
+      loaders: [{
+        name: "cancelable-loader",
+        async load(ctx) {
+          attempts++
+          if (attempts !== 1) return
+          loading()
+          await new Promise<void>((_resolve, reject) => {
+            const abort = () => reject(ctx.abortSignal?.reason)
+            if (ctx.abortSignal?.aborted) abort()
+            else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+          })
+        },
+      }],
+      publish: [{ name: "publisher", publish }],
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Ready", key } },
+          async getKeys() { return ["ready.md"] },
+          materialize: "startup",
+        }),
+      },
+      store: { provider: "memory" },
+    })
+    const workspace = useWorkspace(name, { mode: "write" })
+    const abort = new AbortController()
+
+    const materializing = workspace.materializeSources({ abortSignal: abort.signal })
+    await loaderStarted
+    const publishing = workspace.publish()
+    abort.abort(new DOMException("Canceled", "AbortError"))
+
+    await expect(materializing).rejects.toThrow("Canceled")
+    await expect(publishing).resolves.toBeUndefined()
+    expect(attempts).toBe(2)
+    expect(publish).toHaveBeenCalledTimes(2)
+    resetWorkspaceRegistry()
+  })
+
   it("restarts with fresh definition synchronization after cancellation", async () => {
     const name = `workspace-preparation-${crypto.randomUUID()}`
     let attempts = 0

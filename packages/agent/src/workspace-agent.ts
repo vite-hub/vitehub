@@ -1,5 +1,5 @@
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
-import { normalizeWorkspaceSourcesMetadata, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -81,6 +81,7 @@ import type {
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
+  WorkspaceSourceMaterializationStatus,
 } from "@vite-hub/workspace"
 
 const defaultWorkspaceName = "workspace"
@@ -1082,6 +1083,7 @@ function sortFileTree(item: AgentInspectionFileTreeItem) {
 function markSourceTreeMetadata(
   root: AgentInspectionFileTreeItem,
   options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
+  sourceSnapshots: ReadonlyMap<string, WorkspaceSourceMaterializationStatus> = new Map(),
 ) {
   const sources = normalizedSourcesFromOptions(options)
   for (const source of sources) {
@@ -1092,10 +1094,16 @@ function markSourceTreeMetadata(
     while (pending.length) {
       const item = pending.shift()!
       if (item.path === mountedRoot) {
+        const snapshot = sourceSnapshots.get(source.key)
         item.materialize = materialize
-        item.materialized = item.materialized || materialize === "build" || Boolean(item.children?.length)
+        item.materialized = materialize === "startup" && snapshot
+          ? snapshot.status === "ready"
+          : item.materialized || materialize === "build" || Boolean(item.children?.length)
+        item.materializedAt = snapshot?.materializedAt ?? item.materializedAt
         item.source = source.key
-        item.status = item.materialized ? "ready" : isPendingMaterialization(materialize) ? "lazy" : "ready"
+        item.status = materialize === "startup" && snapshot
+          ? snapshot.status
+          : item.materialized ? "ready" : isPendingMaterialization(materialize) ? "lazy" : "ready"
       }
       else if (item.path.startsWith(`${mountedRoot}/`)) {
         item.materialize = materialize
@@ -1116,7 +1124,7 @@ function propagateMaterializedDirectories(item: AgentInspectionFileTreeItem): bo
 }
 
 function clearReadyMaterializationHints(item: AgentInspectionFileTreeItem) {
-  if (item.materialized || item.materializedAt || item.status === "ready") {
+  if (item.status === "ready" || (item.status === undefined && (item.materialized || item.materializedAt))) {
     delete item.materialize
   }
   for (const child of item.children || []) clearReadyMaterializationHints(child)
@@ -1126,6 +1134,14 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<AgentInspectionFileTreeItem[]> {
+  const sources = normalizedSourcesFromOptions(options)
+  const startupSources = sources.filter(source => sourceMaterialize(source) === "startup")
+  const materialized = startupSources.length
+    ? await workspace.fs.materializeSources?.({ sources: startupSources.map(source => source.key) })
+    : undefined
+  const sourceSnapshots = new Map<string, WorkspaceSourceMaterializationStatus>(
+    materialized?.sources.map(source => [source.source, source]),
+  )
   const root: AgentInspectionFileTreeItem = {
     children: [],
     kind: "directory",
@@ -1136,8 +1152,13 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   for (const entry of entries) {
     addFileTreePath(root, entry)
   }
+  for (const source of sources) {
+    if (sourceSnapshots.has(source.key)) continue
+    const snapshot = await readWorkspaceSourceMaterializationStatus(workspace, source.key)
+    if (snapshot) sourceSnapshots.set(source.key, snapshot)
+  }
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-  markSourceTreeMetadata(root, asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
+  markSourceTreeMetadata(root, asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>, sourceSnapshots)
   propagateMaterializedDirectories(root)
   clearReadyMaterializationHints(root)
   sortFileTree(root)

@@ -59,6 +59,24 @@ type WorkspaceWithDefinitionSync = Workspace & {
   __syncWorkspaceDefinition?: (abortSignal?: AbortSignal) => Promise<void>
 }
 
+interface WorkspaceDefinitionSyncState {
+  abortSignal?: AbortSignal
+  promise?: Promise<void>
+}
+
+const workspaceDefinitionSyncStates = new WeakMap<object, WorkspaceDefinitionSyncState>()
+
+async function workspaceDefinitionSyncState(workspace: Workspace): Promise<WorkspaceDefinitionSyncState> {
+  const target = await (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
+  const owner = target && typeof target === "object" ? target : workspace
+  let state = workspaceDefinitionSyncStates.get(owner)
+  if (!state) {
+    state = {}
+    workspaceDefinitionSyncStates.set(owner, state)
+  }
+  return state
+}
+
 async function waitForWorkspaceSync(pending: Promise<void>, signal?: AbortSignal) {
   if (!signal) return await pending
   signal.throwIfAborted()
@@ -207,8 +225,6 @@ async function materializeWorkspaceSources(workspace: Workspace, options?: Works
 
 function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition): Workspace {
   let workspacePromise: Promise<Workspace> | undefined
-  let syncPromise: Promise<void> | undefined
-  let syncAbortSignal: AbortSignal | undefined
 
   async function resolveWorkspace() {
     workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition)) : useRegisteredWorkspace(name)
@@ -217,20 +233,21 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
 
   async function resolveSyncedWorkspace(abortSignal?: AbortSignal) {
     const workspace = await resolveWorkspace()
+    const sync = await workspaceDefinitionSyncState(workspace)
     while (true) {
-      if (!syncPromise) {
+      if (!sync.promise) {
         const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.(abortSignal) ?? Promise.resolve()
-        syncPromise = next
-        syncAbortSignal = abortSignal
+        sync.promise = next
+        sync.abortSignal = abortSignal
         next.catch(() => {
-          if (syncPromise === next) {
-            syncPromise = undefined
-            syncAbortSignal = undefined
+          if (sync.promise === next) {
+            sync.promise = undefined
+            sync.abortSignal = undefined
           }
         })
       }
-      const current = syncPromise
-      const currentAbortSignal = syncAbortSignal
+      const current = sync.promise
+      const currentAbortSignal = sync.abortSignal
       try {
         await waitForWorkspaceSync(current, abortSignal)
         return workspace
@@ -244,9 +261,9 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
           throw error
         }
         if (!currentAbortSignal?.aborted) throw error
-        if (syncPromise === current) {
-          syncPromise = undefined
-          syncAbortSignal = undefined
+        if (sync.promise === current) {
+          sync.promise = undefined
+          sync.abortSignal = undefined
         }
       }
     }
@@ -268,9 +285,17 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     },
     async sync(options) {
       const resolved = await resolveWorkspace()
+      const sync = await workspaceDefinitionSyncState(resolved)
       const next = resolved.sync(options)
-      syncPromise = next.then(() => undefined)
-      next.catch(() => { syncPromise = undefined })
+      const pending = next.then(() => undefined)
+      sync.promise = pending
+      sync.abortSignal = undefined
+      next.catch(() => {
+        if (sync.promise === pending) {
+          sync.promise = undefined
+          sync.abortSignal = undefined
+        }
+      })
       return await next
     },
     async readFile(path, options) {
@@ -308,8 +333,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       return await materializeWorkspaceSources(await resolveSyncedWorkspace(options?.abortSignal), options)
     },
     async publish(options) {
-      if (syncPromise) await syncPromise
-      await (await resolveWorkspace()).publish(options)
+      await (await resolveSyncedWorkspace()).publish(options)
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)

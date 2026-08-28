@@ -167,7 +167,14 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
 
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
-    const affected = startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))
+    const removedPaths = (await store.list(mountPath, { recursive: true }))
+      .filter(entry => entry.type === "file")
+      .map(entry => entry.path)
+    const affected: ResolvedWorkspaceSource[] = []
+    for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
+      if (!startup.mountPath && await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths) === false) continue
+      affected.push(startup)
+    }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
     for (const source of affected) await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
     abortSignal?.throwIfAborted()
