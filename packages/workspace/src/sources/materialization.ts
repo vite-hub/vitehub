@@ -107,6 +107,19 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
   return Object.keys(items).length ? items : undefined
 }
 
+function publicMaterializationStatus(snapshot: SourceSnapshotMetadata): WorkspaceSourceMaterializationStatus {
+  return {
+    bytes: snapshot.bytes,
+    error: snapshot.error,
+    files: snapshot.files,
+    materializedAt: snapshot.materializedAt,
+    mountPath: snapshot.mountPath,
+    revision: snapshot.revision,
+    source: snapshot.source,
+    status: snapshot.status,
+  }
+}
+
 function contentSize(content: string | Uint8Array) {
   return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
 }
@@ -632,7 +645,7 @@ export async function materializeWorkspaceSources(
       const durationMs = Date.now() - sourceStarted
       const reportedPaths = materializationPaths(options, paths)
       const resultSource: WorkspaceSourceMaterializationStatus = {
-        ...ready,
+        ...publicMaterializationStatus(ready),
         cacheStatus,
         counts: { ...counts },
         durationMs,
@@ -691,7 +704,7 @@ export async function materializeWorkspaceSources(
       const durationMs = Date.now() - sourceStarted
       const reportedPaths = materializationPaths(options, paths)
       const failedSource: WorkspaceSourceMaterializationStatus = {
-        ...failed,
+        ...publicMaterializationStatus(failed),
         cacheStatus,
         counts: { ...counts },
         durationMs,

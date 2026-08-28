@@ -580,9 +580,13 @@ describe("lazy sources", () => {
       },
     }, createMemoryWorkspaceStore())
 
-    await view.materializeSources({ sources: ["docs"] })
+    const materialized = await view.materializeSources({ sources: ["docs"] })
     const cached = await view.materializeSources({ sources: ["docs"] })
 
+    expect(materialized.sources[0]).not.toHaveProperty("cacheMaxAge")
+    expect(materialized.sources[0]).not.toHaveProperty("configHash")
+    expect(materialized.sources[0]).not.toHaveProperty("items")
+    expect(materialized.sources[0]).not.toHaveProperty("paths")
     expect(cached.sources[0]).toMatchObject({
       cacheStatus: "hit",
       counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
