@@ -209,6 +209,7 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    await writeFile(join(sharedHome, "Auth.json"), "ambient credentials\n")
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
     let shadowHome: string | undefined
     createProviderRuntime.mockImplementationOnce(async (options) => {
@@ -217,16 +218,20 @@ describe("Provider Agent Driver", () => {
       expect(config.isFile()).toBe(true)
       expect(config.isSymbolicLink()).toBe(false)
       expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
+      await expect(access(join(shadowHome, "Auth.json"))).rejects.toMatchObject({ code: "ENOENT" })
       expect(await readlink(join(shadowHome, "sessions"))).toBe(join(sharedHome, "sessions"))
       return providerRuntimes.shift()
     })
 
     try {
-      await createProviderAgentAdapter({
+      const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
         providerSettings: { homePath: sharedHome },
-      }).generate(context(threadId) as never)
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
     }
     finally {
       platform.mockRestore()
@@ -1910,12 +1915,18 @@ describe("Provider Agent Driver", () => {
       await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
       expect(createProviderRuntime.mock.lastCall?.[0].settings?.homePath).toEqual(expect.any(String))
       const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
+      const root = (runtimeCall![0] as { cwd: string }).cwd
       await expect(access(shadowHome)).resolves.toBeUndefined()
+      await expect(access(root)).resolves.toBeUndefined()
       controller.abort("cancelled")
       await expect(result).rejects.toBe("cancelled")
       await vi.advanceTimersByTimeAsync(10_000)
 
       await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
     }
     finally {
       vi.useRealTimers()
@@ -2276,12 +2287,13 @@ describe("Provider Agent Driver", () => {
     expect(waitUntil).toHaveBeenCalledOnce()
   })
 
-  it("keeps the session lock while deferred provider startup remains active", async () => {
+  it("keeps the session lock during deferred startup and bounds a stalled runtime close", async () => {
     vi.useFakeTimers()
     try {
       const threadId = "thread-late-start-lock"
       let finishStartup!: () => void
       const first = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
+      first.close.mockImplementationOnce(() => new Promise<undefined>(() => undefined))
       const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       const adapter = createProviderAgentAdapter({ provider: "codex" })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -2297,7 +2309,11 @@ describe("Provider Agent Driver", () => {
       expect(second.startSession).not.toHaveBeenCalled()
 
       finishStartup()
-      await vi.waitFor(() => expect(first.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(0)
+      expect(first.close).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(second.startSession).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
       await expect(secondResult).resolves.toBeDefined()
       expect(second.startSession).toHaveBeenCalledOnce()
     }

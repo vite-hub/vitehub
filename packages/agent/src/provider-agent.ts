@@ -170,6 +170,31 @@ const codexSharedHomeDirectories = [
 ] as const
 const codexPrivateHomeEntries = new Set(["auth.json", "models_cache.json"])
 const codexLocalHomeEntries = new Set(["log", "memories", "tmp"])
+const providerHostPlatform = process.platform
+const restrictWindowsCodexCredentialHomeScript = String.raw`
+$ErrorActionPreference = "Stop"
+$path = $env:VITEHUB_CODEX_CREDENTIAL_HOME
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$security = [System.Security.AccessControl.DirectorySecurity]::new()
+$security.SetAccessRuleProtection($true, $false)
+$security.SetOwner($identity)
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+  $identity,
+  [System.Security.AccessControl.FileSystemRights]::FullControl,
+  [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit",
+  [System.Security.AccessControl.PropagationFlags]::None,
+  [System.Security.AccessControl.AccessControlType]::Allow
+)
+$security.SetAccessRule($rule)
+$directory = [System.IO.DirectoryInfo]::new($path)
+[System.IO.FileSystemAclExtensions]::SetAccessControl($directory, $security)
+$applied = [System.IO.FileSystemAclExtensions]::GetAccessControl($directory)
+$owner = $applied.GetOwner([System.Security.Principal.SecurityIdentifier])
+$rules = @($applied.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $identity.Value -or $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+  throw "The credential home ACL is not restricted to the current principal."
+}
+`
 
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const providerHostEnvironmentKeys = [
@@ -211,12 +236,38 @@ function resolveCodexSharedHome(homePath: unknown, environment: NodeJS.ProcessEn
   return resolve(configured)
 }
 
+async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
+  const command = Buffer.from(restrictWindowsCodexCredentialHomeScript, "utf16le").toString("base64")
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command], {
+      env: providerEnvironment({ VITEHUB_CODEX_CREDENTIAL_HOME: home }),
+      stdio: "ignore",
+      windowsHide: true,
+    })
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      if (error) reject(error)
+      else resolve()
+    }
+    child.once("error", finish)
+    child.once("close", (code, childSignal) => {
+      if (code === 0) finish()
+      else finish(new Error(`[vitehub] Restricting the Codex credential home exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}.`))
+    })
+  })
+}
+
 async function materializeCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {
   await mkdir(sharedHome, { recursive: true })
   await Promise.all(codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })))
   const entries = new Set([...codexSharedHomeDirectories, ...await readdir(sharedHome)])
   await Promise.all([...entries]
-    .filter(entry => !codexPrivateHomeEntries.has(entry) && !codexLocalHomeEntries.has(entry))
+    .filter((entry) => {
+      const comparableEntry = process.platform === "win32" ? entry.toLowerCase() : entry
+      return !codexPrivateHomeEntries.has(comparableEntry) && !codexLocalHomeEntries.has(comparableEntry)
+    })
     .map(async (entry) => {
       const source = join(sharedHome, entry)
       const target = join(home, entry)
@@ -252,6 +303,7 @@ async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeCon
   }
   const home = await mkdtemp(join(tmpdir(), "vitehub-codex-shadow-home-"))
   try {
+    if (providerHostPlatform === "win32") await restrictWindowsCodexCredentialHome(home)
     await chmod(home, 0o700)
     const authPath = join(home, "auth.json")
     await writeFile(authPath, `${JSON.stringify(parsed)}\n`, { mode: 0o600 })
@@ -1145,12 +1197,20 @@ async function* runProvider<
       if (sessionThreadId) await runtime!.stopSession(sessionThreadId)
     }
     finally {
+      let closeTimedOut = false
+      let closeTimeout: ReturnType<typeof setTimeout> | undefined
       try {
-        await runtime!.close()
+        const close = runtime!.close()
+        void close.catch(() => undefined)
+        closeTimedOut = await Promise.race([
+          close.then(() => false),
+          new Promise<true>(resolve => closeTimeout = setTimeout(() => resolve(true), providerCleanupTimeoutMs)),
+        ])
       }
       finally {
+        if (closeTimeout) clearTimeout(closeTimeout)
         releaseDeferredRuntimeStopped?.()
-        await workspaceCleanup
+        if (!closeTimedOut) await workspaceCleanup
         await settleAgentProviderCleanups([cleanupCredentialHome(), cleanupRoot()])
       }
     }
@@ -1467,7 +1527,7 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
-        forcedCleanup = Promise.all([cleanupRoot(), cleanupCredentialHome()]).then(() => undefined)
+        forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), cleanupCredentialHome()])
         observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)
       }
@@ -1478,7 +1538,7 @@ async function* runProvider<
           new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
         ]).finally(async () => {
           if (timeout) clearTimeout(timeout)
-          await Promise.all([cleanupRoot(), cleanupCredentialHome()])
+          await settleAgentProviderCleanups([cleanupRoot(), cleanupCredentialHome()])
         })
         observeLateCleanup(invocationCleanupDeferred)
         void cleanupTask.catch(() => undefined)
