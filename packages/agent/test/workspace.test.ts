@@ -2291,7 +2291,7 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!({
       ...(context() as Record<string, unknown>),
-      input: { messages: [] },
+      input: { context: {}, messages: [] },
       run: {
         origin: "teams",
         runId: "run_123",
@@ -2299,14 +2299,14 @@ describe("defineAgent workspace option", () => {
       },
     } as never)
 
-    expect(instrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
-      input: expect.objectContaining({ messages: [] }),
-      model: expect.objectContaining({ modelId: "base" }),
-      run: expect.objectContaining({ origin: "teams", runId: "run_123" }),
-      callSettings: expect.objectContaining({ temperature: 0.2 }),
-      tools: expect.objectContaining({ shell: expect.any(Object) }),
-    }))
-    expect(instrumentCallSettings.mock.calls[0]?.[0].callSettings).not.toHaveProperty("stepLimit")
+    expect(instrumentCallSettings).toHaveBeenCalledOnce()
+    const instrumentContext = instrumentCallSettings.mock.calls[0]![0]
+    expect(instrumentContext.input).toMatchObject({ messages: [] })
+    expect(instrumentContext.model).toMatchObject({ modelId: "base" })
+    expect(instrumentContext.run).toMatchObject({ origin: "teams", runId: "run_123" })
+    expect(instrumentContext.callSettings).toMatchObject({ temperature: 0.2 })
+    expect(instrumentContext.tools).toHaveProperty("shell")
+    expect(instrumentContext.callSettings).not.toHaveProperty("stepLimit")
     expect(agentSettings.at(-1)).toMatchObject({
       stopWhen: { count: 7 },
       temperature: 0.2,
@@ -2714,6 +2714,23 @@ describe("defineAgent workspace option", () => {
     expect(createAgentInspectionMetadata(dynamicAgent).config).not.toHaveProperty("uiMessageStream")
     expect((await resolveAgentInspectionMetadata(dynamicAgent, {
       input: { prompt: "private" },
+    })).config?.uiMessageStream).toEqual({
+      reasoning: "hidden",
+      tools: "hidden",
+    })
+  })
+
+  it.each([false, 0, ""])("preserves falsey runtimeConfig %j while resolving Agent inspection metadata", async runtimeConfig => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      uiMessageStream: context => (context as unknown as { runtimeConfig: unknown }).runtimeConfig === runtimeConfig
+        ? { reasoning: "hidden", tools: "hidden" }
+        : { reasoning: "visible", tools: "full" },
+    })
+
+    expect((await resolveAgentInspectionMetadata(agent, {
+      runtime: { runtimeConfig } as never,
     })).config?.uiMessageStream).toEqual({
       reasoning: "hidden",
       tools: "hidden",

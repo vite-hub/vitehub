@@ -3,7 +3,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { vitehub } from "vite-hub"
 import { defineAgent } from "vite-hub/agent"
-import { email } from "vite-hub/agent/capabilities"
+import { email, executor } from "vite-hub/agent/capabilities"
 import { useDatabase } from "vite-hub/database/drizzle"
 import { env } from "vite-hub/env"
 import { requireRateLimit } from "vite-hub/rate-limit"
@@ -30,7 +30,7 @@ declare module "vite-hub/database/drizzle" {
 
 expectTypeOf(vitehub).toBeFunction()
 vitehub({ preset: "node", rateLimit: true })
-vitehub({ email: { driver: "unemail/driver/resend" }, preset: "node" })
+vitehub({ email: { driver: "resend" }, preset: "node" })
 vitehub({ email: true, preset: "cloudflare" })
 vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
 vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
@@ -43,6 +43,7 @@ vitehub({ console: { access: "auth", exposure: "host-managed" }, preset: "node" 
 vitehub({ console: { access: "public" }, preset: "node" })
 expectTypeOf(defineAgent).toBeFunction()
 expectTypeOf(email).toBeFunction()
+expectTypeOf(executor).toBeFunction()
 expectTypeOf(env).toBeFunction()
 expectTypeOf(requireRateLimit).toBeFunction()
 expectTypeOf(defineWorkspace).toBeFunction()
