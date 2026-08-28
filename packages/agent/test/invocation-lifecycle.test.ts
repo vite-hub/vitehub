@@ -508,7 +508,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "provider answer" } })
   })
 
-  it("preserves promise-backed usage on raw streams", async () => {
+  it("recomputes promise-backed total usage after streamed counters advance", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const usage = Promise.resolve({ inputTokens: 2, totalTokens: 2 })
@@ -529,10 +529,29 @@ describe("Agent Invocation Interface lifecycle", () => {
       result: {
         raw,
         text: "answer",
-        usage: { inputTokens: 2, outputTokens: 3, totalTokens: 2 },
-        usageRecord: { model: "provider/model", usage: { inputTokens: 2, outputTokens: 3, totalTokens: 2 } },
+        usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+        usageRecord: { model: "provider/model", usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } },
       },
     })
+  })
+
+  it("clears promise-backed total usage when a newer streamed counter remains incomplete", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {
+      yield { type: "usage", usageRecord: { usage: { inputTokens: 3 } } }
+    })(), { usage: Promise.resolve({ totalTokens: 2 }) })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, usage: { inputTokens: 3 }, usageRecord: { usage: { inputTokens: 3 } } },
+    })
+    expect(finish.mock.calls[0]![0].result.usage).not.toHaveProperty("totalTokens")
+    expect(finish.mock.calls[0]![0].result.usageRecord.usage).not.toHaveProperty("totalTokens")
   })
 
   it.each([

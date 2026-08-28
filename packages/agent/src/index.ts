@@ -3829,13 +3829,26 @@ function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
 
 function mergedAgentUsageScalars(...values: (AgentUsage | undefined)[]): AgentUsage {
   const usage: AgentUsage = {}
-  for (const value of values) {
+  let latestComponentIndex = -1
+  let latestTotalIndex = -1
+  for (const [index, value] of values.entries()) {
     if (!value) continue
     for (const key of ["inputTokens", "outputTokens", "totalTokens"] as const) {
       const tokens = value[key]
-      if (hasRuntimeType(tokens, "number") && Number.isFinite(tokens)) usage[key] = tokens
+      if (!hasRuntimeType(tokens, "number") || !Number.isFinite(tokens)) continue
+      usage[key] = tokens
+      if (key === "totalTokens") latestTotalIndex = index
+      else latestComponentIndex = index
     }
     if (value.raw !== undefined) usage.raw = value.raw
+  }
+  if (latestComponentIndex > latestTotalIndex) {
+    if (usage.inputTokens !== undefined && usage.outputTokens !== undefined) {
+      usage.totalTokens = usage.inputTokens + usage.outputTokens
+    }
+    else {
+      delete usage.totalTokens
+    }
   }
   return usage
 }
