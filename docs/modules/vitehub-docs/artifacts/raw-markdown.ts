@@ -349,6 +349,18 @@ function startsParagraph(line: string, paragraphOpen: boolean) {
   return Boolean(content.trim());
 }
 
+function interruptsInlineBlock(line: string) {
+  const container = referenceContainer(line);
+  const content = line.slice(container.length);
+  if (/^[ \t]{0,3}#{1,6}(?:[ \t]+|$)/.test(content)) return true;
+  if (/^[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.test(content)) return true;
+  if (/^[ \t]*:{2,}/.test(content)) return true;
+  const definition = content.match(/^[ \t]{0,3}\[((?:\\.|[^\\\]])+)\]:[ \t]*(.*)$/);
+  if (!definition || !validReferenceLabel(definition[1]!)) return false;
+  const parsed = parseReferenceDestination(definition[2]!);
+  return Boolean(parsed && validReferenceSuffix(parsed.suffix));
+}
+
 function isEscaped(source: string, index: number) {
   let backslashes = 0;
   while (index > backslashes && source[index - backslashes - 1] === "\\") backslashes += 1;
@@ -559,6 +571,13 @@ function rewriteLinks(source: string) {
       continue;
     }
 
+    if (paragraphOpen && interruptsInlineBlock(line)) {
+      output.push(rewriteOutside());
+      outsideFence = "";
+      paragraphOpen = false;
+      paragraphListIndent = null;
+    }
+
     outsideFence += lineWithEnding;
     const nextParagraphOpen = startsParagraph(line, paragraphOpen);
     if (nextParagraphOpen && (!paragraphOpen || quoteDepth !== paragraphQuoteDepth)) {
@@ -599,9 +618,18 @@ function removeIndentation(line: string, columns: number) {
   return line.slice(index);
 }
 
+function listIndentAtOffset(source: string, offset: number) {
+  const state: MarkdownListState = { indent: null, quotePrefix: "" };
+  const prefix = source.slice(0, offset);
+  for (const line of prefix.split("\n")) updateMarkdownListState(line, state);
+  return activeListIndent(source.slice(offset).split("\n", 1)[0]!, state);
+}
+
 function cardList(source: string) {
-  return source.replace(/^([ \t]*)::u-page-grid[^\n]*\n([\s\S]*?)^\1::\s*$/gm, (grid, indent: string, cards: string) => {
-    if (indentationColumns(indent) >= 4) return grid;
+  return source.replace(/^([ \t]*)::u-page-grid[^\n]*\n([\s\S]*?)^\1::\s*$/gm, (grid, indent: string, cards: string, offset: number) => {
+    const listIndent = listIndentAtOffset(source, offset);
+    const codeIndent = (listIndent ?? 0) + 4;
+    if (indentationColumns(indent) >= codeIndent) return grid;
     const items: string[] = [];
     const cardPattern = /^\s*:::u-page-card[^\n]*\n\s*---\n([\s\S]*?)\n\s*---\n\s*:::\s*$/gm;
     for (const match of cards.matchAll(cardPattern)) {

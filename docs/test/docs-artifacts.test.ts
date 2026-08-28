@@ -137,6 +137,15 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("ends unmatched code spans at inline block boundaries", () => {
+    expect(toRawMarkdown([
+      "before `",
+      "# heading",
+      "[ok]: /docs/ok",
+      "closing `",
+    ].join("\n"))).toContain("[ok]: https://vitehub.dev/docs/ok");
+  });
+
   it("keeps link-like text inside inline HTML attributes literal", () => {
     expect(toRawMarkdown('<span title="[literal](/docs/literal)">label</span> [rendered](/docs/rendered)')).toBe(
       '<span title="[literal](/docs/literal)">label</span> [rendered](https://vitehub.dev/docs/rendered)\n',
@@ -240,6 +249,22 @@ describe("writeDocsArtifacts", () => {
       "    ::",
     ].join("\n");
     expect(toRawMarkdown(source)).toBe(`${source}\n`);
+  });
+
+  it("converts page grids relative to list-item indentation", () => {
+    expect(toRawMarkdown([
+      "-   item",
+      "",
+      "    ::u-page-grid",
+      "      :::u-page-card",
+      "      ---",
+      "      title: Listed page",
+      "      to: /docs/listed",
+      "      description: From a list",
+      "      ---",
+      "      :::",
+      "    ::",
+    ].join("\n"))).toContain("    - [Listed page](https://vitehub.dev/docs/listed) — From a list");
   });
 
   it("does not duplicate authored H1 forms", () => {
