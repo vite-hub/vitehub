@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -80,7 +81,7 @@ type NitroConfig = Record<string, unknown> & {
 interface WorkflowVitePlugin extends Plugin {
   vitehub?: {
     workflow?: {
-      prepareScheduleRuntime?: () => Promise<ScheduleWorkflowRuntime | undefined>
+      prepareScheduleRuntime?: (artifactDir?: string) => Promise<ScheduleWorkflowRuntime | undefined>
     }
   }
 }
@@ -626,17 +627,25 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       }
       const config = resolved
       const rootDir = projectRoot ?? config.root
+      let workflowArtifactDir: string | undefined
       try {
         const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
         const crons = await readDefinitionCrons(definitions)
         const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
           .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
           ?.vitehub?.workflow?.prepareScheduleRuntime
+        workflowArtifactDir = prepareWorkflow
+          ? resolve(rootDir, ".vitehub/workflow-generations", randomUUID())
+          : undefined
+        const workflow = await prepareWorkflow?.(workflowArtifactDir)
+        const artifactDir = workflowArtifactDir
         contributeProviderDeploymentOutput(providerOutput, {
+          discard: artifactDir
+            ? async () => await rm(artifactDir, { force: true, recursive: true })
+            : undefined,
           owner: "schedule",
           rootDir,
           write: async ({ signal }) => {
-            const workflow = await prepareWorkflow?.()
             const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
             signal.throwIfAborted()
             await generateProviderOutputsWithinLock({
@@ -660,6 +669,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
+        if (workflowArtifactDir) await rm(workflowArtifactDir, { force: true, recursive: true })
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

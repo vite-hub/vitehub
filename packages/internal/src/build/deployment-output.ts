@@ -780,6 +780,8 @@ interface ProviderDeploymentOutputPluginContext {
   environment?: object
 }
 
+const providerDeploymentOutputEnvironmentGenerations = new WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>()
+
 export function createProviderDeploymentOutputGenerationState(): {
   capture: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined) => void
   get: (context: ProviderDeploymentOutputPluginContext | undefined) => ProviderDeploymentOutputGeneration | undefined
@@ -792,7 +794,22 @@ export function createProviderDeploymentOutputGenerationState(): {
     : fallback
   return {
     capture(context, catalog) {
-      generations.set(environment(context), captureProviderDeploymentOutputGeneration(catalog))
+      const environmentKey = environment(context)
+      if (!catalog) {
+        generations.set(environmentKey, undefined)
+        return
+      }
+      let catalogGenerations = providerDeploymentOutputEnvironmentGenerations.get(catalog)
+      if (!catalogGenerations) {
+        catalogGenerations = new WeakMap()
+        providerDeploymentOutputEnvironmentGenerations.set(catalog, catalogGenerations)
+      }
+      const generation = catalogGenerations.get(environmentKey) ?? catalog.createDeploymentGeneration()
+      catalogGenerations.set(environmentKey, generation)
+      generations.set(environmentKey, generation)
+      queueMicrotask(() => {
+        if (catalogGenerations.get(environmentKey) === generation) catalogGenerations.delete(environmentKey)
+      })
     },
     get(context) {
       return generations.get(environment(context))

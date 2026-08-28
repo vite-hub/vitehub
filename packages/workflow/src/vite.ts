@@ -28,7 +28,7 @@ export type WorkflowVitePlugin = Plugin & {
   vitehub?: {
     workflow?: {
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
-      prepareScheduleRuntime?: () => Promise<{
+      prepareScheduleRuntime?: (artifactDir?: string) => Promise<{
         bundleAlias: Record<string, string>
         bundlePlugins?: EsbuildPlugin[]
         importBase: string
@@ -103,7 +103,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     }
   }
 
-  async function prepareScheduleRuntime() {
+  async function prepareScheduleRuntime(artifactDir?: string) {
     if (!resolved) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
     if (normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(resolved.root)
@@ -114,7 +114,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, serverDirs, internalOptions?.includeUserAppEntry, (resolved.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry, resolved.root)
+      ?.vitehub?.agent?.transformWorkflowRegistry, resolved.root, artifactDir)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(resolved.root, "package.json"))
     const aliases = await providerImportAliases()

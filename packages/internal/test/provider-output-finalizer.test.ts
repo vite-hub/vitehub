@@ -29,6 +29,23 @@ afterEach(async () => {
 })
 
 describe("Provider Output finalizer", () => {
+  it("shares one build generation across contributors in a Vite environment", async () => {
+    const catalog = createProviderOutputCatalog()
+    const first = createProviderDeploymentOutputGenerationState()
+    const second = createProviderDeploymentOutputGenerationState()
+    const environment = {}
+    const rootDir = await createTempProject()
+    const write = vi.fn(async () => undefined)
+    first.capture({ environment }, catalog)
+    second.capture({ environment }, catalog)
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir, write }, first.get({ environment }))
+
+    await second.reset({ environment }, catalog, new Error("build failed"))
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("keeps build generations local to each Vite environment", async () => {
     const catalog = createProviderOutputCatalog()
     const generations = createProviderDeploymentOutputGenerationState()
