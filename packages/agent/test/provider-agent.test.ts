@@ -204,6 +204,76 @@ describe("Provider Agent Driver", () => {
     await rm(sharedHome, { force: true, recursive: true })
   })
 
+  it.each(["linux", "win32"] as const)("preserves Codex history through a private shadow home on %s", async (platformName) => {
+    const threadId = `thread-history-${platformName}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue(platformName)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await writeFile(join(shadowHome, "history.jsonl"), `${JSON.stringify({ session_id: threadId })}\n`)
+      await writeFile(join(shadowHome, "config.toml"), "model_reasoning_effort = \"high\"\n", { flag: "a" })
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(await readFile(join(sharedHome, "history.jsonl"), "utf8")).toBe(`${JSON.stringify({ session_id: threadId })}\n`)
+      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\nmodel_reasoning_effort = \"high\"\n")
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform === "win32")("restricts Codex credential home ACLs on Windows", async () => {
+    const threadId = "thread-windows-credential-acl"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      const script = String.raw`
+$ErrorActionPreference = "Stop"
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_CODEX_CREDENTIAL_HOME "auth.json"))) {
+  $entry = Get-Item -LiteralPath $path
+  $security = if ($entry.PSIsContainer) {
+    [System.IO.FileSystemAclExtensions]::GetAccessControl([System.IO.DirectoryInfo]::new($path))
+  } else {
+    [System.IO.FileSystemAclExtensions]::GetAccessControl([System.IO.FileInfo]::new($path))
+  }
+  $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier])
+  $rules = @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+  if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $identity.Value -or $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+    throw "Credential ACL is not restricted to the current principal: $path"
+  }
+}
+`
+      const command = Buffer.from(script, "utf16le").toString("base64")
+      const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command], {
+        env: { ...process.env, VITEHUB_CODEX_CREDENTIAL_HOME: shadowHome },
+        encoding: "utf8",
+        windowsHide: true,
+      })
+      expect(result.status, result.stderr || result.stdout).toBe(0)
+      return providerRuntimes.shift()
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+    }).generate(context(threadId) as never)
+  })
+
   it("excludes private Codex home entries case-insensitively on macOS", async () => {
     const threadId = "thread-macos-credentials"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -2286,13 +2356,14 @@ describe("Provider Agent Driver", () => {
     expect(waitUntil).toHaveBeenCalledOnce()
   })
 
-  it("keeps the session lock during deferred startup and bounds a stalled runtime close", async () => {
+  it("keeps the session lock until a stalled deferred runtime close settles", async () => {
     vi.useFakeTimers()
     try {
       const threadId = "thread-late-start-lock"
       let finishStartup!: () => void
+      let finishClose!: () => void
       const first = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
-      first.close.mockImplementationOnce(() => new Promise<undefined>(() => undefined))
+      first.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
       const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       const adapter = createProviderAgentAdapter({ provider: "codex" })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -2313,6 +2384,10 @@ describe("Provider Agent Driver", () => {
       await vi.advanceTimersByTimeAsync(9_999)
       expect(second.startSession).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1)
+      expect(second.startSession).not.toHaveBeenCalled()
+
+      finishClose()
+      await vi.advanceTimersByTimeAsync(0)
       await expect(secondResult).resolves.toBeDefined()
       expect(second.startSession).toHaveBeenCalledOnce()
     }
@@ -2321,12 +2396,14 @@ describe("Provider Agent Driver", () => {
     }
   })
 
-  it("stops deferred provider work before closing the Workspace", async () => {
+  it("retains the session and provider root until deferred Workspace cleanup settles", async () => {
     const threadId = "thread-late-start-workspace"
     let finishStartup!: () => void
+    let finishWorkspaceClose!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
+    const nextProvider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const session = {
-      close: vi.fn(async () => undefined),
+      close: vi.fn(() => new Promise<void>(resolve => finishWorkspaceClose = resolve)),
       commit: vi.fn(async () => undefined),
       diff: vi.fn(async () => ({ entries: [] })),
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
@@ -2342,9 +2419,23 @@ describe("Provider Agent Driver", () => {
 
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(session.close).not.toHaveBeenCalled()
+    const runtimeCall = createProviderRuntime.mock.lastCall
+    expect(runtimeCall).toBeDefined()
+    // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
+    const root = (runtimeCall![0] as { cwd: string }).cwd
     finishStartup()
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     await vi.waitFor(() => expect(session.close).toHaveBeenCalledOnce())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const nextResult = adapter.generate(context(threadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(nextProvider.startSession).not.toHaveBeenCalled()
+    await expect(access(root)).resolves.toBeUndefined()
+
+    finishWorkspaceClose()
+    await expect(nextResult).resolves.toBeDefined()
+    await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(nextProvider.startSession).toHaveBeenCalledOnce()
     expect(provider.stopSession).toHaveBeenCalledWith(threadId)
     expect(provider.close.mock.invocationCallOrder[0]).toBeLessThan(session.close.mock.invocationCallOrder[0]!)
   })

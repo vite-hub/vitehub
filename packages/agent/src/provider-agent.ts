@@ -1,7 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, copyFile, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
@@ -168,6 +168,7 @@ const codexSharedHomeDirectories = [
   "logs",
   "mcp-oauth-locks",
 ] as const
+const codexSharedHomeFiles = ["history.jsonl"] as const
 const codexPrivateHomeEntries = new Set(["auth.json", "models_cache.json"])
 const codexLocalHomeEntries = new Set(["log", "memories", "tmp"])
 const providerHostPlatform = process.platform
@@ -261,8 +262,11 @@ async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
 
 async function materializeCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {
   await mkdir(sharedHome, { recursive: true })
-  await Promise.all(codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })))
-  const entries = new Set([...codexSharedHomeDirectories, ...await readdir(sharedHome)])
+  await Promise.all([
+    ...codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })),
+    ...codexSharedHomeFiles.map(file => writeFile(join(sharedHome, file), "", { flag: "a" })),
+  ])
+  const entries = new Set([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...await readdir(sharedHome)])
   await Promise.all([...entries]
     .filter((entry) => {
       const comparableEntry = entry.toLowerCase()
@@ -273,10 +277,31 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       const target = join(home, entry)
       const sourceEntry = await stat(source)
       if (process.platform === "win32" && sourceEntry.isFile()) {
-        await copyFile(source, target)
+        await link(source, target).catch(async (error) => {
+          const code = (error as NodeJS.ErrnoException).code
+          if (code !== "EACCES" && code !== "EPERM" && code !== "EXDEV") throw error
+          await copyFile(source, target)
+        })
         return
       }
       await symlink(source, target, process.platform === "win32" && sourceEntry.isDirectory() ? "junction" : undefined)
+    }))
+}
+
+async function persistCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {
+  await Promise.all((await readdir(home))
+    .filter((entry) => {
+      const comparableEntry = entry.toLowerCase()
+      return !codexPrivateHomeEntries.has(comparableEntry) && !codexLocalHomeEntries.has(comparableEntry)
+    })
+    .map(async (entry) => {
+      const source = join(home, entry)
+      const sourceEntry = await lstat(source)
+      if (!sourceEntry.isFile()) return
+      const target = join(sharedHome, entry)
+      const targetEntry = await stat(target).catch(() => undefined)
+      if (targetEntry && sourceEntry.dev === targetEntry.dev && sourceEntry.ino === targetEntry.ino) return
+      await copyFile(source, target)
     }))
 }
 
@@ -1151,10 +1176,17 @@ async function* runProvider<
   let rootCleanup: Promise<void> | undefined
   const cleanupRoot = () => rootCleanup ??= removeProviderRoot(root)
   let credentialHome: string | undefined
+  let credentialSharedHome: string | undefined
   let credentialHomeCleanup: Promise<void> | undefined
-  const cleanupCredentialHome = () => credentialHomeCleanup ??= credentialHome
-    ? rm(credentialHome, { force: true, recursive: true })
-    : Promise.resolve()
+  const cleanupCredentialHome = () => credentialHomeCleanup ??= (async () => {
+    if (!credentialHome) return
+    try {
+      if (credentialSharedHome) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome)
+    }
+    finally {
+      await rm(credentialHome, { force: true, recursive: true })
+    }
+  })()
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1197,20 +1229,12 @@ async function* runProvider<
       if (sessionThreadId) await runtime!.stopSession(sessionThreadId)
     }
     finally {
-      let closeTimedOut = false
-      let closeTimeout: ReturnType<typeof setTimeout> | undefined
       try {
-        const close = runtime!.close()
-        void close.catch(() => undefined)
-        closeTimedOut = await Promise.race([
-          close.then(() => false),
-          new Promise<true>(resolve => closeTimeout = setTimeout(() => resolve(true), providerCleanupTimeoutMs)),
-        ])
+        await runtime!.close()
       }
       finally {
-        if (closeTimeout) clearTimeout(closeTimeout)
         releaseDeferredRuntimeStopped?.()
-        if (!closeTimedOut) await workspaceCleanup
+        await workspaceCleanup
         await settleAgentProviderCleanups([cleanupCredentialHome(), cleanupRoot()])
       }
     }
@@ -1316,7 +1340,8 @@ async function* runProvider<
       if (value !== undefined) providerSettings[key] = value
     }
     if (credentialHome) {
-      await materializeCodexCredentialOverlay(credentialHome, resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment))
+      credentialSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
+      await materializeCodexCredentialOverlay(credentialHome, credentialSharedHome)
       providerSettings.homePath = credentialHome
       delete providerSettings.shadowHomePath
     }

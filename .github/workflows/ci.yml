@@ -50,6 +50,21 @@ jobs:
       - name: Package tests
         run: vp run test
 
+  windows-agent-credentials:
+    name: agent credentials (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+
+      - name: Build Agent test dependencies
+        run: vp run -t @vite-hub/agent#build
+
+      - name: Codex credential ACLs
+        shell: bash
+        working-directory: packages/agent
+        run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
+
   docs:
     name: docs
     runs-on: ubuntu-latest
