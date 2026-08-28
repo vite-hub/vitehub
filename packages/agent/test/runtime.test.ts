@@ -1323,7 +1323,7 @@ describe("agent message protocol", () => {
       },
       input: {},
       invoker: { id: "test", kind: "user" },
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, traceLog, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, traceLog, waitUntil: vi.fn() },
     }, new Map([["repository_host_write", { kind: "action", name: "repository-host.write" }]]))
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -4190,7 +4190,7 @@ describe("agent message protocol", () => {
     }
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
@@ -4216,7 +4216,7 @@ describe("agent message protocol", () => {
     }
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "custom.ping": {
         capabilityId: "custom",
         source: "capability",
@@ -4247,7 +4247,7 @@ describe("agent message protocol", () => {
     }
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: [{
           id: "telegram",
@@ -4305,7 +4305,7 @@ describe("agent message protocol", () => {
     expect(agent.chat?.platforms).toEqual({ support: adapter })
     expect(agent.capabilities?.some(capability => capability.id === "chat")).toBe(true)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: [{
           id: "support",
@@ -4338,7 +4338,7 @@ describe("agent message protocol", () => {
 
     expect(agent.chat?.platforms).toEqual({ telegram: adapter })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: [{
           id: "telegram",
@@ -4372,7 +4372,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
@@ -4406,7 +4406,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
@@ -4438,7 +4438,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "github.webhook": {
         channelId: "github",
         source: "channel",
@@ -5116,7 +5116,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         capabilityId: "chat",
       },
@@ -5142,7 +5142,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: [{
           id: "support-1",
@@ -5173,7 +5173,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: undefined,
       },
@@ -5293,7 +5293,7 @@ describe("agent message protocol", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: expect.arrayContaining([
           expect.objectContaining({ channelId: "sales", id: "sales", provider: "teams" }),
@@ -6645,10 +6645,28 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const pendingUsage = new Promise<never>(() => {})
-    const raw = Object.assign((async function* () {
-      yield { text: "provider", type: "text-delta" }
-      await new Promise<never>(() => {})
-    })(), { usage: pendingUsage })
+    let releaseReturn!: () => void
+    const returnGate = new Promise<void>((resolve) => {
+      releaseReturn = resolve
+    })
+    const returnStarted = vi.fn()
+    let read = false
+    const raw = Object.assign({
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            if (read) return await new Promise<IteratorResult<unknown>>(() => {})
+            read = true
+            return { done: false as const, value: { text: "provider", type: "text-delta" } }
+          },
+          async return() {
+            returnStarted()
+            await returnGate
+            return { done: true as const, value: undefined }
+          },
+        }
+      },
+    }, { usage: pendingUsage })
     const agent = defineAgent({
       capabilities: [
         defineCapability({
@@ -6687,8 +6705,15 @@ describe("agent message protocol", () => {
       : result as ReadableStream<unknown>
     const reader = stream.getReader()
     await reader.read()
-    await reader.cancel()
+    await expect(Promise.race([
+      reader.cancel().then(() => "cancelled"),
+      new Promise(resolve => setTimeout(() => resolve("timed out"), 100)),
+    ])).resolves.toBe("cancelled")
 
+    expect(returnStarted).toHaveBeenCalledOnce()
+    expect(finish).not.toHaveBeenCalled()
+    releaseReturn()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].result).toMatchObject({ usageRecord: { model: "renderer-model" } })
     expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
@@ -11920,15 +11945,18 @@ describe("agent message protocol", () => {
     })
 
     it("preserves source run identity when Workflow providers require a portable ID", async () => {
-      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgent, runAgentInline, workflow } = await import("../src/index.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       let providerRunId = ""
+      let workflowPayload: unknown
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeEvent: () => undefined,
           getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
@@ -11938,7 +11966,8 @@ describe("agent message protocol", () => {
         workflow: async () => ({
           createWorkflow: () => ({
             defer: async () => ({ id: "recovery", provider: "cloudflare", status: "queued" }),
-            run: async (_payload: unknown, options: { id?: string }) => {
+            run: async (payload: unknown, options: { id?: string }) => {
+              workflowPayload = payload
               providerRunId = options.id || ""
               return { id: providerRunId, status: "queued" }
             },
@@ -11947,12 +11976,13 @@ describe("agent message protocol", () => {
       })
       try {
         const sourceRunId = "source/run/id"
-        await runAgent(defineAgent({
-          driver: { run: () => "unreachable" },
+        const agent = defineAgent({
+          driver: { run: () => "completed" },
           invocations,
           name: "portable-id-agent",
           runtime: workflow("portable-id-agent"),
-        }), {
+        })
+        await runAgent(agent, {
           memo: vi.fn(),
           run: { runId: sourceRunId },
           runtime: "unknown",
@@ -11961,6 +11991,16 @@ describe("agent message protocol", () => {
 
         expect(providerRunId).toMatch(/^vitehub-invalid-/)
         await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "pending" })
+        await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
+
+        await expect(runAgentWorkflowDefinition(agent, {
+          id: providerRunId,
+          name: "portable-id-agent",
+          // SAFETY: The captured payload comes from the Workflow boundary under test.
+          payload: workflowPayload as never,
+          provider: "cloudflare",
+        }, runAgentInline)).resolves.toBe("completed")
+        await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "completed" })
         await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
       }
       finally {
@@ -14899,6 +14939,43 @@ describe("agent message protocol", () => {
         status: "completed",
       })
       expect(runtimeConfig).toEqual({ region: "iad" })
+    })
+
+    it.each([false, 0, ""])("preserves falsey runtimeConfig %j through Workflow Runs", async configuredRuntime => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      let runtimeConfig: unknown
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const agent = {
+        async resolve(context) {
+          runtimeConfig = context.runtimeConfig
+          return {
+            async generate() {
+              return { finishReason: "stop", text: "configured", usage: {} }
+            },
+            name: "configured",
+          }
+        },
+        runtime: workflow("falsey-configured-agent"),
+      } as ReturnType<typeof defineAgent>
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        runtimeConfig: configuredRuntime,
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("falsey-configured-agent", run.id)).resolves.toMatchObject({
+        result: { text: "configured" },
+        status: "completed",
+      })
+      expect(runtimeConfig).toBe(configuredRuntime)
     })
 
     it("reuses generated workflow definitions across equivalent agent instances", async () => {

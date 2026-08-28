@@ -21,7 +21,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolveRuntimeContext, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -254,6 +254,7 @@ export type {
   AgentCapabilitiesList,
   AgentCapabilitiesResolver,
   AgentCapabilitiesResolverContext,
+  AgentCallbackContext,
   AgentChannelDelivery,
   AgentChannelDeliveryEvent,
   AgentChannelDeliveryEventInput,
@@ -1056,7 +1057,7 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
+  return createExecutionContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
 function createTraceId(run?: AgentRunMetadata): string {
@@ -5404,6 +5405,13 @@ async function executeAgentInvocationWithCapacityLease<
                   return withReadableStreamCleanup(
                     toReadableAsyncIterableStream(renderedStream),
                     async (outcome) => {
+                      if (!outcome.failed && !outcome.completed) {
+                        void source.settleCancellation().then(
+                          async () => await finishPreserved(outcome),
+                          async error => await finishPreserved({ error, failed: true }),
+                        ).catch(() => {})
+                        return
+                      }
                       if (outcome.failed) await source.settleCancellation(outcome.error)
                       await finishPreserved(outcome)
                     },
