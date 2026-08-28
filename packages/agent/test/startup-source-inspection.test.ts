@@ -62,6 +62,53 @@ describe("startup Source inspection", () => {
     expect(metadata.files).toEqual([expect.objectContaining({ source: "docs", status: "lazy" })])
   })
 
+  it("reports prepared startup descendants as ready", async () => {
+    const workspaceName = `startup-inspection-ready-${crypto.randomUUID()}`
+    const workspace = {
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Ready", key } },
+          async getKeys() { return ["guides/start.md"] },
+          materialize: "startup" as const,
+        }),
+      },
+    }
+    registerWorkspace(workspaceName, workspace)
+    const agent = defineAgent({ name: workspaceName, workspace, driver: { run: () => "ok" } })
+
+    const preparation = createWorkspacePreparation({ workspace: workspaceName })
+    await preparation.start()
+    const metadata = await resolveAgentInspectionMetadata(agent)
+    await preparation.stop()
+
+    expect(JSON.stringify(metadata.files)).not.toContain('"materialize":"startup"')
+    expect(metadata.files).toEqual([expect.objectContaining({ source: "docs", status: "ready" })])
+  })
+
+  it("represents an unprepared root-mounted startup Source", async () => {
+    const workspaceName = `startup-inspection-root-${crypto.randomUUID()}`
+    const workspace = {
+      sources: {
+        instructions: custom({
+          async getItem(key) { return { content: "# Ready", key } },
+          async getKeys() { return ["AGENTS.md"] },
+          materialize: "startup" as const,
+          mount: "",
+        }),
+      },
+    }
+    registerWorkspace(workspaceName, workspace)
+    const agent = defineAgent({ name: workspaceName, workspace, driver: { run: () => "ok" } })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(metadata.files).toEqual([expect.objectContaining({
+      path: "",
+      source: "instructions",
+      status: "lazy",
+    })])
+  })
+
   it("reports a partially materialized startup Source as failed", async () => {
     const workspaceName = `startup-inspection-${crypto.randomUUID()}`
     const workspace = {

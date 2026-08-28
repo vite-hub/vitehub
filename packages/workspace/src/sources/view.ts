@@ -6,6 +6,7 @@ import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath
 import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   hasCurrentSourceSnapshot,
+  hasFreshSourceSnapshot,
   materializesCompleteSource,
   materializeWorkspaceSources,
   readResolvedSourceFile,
@@ -326,7 +327,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         return
       }
     }
-    if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) return
+    if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
+      const maxAge = source.cache && source.cache.maxAge
+      if (source.materialize !== "lazy" || !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
+      materializedSources.delete(sourceKey)
+    }
     if (completedSources.has(sourceKey)) {
       if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
       completedSources.delete(sourceKey)
@@ -533,6 +538,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           return decodeFile(await sourceItemContent(item), options)
         }
         if (resolution.source.materialize === "startup" && !completedSources.has(resolution.sourceKey) && !materializedSources.has(resolution.sourceKey)) {
+          await ensureMaterialized(resolution.sourceKey)
+        }
+        const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge
+        if (resolution.source.materialize === "lazy" && Number.isFinite(cacheMaxAge)) {
           await ensureMaterialized(resolution.sourceKey)
         }
         const file = await store.readFile(resolution.workspacePath)

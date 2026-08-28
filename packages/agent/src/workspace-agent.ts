@@ -1106,8 +1106,9 @@ function markSourceTreeMetadata(
           : item.materialized ? "ready" : isPendingMaterialization(materialize) ? "lazy" : "ready"
       }
       else if (item.path.startsWith(`${mountedRoot}/`)) {
+        const snapshot = sourceSnapshots.get(source.key)
         item.materialize = materialize
-        item.materialized = item.materialized || materialize === "build"
+        item.materialized = item.materialized || materialize === "build" || (materialize === "startup" && snapshot?.status === "ready")
         item.source = source.key
       }
       pending.push(...(item.children || []))
@@ -1152,7 +1153,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   }
   for (const source of sources) {
     if (sourceSnapshots.has(source.key)) continue
-    const snapshot = await readWorkspaceSourceMaterializationStatus(workspace, source.key)
+    const snapshot = await readWorkspaceSourceMaterializationStatus(workspace, source)
     if (snapshot) sourceSnapshots.set(source.key, snapshot)
   }
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
@@ -1160,6 +1161,17 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   propagateMaterializedDirectories(root)
   clearReadyMaterializationHints(root)
   sortFileTree(root)
+  const rootSource = sources.find(source => !sourceMountPath(source))
+  if (rootSource) {
+    const snapshot = sourceSnapshots.get(rootSource.key)
+    root.label = rootSource.key
+    root.materialize = sourceMaterialize(rootSource)
+    root.materialized = snapshot?.status === "ready"
+    root.materializedAt = snapshot?.materializedAt
+    root.source = rootSource.key
+    root.status = snapshot?.status ?? "lazy"
+    return [root]
+  }
   return root.children || []
 }
 

@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
-import { defineWorkspace, file, useWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace, file, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
@@ -13,6 +13,7 @@ import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { listMaterializedWorkspaceEntries } from "../src/source-metadata.ts"
 
 const tempDirs: string[] = []
 
@@ -334,6 +335,26 @@ describe("workspace public API", () => {
     expect(publish).toHaveBeenCalledTimes(2)
   })
 
+  it("does not let explicit Source Sync satisfy definition readiness", async () => {
+    const load = vi.fn(async () => {})
+    registerWorkspace("sync-before-read", defineWorkspace({
+      loaders: [{ name: "definition-loader", load }],
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Docs\n", key } },
+          async getKeys() { return ["README.md"] },
+          sync: true,
+        }),
+      },
+      store: { provider: "memory" },
+    }))
+
+    await useWorkspace("sync-before-read", { mode: "write" }).sync({ sources: ["docs"] })
+    expect(load).not.toHaveBeenCalled()
+    await useWorkspace("sync-before-read").fs.list()
+    expect(load).toHaveBeenCalledOnce()
+  })
+
   it("serves allowlisted workspace files as H3-compatible responses", async () => {
     registerWorkspace("files", defineWorkspace({
       store: { provider: "memory" },
@@ -545,6 +566,9 @@ describe("workspace public API", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect(workspace.fs.exists("missing.md" as never)).resolves.toBe(false)
     await expect(workspace.fs.list()).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+    ])
+    await expect(listMaterializedWorkspaceEntries(workspace)).resolves.toEqual([
       expect.objectContaining({ path: "README.md", type: "file" }),
     ])
     await expect(workspace.fs.glob("README.md")).resolves.toEqual([

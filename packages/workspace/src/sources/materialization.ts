@@ -52,7 +52,9 @@ export function sourceSnapshotMetaKey(sourceKey: string) {
   return `source:${sourceKey}:snapshot`
 }
 
-function sourceConfigFingerprint(source: ResolvedWorkspaceSource) {
+type SourceConfiguration = Pick<ResolvedWorkspaceSource, "cache" | "key" | "materialize" | "mountPath" | "source">
+
+function sourceConfigFingerprint(source: SourceConfiguration) {
   return {
     cache: source.cache,
     key: source.key,
@@ -62,7 +64,7 @@ function sourceConfigFingerprint(source: ResolvedWorkspaceSource) {
   }
 }
 
-async function sourceConfigHash(source: ResolvedWorkspaceSource) {
+async function sourceConfigHash(source: SourceConfiguration) {
   return await sha256(sourceConfigFingerprint(source))
 }
 
@@ -75,7 +77,7 @@ function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: Resol
   return Date.now() - Date.parse(meta.materializedAt) <= maxAge * 1000
 }
 
-async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: string) {
+async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">, sourceKey: string) {
   // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
   return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
 }
@@ -84,6 +86,17 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: Re
   const configHash = await sourceConfigHash(source)
   const meta = await readSourceSnapshotMetadata(store, source.key)
   return meta?.status === "ready" && meta.configHash === configHash
+}
+
+export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
+  const configHash = await sourceConfigHash(source)
+  return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
+}
+
+export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration) {
+  const configHash = await sourceConfigHash(source)
+  const snapshot = await readSourceSnapshotMetadata(store, source.key)
+  return snapshot?.configHash === configHash ? snapshot : undefined
 }
 
 export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, sourceKey: string, paths: Iterable<string>): Promise<boolean | undefined> {
@@ -418,7 +431,7 @@ export async function materializeWorkspaceSources(
             ...entry.metadata,
             source: source.key,
           },
-        }, options.abortSignal ? control : undefined)
+        }, control)
         itemMetadata[path] = entry.metadata
         sourceFiles++
         sourceBytes += written.size || 0

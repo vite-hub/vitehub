@@ -1490,6 +1490,34 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledTimes(1)
   })
 
+  it("refreshes expired cached materialization across Workspace facades", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-05T12:00:00Z"))
+    const getItem = vi.fn(async (key: string) => ({
+      key,
+      content: `version ${getItem.mock.calls.length}\n`,
+    }))
+    const definition = {
+      name: "lazy-cache-expiry",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 60 },
+          materialize: "lazy",
+          async getKeys() { return ["foo.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+
+    await expect(createWorkspaceSourceView(definition, store).readFile("docs/foo.md"))
+      .resolves.toBe("version 1\n")
+    vi.setSystemTime(new Date("2026-05-05T12:02:00Z"))
+    await expect(createWorkspaceSourceView(definition, store).readFile("docs/foo.md"))
+      .resolves.toBe("version 2\n")
+    expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
   it("serves prepared startup live Sources from their snapshot", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
     const source = markLiveWorkspaceSource(custom({

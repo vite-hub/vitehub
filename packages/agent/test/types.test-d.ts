@@ -958,8 +958,8 @@ describe("agent public types", () => {
       },
     }
     access({ workspace: workspaceAccess })
-    // @ts-expect-error Workspace Scopes do not own Agent Driver Instructions.
     access({
+      // @ts-expect-error Workspace Scopes do not own Agent Driver Instructions.
       workspace: {
         scopes: {
           acme: {
@@ -1139,6 +1139,18 @@ describe("agent public types", () => {
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     expectTypeOf({} as SupportInputContext).toMatchTypeOf<SupportAccessInputContext>()
     expectTypeOf(supportAccessCapability)
+      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
+
+    const structuralSupportAccess = {
+      resolve({ input }) {
+        expectTypeOf(input.get().context).toEqualTypeOf<SupportInputContext | undefined>()
+        return "customer"
+      },
+    } satisfies AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext, AgentRuntimeConfig, "support">
+    const structuralSupportAccessCapability = access({ workspace: structuralSupportAccess })
+    expectTypeOf(structuralSupportAccessCapability.__vitehubTypeContract?.inputContext)
+      .toMatchTypeOf<SupportInputContext | undefined>()
+    expectTypeOf(structuralSupportAccessCapability)
       .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
 
     interface SupportRuntimeConfig extends AgentRuntimeConfig {

@@ -62,6 +62,7 @@ type WorkspaceWithDefinitionSync = Workspace & {
 
 interface WorkspaceDefinitionSyncState {
   abortSignal?: AbortSignal
+  explicitPromise?: Promise<void>
   promise?: Promise<void>
 }
 
@@ -244,6 +245,12 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     const workspace = await resolveWorkspace()
     const sync = await workspaceDefinitionSyncState(workspace)
     while (true) {
+      if (sync.explicitPromise) {
+        const explicit = sync.explicitPromise
+        await waitForWorkspaceSync(explicit, abortSignal)
+        if (sync.explicitPromise === explicit) sync.explicitPromise = undefined
+        continue
+      }
       if (!sync.promise) {
         const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.(abortSignal) ?? Promise.resolve()
         sync.promise = next
@@ -281,6 +288,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   async function resolvePublishWorkspace() {
     const workspace = await resolveWorkspace()
     const sync = await workspaceDefinitionSyncState(workspace)
+    if (sync.explicitPromise) await waitForWorkspaceSync(sync.explicitPromise)
     return sync.promise ? await resolveSyncedWorkspace() : workspace
   }
 
@@ -303,14 +311,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       const sync = await workspaceDefinitionSyncState(resolved)
       const next = resolved.sync(options)
       const pending = next.then(() => undefined)
-      sync.promise = pending
-      sync.abortSignal = undefined
-      next.catch(() => {
-        if (sync.promise === pending) {
-          sync.promise = undefined
-          sync.abortSignal = undefined
-        }
-      })
+      sync.explicitPromise = pending
+      void pending.finally(() => {
+        if (sync.explicitPromise === pending) sync.explicitPromise = undefined
+      }).catch(() => undefined)
       return await next
     },
     async readFile(path, options) {
@@ -537,6 +541,20 @@ function createReadonlyFs<Name extends WorkspaceName>(
       return await createHostedWorkspaceSession(overlay, { ...options, host: options.host })
     },
   }, getWorkspaceSourceRequestExecution(workspace))
+  const resolveMetadata = (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]
+  if (resolveMetadata) {
+    ;(readonlyFs as ReadonlyWorkspaceFs<Name> & WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget] = async () => {
+      const metadata = await ignoreMissingWorkspace(async () => await resolveMetadata.call(workspace))
+      if (!metadata && !assets) return
+      return {
+        getMeta: metadata?.getMeta?.bind(metadata),
+        list: async (path, options) => mergeEntries(
+          assets ? await assets.list(path as WorkspaceAssetPath<Name>, options) : [],
+          await metadata?.list?.(path, options) ?? [],
+        ),
+      }
+    }
+  }
   return readonlyFs
 }
 
@@ -640,6 +658,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     getMeta: async (key: string) => await workspace.getMeta?.(key),
     tools,
   }
-  forwardWorkspaceMetadataTarget(workspace, facade)
+  forwardWorkspaceMetadataTarget(fs, facade)
   return facade
 }

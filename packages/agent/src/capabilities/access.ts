@@ -178,6 +178,10 @@ export type AccessWorkspaceResolverContext<
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
 > = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "actor" | "input" | "invoker"> & {
+  readonly [accessWorkspaceOptionsType]?: {
+    readonly inputContext: TInputContext
+    readonly name: Name
+  }
   actor: AccessInputContextInvoker<TInputContext>
   invoker: AccessInputContextInvoker<TInputContext>
   input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
@@ -247,16 +251,36 @@ export type AccessWorkspaceOptionsFor<
   Name extends WorkspaceName = WorkspaceName,
 > = AccessWorkspaceOptions<TRuntimeConfig, Name, AccessWorkspaceSourceName<TWorkspace>, TInputContext>
 
-type AnyAccessWorkspaceOptions = AccessWorkspaceOptions<any, any, any, any>
+type AccessWorkspaceOptionsContract<TWorkspace extends object> =
+  typeof accessWorkspaceOptionsType extends keyof TWorkspace
+    ? NonNullable<TWorkspace[typeof accessWorkspaceOptionsType]>
+    : never
 
-type AccessWorkspaceOptionsType<TWorkspace extends AnyAccessWorkspaceOptions> =
-  NonNullable<TWorkspace[typeof accessWorkspaceOptionsType]>
+type AccessWorkspaceOptionsType<TWorkspace extends object> = AccessWorkspaceOptionsContract<TWorkspace>
 
-type AccessWorkspaceName<TWorkspace extends AnyAccessWorkspaceOptions> =
-  AccessWorkspaceOptionsType<TWorkspace>["name"]
+type AccessWorkspaceResolverContextType<TWorkspace> = TWorkspace extends { resolve?: infer TResolve }
+  ? Extract<TResolve, (...args: any[]) => unknown> extends (context: infer TContext) => unknown
+    ? TContext
+    : never
+  : never
 
-type AccessWorkspaceInputContext<TWorkspace extends AnyAccessWorkspaceOptions> =
-  AccessWorkspaceOptionsType<TWorkspace>["inputContext"]
+type AccessWorkspaceResolverOptionsType<TWorkspace> = AccessWorkspaceResolverContextType<TWorkspace> extends infer TContext extends object
+  ? AccessWorkspaceOptionsContract<TContext>
+  : never
+
+type AccessWorkspaceName<TWorkspace extends object> =
+  AccessWorkspaceOptionsType<TWorkspace> extends { name: infer Name extends WorkspaceName }
+    ? Name
+    : AccessWorkspaceResolverOptionsType<TWorkspace> extends { name: infer Name extends WorkspaceName }
+      ? Name
+      : WorkspaceName
+
+type AccessWorkspaceInputContext<TWorkspace extends object> =
+  AccessWorkspaceOptionsType<TWorkspace> extends { inputContext: infer TInputContext extends object }
+    ? TInputContext
+    : AccessWorkspaceResolverOptionsType<TWorkspace> extends { inputContext: infer TInputContext extends object }
+      ? TInputContext
+      : Record<string, unknown>
 
 type AccessWorkspaceRuntimeConfig<TWorkspace> = TWorkspace extends { resolve?: infer TResolve }
   ? Extract<TResolve, (...args: never[]) => unknown> extends (context: infer TContext) => unknown
@@ -310,8 +334,15 @@ export function access<
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, any, any, any>,
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
-  const TWorkspace extends AccessWorkspaceOptions<any, any, any, any>,
->(options: { chat?: undefined, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<AccessWorkspaceRuntimeConfig<TWorkspace>, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+  TInputContext extends object,
+  TSourceName extends string,
+  const TWorkspace extends object,
+>(options: { chat?: undefined, input?: undefined, workspace: TWorkspace & AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext> & { resolve: AccessWorkspaceScopeResolver<TRuntimeConfig, Name, TInputContext, TSourceName> } }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext, AccessWorkspaceScopeNameOrString<TWorkspace>>>
+export function access<
+  const TWorkspace extends object,
+>(options: { chat?: undefined, input?: undefined, workspace: TWorkspace & AccessWorkspaceOptions<any, any, any, any> }): AgentCapabilityDefinition<AccessWorkspaceRuntimeConfig<TWorkspace>, AccessWorkspaceName<TWorkspace>, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessWorkspaceInputContext<TWorkspace>, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>
@@ -939,7 +970,20 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   }
   const metadataTarget = Symbol.for("vitehub.workspace.metadataTarget")
   const resolveMetadata = Reflect.get(workspace, metadataTarget)
-  if (hasRuntimeType(resolveMetadata, "function")) Reflect.set(facade, metadataTarget, resolveMetadata.bind(workspace))
+  if (hasRuntimeType(resolveMetadata, "function")) {
+    Reflect.set(facade, metadataTarget, async () => {
+      // SAFETY: workspaceMetadataTarget is ViteHub-owned and returns the narrow metadata contract below.
+      const metadata = await Reflect.apply(resolveMetadata, workspace, []) as { getMeta?: (key: string) => Promise<unknown>, list?: (path: string, options?: ListOptions) => Promise<WorkspaceEntry[]> } | undefined
+      if (!metadata) return
+      const list = metadata.list?.bind(metadata)
+      return {
+        getMeta: metadata.getMeta?.bind(metadata),
+        list: list
+          ? async (path: string, options?: ListOptions) => filterEntries(scope, await list(path, options))
+          : undefined,
+      }
+    })
+  }
   if (facadeStarter) {
     facade.startSession = async (options?: WorkspaceSessionOptions) => {
       return await facadeStarter.startSession({
