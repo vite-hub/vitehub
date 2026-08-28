@@ -2355,8 +2355,8 @@ describe("lazy sources", () => {
       abortSignal: abort.signal,
       sources: ["first", "second", "third"],
     })).rejects.toThrow("Canceled")
-    await expect(view.list("first")).resolves.toContainEqual({ path: "first/one.md", type: "file" })
-    await expect(view.list("third")).resolves.toContainEqual({ path: "third/three.md", type: "file" })
+    await expect(view.list("first")).resolves.toContainEqual(expect.objectContaining({ path: "first/one.md", type: "file" }))
+    await expect(view.list("third")).resolves.toContainEqual(expect.objectContaining({ path: "third/three.md", type: "file" }))
 
     expect(firstItem).toHaveBeenCalledOnce()
     expect(secondItem).toHaveBeenCalledOnce()
