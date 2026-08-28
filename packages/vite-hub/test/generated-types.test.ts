@@ -99,7 +99,11 @@ function contentModule(): string {
 
 function configResolved(plugin: Plugin) {
   // SAFETY: This fixture invokes the documented Vite configResolved hook signature.
-  return plugin.configResolved as (config: { root: string; [VITEHUB_SERVER_DIRS]?: string[] }) => Promise<void>
+  return plugin.configResolved as (config: {
+    nitro?: Record<string, unknown>
+    root: string
+    [VITEHUB_SERVER_DIRS]?: string[]
+  }) => Promise<void>
 }
 
 function sourcePlugin() {
@@ -665,6 +669,30 @@ describe("framework generated types", () => {
     expect(removed).not.toHaveProperty("nitro")
   })
 
+  it("replaces generated handlers when discovery changes between Vite config hooks", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const viteConfig: { nitro: Record<string, unknown>; root: string } = {
+      nitro: { handlers: [existing] },
+      root,
+    }
+    const plugin = sourcePlugin()
+
+    const contribution = await config(plugin)(viteConfig)
+    viteConfig.nitro = {
+      ...viteConfig.nitro,
+      ...contribution?.nitro,
+      handlers: [existing, ...Reflect.get(Object(contribution?.nitro), "handlers")],
+    }
+    await rm(collection)
+    await configResolved(plugin)(viteConfig)
+
+    expect(viteConfig.nitro.handlers).toEqual([existing])
+  })
+
   it("does not contribute duplicate Nitro handlers when Source is composed twice", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
@@ -766,6 +794,29 @@ describe("framework generated types", () => {
       expect(restart).toHaveBeenCalledOnce()
       expect(loggerError).toHaveBeenCalledWith("Error: passive observer failed")
     })
+  })
+
+  it("binds generated-handler listeners registered before Vite configuration", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    const observer = vi.fn()
+    plugin.api.onGeneratedHandlersChanged(observer)
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+
+    expect(observer).toHaveBeenCalledWith([])
   })
 
   it("does not let a stalled passive observer block the Vite restart fallback", async () => {

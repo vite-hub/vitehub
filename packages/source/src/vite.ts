@@ -364,6 +364,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let configuredHandlerKey = "[]"
+  let configuredNitroContribution: NitroGeneratedConfig | undefined
   const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
   const hostRefreshLifecycleByRoot = new Map<string, {
     close: () => void
@@ -404,6 +405,30 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     })
     return () => generatedHandlersListeners.delete(listener)
   }
+  const bindUnresolvedListenerRoots = (root: string) => {
+    for (const listenerOptions of generatedHandlersListeners.values()) {
+      listenerOptions.projectRoot ??= root
+    }
+  }
+  const replaceConfiguredNitroContribution = (
+    value: unknown,
+    handlers: GeneratedSourceHandler[],
+  ): NitroGeneratedConfig => {
+    let nitro: NitroGeneratedConfig = {}
+    if (Object(value) === value && !Array.isArray(value)) {
+      // SAFETY: the runtime guard excludes primitives and arrays before treating the config as a Nitro config record.
+      nitro = { ...(value as NitroGeneratedConfig) }
+    }
+    const contributedHandlers = configuredNitroContribution?.handlers ?? []
+    if (Array.isArray(nitro.handlers) && contributedHandlers.length > 0) {
+      nitro.handlers = nitro.handlers.filter(handler => !contributedHandlers.includes(handler))
+    }
+    const contributedModules = configuredNitroContribution?.modules ?? []
+    if (Array.isArray(nitro.modules) && contributedModules.length > 0) {
+      nitro.modules = nitro.modules.filter(module => !contributedModules.includes(module))
+    }
+    return mergeGeneratedSourceNitroConfig(nitro, handlers)
+  }
   return {
     name: "@vite-hub/source/vite",
     enforce: "post",
@@ -413,6 +438,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      bindUnresolvedListenerRoots(projectRoot)
       const previousLifecycle = hostRefreshLifecycleByRoot.get(projectRoot)
       previousLifecycle?.pause()
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
@@ -420,6 +446,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         const handlers = await prepareSources({ projectRoot, serverDirs })
         configuredHandlerKey = await generatedHandlerKey(handlers)
         const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
+        configuredNitroContribution = nitro
         const contribution: SourcePluginConfig = {
           define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
           ...(nitro ? { nitro } : {}),
@@ -434,13 +461,14 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
+      bindUnresolvedListenerRoots(projectRoot)
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
       const viteConfig = config as SourcePluginConfig
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
       configuredHandlerKey = await generatedHandlerKey(handlers)
       if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
-        viteConfig.nitro = mergeGeneratedSourceNitroConfig(viteConfig.nitro, handlers)
+        viteConfig.nitro = replaceConfiguredNitroContribution(viteConfig.nitro, handlers)
       }
     },
     configureServer(server) {
