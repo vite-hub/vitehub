@@ -320,7 +320,16 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
   context?: AgentCallbackContext<TRuntimeConfig>,
   options: AgentWebhookVerificationOptions = {},
 ): Promise<AgentWebhookVerificationResult> {
-  const verificationContext = context ?? ({ runtime: "unknown" } as AgentCallbackContext<TRuntimeConfig>)
+  const values = new Map<string, unknown>()
+  const verificationContext = context ?? {
+    capabilities: {},
+    memo<T>(key: string, create: () => T): T {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key) as T
+    },
+    runtime: "unknown",
+    waitUntil: task => void Promise.resolve(task).catch(() => {}),
+  }
   const targeted = registrations
     .map(registration => ({
       headerValue: registration.secretHeader ? request.headers.get(registration.secretHeader) : null,

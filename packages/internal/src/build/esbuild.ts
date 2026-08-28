@@ -271,6 +271,15 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
   }
 }
 
+function createFileUrlPlugin(): Plugin {
+  return {
+    name: "vitehub-file-url",
+    setup(build) {
+      build.onResolve({ filter: /^file:/ }, args => ({ path: fileURLToPath(args.path) }))
+    },
+  }
+}
+
 export async function bundleEsmEntry(
   entryFile: string,
   outfile: string,
@@ -315,7 +324,12 @@ export async function bundleEsmEntry(
     outfile,
     packages: options.packages,
     platform,
-    plugins: [...(options.plugins ?? []), ...(viteAliasPlugin ? [viteAliasPlugin] : []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
+    plugins: [
+      ...(options.plugins ?? []),
+      createFileUrlPlugin(),
+      ...(viteAliasPlugin ? [viteAliasPlugin] : []),
+      createViteRawPlugin(options.rootDir, frameworkRuntime),
+    ],
     sourcemap: false,
     target: "es2022",
     write: true,

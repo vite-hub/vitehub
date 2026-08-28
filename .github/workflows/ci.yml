@@ -49,50 +49,22 @@ jobs:
       - run: vp run examples:verify
       - name: Package tests
         run: vp run test
-
-  docs:
-    name: docs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup
-
-      - run: vp run --filter vitehub-docs test
-      - run: vp run docs:build
-      - run: vp run --filter vitehub-docs test:artifact
+      - name: Consumer contracts
+        run: vp run test:consumer
+      - name: Docs tests
+        run: vp run --filter vitehub-docs test
+      - name: Docs build
+        run: vp run docs:build
+      - name: Docs artifact
+        run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
         run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config docs/.output/server/wrangler.json
 
-  consumer:
-    name: consumer
+  verify-providers:
+    name: verify providers
+    needs: ci
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: 2.9.3
-
-      - run: vp run test:consumer
-
-  verify-cloudflare:
-    name: verify (cloudflare)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup
-
-      - name: Provider Output Contract
-        run: vp run test:output:cloudflare
-      - name: Local Provider Run
-        run: vp run e2e:local --provider cloudflare
-
-  verify-vercel:
-    name: verify (vercel)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     services:
       redis:
         image: redis:7-alpine
@@ -114,22 +86,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
-      - name: Provider Output Contract
+      - name: Cloudflare output contract
+        run: vp run test:output:cloudflare
+      - name: Cloudflare local run
+        run: vp run e2e:local --provider cloudflare
+      - name: Vercel output contract
         run: vp run test:output:vercel
-      - name: Local Provider Run
+      - name: Vercel local run
         run: vp run e2e:local --provider vercel
         env:
           KV_REST_API_TOKEN: local-srh-token
           KV_REST_API_URL: http://127.0.0.1:8079
           TURSO_DATABASE_URL: http://127.0.0.1:8080
-
-  verify-netlify:
-    name: verify (netlify)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup
-
-      - run: npm install -g netlify-cli@23.15.1
-      - run: vp run e2e:netlify
+      - name: Install Netlify CLI
+        run: npm install -g netlify-cli@23.15.1
+      - name: Netlify end-to-end
+        run: vp run e2e:netlify

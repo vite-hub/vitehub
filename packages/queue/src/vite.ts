@@ -1,6 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
@@ -86,22 +86,32 @@ function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
   return !preset.replaceAll("-", "_").includes("cloudflare_pages")
 }
 
+function isGeneratedNitroRegistration(value: unknown, generatedPath: string): boolean {
+  return typeof value === "string"
+    && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${generatedPath}`))
+}
+
 function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOptions | undefined, root: string, definitions = discoverQueueDefinitions({ rootDir: root })): Record<string, unknown> {
   const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
   const nitroHosting = resolveNitroHosting(nitro)
   const providerMismatch = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting
   const runtimeEnabled = queue !== false && !providerMismatch
-  const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter(plugin => runtimeEnabled || plugin !== generatedQueueNitroPlugin) : []
+  const nitroOwnsPaths = hasNitroConfigContext(config)
+  const plugin = nitroOwnsPaths ? resolve(root, generatedQueueNitroPlugin) : generatedQueueNitroPlugin
+  const middleware = nitroOwnsPaths ? resolve(root, generatedQueueNitroMiddleware) : generatedQueueNitroMiddleware
+  const plugins = Array.isArray(nitro.plugins)
+    ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedQueueNitroPlugin))
+    : []
   const handlers = Array.isArray(nitro.handlers)
-    ? nitro.handlers.filter(handler => handler?.handler !== generatedQueueNitroMiddleware)
+    ? nitro.handlers.filter(handler => !isGeneratedNitroRegistration(handler?.handler, generatedQueueNitroMiddleware))
     : []
   if (!runtimeEnabled) {
     contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
     return composeNitroCloudflareProviderOutput(providerOutput, { ...nitro, handlers, plugins }, value)
   }
-  if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
-  handlers.unshift({ handler: generatedQueueNitroMiddleware, middleware: true, route: "/**" })
+  if (!plugins.includes(plugin)) plugins.unshift(plugin)
+  handlers.unshift({ handler: middleware, middleware: true, route: "/**" })
   const queueHosting = resolveQueueHosting(queue, nitro)
   if (queueHosting !== "cloudflare") {
     contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
@@ -176,7 +186,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       },
       queue: {
         async createNitroConfig({ development = false, nitro, projectRoot, root, serverDirs }) {
-          const config = { nitro }
+          const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, nitro }
           nuxtProjectRoot = projectRoot
           nuxtServerQueueDirs = [...new Set(serverDirs || [resolve(projectRoot, "server"), resolve(root, "server")])]
             .map(dir => `${resolve(dir, "queues").replace(/\\/g, "/")}/`)

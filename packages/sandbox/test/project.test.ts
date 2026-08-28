@@ -22,7 +22,170 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
+describe("bundleSandboxDefinition", () => {
+  it("omits the project from a self-contained Definition bundle", async () => {
+    const root = await createRoot()
+    const entry = join(root, "run.sandbox.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      packageManager: "pnpm@10.33.0",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nimporters: { .: {} }\n")
+    await writeFile(join(root, "helper.ts"), "export const answer = 42\n")
+    await writeFile(join(root, "unused.txt"), "unused project payload\n".repeat(1_000))
+    await writeFile(entry, [
+      "import { basename } from 'node:path'",
+      "import { answer } from './helper.ts'",
+      "export default { run: async () => ({ answer, name: basename('/tmp/value') }) }",
+      "",
+    ].join("\n"))
+    const project = await resolveSandboxProject(entry, root)
+    expect(project.files).toHaveProperty("unused.txt")
+
+    const bundle = await bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle).not.toHaveProperty("project")
+    expect(bundle.entry).toBe("definition.js")
+    expect(bundle.execution).toBe("definition")
+    expect(bundle.modules[bundle.entry]).toContain('from "node:path"')
+    expect(bundle.modules[bundle.entry]).toContain("answer = 42")
+  })
+
+  it("keeps the project for a runtime-resolved Definition import", async () => {
+    const root = await createRoot()
+    const entry = join(root, "run.sandbox.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
+    await writeFile(entry, [
+      "const dependency = 'runtime-package'",
+      "export default { run: async () => await import(dependency) }",
+      "",
+    ].join("\n"))
+    const project = await resolveSandboxProject(entry, root)
+
+    const bundle = await bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project).toBeDefined()
+    expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
+  it("keeps the project for a Definition importing a workspace dependency", async () => {
+    const root = await createRoot()
+    const helper = join(root, "packages/helper")
+    await mkdir(helper, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      dependencies: { "@fixture/helper": "workspace:*" },
+      packageManager: "pnpm@10.33.0",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['packages/*']\n")
+    await writeFile(join(helper, "package.json"), JSON.stringify({
+      exports: "./index.js",
+      name: "@fixture/helper",
+      type: "module",
+    }))
+    await writeFile(join(helper, "index.js"), "export const answer = 42\n")
+    const entry = join(root, "run.sandbox.ts")
+    await writeFile(entry, [
+      "import { answer } from '@fixture/helper'",
+      "export default { run: async () => answer }",
+      "",
+    ].join("\n"))
+    const project = await resolveSandboxProject(entry, root)
+
+    const bundle = await bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project?.files).toHaveProperty("packages/helper/index.js")
+    expect(bundle.modules[bundle.entry]).toContain('from "@fixture/helper"')
+  })
+})
+
 describe("resolveSandboxProject", () => {
+  it("rejects pnpm patches outside a package install root", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandbox")
+    await mkdir(join(root, "patches"), { recursive: true })
+    await mkdir(sandbox, { recursive: true })
+    await writeFile(join(root, "patches/example.patch"), "patched dependency\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({
+      packageManager: "pnpm@10.33.0",
+      pnpm: { patchedDependencies: { example: "../patches/example.patch" } },
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(sandbox, "index.ts"), "export default null\n")
+
+    await expect(resolveSandboxProject(join(sandbox, "index.ts"), root))
+      .rejects.toThrow("Sandbox pnpm patch must stay inside its install root: ../patches/example.patch")
+  })
+
+  it("includes pnpm patch files from the install root", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandboxes/task")
+    await mkdir(join(root, "patches"), { recursive: true })
+    await mkdir(sandbox, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      packageManager: "pnpm@10.33.0",
+      pnpm: { patchedDependencies: { kleur: "patches/kleur.patch" } },
+      private: true,
+    }))
+    await writeFile(join(root, "patches/kleur.patch"), "patched dependency\n")
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['sandboxes/*']\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({ name: "task", private: true, type: "module" }))
+    await writeFile(join(sandbox, "index.ts"), "export default null\n")
+
+    const project = await resolveSandboxProject(join(sandbox, "index.ts"), root)
+
+    expect(project.files["patches/kleur.patch"]).toMatchObject({ encoding: "base64" })
+  })
+
+  it("includes pnpm patch files declared by the workspace", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandboxes/task")
+    await mkdir(join(root, "patches"), { recursive: true })
+    await mkdir(sandbox, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.33.0", private: true }))
+    await writeFile(join(root, "patches/kleur.patch"), "patched dependency\n")
+    await writeFile(join(root, "pnpm-workspace.yaml"), [
+      "packages: ['sandboxes/*']",
+      "patchedDependencies:",
+      "  'kleur@4.1.5': patches/kleur.patch",
+      "",
+    ].join("\n"))
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({ name: "task", private: true, type: "module" }))
+    await writeFile(join(sandbox, "index.ts"), "export default null\n")
+
+    const project = await resolveSandboxProject(join(sandbox, "index.ts"), root)
+
+    expect(project.files["patches/kleur.patch"]).toMatchObject({ encoding: "base64" })
+  })
+
+  it("includes pnpm patch files from an inline workspace map", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandboxes/task")
+    await mkdir(join(root, "patches"), { recursive: true })
+    await mkdir(sandbox, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.33.0", private: true }))
+    await writeFile(join(root, "patches/kleur.patch"), "patched dependency\n")
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['sandboxes/*']\npatchedDependencies: { 'kleur@4.1.5': patches/kleur.patch }\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({ name: "task", private: true, type: "module" }))
+    await writeFile(join(sandbox, "index.ts"), "export default null\n")
+
+    const project = await resolveSandboxProject(join(sandbox, "index.ts"), root)
+
+    expect(project.files["patches/kleur.patch"]).toMatchObject({ encoding: "base64" })
+  })
+
   it("reads timeout from package metadata for executable entries", async () => {
     const root = await createRoot()
     const entry = join(root, "index.ts")

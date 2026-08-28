@@ -36,6 +36,7 @@ export default function viteHubScheduleNuxtModule(options: ScheduleNuxtModuleOpt
     const nitro = await createScheduleNitroConfig({
       ...options,
       command: nuxt.options.dev ? "serve" : "build",
+      nitroOwnsPaths: true,
       nitro: nitroConfig,
       projectRoot: options.projectRoot || rootDir,
       root: nuxt.options.srcDir || rootDir,

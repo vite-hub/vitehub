@@ -2291,7 +2291,7 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!({
       ...(context() as Record<string, unknown>),
-      input: { messages: [] },
+      input: { context: {}, messages: [] },
       run: {
         origin: "teams",
         runId: "run_123",
@@ -2714,6 +2714,23 @@ describe("defineAgent workspace option", () => {
     expect(createAgentInspectionMetadata(dynamicAgent).config).not.toHaveProperty("uiMessageStream")
     expect((await resolveAgentInspectionMetadata(dynamicAgent, {
       input: { prompt: "private" },
+    })).config?.uiMessageStream).toEqual({
+      reasoning: "hidden",
+      tools: "hidden",
+    })
+  })
+
+  it.each([false, 0, ""])("preserves falsey runtimeConfig %j while resolving Agent inspection metadata", async runtimeConfig => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      uiMessageStream: context => (context as unknown as { runtimeConfig: unknown }).runtimeConfig === runtimeConfig
+        ? { reasoning: "hidden", tools: "hidden" }
+        : { reasoning: "visible", tools: "full" },
+    })
+
+    expect((await resolveAgentInspectionMetadata(agent, {
+      runtime: { runtimeConfig } as never,
     })).config?.uiMessageStream).toEqual({
       reasoning: "hidden",
       tools: "hidden",
