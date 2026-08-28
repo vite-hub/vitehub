@@ -291,6 +291,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       const sourceEntry = await lstat(source)
       if (sourceEntry.isSymbolicLink()) {
         const linkedEntry = await stat(source).catch((error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
           throw error
         })
@@ -298,6 +299,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       }
       if (process.platform === "win32" && sourceEntry.isFile()) {
         await link(source, target).catch(async (error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           const code = (error as NodeJS.ErrnoException).code
           if (code !== "EACCES" && code !== "EPERM" && code !== "EXDEV") throw error
           await copyFile(source, target)
@@ -320,6 +322,7 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
       if (!sourceEntry.isFile()) return
       const target = join(sharedHome, entry)
       const targetEntry = await lstat(target).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
         throw error
       })
@@ -328,6 +331,7 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
       try {
         await copyFile(source, temporary)
         await rename(temporary, target).catch(async (error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           const code = (error as NodeJS.ErrnoException).code
           if (code !== "EEXIST" && code !== "EPERM") throw error
           await rm(target, { force: true })
@@ -1396,9 +1400,16 @@ async function* runProvider<
       if (value !== undefined) providerSettings[key] = value
     }
     if (credentialHome) {
-      credentialSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
-      await mkdir(credentialSharedHome, { recursive: true })
-      credentialSharedHome = await realpath(credentialSharedHome)
+      const configuredSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
+      credentialSharedHome = await waitForProviderOperation(
+        (async () => {
+          await mkdir(configuredSharedHome, { recursive: true })
+          return await realpath(configuredSharedHome)
+        })(),
+        effectiveSignal,
+        () => undefined,
+        observeLateCleanup,
+      )
       const sharedHomeKey = providerHostPlatform === "win32" || providerHostPlatform === "darwin" ? credentialSharedHome.toLowerCase() : credentialSharedHome
       releaseCredentialHomeLock = await acquireProviderSessionLock(codexSharedHomeLocks, sharedHomeKey, effectiveSignal)
       await waitForProviderOperation(

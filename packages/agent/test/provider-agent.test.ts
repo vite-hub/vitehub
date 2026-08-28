@@ -16,6 +16,7 @@ const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: {
 }) => providerRuntimes.shift()))
 const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
 const readCodexSharedHome = vi.hoisted(() => vi.fn())
+const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
@@ -26,6 +27,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     readdir: (...args: Parameters<typeof original.readdir>) => readCodexSharedHome.getMockImplementation()
       ? readCodexSharedHome(...args)
       : original.readdir(...args),
+    realpath: (...args: Parameters<typeof original.realpath>) => canonicalizeCodexSharedHome.getMockImplementation()
+      ? canonicalizeCodexSharedHome(...args)
+      : original.realpath(...args),
   }
 })
 
@@ -273,11 +277,12 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       return providerRuntimes.shift()
     })
 
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    await createProviderAgentAdapter({
+    const adapter = createProviderAgentAdapter({
       credentials: '{"tokens":{"access_token":"secret"}}',
       provider: "codex",
-    }).generate(context(threadId) as never)
+    })
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await adapter.generate(context(threadId) as never)
   }, 15_000)
 
   it("uses CODEX_HOME as the shared Codex home", async () => {
@@ -292,11 +297,13 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     })
 
     try {
-      await createProviderAgentAdapter({
+      const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         env: { CODEX_HOME: sharedHome },
         provider: "codex",
-      }).generate(context(threadId) as never)
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
     }
     finally {
       await rm(sharedHome, { force: true, recursive: true })
@@ -418,6 +425,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       // SAFETY: These fixtures intentionally construct the exact provider run context.
       const firstInvocation = adapter.generate(context("thread-shared-home-first") as never)
       await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
       const secondInvocation = adapter.generate(context("thread-shared-home-second") as never)
       await new Promise(resolve => setTimeout(resolve, 25))
       expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
@@ -484,6 +492,46 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
+  it("aborts stalled Codex shared-home canonicalization", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
+    let finishCanonicalization!: () => void
+    const canonicalization = new Promise<string>(resolve => finishCanonicalization = () => resolve(sharedHome))
+    canonicalizeCodexSharedHome.mockImplementationOnce(async (path: string) => {
+      expect(path).toBe(sharedHome)
+      return await canonicalization
+    })
+    const controller = new AbortController()
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const result = adapter.generate(context("thread-stalled-home-canonicalization", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    try {
+      await vi.waitFor(() => expect(canonicalizeCodexSharedHome).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+      const outcome = await Promise.race([
+        result.then(() => "resolved", error => error),
+        new Promise(resolve => setTimeout(() => resolve("still pending"), 100)),
+      ])
+      expect(outcome).toBe("cancelled")
+      await vi.waitFor(async () => {
+        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
+      })
+    }
+    finally {
+      finishCanonicalization()
+      controller.abort("cancelled")
+      await result.catch(() => undefined)
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
   it.runIf(process.platform !== "win32")("serializes symlink aliases for the same Codex home", async () => {
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const aliasRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-home-alias-"))
@@ -498,11 +546,13 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     const runtimeCalls = createProviderRuntime.mock.calls.length
 
     try {
-      const firstInvocation = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: sharedHome } })
-        .generate(context("thread-home-alias-first") as never)
+      const sharedHomeAdapter = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: sharedHome } })
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const firstInvocation = sharedHomeAdapter.generate(context("thread-home-alias-first") as never)
       await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
-      const secondInvocation = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: alias } })
-        .generate(context("thread-home-alias-second") as never)
+      const aliasHomeAdapter = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: alias } })
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const secondInvocation = aliasHomeAdapter.generate(context("thread-home-alias-second") as never)
       await new Promise(resolve => setTimeout(resolve, 25))
       expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
 
@@ -545,6 +595,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       // SAFETY: These fixtures intentionally construct the exact provider run context.
       const firstInvocation = firstAdapter.generate(context("thread-macos-home-first") as never)
       await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
       const secondInvocation = secondAdapter.generate(context("thread-macos-home-second") as never)
       await new Promise(resolve => setTimeout(resolve, 25))
       expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)

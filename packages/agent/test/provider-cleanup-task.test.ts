@@ -17,7 +17,24 @@ describe("Provider Agent cleanup retention", () => {
 
     finishPersistence()
     await expect(pending).resolves.toBeUndefined()
-    expect(remove).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledTimes(2)
+  })
+
+  it("removes credentials again after a forced cleanup and late provider shutdown", async () => {
+    let credentialsPresent = true
+    const persist = vi.fn(async () => undefined)
+    const remove = vi.fn(async () => { credentialsPresent = false })
+    const release = vi.fn()
+    const cleanup = createAgentProviderCredentialCleanup(persist, remove, release)
+
+    await cleanup.forceRemove()
+    credentialsPresent = true
+    await cleanup.cleanup()
+
+    expect(credentialsPresent).toBe(false)
+    expect(persist).not.toHaveBeenCalled()
+    expect(remove).toHaveBeenCalledTimes(2)
+    expect(release).toHaveBeenCalledOnce()
   })
 
   it("releases credential custody when removal fails", async () => {
