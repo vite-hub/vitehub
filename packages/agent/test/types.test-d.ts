@@ -1133,10 +1133,13 @@ describe("agent public types", () => {
       },
     }
     const supportAccessCapability = access({ workspace: supportAccess })
-    type SupportAccessInputContext = NonNullable<typeof supportAccessCapability.__vitehubTypeContract>["inputContext"]
+    type SupportAccessContract = NonNullable<typeof supportAccessCapability["__vitehubTypeContract"]>
+    type SupportAccessInputContext = SupportAccessContract["inputContext"]
     expectTypeOf(supportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     expectTypeOf({} as SupportInputContext).toMatchTypeOf<SupportAccessInputContext>()
+    expectTypeOf(supportAccessCapability)
+      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
 
     interface SupportRuntimeConfig extends AgentRuntimeConfig {
       supportToken: string
@@ -1168,15 +1171,6 @@ describe("agent public types", () => {
     type CombinedSupportModel = Exclude<Parameters<CombinedSupportContext["model"]["resolve"]>[0], AgentModelInput | undefined>
     type CombinedSupportModelContext = Parameters<CombinedSupportModel>[0]
     expectTypeOf<CombinedSupportModelContext["runtimeConfig"]>().toEqualTypeOf<SupportRuntimeConfig>()
-
-    const supportAccessCapability = access({
-      workspace: supportAccess,
-    })
-    type SupportAccessContract = NonNullable<typeof supportAccessCapability["__vitehubTypeContract"]>
-    expectTypeOf<SupportAccessContract["inputContext"]>().toMatchTypeOf<SupportInputContext>()
-    expectTypeOf<SupportInputContext>().toMatchTypeOf<SupportAccessContract["inputContext"]>()
-    expectTypeOf(supportAccessCapability)
-      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
 
     defineAgent({
       workspace,
