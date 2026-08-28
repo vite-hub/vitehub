@@ -115,6 +115,8 @@ dynamicallyLoaded = [
 ]
 
 ignoreDependencies = [
+  # Invoked from the package-preview workflow after the CI-tools workspace install.
+  "pkg-pr-new",
   # Vite+ aliases are installed through vite/vitest overrides.
   "@voidzero-dev/vite-plus-core",
   "@voidzero-dev/vite-plus-test",

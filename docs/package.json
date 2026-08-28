@@ -32,7 +32,8 @@
     "h3": "catalog:h3-v1-compat",
     "motion-v": "catalog:ui",
     "nuxt": "catalog:nuxt",
-    "nuxt-schema-org": "catalog:nuxt"
+    "nuxt-schema-org": "catalog:nuxt",
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@iconify-json/lucide": "catalog:ui",

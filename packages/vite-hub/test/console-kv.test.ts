@@ -36,6 +36,7 @@ function memoryKV(stores: Record<string, Map<string, unknown>>): { storage: KVSt
     return {
       clear: async () => { writes("clear"); return success(undefined) },
       del: async () => { writes("del"); return success(undefined) },
+      // SAFETY: The in-memory fixture mirrors KVStorage's generic get contract for caller-selected values.
       get: async <T>(key: string) => success((values.get(key) ?? null) as T | null),
       has: async key => success(values.has(key)),
       keys: async base => success([...values.keys()].filter(key => key.startsWith(base ?? ""))),

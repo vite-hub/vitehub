@@ -52,6 +52,19 @@ describe("examples catalog", () => {
         startPath: "app/pages/index.vue",
       }),
       expect.objectContaining({
+        name: "Nuxt Agent",
+        kind: "template",
+        status: "pending",
+        action: {
+          kind: "use",
+          label: "Template unavailable",
+        },
+        publicationNote:
+          "Pending an explicit license and Node 24 support for local and Vercel runtimes.",
+        builtWith: ["Agent Definitions", "MCP", "Workspaces", "Channels", "Rate Limit", "Workflow"],
+        startPath: "server/agents/nuxt/agent.ts",
+      }),
+      expect.objectContaining({
         name: "Babysitter",
         kind: "project",
         status: "pending",

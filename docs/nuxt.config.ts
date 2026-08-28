@@ -13,6 +13,7 @@ export default defineNuxtConfig({
     defaults: false,
   },
   llms: {
+    contentRawMarkdown: false,
     domain: "https://vitehub.dev",
     title: "ViteHub",
     description: "Portable Agents and Server Primitives for any Vite host.",
