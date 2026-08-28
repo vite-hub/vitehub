@@ -610,7 +610,7 @@ describe("Vite provider outputs", () => {
     for (const functionDir of [join(functionsRoot, "__queue.func"), callbackFunctionDir]) {
       expect(existsSync(join(functionDir, "node_modules", "files-sdk", "package.json"))).toBe(false)
       expect(existsSync(join(functionDir, "node_modules", "@aws-sdk", "client-s3", "package.json"))).toBe(false)
-      expect(existsSync(join(functionDir, "node_modules", "@google-cloud", "storage", "package.json"))).toBe(true)
+      expect(existsSync(join(functionDir, "node_modules", "@google-cloud", "storage", "package.json"))).toBe(false)
       expect(existsSync(join(functionDir, "node_modules", "@azure", "storage-blob", "package.json"))).toBe(false)
     }
 

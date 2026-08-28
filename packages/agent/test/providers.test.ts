@@ -90,6 +90,16 @@ const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRunt
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
+function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
+  return [
+    ...extra,
+    { find: "@vite-hub/agent/server/internal", replacement: resolve(import.meta.dirname, "../src/server/internal.ts") },
+    { find: "@vite-hub/agent/server/workspace", replacement: resolve(import.meta.dirname, "../src/server/workspace.ts") },
+    { find: "@vite-hub/agent/state/sqlite", replacement: resolve(import.meta.dirname, "../src/state/sqlite.ts") },
+    { find: "@vite-hub/agent", replacement: resolve(import.meta.dirname, "../src/index.ts") },
+  ]
+}
+
 function createTestChatAdapter(
   options: {
     attachmentFetchData?: () => Promise<Buffer>
@@ -1063,13 +1073,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: {
-          alias: [
-            { find: "@vite-hub/agent/server/internal", replacement: resolve(import.meta.dirname, "../src/server/internal.ts") },
-            { find: "@vite-hub/agent/server/workspace", replacement: resolve(import.meta.dirname, "../src/server/workspace.ts") },
-            { find: "@vite-hub/agent", replacement: resolve(import.meta.dirname, "../src/index.ts") },
-          ],
-        },
+        resolve: { alias: agentProviderOutputAliases() },
         root,
       })
       await runProviderOutputHooks(plugin)
@@ -1618,7 +1622,11 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [schedulePlugin],
-            resolve: { alias: [] },
+            resolve: {
+              alias: agentProviderOutputAliases([
+                { find: "@vite-hub/schedule/runtime", replacement: resolve(import.meta.dirname, "../../schedule/src/runtime.ts") },
+              ]),
+            },
             root,
           } as never,
         )
@@ -1698,7 +1706,11 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
-            resolve: { alias: [] },
+            resolve: {
+              alias: agentProviderOutputAliases([
+                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
+              ]),
+            },
             root,
           } as never,
         )
