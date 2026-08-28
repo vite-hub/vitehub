@@ -13,9 +13,11 @@ import {
   isExportAssignment,
   isFunctionDeclaration,
   isFunctionExpression,
+  isGetAccessorDeclaration,
   isIdentifier,
   isIfStatement,
   isImportDeclaration,
+  isMethodDeclaration,
   isNamedImports,
   isNamespaceImport,
   isNonNullExpression,
@@ -24,6 +26,7 @@ import {
   isPropertyAccessExpression,
   isPropertyAssignment,
   isReturnStatement,
+  isSetAccessorDeclaration,
   isShorthandPropertyAssignment,
   isSourceFile,
   isSpreadAssignment,
@@ -123,6 +126,7 @@ function envCalls(source: string) {
 function sectionObjects(sourceFile: Node) {
   const bindings = new Map<Node, Map<string, Expression | FunctionDeclaration>>();
   const configBindings = new Set(["defineConfig"]);
+  const configCombinators = new Set(["mergeConfig"]);
   const configNamespaces = new Set<string>();
   const sections = new Map<Node, "define" | "public">();
 
@@ -147,6 +151,8 @@ function sectionObjects(sourceFile: Node) {
         for (const element of namedBindings.elements) {
           if ((element.propertyName ?? element.name).text === "defineConfig") {
             configBindings.add(element.name.text);
+          } else if ((element.propertyName ?? element.name).text === "mergeConfig") {
+            configCombinators.add(element.name.text);
           }
         }
       }
@@ -193,6 +199,22 @@ function sectionObjects(sourceFile: Node) {
       };
     }
     if (isObjectLiteralExpression(expression)) return { complete: true, objects: [expression] };
+    if (
+      isCallExpression(expression) &&
+      ((isIdentifier(expression.expression) && configCombinators.has(expression.expression.text)) ||
+        (isPropertyAccessExpression(expression.expression) &&
+          isIdentifier(expression.expression.expression) &&
+          configNamespaces.has(expression.expression.expression.text) &&
+          expression.expression.name.text === "mergeConfig"))
+    ) {
+      const resolutions = expression.arguments.map((argument) =>
+        resolveObjectsDetailed(argument, new Set(seen)),
+      );
+      return {
+        complete: resolutions.length > 0 && resolutions.every(({ complete }) => complete),
+        objects: resolutions.flatMap(({ objects }) => objects),
+      };
+    }
     if (
       isCallExpression(expression) &&
       isIdentifier(expression.expression) &&
@@ -431,14 +453,24 @@ function objectHasBuildMode(
                 ),
               )
             : alternatives.map(() => false);
-      } else if (isPropertyAssignment(property) && isComputedPropertyName(property.name)) {
-        alternatives = alternatives.map(() => false);
-      } else if (isPropertyAssignment(property) && propertyName(property.name) === "mode") {
-        const isBuildMode = resolveString(property.initializer) === "build";
-        alternatives = alternatives.map(() => isBuildMode);
+      } else if (isPropertyAssignment(property)) {
+        const name = propertyName(property.name);
+        if (name === "mode") {
+          const isBuildMode = resolveString(property.initializer) === "build";
+          alternatives = alternatives.map(() => isBuildMode);
+        } else if (isComputedPropertyName(property.name) && name === undefined) {
+          alternatives = alternatives.map(() => false);
+        }
       } else if (isShorthandPropertyAssignment(property) && property.name.text === "mode") {
         const isBuildMode = resolveString(property.name) === "build";
         alternatives = alternatives.map(() => isBuildMode);
+      } else if (
+        (isMethodDeclaration(property) ||
+          isGetAccessorDeclaration(property) ||
+          isSetAccessorDeclaration(property)) &&
+        propertyName(property.name) === "mode"
+      ) {
+        alternatives = alternatives.map(() => false);
       }
     }
     return alternatives;
@@ -802,6 +834,20 @@ vite.defineConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
+  it("follows inline configs passed through Vite config combinators", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig, mergeConfig as combineConfig } from "vite"
+defineConfig(combineConfig(base, {
+  env: { public: { appName: env({ mode: "runtime" }) } },
+}))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
   it("resolves configuration objects through lexical bindings", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -851,6 +897,7 @@ defineConfig(({ env: {
     expect(fixtureHasBuildMode("{ ...defaults, mode: 'build' }")).toBe(true);
     expect(fixtureHasBuildMode("{ mode: 'build', [key]: 'runtime' }")).toBe(false);
     expect(fixtureHasBuildMode("{ [key]: 'runtime', mode: 'build' }")).toBe(true);
+    expect(fixtureHasBuildMode("{ mode: 'build', ['default']: 'Acme' }")).toBe(true);
   });
 
   it("resolves declaration options through lexical bindings and TypeScript wrappers", () => {
@@ -902,6 +949,14 @@ defineConfig({
     `);
 
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, true, false, false]);
+  });
+
+  it("rejects enumerable mode methods and accessors from option spreads", () => {
+    expect(fixtureHasBuildMode("{ mode: 'build', ...{ mode() {} } }")).toBe(false);
+    expect(fixtureHasBuildMode("{ mode: 'build', ...{ get mode() { return 'build' } } }")).toBe(
+      false,
+    );
+    expect(fixtureHasBuildMode("{ mode: 'build', ...{ set mode(value) {} } }")).toBe(false);
   });
 
   it("rejects declaration options with an unresolved conditional branch", () => {
