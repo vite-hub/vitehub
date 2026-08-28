@@ -25,7 +25,6 @@ const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 const nodeBuiltinExternals = [...new Set(builtinModules.flatMap(name => name.startsWith("node:") ? [name] : [name, `node:${name}`]))]
-const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())]
 const BLOB_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const BLOB_ENTRY_NAMES_PRIORITIZED = ["server.blob.ts", "server.blob.mts", "server.blob.js", "server.blob.mjs", ...BLOB_ENTRY_NAMES_DEFAULT] as const
 
@@ -475,6 +474,7 @@ async function createNitroCloudflareCleanup(rootDir: string, hasCurrentContribut
 
 function createVercelOutput(
   artifacts: GeneratedBlobArtifacts,
+  blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
   providerOutput: ProviderOutputCatalog | undefined,
   serverFunctionName?: string,
 ): VercelProviderDeploymentOutput {
@@ -492,7 +492,7 @@ function createVercelOutput(
       },
       conditions: databaseRuntime ? ["vitehub-hosted", "node", "default"] : undefined,
       external: [
-        ...filesSdkProviderPeers,
+        ...getSelectedFilesSdkProviderPeers(blob),
         "files-sdk",
         "files-sdk/akamai",
         "files-sdk/azure",
@@ -518,6 +518,12 @@ function createVercelOutput(
     },
     ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
+}
+
+function getSelectedFilesSdkProviderPeers(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined): string[] {
+  const resolved = resolveBlobConfig(blob, "vercel")
+  const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
+  return [...new Set(stores.flatMap(store => filesSdkDriverPeers[store.driver] ?? []))]
 }
 
 function hasExplicitFsStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
@@ -641,7 +647,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
     rootDir: options.rootDir,
-    vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName) : undefined,
+    vercel: createVercel ? createVercelOutput(artifacts, options.blob, options.providerOutput, options.serverFunctionName) : undefined,
   })
   if (createCloudflare) {
     const r2Buckets = createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))

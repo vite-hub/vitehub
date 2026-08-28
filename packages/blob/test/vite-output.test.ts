@@ -1014,6 +1014,28 @@ describe("Vite provider outputs", () => {
     expect(runtimeContents).toContain("\"name\": \"vitehub-blob\"")
   })
 
+  it("bundles user provider imports that are unrelated to the selected Blob store", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-user-provider-import-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), [
+      'import { BlobServiceClient } from "@azure/storage-blob"',
+      "export default async () => new Response(BlobServiceClient.name)",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      blob: { driver: "vercel-blob", token: "test-token" },
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+    const serverContents = await readFile(join(functionRoot, "index.mjs"), "utf8")
+    expect(serverContents).not.toMatch(/from ["']@azure\/storage-blob["']/)
+    expect(existsSync(join(functionRoot, "node_modules", "@azure", "storage-blob"))).toBe(false)
+  })
+
   it("generates MinIO driver reachability for selected stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
