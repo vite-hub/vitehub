@@ -11,7 +11,7 @@ import ConsoleHome from "../components/console-home.vue";
 import ConsoleKv from "../components/console-kv.vue";
 import { isConsoleSectionId } from "../sections";
 import App from "./app.vue";
-import { requestConsole } from "./request";
+import { createConsoleSectionLoader } from "./sections";
 
 const sectionsBase = "/api/_vitehub/console/sections";
 
@@ -79,17 +79,7 @@ const router = createRouter({
   ],
 });
 
-let installedSections;
-
-async function loadSections() {
-  if (installedSections) return await installedSections;
-  installedSections = requestConsole(sectionsBase)
-    .then((value) =>
-      Array.isArray(value?.sections) ? value.sections.filter(isConsoleSectionId) : [],
-    )
-    .catch(() => undefined);
-  return await installedSections;
-}
+const loadSections = createConsoleSectionLoader(sectionsBase);
 
 router.beforeEach(async (to) => {
   const section = to.meta.consoleSection;
