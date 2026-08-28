@@ -270,11 +270,12 @@ function resolveCodexSharedHome(homePath: unknown, environment: NodeJS.ProcessEn
   return resolve(configured)
 }
 
-async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
+export async function restrictWindowsCodexCredentialHome(home: string, signal?: AbortSignal): Promise<void> {
   const command = Buffer.from(restrictWindowsCodexCredentialHomeScript, "utf16le").toString("base64")
   await new Promise<void>((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command], {
       env: providerEnvironment({ VITEHUB_CODEX_CREDENTIAL_HOME: home }),
+      signal,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     })
@@ -534,7 +535,7 @@ async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeCon
   const home = await mkdtemp(join(tmpdir(), "vitehub-codex-shadow-home-"))
   ownHome(home)
   try {
-    if (providerHostPlatform === "win32") await restrictWindowsCodexCredentialHome(home)
+    if (providerHostPlatform === "win32") await restrictWindowsCodexCredentialHome(home, context.input.abortSignal)
     await chmod(home, 0o700)
     const authPath = join(home, "auth.json")
     await writeFile(authPath, `${JSON.stringify(parsed)}\n`, { mode: 0o600 })

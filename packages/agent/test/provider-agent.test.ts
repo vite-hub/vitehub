@@ -1,5 +1,6 @@
 import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
+import { EventEmitter } from "node:events"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -25,9 +26,19 @@ const beforeCodexHomeCopyFile = vi.hoisted(() => vi.fn())
 const beforeCodexHomeSymlink = vi.hoisted(() => vi.fn())
 const beforeCodexHomeLink = vi.hoisted(() => vi.fn())
 const readCodexHomeStat = vi.hoisted(() => vi.fn())
+const spawnProviderProcess = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>()
+  return {
+    ...original,
+    spawn: (...args: Parameters<typeof original.spawn>) => spawnProviderProcess.getMockImplementation()
+      ? spawnProviderProcess(...args)
+      : original.spawn(...args),
+  }
+})
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>()
   return {
@@ -60,7 +71,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   }
 })
 
-import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
+import { createProviderAgentAdapter, localWorkspaceHost, restrictWindowsCodexCredentialHome } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -148,6 +159,36 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
+  it("passes cancellation to the Windows credential ACL helper", async () => {
+    const child = Object.assign(new EventEmitter(), {
+      stderr: new EventEmitter(),
+      stdout: new EventEmitter(),
+    })
+    spawnProviderProcess.mockImplementation((_command, _args, options) => {
+      const signal = options.signal as AbortSignal
+      signal.addEventListener("abort", () => child.emit("error", signal.reason), { once: true })
+      return child
+    })
+    const controller = new AbortController()
+    const cancelled = new DOMException("cancelled", "AbortError")
+
+    try {
+      const restriction = restrictWindowsCodexCredentialHome("C:\\codex-shadow", controller.signal)
+      await vi.waitFor(() => expect(spawnProviderProcess).toHaveBeenCalledWith(
+        "powershell.exe",
+        expect.any(Array),
+        expect.objectContaining({ signal: controller.signal }),
+      ))
+      controller.abort(cancelled)
+
+      await expect(restriction).rejects.toBe(cancelled)
+    }
+    finally {
+      controller.abort(cancelled)
+      spawnProviderProcess.mockReset()
+    }
+  })
+
   it("passes only host process essentials and explicitly selected environment values", async () => {
     const threadId = "thread-environment"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
