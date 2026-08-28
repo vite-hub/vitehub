@@ -59,6 +59,8 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 
 Add `route.admission.authenticate` when the generated route needs authentication. ViteHub reads the raw body once, verifies the shared UI-message contract, and copies only fields named in `route.input.trust` after authentication.
 
+Agent chat and webhook routes accept at most 1 MiB by default. Set `route.maxBodyBytes` to a smaller limit or raise it as high as 10 MiB for a web chat with larger JSON payloads. ViteHub checks `Content-Length` and the streamed byte count, so chunked requests cannot bypass the limit.
+
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { webChat } from 'vite-hub/agent/channels'
@@ -175,6 +177,21 @@ teams({
 ```
 
 `deliveryKind` is `direct`, `mention`, or `subscribed`. Returning `false` posts no fallback error because the Agent never started.
+
+Set `messages.meta` to a Standard Schema when application-owned Channel metadata must be validated before Capabilities, hooks, or the Driver run. The schema may normalize or add defaults, but its output must be an object. Set `metaRevision` to a stable value and change it whenever the schema contract changes so durable Agent Workflows can reuse parsed metadata across processes. Without a revision, durable execution validates the metadata again. Put both settings on shared Agent message settings or on one Channel to override them for that Channel.
+
+```ts
+import { defineAgent } from 'vite-hub/agent'
+import * as v from 'valibot'
+
+export default defineAgent({
+  driver: { run: ({ context }) => context.get('channel')?.meta },
+  messages: {
+    meta: v.object({ audience: v.optional(v.picklist(['support', 'technical'])) }),
+    metaRevision: '1',
+  },
+})
+```
 
 Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
 

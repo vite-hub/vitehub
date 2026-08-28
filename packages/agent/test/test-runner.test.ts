@@ -124,7 +124,7 @@ describe("agent test runner", () => {
 
     const payload = workflowMock.run.mock.calls.at(-1)?.[0]
     expect(payload).toEqual({
-      input: { prompt: "hello" },
+      input: { context: {}, prompt: "hello" },
       run: { runId: "run-events-1" },
       runtime: "vercel",
       runtimeConfig: { region: "iad" },

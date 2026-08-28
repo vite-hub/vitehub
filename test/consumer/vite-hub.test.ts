@@ -250,6 +250,8 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "overrides:",
     // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    "  \"@nestjs/common\": \"11.2.3\"",
+    "  \"@nestjs/core\": \"11.2.3\"",
     ...overrides,
     "",
   ].join("\n")
@@ -558,7 +560,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
           "nitro>h3": "2.0.1-rc.26",
-          rolldown: "1.1.5",
+          rolldown: "1.2.4",
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
@@ -661,7 +663,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            nuxt: "4.4.8",
+            nuxt: "4.5.2",
+            unplugin: "3.3.0",
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
@@ -672,7 +675,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          rolldown: "1.1.5",
         }), "utf8"),
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
@@ -785,7 +787,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       const specs = await packWorkspacePackages(packDir, new Set([
         "@vite-hub/box",
-        "@vite-hub/history",
         "@vite-hub/markdown-template",
         "@vite-hub/runtime",
         "@vite-hub/source",
@@ -794,9 +795,18 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
           import { createWorkspace } from "@vite-hub/workspace"
-          import type { WorkspacePrepareSessionProgressEvent, WorkspaceSessionHost } from "@vite-hub/workspace"
+          import type {
+            History,
+            HistoryCheckpoint,
+            HistoryCheckpointOptions,
+            WorkspacePrepareSessionProgressEvent,
+            WorkspaceSessionHost,
+          } from "@vite-hub/workspace"
 
           declare const host: WorkspaceSessionHost
+          declare const history: History<HistoryCheckpoint>
+          const checkpointOptions: HistoryCheckpointOptions = { message: "packed consumer" }
+          void history.checkpoint(checkpointOptions)
           const workspace = createWorkspace({ name: "packed-consumer" })
           void workspace.startSession({
             abortSignal: new AbortController().signal,

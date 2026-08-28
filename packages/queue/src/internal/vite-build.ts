@@ -18,7 +18,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const queuePackageName = "@vite-hub/queue"
 const cloudflareQueueWorkerMarker = "vitehub-queue-worker"
@@ -83,7 +83,7 @@ interface GenerateProviderOutputsOptions {
   cloudflareOwnedByNitro?: boolean
   definitions?: DiscoveredQueueDefinition[]
   providerImportAliases?: Record<string, string>
-  providerOutput?: ComposedProviderOutput
+  providerOutput?: ProviderOutputCatalog
   queue: QueueModuleOptions | undefined
   rootDir: string
   serverFunctionName?: string
@@ -291,7 +291,7 @@ export async function createCloudflareQueueConfig(options: CloudflareQueueConfig
 }
 
 function createProviderRuntimeAliases(
-  providerOutput: ComposedProviderOutput | undefined,
+  providerOutput: ProviderOutputCatalog | undefined,
   provider: QueueProvider,
   providerImportAliases: Record<string, string> = {},
 ): Record<string, string> {
@@ -309,7 +309,7 @@ async function copyVercelRuntimePackages(options: Parameters<typeof import("@vit
 
 function createCloudflareOutput(
   artifacts: GeneratedQueueArtifacts,
-  providerOutput: ComposedProviderOutput | undefined,
+  providerOutput: ProviderOutputCatalog | undefined,
   providerImportAliases: Record<string, string> | undefined,
   namePrefix = "",
 ): CloudflareProviderDeploymentOutput {
@@ -446,7 +446,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
 
 function createVercelOutput(
   artifacts: GeneratedQueueArtifacts,
-  providerOutput: ComposedProviderOutput | undefined,
+  providerOutput: ProviderOutputCatalog | undefined,
   providerImportAliases: Record<string, string> | undefined,
   serverFunctionName?: string,
 ): VercelProviderDeploymentOutput {
@@ -499,7 +499,7 @@ async function writeVercelQueueFunctions(
   rootDir: string,
   queue: QueueModuleOptions | undefined,
   artifacts: GeneratedQueueArtifacts,
-  providerOutput: ComposedProviderOutput | undefined,
+  providerOutput: ProviderOutputCatalog | undefined,
   providerImportAliases: Record<string, string> | undefined,
 ) {
   const outputRoot = createDefaultVercelOutputRoot(rootDir)

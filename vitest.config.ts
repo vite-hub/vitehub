@@ -1,9 +1,10 @@
 import { defineConfig } from "vitest/config"
 
+import { testLayerIncludes } from "./test/layers.ts"
+
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["test/**/*.test.ts"],
-    exclude: ["test/output/**", "test/local/**"],
+    include: testLayerIncludes.contracts,
   },
 })

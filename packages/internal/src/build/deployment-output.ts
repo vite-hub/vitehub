@@ -8,10 +8,20 @@ import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProvider
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
-import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
-export { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
+export { composeNitroCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
+export {
+  contributeCloudflareProviderOutput,
+  contributeProviderRuntime,
+  createProviderOutputCatalog,
+  getProviderRuntimeModule,
+  getVercelRuntimePackages,
+  hasProviderRuntimeModule,
+  ProviderOutputCatalog,
+  resetProviderOutputRuntime,
+  useProviderOutputCatalog,
+} from "./provider-output-catalog.ts"
 export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
@@ -98,44 +108,12 @@ export interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions
   vercel?: VercelProviderDeploymentOutput
 }
 
-const composedProviderOutputKey = Symbol.for("vitehub.composedProviderOutput")
 const providerDeploymentOutputWrites = new Map<string, Promise<unknown>>()
 
 async function settleWrites(writes: Array<Promise<void>>): Promise<void> {
   const results = await Promise.allSettled(writes)
   const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
   if (failure) throw failure.reason
-}
-
-export interface ComposedProviderOutput {
-  runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
-  vercelRuntimePackagesByProduct?: Record<string, VercelFunctionRuntimePackage[] | undefined>
-}
-
-export function useComposedProviderOutput(config: object): ComposedProviderOutput {
-  const owner = config as Record<symbol, ComposedProviderOutput | undefined>
-  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {}, vercelRuntimePackagesByProduct: {} }
-}
-
-export function resetComposedProviderOutput(composed: ComposedProviderOutput | undefined): void {
-  if (composed) composed.runtimeModuleFilesByProduct = {}
-  if (composed) composed.vercelRuntimePackagesByProduct = {}
-}
-
-export function registerProviderRuntimeModules(composed: ComposedProviderOutput | undefined, product: string, runtimeModuleFiles: Record<string, string>): void {
-  if (composed) composed.runtimeModuleFilesByProduct[product] = runtimeModuleFiles
-}
-
-export function getProviderRuntimeModule(composed: ComposedProviderOutput | undefined, product: string, provider: string): string | undefined {
-  return composed?.runtimeModuleFilesByProduct[product]?.[provider]
-}
-
-export function registerVercelRuntimePackages(composed: ComposedProviderOutput | undefined, product: string, packages: VercelFunctionRuntimePackage[]): void {
-  if (composed) (composed.vercelRuntimePackagesByProduct ??= {})[product] = packages
-}
-
-export function getVercelRuntimePackages(composed: ComposedProviderOutput | undefined, product: string): VercelFunctionRuntimePackage[] {
-  return composed?.vercelRuntimePackagesByProduct?.[product] ?? []
 }
 
 interface ResolvedClientOutput {

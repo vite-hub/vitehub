@@ -101,6 +101,7 @@ export interface OpenAPIRequestDraft {
   body?: unknown
   cookies: Record<string, string>
   headers: Headers
+  maxResponseBytes?: number
   path: Record<string, unknown>
   query: Record<string, unknown>
   timeout?: number
@@ -110,6 +111,7 @@ export interface OpenAPIRequestPatch {
   body?: unknown
   cookies?: Record<string, string>
   headers?: Headers | OpenAPIHeaders
+  maxResponseBytes?: number
   path?: Record<string, unknown>
   query?: Record<string, unknown>
   timeout?: number
@@ -153,6 +155,7 @@ export interface OpenAPICapabilityOptions<
   cli?: OpenAPIContextValue<false | OpenAPICliOptions | undefined, TRuntimeConfig, Name>
   description?: string
   hooks?: OpenAPIHooks<TRuntimeConfig, Name>
+  maxResponseBytes?: number
   operations: readonly string[]
   responseType?: "json" | "text"
   server?: OpenAPIContextValue<string | URL, TRuntimeConfig, Name>
@@ -252,6 +255,7 @@ async function loadOpenAPIDocument<
   const specUrl = spec instanceof URL ? spec : new URL(spec)
   const result = await executeHttpRequest({
     headers: options.specHeaders,
+    maxResponseBytes: options.maxResponseBytes,
     timeout: options.timeout,
     url: specUrl,
   }, { signal: context.abortSignal })
@@ -434,7 +438,7 @@ async function executeOpenAPIOperation<
 ): Promise<unknown> {
   const rawInput = applyOpenAPIProvidedInput(normalizeRawToolInput(operation, input), openAPIRequestProvidedInput(options))
   const rawUrl = operationTemplateUrl(baseUrl, operation.path)
-  const draft = createOpenAPIRequestDraft(rawInput, options.timeout)
+  const draft = createOpenAPIRequestDraft(rawInput, options.timeout, options.maxResponseBytes)
   await applyOpenAPIRequestHook(options, {
     ...context,
     input: rawInput,
@@ -453,6 +457,7 @@ async function executeOpenAPIOperation<
     body: requestInput.body,
     cookies: Object.keys(draft.cookies).length ? draft.cookies : undefined,
     headers: headersToRecord(draft.headers),
+    maxResponseBytes: draft.maxResponseBytes,
     method: operation.method,
     query: requestInput.query,
     timeout: draft.timeout,
@@ -483,11 +488,16 @@ function openAPIRequestProvidedInput<
   return openAPIRequestOptions(options)?.provides
 }
 
-function createOpenAPIRequestDraft(input: OpenAPIToolInput, timeout: number | undefined): OpenAPIRequestDraft {
+function createOpenAPIRequestDraft(
+  input: OpenAPIToolInput,
+  timeout: number | undefined,
+  maxResponseBytes: number | undefined,
+): OpenAPIRequestDraft {
   return {
     ...(input.body !== undefined ? { body: input.body } : {}),
     cookies: {},
     headers: new Headers(),
+    ...(maxResponseBytes !== undefined ? { maxResponseBytes } : {}),
     path: { ...input.path },
     query: { ...input.query },
     ...(timeout !== undefined ? { timeout } : {}),
@@ -516,6 +526,7 @@ function applyOpenAPIRequestPatch(request: OpenAPIRequestDraft, patch: OpenAPIRe
     const headers = patch.headers instanceof Headers ? patch.headers : new Headers(patch.headers)
     headers.forEach((value, key) => request.headers.set(key, value))
   }
+  if (patch.maxResponseBytes !== undefined) request.maxResponseBytes = patch.maxResponseBytes
   if (patch.timeout !== undefined) request.timeout = patch.timeout
 }
 

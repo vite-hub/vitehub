@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 
 import { hubAgent } from "@vite-hub/agent/vite"
-import { hubAuth } from "@vite-hub/auth/vite"
+import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
@@ -21,14 +21,14 @@ import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
-import { consoleInvocationRootPlugin, consoleVitePlugin } from "./console/vite.ts"
+import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -50,6 +50,8 @@ import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
+export type { ConsoleOptions } from "./console/vite.ts"
+
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 
 const generatedOwnerPackageAccess = {
@@ -63,7 +65,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/database": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
-  "@vite-hub/history": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/queue": true,
@@ -189,7 +190,7 @@ export interface ViteHubOptions {
   blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
   channels?: boolean | ChannelsVitePluginOptions
-  console?: boolean
+  console?: boolean | ConsoleOptions
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -393,11 +394,13 @@ function deploymentPlugins(
     subscribedEnvPlugins.add(plugin)
     plugin.api.onServerEnvRegistry((registry: EnvRuntimeRegistry, config: UserConfig) => {
       if (cloneRecord((config as { vitehub?: unknown }).vitehub).preset !== plan.preset) return
-      registerCloudflareProviderOutput(config, "env", {
+      const providerOutput = useProviderOutputCatalog(config)
+      contributeCloudflareProviderOutput(providerOutput, {
+        owner: "env",
         requiredSecrets: requiredCloudflareSecretNames(registry),
       })
       const viteConfig = config as typeof config & { nitro?: unknown }
-      viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
+      viteConfig.nitro = composeNitroCloudflareProviderOutput(providerOutput, viteConfig.nitro)
     })
   }
   if (envPlugin) subscribeEnvPlugin(envPlugin)
@@ -525,10 +528,12 @@ function deploymentPlugins(
           if (deploymentEnvPlugin.current) {
             subscribeEnvPlugin(deploymentEnvPlugin.current)
             const envConfig = (config as { env?: { server?: Parameters<EnvVitePlugin["api"]["createServerEnvRegistry"]>[0] } }).env
-            registerCloudflareProviderOutput(config, "env", {
+            const providerOutput = useProviderOutputCatalog(config)
+            contributeCloudflareProviderOutput(providerOutput, {
+              owner: "env",
               requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.createServerEnvRegistry(envConfig?.server)),
             })
-            nitro = composeNitroCloudflareProviderOutput(config, nitro)
+            nitro = composeNitroCloudflareProviderOutput(providerOutput, nitro)
           }
         }
         ;(config as { nitro?: unknown }).nitro = nitro
@@ -550,7 +555,7 @@ function deploymentPlugins(
         if (plan.preset !== "cloudflare") return
         if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
           const viteConfig = config as { nitro?: unknown }
-          viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
+          viteConfig.nitro = composeNitroCloudflareProviderOutput(useProviderOutputCatalog(config), viteConfig.nitro)
         }
       },
       configResolved(config) {
@@ -558,7 +563,7 @@ function deploymentPlugins(
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
           if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
           const viteConfig = config as typeof config & { nitro?: unknown }
-          viteConfig.nitro = composeNitroCloudflareProviderOutput(config, viteConfig.nitro)
+          viteConfig.nitro = composeNitroCloudflareProviderOutput(useProviderOutputCatalog(config), viteConfig.nitro)
         }
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
@@ -645,7 +650,17 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   if (options.console) {
-    plugins.push(consoleVitePlugin({ preset: plan.preset }), consoleInvocationRootPlugin())
+    plugins.push(consoleVitePlugin({
+      console: options.console === true ? true : options.console,
+      preset: plan.preset,
+      resolveAuthConfig: options.auth
+        ? (root, serverDirs, auth) => resolveAuthViteConfig(
+            auth ?? (options.auth === true ? undefined : options.auth),
+            root,
+            { serverDirs },
+          )
+        : undefined,
+    }), consoleInvocationRootPlugin())
   }
 
   if (options.auth) {

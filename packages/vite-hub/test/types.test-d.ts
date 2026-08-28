@@ -9,6 +9,7 @@ import { env } from "vite-hub/env"
 import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
+import type { History, HistoryCheckpoint, HistoryCheckpointOptions } from "vite-hub/workspace"
 
 import { defineCollection, table } from "vite-hub/source"
 import type { CollectionItem, CollectionQuery, CollectionRequestQuery } from "vite-hub/source"
@@ -33,12 +34,23 @@ vitehub({ email: { driver: "unemail/driver/resend" }, preset: "node" })
 vitehub({ email: true, preset: "cloudflare" })
 vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
 vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
+vitehub({ console: true, preset: "node" })
+vitehub({ auth: true, console: { access: "auth" }, preset: "node" })
+vitehub({ console: { exposure: "host-managed" }, preset: "node" })
+// @ts-expect-error Production access contracts are mutually exclusive.
+vitehub({ console: { access: "auth", exposure: "host-managed" }, preset: "node" })
+// @ts-expect-error Unknown Console access modes must not silently expose inspection routes.
+vitehub({ console: { access: "public" }, preset: "node" })
 expectTypeOf(defineAgent).toBeFunction()
 expectTypeOf(email).toBeFunction()
 expectTypeOf(env).toBeFunction()
 expectTypeOf(requireRateLimit).toBeFunction()
 expectTypeOf(defineWorkspace).toBeFunction()
 expectTypeOf(defineWorkflow).toBeFunction()
+
+declare const history: History<HistoryCheckpoint>
+const checkpointOptions: HistoryCheckpointOptions = { message: "save draft" }
+expectTypeOf(history.checkpoint(checkpointOptions)).toEqualTypeOf<Promise<HistoryCheckpoint>>()
 
 const { db, schema } = useDatabase("typed")
 const meals = defineCollection({
