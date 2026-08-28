@@ -291,7 +291,7 @@ function sectionObjects(sourceFile: Node) {
   }
 
   collectSections(sourceFile);
-  return sections;
+  return { resolveObjects, sections };
 }
 
 function declarationSection(
@@ -304,10 +304,7 @@ function declarationSection(
   }
 }
 
-function hasBuildMode(call: CallExpression): boolean {
-  const options = call.arguments[0];
-  if (!options || !isObjectLiteralExpression(options)) return false;
-
+function objectHasBuildMode(options: ObjectLiteralExpression): boolean {
   let isBuildMode = false;
   for (const property of options.properties) {
     if (
@@ -323,6 +320,10 @@ function hasBuildMode(call: CallExpression): boolean {
   return isBuildMode;
 }
 
+function hasBuildMode(options: readonly ObjectLiteralExpression[]): boolean {
+  return options.length > 0 && options.every(objectHasBuildMode);
+}
+
 function buildEnvCalls(source: string) {
   const codeBlocks = [...source.matchAll(/^```(?:ts|typescript)[^\n]*\n([\s\S]*?)^```$/gm)].map(
     (match) => match[1] || "",
@@ -330,10 +331,11 @@ function buildEnvCalls(source: string) {
 
   return codeBlocks.flatMap((code) => {
     const { calls, sourceFile } = envCalls(code);
-    const sections = sectionObjects(sourceFile);
+    const { resolveObjects, sections } = sectionObjects(sourceFile);
     return calls.flatMap((call) => {
       const section = declarationSection(call, sections);
-      return section ? [{ call, section }] : [];
+      const argument = call.arguments[0];
+      return section ? [{ call, options: argument ? resolveObjects(argument) : [], section }] : [];
     });
   });
 }
@@ -343,8 +345,8 @@ function fixtureHasBuildMode(options: string) {
 \`\`\`ts
 defineConfig({ env: { public: { value: env(${options}) } } })
 \`\`\`
-  `)[0]?.call;
-  return call ? hasBuildMode(call) : false;
+  `)[0];
+  return call ? hasBuildMode(call.options) : false;
 }
 
 describe("Env documentation", () => {
@@ -381,7 +383,7 @@ const example = "env({ mode: 'runtime' })"
       "public",
       "define",
     ]);
-    expect(calls.every(({ call }) => hasBuildMode(call))).toBe(true);
+    expect(calls.every(({ options }) => hasBuildMode(options))).toBe(true);
   });
 
   it("ignores similarly named Server Env keys", () => {
@@ -449,7 +451,7 @@ defineConfig(config)
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
-    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("follows invoked named configuration factories", () => {
@@ -463,7 +465,7 @@ defineConfig(config())
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
-    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("ignores returns from nested named functions", () => {
@@ -479,7 +481,7 @@ defineConfig(() => {
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
-    expect(hasBuildMode(calls[0]!.call)).toBe(true);
+    expect(hasBuildMode(calls[0]!.options)).toBe(true);
   });
 
   it("follows objects spread into build-backed sections", () => {
@@ -503,7 +505,7 @@ defineConfig({ env: { ...shared } })
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
-    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("follows aliased Vite config helpers", () => {
@@ -515,7 +517,7 @@ viteConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
-    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("follows namespace-imported Vite config helpers", () => {
@@ -527,7 +529,7 @@ vite.defineConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
-    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("resolves configuration objects through lexical bindings", () => {
@@ -543,7 +545,7 @@ function unrelated() {
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
-    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("follows directly exported and TypeScript-wrapped configs", () => {
@@ -562,7 +564,7 @@ defineConfig(({ env: {
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["public", "public", "define"]);
-    expect(calls.every(({ call }) => !hasBuildMode(call))).toBe(true);
+    expect(calls.every(({ options }) => !hasBuildMode(options))).toBe(true);
   });
 
   it("requires the last effective top-level mode to be build", () => {
@@ -581,6 +583,25 @@ defineConfig(({ env: {
     expect(fixtureHasBuildMode("{ [key]: 'runtime', mode: 'build' }")).toBe(true);
   });
 
+  it("resolves declaration options through lexical bindings and TypeScript wrappers", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const buildOptions = { mode: "build" } as const
+const runtimeOptions = { mode: "runtime" } satisfies EnvOptions
+defineConfig({
+  env: {
+    public: {
+      valid: env(buildOptions),
+      invalid: env(runtimeOptions),
+    },
+  },
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, false]);
+  });
+
   it("marks every documented build-backed Env declaration as build-time", async () => {
     const pages = [
       "content/docs/server-primitives/env.md",
@@ -592,8 +613,8 @@ defineConfig(({ env: {
 
     expect(calls.filter(({ section }) => section === "public")).toHaveLength(3);
     expect(calls.filter(({ section }) => section === "define")).toHaveLength(1);
-    for (const { call } of calls) {
-      expect(hasBuildMode(call)).toBe(true);
+    for (const { options } of calls) {
+      expect(hasBuildMode(options)).toBe(true);
     }
   });
 });
