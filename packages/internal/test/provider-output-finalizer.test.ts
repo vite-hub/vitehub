@@ -289,6 +289,45 @@ describe("Provider Output finalizer", () => {
     expect(newerDiscard).toHaveBeenCalledOnce()
   })
 
+  it("preserves fallback artifacts when the selected generation resets during cleanup", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const olderDiscard = vi.fn(async () => undefined)
+    const olderWrite = vi.fn(async () => undefined)
+    let cleanupStarted!: () => void
+    let releaseCleanup!: () => void
+    const started = new Promise<void>(resolve => cleanupStarted = resolve)
+    const olderGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    const newerGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: olderDiscard,
+      owner: "blob",
+      rootDir,
+      write: olderWrite,
+    }, olderGeneration)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: async () => {
+        cleanupStarted()
+        await new Promise<void>(resolve => releaseCleanup = resolve)
+      },
+      owner: "blob",
+      rootDir,
+      write: async () => undefined,
+    }, newerGeneration)
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog, undefined, newerGeneration)
+    releaseCleanup()
+
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    expect(olderDiscard).not.toHaveBeenCalled()
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(olderWrite).toHaveBeenCalledOnce()
+    expect(olderDiscard).toHaveBeenCalledOnce()
+  })
+
   it("rolls back completed roots when a peer root fails", async () => {
     const catalog = createProviderOutputCatalog()
     const firstRoot = await createTempProject()

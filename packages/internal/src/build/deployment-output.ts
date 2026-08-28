@@ -950,7 +950,7 @@ export async function finalizeProviderDeploymentOutputs(
             await settleWrites(roots.map(root => root.write))
           }
           try {
-            await catalog.completeDeploymentContributions(contributions)
+            await catalog.prepareDeploymentContributions(contributions)
             throwIfProviderOutputAborted(controller.signal)
           }
           catch (error) {
@@ -960,6 +960,8 @@ export async function finalizeProviderDeploymentOutputs(
           }
           decideRoots(undefined)
           await settleWrites(roots.map(root => root.write))
+          state.generations.clear()
+          await catalog.completeDeploymentContributions(contributions)
         }
         catch (error) {
           if (state.rollback) catalog.rollbackDeploymentContributions(contributions)

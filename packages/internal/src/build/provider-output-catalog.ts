@@ -87,6 +87,7 @@ export class ProviderOutputCatalog {
   #deploymentGenerations = new Set<ProviderDeploymentOutputGeneration>()
   #takenDeploymentContributions = new Map<ProviderDeploymentOutputContribution, {
     entry: ProviderDeploymentOutputEntry
+    entryDiscarded: boolean
     fallbacks: ProviderDeploymentOutputEntry[]
   }>()
 
@@ -186,6 +187,7 @@ export class ProviderOutputCatalog {
       contributions.push(entry.contribution)
       this.#takenDeploymentContributions.set(entry.contribution, {
         entry,
+        entryDiscarded: false,
         fallbacks: entries.slice(0, -1),
       })
       this.#deploymentContributions.delete(owner)
@@ -197,13 +199,28 @@ export class ProviderOutputCatalog {
     return this.#takenDeploymentContributions.get(contribution)?.entry.generation
   }
 
+  async prepareDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): Promise<void> {
+    const discarded: Array<Promise<void>> = []
+    for (const contribution of contributions) {
+      const taken = this.#takenDeploymentContributions.get(contribution)
+      if (!taken || taken.entryDiscarded || !taken.entry.contribution.discard) continue
+      discarded.push(taken.entry.contribution.discard().then(() => {
+        if (this.#takenDeploymentContributions.get(contribution) === taken) taken.entryDiscarded = true
+      }))
+    }
+    const results = await Promise.allSettled(discarded)
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+    if (failure) throw failure.reason
+  }
+
   async completeDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): Promise<void> {
     const discarded: Array<Promise<void>> = []
     for (const contribution of contributions) {
       const taken = this.#takenDeploymentContributions.get(contribution)
       if (!taken) continue
       this.#takenDeploymentContributions.delete(contribution)
-      for (const entry of [...taken.fallbacks, taken.entry]) {
+      const entries = taken.entryDiscarded ? taken.fallbacks : [...taken.fallbacks, taken.entry]
+      for (const entry of entries) {
         if (entry.contribution.discard) discarded.push(entry.contribution.discard())
       }
     }
