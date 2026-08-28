@@ -527,6 +527,35 @@ describe("framework generated types", () => {
     })).rejects.toThrow('must export a Comark Content instance named "content"')
   })
 
+  it("preserves generated Collection artifacts when Content discovery fails", async () => {
+    const { root } = await createNestedProject()
+    const collectionsDirectory = join(root, "server/collections")
+    await mkdir(collectionsDirectory, { recursive: true })
+    await Promise.all([
+      writeFile(join(collectionsDirectory, "meals.ts"), collectionModule("meals")),
+      writeFile(join(root, "server/content.ts"), contentModule()),
+    ])
+
+    await sourcePlugin().api.prepareSources({ projectRoot: root })
+    const collectionRoute = join(root, ".vitehub/source/routes/meals.mjs")
+    const collectionTypes = join(root, ".vitehub/types/source/collections.d.ts")
+    const [routeBeforeFailure, typesBeforeFailure] = await Promise.all([
+      readFile(collectionRoute, "utf8"),
+      readFile(collectionTypes, "utf8"),
+    ])
+
+    await Promise.all([
+      rm(join(collectionsDirectory, "meals.ts")),
+      writeFile(join(root, "server/content.ts"), "export const other = {}\n"),
+    ])
+    await expect(sourcePlugin().api.prepareSources({ projectRoot: root })).rejects.toThrow(
+      'must export a Comark Content instance named "content"',
+    )
+
+    await expect(readFile(collectionRoute, "utf8")).resolves.toBe(routeBeforeFailure)
+    await expect(readFile(collectionTypes, "utf8")).resolves.toBe(typesBeforeFailure)
+  })
+
   it("rejects a manual route that bypasses generated Content serving", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server"), { recursive: true })

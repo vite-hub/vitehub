@@ -206,8 +206,10 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
   await writeFile(path, contents, "utf8")
 }
 
-async function writeCollectionArtifacts(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
-  const collections = await discoverCollections(options)
+async function writeCollectionArtifacts(
+  options: SourceGenerationOptions,
+  collections: DiscoveredCollection[],
+): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, collectionTypesEntry)
   const packageOutput = resolve(options.projectRoot, collectionTypesPackageEntry)
   await rm(resolve(options.projectRoot, legacyCollectionTypesEntry), { force: true })
@@ -278,9 +280,11 @@ async function discoverContent(options: SourceGenerationOptions): Promise<string
   return file
 }
 
-async function writeContentArtifact(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
+async function writeContentArtifact(
+  options: SourceGenerationOptions,
+  file: string | undefined,
+): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, contentRouteEntry)
-  const file = await discoverContent(options)
   if (!file) {
     await rm(output, { force: true })
     return []
@@ -296,9 +300,13 @@ async function writeContentArtifact(options: SourceGenerationOptions): Promise<G
 }
 
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
+  const [collections, content] = await Promise.all([
+    discoverCollections(options),
+    discoverContent(options),
+  ])
   return [
-    ...await writeCollectionArtifacts(options),
-    ...await writeContentArtifact(options),
+    ...await writeCollectionArtifacts(options, collections),
+    ...await writeContentArtifact(options, content),
   ].sort((left, right) => left.route.localeCompare(right.route))
 }
 
