@@ -400,6 +400,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     },
     configureServer(server) {
       const root = projectRoot
+      let activeHandlerKey = configuredHandlerKey
       const effectiveServerDirs = serverDirs === undefined
         ? root ? [resolve(root, "server")] : []
         : root ? serverDirs.map(directory => resolve(root, directory)) : []
@@ -436,7 +437,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           if (serverClosed) return
           const handlerKey = await generatedHandlerKey(handlers)
           if (serverClosed) return
-          if (handlerKey === configuredHandlerKey) return
+          if (handlerKey === activeHandlerKey) return
           const listeners = [...generatedHandlersListeners]
           const passiveListeners = listeners.filter(([, listenerOptions]) =>
             !listenerOptions.handlesHostRestart,
@@ -476,7 +477,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
               return
             }
           }
-          configuredHandlerKey = handlerKey
+          activeHandlerKey = handlerKey
           clearHostRefreshRetry()
           hostRefreshRetryDelay = initialHostRefreshRetryDelay
         })

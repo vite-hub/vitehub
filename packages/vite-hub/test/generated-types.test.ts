@@ -1045,6 +1045,48 @@ describe("framework generated types", () => {
     expect(oldRestart).not.toHaveBeenCalled()
   })
 
+  it("keeps the replacement Source handler key when an old Vite restart finishes later", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "server/collections/meals.ts")
+    const drinks = join(root, "server/collections/drinks.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    let finishOldRestart: (() => void) | undefined
+    const oldRestartFinished = new Promise<void>((resolve) => {
+      finishOldRestart = resolve
+    })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(() => oldRestartFinished)
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await rm(meals)
+    const oldRefresh = oldListeners.get("unlink")?.(meals)
+    await vi.waitFor(() => expect(oldRestart).toHaveBeenCalledOnce())
+
+    await writeFile(drinks, collectionModule("drinks"))
+    await config(plugin)({ root })
+    const replacementListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const replacementRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: replacementRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => replacementListeners.set(event, callback) },
+    })
+
+    finishOldRestart?.()
+    await oldRefresh
+    await rm(drinks)
+    await replacementListeners.get("unlink")?.(drinks)
+
+    expect(replacementRestart).toHaveBeenCalledOnce()
+  })
+
   it("watches custom Source directories and recovers after refresh errors", async () => {
     const { root, viteRoot } = await createNestedProject()
     const serverDir = join(root, "api")
