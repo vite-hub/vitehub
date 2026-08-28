@@ -110,9 +110,10 @@ async function resolveMcpClient<
 >(
   server: McpServerConfig<TRuntimeConfig, Name>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-): Promise<{ client: McpClient, metadata: unknown, owned: boolean }> {
+): Promise<{ client: McpClient, metadata: unknown, owned: boolean } | undefined> {
   const owned = typeof server === "function"
   const resolved = owned ? await server(context) : server
+  if (resolved === false || resolved === null || resolved === undefined) return
   if (isMcpClient(resolved)) {
     return {
       client: resolved,
@@ -150,7 +151,9 @@ export function mcp<
       const clients: McpClient[] = []
       clientsByContext.set(context, clients)
       for (const [serverName, server] of Object.entries(options.servers)) {
-        const { client, metadata, owned } = await resolveMcpClient(server, context)
+        const resolved = await resolveMcpClient(server, context)
+        if (!resolved) continue
+        const { client, metadata, owned } = resolved
         if (owned) clients.push(client)
         const serverTools = await client.tools()
         if (options.integrity && Object.hasOwn(options.integrity, serverName)) {

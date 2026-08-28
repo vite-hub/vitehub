@@ -844,6 +844,16 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
+  it("does not persist assignments from background commands", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: latest\njobs:\n  test:\n    steps:\n      - run: export VERSION=1.2.3 & npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
   it("inspects commands delegated through xargs", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: printf 'arg\\n' | xargs npx unpinned\n",

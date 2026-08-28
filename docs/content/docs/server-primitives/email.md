@@ -5,7 +5,7 @@ navigation.order: 14
 icon: i-lucide-mail
 ---
 
-Use Email to send transactional messages from server code through any Unemail driver. ViteHub configures the driver, normalizes delivery errors, renders trusted Markdown templates, and provides an in-memory test client.
+Use Email to send transactional messages from server code through ViteHub's Resend or Cloudflare Email drivers, or through a custom programmatic driver. ViteHub configures the driver, normalizes delivery errors, renders trusted Markdown templates, and provides an in-memory test client.
 
 ## Before you begin
 
@@ -26,7 +26,7 @@ The quick start takes about ten minutes and sends a real message through Resend.
 pnpm add vite-hub
 ```
 
-`vite-hub` includes Email runtime support and composes providers from Unemail.
+`vite-hub` includes the Email runtime plus built-in Resend and Cloudflare Email drivers.
 
 ### Configure Resend
 
@@ -39,7 +39,7 @@ export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
     email: {
-      driver: 'unemail/driver/resend',
+      driver: 'resend',
       options: {
         apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
       },
@@ -48,7 +48,7 @@ export default defineConfig({
 })
 ```
 
-The driver subpath selects the upstream Unemail provider. The Env declaration is serialized, but its source value is resolved in the server runtime for every send, so the API key stays out of build output and request-scoped Cloudflare secrets stay current. Literal options and non-secret Env defaults are serialized into the build; never use literal options for credentials, and ViteHub rejects defaults on declarations marked secret.
+The stable driver name selects a ViteHub-owned provider implementation. The Env declaration is serialized, but its source value is resolved in the server runtime for every send, so the API key stays out of build output and request-scoped Cloudflare secrets stay current. Literal options and non-secret Env defaults are serialized into the build; never use literal options for credentials, and ViteHub rejects defaults on declarations marked secret.
 
 ### Provide the Resend secret
 
@@ -97,13 +97,13 @@ Resend supplies `id`. Confirm delivery in the recipient inbox or the provider's 
 
 | Surface | Use it when |
 | --- | --- |
-| `email.send(message)` | A Vite app configures one Unemail provider through `vitehub({ email: { driver, options } })`. |
+| `email.send(message)` | A Vite app configures one built-in provider through `vitehub({ email: { driver, options } })`. |
 | `createEmail({ driver })` | Low-level integrations that do not use Vite create and own a client explicitly. |
 | `createTestEmail()` | A test needs deterministic in-memory capture without delivery. |
 
 ## Public imports
 
-Use the `vite-hub` paths for framework APIs. Select providers through an `unemail/driver/*` subpath string in Vite config.
+Use the `vite-hub` paths for framework APIs. Select `resend` or `cloudflare-email` in Vite config.
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ Use the `vite-hub` paths for framework APIs. Select providers through an `unemai
 | `vite-hub/runtime` | `ViteHubError`, `getViteHubErrorShape` | Shared operational error contract. |
 | `vite-hub/email/server` | `email` | None |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
-| `unemail/driver/*` | Provider drivers | Provider options and capabilities are owned by Unemail. |
+| `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail` | `EmailVitePluginOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 
@@ -120,7 +120,7 @@ The direct `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/mar
 
 ## Message contract
 
-`email.send()` and explicit clients accept Unemail's `EmailMessage`.
+`email.send()` and explicit clients accept ViteHub's portable `EmailMessage`.
 
 | Field | Type | Required | Behavior |
 | --- | --- | --- | --- |
@@ -132,16 +132,16 @@ The direct `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/mar
 | `headers` | `Record<string, string>` | No | Custom headers supported by the active driver. |
 | `attachments` | `readonly EmailAttachment[]` | No | In-memory string or `Uint8Array` content with a non-empty filename. |
 
-`EmailAttachment` also accepts optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` includes Unemail's scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields.
+`EmailAttachment` also accepts optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` retains scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields. Built-in drivers forward only the fields their provider supports.
 
-The active Unemail driver owns field support, validation, address rules, message limits, and sender authorization. Check its `flags` and provider documentation before using optional fields.
+The active driver owns field support, validation, address rules, message limits, and sender authorization. Check the ViteHub driver reference and provider documentation before using optional fields.
 
 Every successful send returns `Promise<EmailSendResult>`:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | `string` | The non-empty message ID returned by the driver. |
-| `driver` | `string` | The Unemail driver that accepted the message. |
+| `driver` | `string` | The provider driver that accepted the message. |
 
 ## Compose dynamic Markdown
 
@@ -222,11 +222,11 @@ export async function sendWelcome(name: string, to: string) {
 
 ## Provider behavior for Resend
 
-Use the quick-start `vitehub({ email: { driver: 'unemail/driver/resend', options } })` configuration. A successful result has `driver: 'resend'`. ViteHub maps Unemail errors to `EMAIL_*` codes and keeps the original error in `cause`.
+Use the quick-start `vitehub({ email: { driver: 'resend', options } })` configuration. A successful result has `driver: 'resend'`. ViteHub maps provider errors to `EMAIL_*` codes and keeps the original error in `cause`.
 
 ## Configure another provider
 
-Set `email.driver` to another `unemail/driver/*` subpath and declare its serializable options in the same Vite config. Keep credentials in Server Env or the deployment platform's secret store, and pass them as Env declarations without defaults. When Unemail does not support a provider, add the driver upstream with its `defineDriver()` contract so every consumer benefits instead of adding a ViteHub-only adapter.
+Set `email.driver` to `resend` or `cloudflare-email` and declare its serializable options in the same Vite config. Keep credentials in Server Env or the deployment platform's secret store, and pass them as Env declarations without defaults. For another provider, implement the exported `EmailDriver` interface and pass it to `createEmail()`.
 
 ## Test without delivery
 
@@ -261,7 +261,7 @@ Use `createMemoryEmailDriver()` when another client or test harness needs to man
 
 ## Handle delivery errors
 
-Use the `EMAIL_*` code for control flow and `details.driver` to identify the failing adapter. ViteHub keeps the original Unemail error in `cause` while exposing a safe public message.
+Use the `EMAIL_*` code for control flow and `details.driver` to identify the failing adapter. ViteHub keeps the original provider error in `cause` while exposing a safe public message.
 
 ```ts [server/send.ts]
 import { getViteHubErrorShape } from 'vite-hub/runtime'
@@ -289,14 +289,14 @@ Inspect `cause` only in protected server-side diagnostics because provider error
 
 | Code | Produced by | Meaning | Retry guidance |
 | --- | --- | --- | --- |
-| `EMAIL_NOT_CONFIGURED` | Runtime configuration or Unemail `INVALID_OPTIONS` | The provider or required driver options are missing. | Fix configuration; do not retry unchanged. |
-| `EMAIL_AUTHENTICATION` | Unemail `AUTH` | Delivery credentials were rejected. | Fix credentials before retrying. |
-| `EMAIL_RATE_LIMITED` | Unemail `RATE_LIMIT` | The provider reported throttling. | Apply an application-owned retry policy. |
-| `EMAIL_TIMEOUT` | Unemail `TIMEOUT` | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
-| `EMAIL_NETWORK` | Unemail `NETWORK` | The driver could not reach its provider. | Treat the outcome as uncertain before retrying. |
-| `EMAIL_PROVIDER_FAILED` | Unemail `PROVIDER`, `UNSUPPORTED`, or `CANCELLED`; invalid success results | Delivery failed outside a more specific category. | Inspect protected diagnostics and provider delivery logs. |
+| `EMAIL_NOT_CONFIGURED` | Runtime configuration or driver `INVALID_OPTIONS` | The provider or required driver options are missing. | Fix configuration; do not retry unchanged. |
+| `EMAIL_AUTHENTICATION` | Driver `AUTH` | Delivery credentials were rejected. | Fix credentials before retrying. |
+| `EMAIL_RATE_LIMITED` | Driver `RATE_LIMIT` | The provider reported throttling. | Apply an application-owned retry policy. |
+| `EMAIL_TIMEOUT` | Driver `TIMEOUT` | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
+| `EMAIL_NETWORK` | Driver `NETWORK` | The driver could not reach its provider. | Treat the outcome as uncertain before retrying. |
+| `EMAIL_PROVIDER_FAILED` | Driver `PROVIDER`, `UNSUPPORTED`, or `CANCELLED`; invalid success results | Delivery failed outside a more specific category. | Inspect protected diagnostics and provider delivery logs. |
 
-Provider-specific classification and retry metadata come from Unemail. ViteHub only maps its stable generic codes and validates that a successful result includes a non-empty message ID.
+Provider-specific classification and retry metadata come from the active driver. ViteHub maps its stable generic codes and validates that a successful result includes a non-empty message ID.
 
 The package does not retry automatically. A timeout or disconnected response can occur after a provider accepted the message, so a blind retry can send a duplicate. Put retry and idempotency policy in Queue, Workflow, or the provider adapter that has enough information to make that decision.
 
@@ -313,7 +313,7 @@ export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
     email: {
-      driver: 'unemail/driver/resend',
+      driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
     },
   })],
@@ -322,10 +322,10 @@ export default defineConfig({
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |
-| `driver` | `` `unemail/driver/${string}` `` | Required | Selects one upstream Unemail driver through its exact package subpath. |
+| `driver` | `'resend' \| 'cloudflare-email'` | Required | Selects a built-in ViteHub Email driver. |
 | `options` | `EnvRuntimeConfigOptions` | `{}` | Supplies serializable non-secret literals and runtime Env declarations. Env source values resolve in the server runtime for every send; literals and non-secret defaults are included in build output, while defaults on secret declarations are rejected. |
 
-The integration serializes the driver subpath, literal options, and Env declarations into a server-only generated module. Credential values remain in the runtime environment when they are supplied through an Env source without a default.
+The integration serializes the driver name, literal options, and Env declarations into a server-only generated module. Credential values remain in the runtime environment when they are supplied through an Env source without a default.
 
 ## Troubleshoot common failures
 
@@ -341,9 +341,9 @@ Read the `EMAIL_*` code first. For `EMAIL_AUTHENTICATION`, verify the provider c
 
 - `vite-hub/email` requires Node.js 24.15 or later. The direct `@vite-hub/email` package requires Node.js 24 or later.
 - Email provider configuration requires Vite 8 or later; explicit `createEmail()` clients do not require Vite.
-- Provider runtime support comes from the selected Unemail driver.
+- Provider runtime support comes from the selected built-in or custom ViteHub driver.
 
-ViteHub does not independently certify provider behavior. ViteHub owns provider composition, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior; Queue, Workflow, and Schedule remain the orchestration layer.
+ViteHub owns the portable driver contract, the built-in Resend and Cloudflare Email transports, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Queue, Workflow, and Schedule remain the orchestration layer.
 
 ## Expose Email to an Agent
 

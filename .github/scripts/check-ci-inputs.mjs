@@ -356,7 +356,8 @@ function runsInChildShell(tokens, commandIndex) {
   }
   for (let index = commandIndex + 1; index < tokens.length; index++) {
     if (tokens[index] === "|") return true
-    if (tokens[index] === ";" || tokens[index] === "&" || tokens[index] === "&&" || tokens[index] === "||") return false
+    if (tokens[index] === "&") return true
+    if (tokens[index] === ";" || tokens[index] === "&&" || tokens[index] === "||") return false
   }
   return false
 }

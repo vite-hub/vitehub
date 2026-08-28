@@ -85,10 +85,6 @@ catalogs:
     effect:
       specifier: 4.0.0-beta.99
       version: 4.0.0-beta.99
-  email:
-    unemail:
-      specifier: 0.5.0
-      version: 0.5.0
   esbuild-v27:
     esbuild:
       specifier: ^0.27.7
@@ -381,7 +377,7 @@ catalogs:
       specifier: ^1.38.7
       version: 1.38.7
     minimatch:
-      specifier: ^10.2.5
+      specifier: ^10.2.6
       version: 10.2.6
     mountx:
       specifier: 0.0.2
@@ -583,6 +579,9 @@ importers:
       nuxt-schema-org:
         specifier: catalog:nuxt
         version: 6.3.0(f32e2ef3e44ee3f96bd6769623ef216e)
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.0
     devDependencies:
       '@iconify-json/lucide':
         specifier: catalog:ui
@@ -1094,9 +1093,6 @@ importers:
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1
-      unemail:
-        specifier: catalog:email
-        version: 0.5.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -3251,11 +3247,9 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -12346,7 +12340,6 @@ packages:
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
-    deprecated: Use your platform's native DOMException instead
 
   node-emoji@2.2.0:
     resolution: {integrity: sha512-Z3lTE9pLaJF47NyMhd4ww1yFTAP8YhYI8SleJiHzM46Fgpm5cnNzSl9XfzFNqbaz+VlJrIj3fXQ4DeN1Rjm6cw==}
@@ -13134,7 +13127,6 @@ packages:
   prebuild-install@7.1.3:
     resolution: {integrity: sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug==}
     engines: {node: '>=10'}
-    deprecated: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
     hasBin: true
 
   prelude-ls@1.2.1:
@@ -14266,10 +14258,6 @@ packages:
   undici@8.9.0:
     resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
     engines: {node: '>=22.19.0'}
-
-  unemail@0.5.0:
-    resolution: {integrity: sha512-pTzgIYsCzYULYk1uoFEYL4GLQl9mCYLUQSZUvAt3DOBzR/QxoTkcDVB2qlvtY/80pOFU+KFQRlcT2NFjaAoz/g==}
-    engines: {node: '>=20.11.1'}
 
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
@@ -32890,8 +32878,6 @@ snapshots:
   undici@8.10.0: {}
 
   undici@8.9.0: {}
-
-  unemail@0.5.0: {}
 
   unenv@2.0.0-rc.24:
     dependencies:
