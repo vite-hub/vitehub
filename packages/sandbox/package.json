@@ -76,7 +76,8 @@
     "scule": "catalog:unjs",
     "typescript": "catalog:tooling",
     "ufo": "catalog:unjs",
-    "unimport": "catalog:unjs"
+    "unimport": "catalog:unjs",
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",

@@ -257,7 +257,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
     expect(nuxt.options.vite.root).toBe(nuxt.options.rootDir)
-    expect(nuxt.options.vite.__vitehubProjectRoot).toBe(nuxt.options.rootDir)
+    expect((nuxt.options.vite as Record<string, unknown>).__vitehubProjectRoot).toBe(nuxt.options.rootDir)
   })
 
   it("loads colocated Markdown templates through Nitro Rollup", async () => {

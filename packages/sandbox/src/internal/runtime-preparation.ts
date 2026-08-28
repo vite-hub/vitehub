@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
@@ -213,10 +213,17 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
   return aliases
 }
 
-async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, facadeContents: string) {
+async function writeSandboxArtifacts(
+  rootDir: string,
+  plan: FeatureRuntimePlan,
+  createFacadeContents: (file: string, registryFile: string) => string,
+) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
   const generationsDir = resolve(generatedDir, '.runtime-generations')
   await mkdir(generationsDir, { recursive: true })
+  const existingGenerations = (await readdir(generationsDir))
+    .filter(entry => entry.startsWith('runtime-'))
+    .sort()
   const generationDir = await mkdtemp(resolve(generationsDir, 'runtime-'))
   const runtimeDir = resolve(generatedDir, 'runtime')
   const stagedLink = resolve(generatedDir, `.runtime-link-${generationDir.slice(generationsDir.length + 1)}`)
@@ -242,36 +249,59 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
       const relativePath = artifact.dst.slice(runtimeDir.length + 1)
       await writeFileIfChanged(resolve(generationDir, relativePath), artifact.contents)
     }
-    await writeFileIfChanged(resolve(generationDir, 'sandbox.mjs'), facadeContents)
-    await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(process.platform))
-
-    try {
-      await rename(stagedLink, runtimeDir)
+    const generationFacadeFile = resolve(generationDir, 'sandbox.mjs')
+    const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
+    if (!registryArtifact)
+      throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
+    const generationRegistryFile = resolve(generationDir, registryArtifact.dst.slice(runtimeDir.length + 1))
+    await writeFileIfChanged(generationFacadeFile, createFacadeContents(generationFacadeFile, generationRegistryFile))
+    if (process.platform === 'win32') {
+      await mkdir(runtimeDir, { recursive: true })
+      if (typeTemplate) {
+        const relativePath = typeTemplate.filename.replace(/^runtime\//, '')
+        await copyFile(resolve(generationDir, relativePath), resolve(runtimeDir, relativePath))
+      }
+      for (const artifact of emitted.values()) {
+        const relativePath = artifact.dst.slice(runtimeDir.length + 1)
+        await mkdir(resolve(artifact.dst, '..'), { recursive: true })
+        await copyFile(resolve(generationDir, relativePath), artifact.dst)
+      }
+      const stagedFacade = resolve(generatedDir, `.runtime-facade-${generationDir.slice(generationsDir.length + 1)}.mjs`)
+      await copyFile(generationFacadeFile, stagedFacade)
+      await rename(stagedFacade, resolve(runtimeDir, 'sandbox.mjs'))
       activated = true
     }
-    catch (error) {
-      const code = readNodeErrorCode(error)
-      if (code !== 'EEXIST' && code !== 'EISDIR' && code !== 'ENOTEMPTY')
-        throw error
+    else {
+      await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(process.platform))
 
-      await rename(runtimeDir, legacyRuntimeDir)
       try {
         await rename(stagedLink, runtimeDir)
         activated = true
       }
-      catch (activationError) {
+      catch (error) {
+        const code = readNodeErrorCode(error)
+        if (code !== 'EEXIST' && code !== 'EISDIR' && code !== 'ENOTEMPTY')
+          throw error
+
+        await rename(runtimeDir, legacyRuntimeDir)
         try {
-          await rename(legacyRuntimeDir, runtimeDir)
+          await rename(stagedLink, runtimeDir)
+          activated = true
         }
-        catch (rollbackError) {
-          throw new AggregateError(
-            [activationError, rollbackError],
-            `[vitehub] Sandbox runtime activation failed; the previous runtime is retained at ${legacyRuntimeDir}.`,
-          )
+        catch (activationError) {
+          try {
+            await rename(legacyRuntimeDir, runtimeDir)
+          }
+          catch (rollbackError) {
+            throw new AggregateError(
+              [activationError, rollbackError],
+              `[vitehub] Sandbox runtime activation failed; the previous runtime is retained at ${legacyRuntimeDir}.`,
+            )
+          }
+          throw activationError
         }
-        throw activationError
+        await pruneSandboxRuntimeGeneration(legacyRuntimeDir)
       }
-      await pruneSandboxRuntimeGeneration(legacyRuntimeDir)
     }
   }
   finally {
@@ -280,7 +310,14 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan, 
       await rm(generationDir, { recursive: true, force: true })
   }
 
-  const retained = new Set([generationDir, previousGeneration && resolve(generatedDir, previousGeneration)].filter(Boolean))
+  const previousWindowsGeneration = process.platform === 'win32' && existingGenerations.length
+    ? resolve(generationsDir, existingGenerations.at(-1)!)
+    : undefined
+  const retained = new Set([
+    generationDir,
+    previousGeneration && resolve(generatedDir, previousGeneration),
+    previousWindowsGeneration,
+  ].filter(Boolean))
   for (const entry of await readdir(generationsDir)) {
     const path = resolve(generationsDir, entry)
     if (!retained.has(path))
@@ -357,11 +394,7 @@ export async function prepareSandboxRuntime(options: {
   const emitted = await writeSandboxArtifacts(
     rootDir,
     plan,
-    createSandboxRuntimeFacadeContents(
-      facadeFile,
-      context.runtimeConfig.sandbox,
-      aliases[SANDBOX_REGISTRY_ID]!,
-    ),
+    (file, registryFile) => createSandboxRuntimeFacadeContents(file, context.runtimeConfig.sandbox, registryFile),
   )
   return {
     aliases,

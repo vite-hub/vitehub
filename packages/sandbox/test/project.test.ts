@@ -64,6 +64,22 @@ describe("resolveSandboxProject", () => {
     expect(project.files["patches/kleur.patch"]).toMatchObject({ encoding: "base64" })
   })
 
+  it("includes pnpm patch files from an inline workspace map", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandboxes/task")
+    await mkdir(join(root, "patches"), { recursive: true })
+    await mkdir(sandbox, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.33.0", private: true }))
+    await writeFile(join(root, "patches/kleur.patch"), "patched dependency\n")
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['sandboxes/*']\npatchedDependencies: { 'kleur@4.1.5': patches/kleur.patch }\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({ name: "task", private: true, type: "module" }))
+    await writeFile(join(sandbox, "index.ts"), "export default null\n")
+
+    const project = await resolveSandboxProject(join(sandbox, "index.ts"), root)
+
+    expect(project.files["patches/kleur.patch"]).toMatchObject({ encoding: "base64" })
+  })
+
   it("reads timeout from package metadata for executable entries", async () => {
     const root = await createRoot()
     const entry = join(root, "index.ts")

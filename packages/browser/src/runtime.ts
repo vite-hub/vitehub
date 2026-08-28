@@ -208,14 +208,15 @@ let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
 function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
   if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
+  const configuredLoader = loadCloudflarePlaywright
   configuredClient = createBrowser({
     provider: createCloudflareBrowser(
       {
         binding: runtimeConfig.binding,
         engine: runtimeConfig.engine,
       },
-      loadCloudflarePlaywright
-        ? async () => await loadCloudflarePlaywright!() as unknown as CloudflarePlaywrightDriver
+      configuredLoader
+        ? async () => await configuredLoader() as unknown as CloudflarePlaywrightDriver
         : () => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"),
     ),
   })

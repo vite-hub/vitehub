@@ -6,7 +6,7 @@ import {
 } from "../src/internal/runtime-generation.ts"
 
 describe("Sandbox runtime preparation", () => {
-  it("uses junctions for Windows runtime activation", () => {
+  it("uses directory links only where they can be replaced atomically", () => {
     expect(resolveSandboxRuntimeLinkType("win32")).toBe("junction")
     expect(resolveSandboxRuntimeLinkType("linux")).toBe("dir")
   })

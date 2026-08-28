@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { glob, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, matchesGlob, relative, resolve } from 'node:path'
+import { parse as parseYaml } from 'yaml'
 import type { SandboxProjectOptions } from './module-types'
 
 export type SandboxPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
@@ -152,23 +153,10 @@ function pnpmPatchPaths(manifest: PackageManifest) {
 }
 
 export function parsePnpmWorkspacePatchPaths(source: string) {
-  const paths: string[] = []
-  let sectionIndent: number | undefined
-  for (const line of source.split(/\r?\n/)) {
-    if (sectionIndent === undefined) {
-      const match = /^(\s*)patchedDependencies\s*:\s*(?:#.*)?$/.exec(line)
-      if (match) sectionIndent = match[1].length
-      continue
-    }
-    if (!line.trim() || /^\s*#/.test(line)) continue
-    const indent = /^\s*/.exec(line)?.[0].length || 0
-    if (indent <= sectionIndent) break
-    const value = /^\s*(?:['"][^'"]+['"]|[^:]+):\s*(.+?)\s*$/.exec(line)?.[1]
-    if (!value) continue
-    const path = value.replace(/\s+#.*$/, '').trim().replace(/^(['"])(.*)\1$/, '$2')
-    if (path) paths.push(path)
-  }
-  return paths
+  const workspace = parseYaml(source) as { patchedDependencies?: unknown } | null
+  if (!workspace || !isPlainObject(workspace.patchedDependencies)) return []
+  return Object.values(workspace.patchedDependencies)
+    .filter((value): value is string => typeof value === 'string')
 }
 
 export function parsePnpmWorkspacePackages(source: string) {
