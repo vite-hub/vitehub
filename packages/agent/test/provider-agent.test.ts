@@ -5,6 +5,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
+import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 
@@ -2472,6 +2473,38 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       finishStartup?.()
       vi.useRealTimers()
       await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("releases provider resources when Capability tool-server startup stalls after abort", async () => {
+    const threadId = "thread-cancel-tool-server-startup"
+    const provider = runtime(threadId, [])
+    const controller = new AbortController()
+    let finishConnect!: () => void
+    const connect = vi.spyOn(McpServer.prototype, "connect").mockImplementationOnce(() => new Promise<void>(resolve => finishConnect = resolve))
+    const close = vi.spyOn(McpServer.prototype, "close")
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const result = Promise.resolve(adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+      tools: { search: { execute: vi.fn(), name: "search" } },
+    }) as never))
+    const settled = vi.fn()
+    void result.then(settled, settled)
+
+    try {
+      await vi.waitFor(() => expect(connect).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+      await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce())
+      await expect(result).rejects.toBe("cancelled")
+      expect(provider.close).toHaveBeenCalledOnce()
+
+      finishConnect()
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+    }
+    finally {
+      finishConnect?.()
+      connect.mockRestore()
+      close.mockRestore()
     }
   })
 

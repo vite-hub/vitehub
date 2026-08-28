@@ -1449,7 +1449,14 @@ async function* runProvider<
       finalizeLateRuntimeCreation,
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds)
+    if (Object.keys(context.tools || {}).length) {
+      toolServer = await waitForProviderOperation(
+        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        effectiveSignal,
+        lateToolServer => lateToolServer.close(),
+        observeLateCleanup,
+      )
+    }
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
