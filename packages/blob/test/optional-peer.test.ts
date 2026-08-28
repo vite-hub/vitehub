@@ -93,6 +93,14 @@ describe("optional peer imports", () => {
     expect(attempts).toBe(1)
   })
 
+  it("rejects immediately when a bailed Vercel request stays pending", async () => {
+    const error = new Error("stop")
+    await expect(retry((bail) => {
+      bail(error)
+      return new Promise(() => {})
+    }, { minTimeout: 0, retries: 2 })).rejects.toBe(error)
+  })
+
   it("does not retry when Vercel supplies an invalid retry count", async () => {
     const error = new Error("invalid retries")
     let attempts = 0

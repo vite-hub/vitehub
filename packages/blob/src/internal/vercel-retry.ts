@@ -37,11 +37,15 @@ export default async function retry<T>(
 
   for (let attempt = 1; ; attempt++) {
     let bailError: unknown
+    let rejectBail!: (error: unknown) => void
+    const bailPromise = new Promise<never>((_, reject) => {
+      rejectBail = reject
+    })
     try {
-      const result = await operation((error = new Error("Aborted")) => {
+      const result = await Promise.race([Promise.resolve().then(() => operation((error = new Error("Aborted")) => {
         bailError = error || new Error("Aborted")
-      }, attempt)
-      if (bailError !== undefined) throw bailError
+        rejectBail(bailError)
+      }, attempt)), bailPromise])
       return result
     }
     catch (error) {
