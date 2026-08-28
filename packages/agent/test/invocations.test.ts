@@ -82,6 +82,34 @@ describe("Agent Invocations", () => {
     expect(record.observations).toHaveLength(2)
   })
 
+  it("keeps unidentified observations that share a locally assigned sequence", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "concurrent-unidentified-observations",
+      observations: [{
+        name: "first",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      }],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        name: "second",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.name)).toEqual(["first", "second"])
+  })
+
   it("excludes generated cursors from memory-store search", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({

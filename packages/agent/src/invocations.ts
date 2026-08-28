@@ -139,8 +139,7 @@ function observationIdentity(observation: TraceEventLogEntry): string | undefine
 function sameObservation(left: TraceEventLogEntry, right: TraceEventLogEntry): boolean {
   const leftIdentity = observationIdentity(left)
   const rightIdentity = observationIdentity(right)
-  if (leftIdentity !== undefined || rightIdentity !== undefined) return leftIdentity === rightIdentity
-  return left.sequence === right.sequence
+  return leftIdentity !== undefined && rightIdentity !== undefined && leftIdentity === rightIdentity
 }
 
 function observationPersistenceKey(observation: TraceEventLogEntry): string | number {
