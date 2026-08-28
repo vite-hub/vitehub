@@ -21,9 +21,17 @@ function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
 }
 
+const browserDeclarationExports = new Set([
+  "@vite-hub/ui",
+  "@vite-hub/ui/headless",
+  "vite-hub/ui",
+  "vite-hub/ui/headless",
+])
+
 function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts)[number]) {
   if (contract.packageName === "@vite-hub/auth") return false
-  return !contract.subpath.endsWith("/client")
+  if (contract.subpath.endsWith("/client")) return false
+  return !browserDeclarationExports.has(contract.specifier)
 }
 
 const stringRecord = record(string(), string())
