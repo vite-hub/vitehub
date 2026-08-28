@@ -1247,6 +1247,44 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("preserves snapshotted usage when a rendered UI stream exits early", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {
+      yield { text: "unused", type: "text-delta" }
+    })(), { usageRecord: { usage: { totalTokens: 3 } } })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "ui-renderer",
+        output(context) {
+          context.output.render(() => ({
+            toUIMessageStream: () => new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "start" })
+              },
+            }),
+          }))
+        },
+      })],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    // SAFETY: The output renderer exposes the UI message stream method inspected here.
+    const result = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const reader = result.toUIMessageStream().getReader()
+    await reader.read()
+    await reader.cancel()
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      invocation: { usage: { usage: { totalTokens: 3 } } },
+      result: { usage: { totalTokens: 3 }, usageRecord: { usage: { totalTokens: 3 } } },
+    })
+  })
+
   it.each([
     { form: "stream", kind: "run" },
     { form: "run", kind: "model" },

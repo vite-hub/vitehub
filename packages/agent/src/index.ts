@@ -5199,12 +5199,16 @@ async function executeAgentInvocationWithCapacityLease<
             if (finishTask) return await finishTask
             const finishResult = await resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord, !outcome.failed && outcome.completed === true)
             finishTask = (async () => {
+              const finishUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+                ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                : undefined
               if (!outcome.failed && !outcome.completed) {
                 await lifecycle.finish({
                   result: finishResult,
                   status: "success",
-                  ...(streamedUsageRecord
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+                  ...(finishUsageRecord
+                    ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run) }
                     : {}),
                   usageResolved: true,
                 })
@@ -5212,11 +5216,7 @@ async function executeAgentInvocationWithCapacityLease<
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
               }
-              const usageRecord = finishResult && hasRuntimeType(finishResult, "object")
-                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
-                : undefined
-              if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+              if (finishUsageRecord) resultWithUsageRecord(preserved, finishUsageRecord)
             })()
             return await finishTask
           }
