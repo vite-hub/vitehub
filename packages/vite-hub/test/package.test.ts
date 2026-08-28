@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import * as ownerAgentEve from "@vite-hub/agent/eve"
+import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process"
 import * as ownerAgentVue from "@vite-hub/agent/vue"
 import ownerAuthHandler from "@vite-hub/auth/server"
 import * as ownerAuthVue from "@vite-hub/auth/vue"
@@ -22,6 +23,7 @@ import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
+import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process"
 import * as frameworkAgentVue from "vite-hub/agent/vue"
 import frameworkAuthHandler from "vite-hub/auth/server"
 import * as frameworkAuthVue from "vite-hub/auth/vue"
@@ -161,6 +163,7 @@ describe("framework package contract", () => {
   it("forwards feature APIs from their owner packages", () => {
     expect(frameworkAgent.defineAgent).not.toBe(ownerAgent.defineAgent)
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
+    expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(ownerAgentProcessRuntime.createProcessAgentCapacity)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent)
@@ -205,6 +208,9 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
+      "./console/definitions",
+      "./console/kv",
+      "./console/sections",
       "./console/server",
       "./database/drizzle",
       "./nuxt",
@@ -284,6 +290,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('resolveConsoleRouteName(route.name, "vitehub-console-invocation")')
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)")
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)")
+    expect(consolePage).toContain('data-slot="mobile-session-navigation"')
     expect(consolePage).not.toContain("route.query.agent")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(consolePage).not.toContain("<UApp")

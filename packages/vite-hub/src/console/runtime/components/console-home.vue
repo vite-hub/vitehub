@@ -163,6 +163,7 @@ onBeforeUnmount(() => request?.abort());
               color="neutral"
               :icon="section.icon"
               :label="collapsed ? undefined : section.label"
+              :aria-label="collapsed ? section.label : undefined"
               variant="ghost"
               @click="openSection(section.routeName)"
             />
@@ -262,8 +263,18 @@ onBeforeUnmount(() => request?.abort());
                 </span>
               </button>
             </div>
+            <UAlert
+              v-else-if="error"
+              class="mt-8"
+              color="error"
+              variant="subtle"
+              icon="i-lucide-cloud-off"
+              title="Could not load sections"
+              :description="errorMessage(error)"
+              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections }]"
+            />
             <UEmpty
-              v-else-if="!error"
+              v-else
               class="mt-8 min-h-72 rounded-xl border border-dashed border-default"
               icon="i-lucide-panels-top-left"
               title="No primitives enabled"
