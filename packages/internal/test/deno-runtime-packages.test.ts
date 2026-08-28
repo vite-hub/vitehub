@@ -298,6 +298,21 @@ import "real"
       .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
   })
 
+  it("rejects conditionally executed relocated imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-conditional-entry-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), [
+      'await (globalThis.enabled && import("./schedule/deno-cron.mjs"))',
+      'await import("./server/index.mjs")',
+    ].join("\n"), "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+      .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
+  })
+
   it("bundles package import mappings into relocated entrypoints", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-imports-"))
     await writeJson(join(root, "package.json"), { imports: { "#config": "./config.ts" } })
@@ -896,6 +911,20 @@ import "real"
     expect((await readdir(root)).some(name => name.startsWith("..output.vitehub-"))).toBe(false)
   })
 
+  it("recovers prior output left by an interrupted directory swap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-interrupted-output-"))
+    const interruptedStage = join(root, "..output.vitehub-interrupted")
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(interruptedStage, "previous/server"), { recursive: true })
+    await writeFile(join(interruptedStage, "previous/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(interruptedStage, "previous/prior-marker"), "recoverable", "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/prior-marker"), "utf8")).resolves.toBe("recoverable")
+    expect(existsSync(interruptedStage)).toBe(false)
+  })
+
   it("uses the pnpm package from a bundle marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-pnpm-"))
     const bundled = join(root, "node_modules/.pnpm/sharp@2/node_modules/sharp/package.json")
@@ -1075,6 +1104,21 @@ try { load("optional-native") } catch {}
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
+  })
+
+  it("rejects a server import resolved beside a different bundle marker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-cross-chunk-conflict-"))
+    const bundledDir = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
+    const importedDir = join(root, ".output/server/nested/node_modules/shared-runtime")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(bundledDir, "package.json"), { name: "shared-runtime", version: "1" })
+    await writeJson(join(importedDir, "package.json"), { name: "shared-runtime", version: "2" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/a-marker.mjs"), `//#region ${relative(root, bundledDir).replaceAll("\\", "/")}/index.js\n`)
+    await writeFile(join(root, ".output/server/nested/b-import.mjs"), 'import "shared-runtime"\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+      .rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
   })
 
   it("deploys ignored output from a complete temporary stage and cleans it", async () => {

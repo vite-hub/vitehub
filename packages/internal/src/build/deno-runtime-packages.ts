@@ -690,6 +690,7 @@ async function recordServerRuntimePackageResolutions(
 ): Promise<void> {
   const files = await runtimeSourceFiles(serverDir)
   const bundledPackageJsonPaths = new Map<string, Set<string>>()
+  const bundledPackageJsonPathsByFile = new Map<string, Map<string, Set<string>>>()
   for (const file of files) {
     const source = await readFile(file, "utf8")
     for (const { name, path: packagePath } of collectBundledPackages(source)) {
@@ -699,6 +700,11 @@ async function recordServerRuntimePackageResolutions(
         const paths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
         paths.add(packageJsonPath)
         bundledPackageJsonPaths.set(name, paths)
+        const filePaths = bundledPackageJsonPathsByFile.get(file) ?? new Map<string, Set<string>>()
+        const packagePaths = filePaths.get(name) ?? new Set<string>()
+        packagePaths.add(packageJsonPath)
+        filePaths.set(name, packagePaths)
+        bundledPackageJsonPathsByFile.set(file, filePaths)
       }
       catch (error) {
         // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
@@ -711,16 +717,21 @@ async function recordServerRuntimePackageResolutions(
     const resolver = createRequire(file)
     for (const name of collectImportedPackageNames(source)) {
       const bundledPaths = bundledPackageJsonPaths.get(name)
-      if (bundledPaths && bundledPaths.size > 1) {
+      const localBundledPaths = bundledPackageJsonPathsByFile.get(file)?.get(name)
+      const resolvedPackageJsonPath = localBundledPaths?.size
+        ? localBundledPaths.values().next().value
+        : await resolvePackageJson(name, resolver, dirname(file)).then(path => path && realpath(path))
+      const resolvedPaths = new Set(bundledPaths)
+      if (resolvedPackageJsonPath) resolvedPaths.add(resolvedPackageJsonPath)
+      if (resolvedPaths.size > 1) {
         throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
       }
-      const packageJsonPath = bundledPaths?.values().next().value
-        ?? await resolvePackageJson(name, resolver, dirname(file))
+      const packageJsonPath = resolvedPackageJsonPath ?? resolvedPaths.values().next().value
       if (!packageJsonPath) continue
       recordRuntimePackageResolution(
         resolvedPackageJsonPaths,
         name,
-        bundledPaths ? packageJsonPath : await realpath(packageJsonPath),
+        packageJsonPath,
       )
     }
   }
@@ -816,7 +827,7 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
   }
 }
 
-function isTopLevelExpression(source: string, expressionStart: number): boolean {
+function isUnconditionalTopLevelExpression(source: string, expressionStart: number): boolean {
   let braceDepth = 0
   for (let index = 0; index < expressionStart; index++) {
     if (source[index] === "{") braceDepth++
@@ -825,14 +836,16 @@ function isTopLevelExpression(source: string, expressionStart: number): boolean 
   if (braceDepth !== 0) return false
   const statementPrefix = source.slice(0, expressionStart).split(/[;\n]/).at(-1)!
   return /^\s*await\b/.test(statementPrefix)
+    && !/&&|\|\||\?\?|\?\./.test(statementPrefix)
+    && !/(^|[^?])\?(?![?.])/.test(statementPrefix)
 }
 
 function hasTopLevelRelocatableDynamicImport(source: string, specifier: string): boolean {
   const executableSource = maskInertImportText(source)
   if (findLiteralDynamicImports(executableSource)
-    .some(entry => entry.specifier === specifier && isTopLevelExpression(executableSource, entry.start))) return true
+    .some(entry => entry.specifier === specifier && isUnconditionalTopLevelExpression(executableSource, entry.start))) return true
   return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
-    .some(match => cookImportSpecifier(match[2]!) === specifier && isTopLevelExpression(executableSource, match.index! + match[0].indexOf("import")))
+    .some(match => cookImportSpecifier(match[2]!) === specifier && isUnconditionalTopLevelExpression(executableSource, match.index! + match[0].indexOf("import")))
 }
 
 function hasRelocatableStaticImport(source: string, specifier: string): boolean {
@@ -941,6 +954,7 @@ export async function finalizeDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
 ): Promise<void> {
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
+  await recoverInterruptedDenoDeploymentOutput(outputDir)
   const stageRoot = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}.vitehub-`))
   const stagedOutputDir = join(stageRoot, "output")
   const previousOutputDir = join(stageRoot, "previous")
@@ -959,6 +973,36 @@ export async function finalizeDenoDeploymentOutput(
   finally {
     await rm(stageRoot, { force: true, recursive: true })
   }
+}
+
+async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promise<void> {
+  try {
+    await access(outputDir)
+    return
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+
+  const parentDir = dirname(outputDir)
+  const stagePrefix = `.${basename(outputDir)}.vitehub-`
+  const recoveries = (await Promise.all((await readdir(parentDir, { withFileTypes: true }))
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(stagePrefix))
+    .map(async (entry) => {
+      const stageRoot = join(parentDir, entry.name)
+      const previousOutputDir = join(stageRoot, "previous")
+      const previous = await stat(previousOutputDir).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+        throw error
+      })
+      return previous && { previousOutputDir, stageRoot, updatedAt: previous.mtimeMs }
+    })))
+    .filter(recovery => recovery !== undefined)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+  const recovery = recoveries[0]
+  if (!recovery) return
+  await rename(recovery.previousOutputDir, outputDir)
+  await rm(recovery.stageRoot, { force: true, recursive: true })
 }
 
 async function finalizeStagedDenoDeploymentOutput(
