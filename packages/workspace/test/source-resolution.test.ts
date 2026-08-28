@@ -990,7 +990,7 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("docs/README.md")).resolves.toBe("# Docs\n")
   })
 
-  it("does not serve stale base files as lazy source output in overlays", async () => {
+  it("serves fresh direct lazy source output instead of stale base files in overlays", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     await base.writeFile("ingestion/acme/old.sql", "stale\n")
     const definition: WorkspaceDefinition = {
@@ -1015,7 +1015,7 @@ describe("Workspace Source Resolution", () => {
     })
 
     await expect(workspace.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select 1\n")
-    await expect(workspace.fs.readFile("ingestion/acme/old.sql")).rejects.toThrow("does not exist")
+    await expect(workspace.fs.readFile("ingestion/acme/old.sql")).resolves.toBe("select 1\n")
   })
 
   it("keeps source-backed paths read-only in writable overlays", async () => {

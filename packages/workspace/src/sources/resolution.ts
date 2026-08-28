@@ -418,7 +418,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
     const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
       appendFile: async (path, content) => await appendWorkspaceFile(writeWorkspace, path, content),
-      copyPath: async (from, to, options) => await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite),
+      copyPath: async (from, to, options) => {
+        await sourceView.assertWritable(to)
+        await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite)
+      },
       exists: fs.exists,
       glob: fs.glob,
       list: fs.list,
