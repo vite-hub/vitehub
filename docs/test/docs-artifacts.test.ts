@@ -515,6 +515,23 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("preserves presentation content indentation inside semantic directives", () => {
+    expect(toRawMarkdown([
+      "::video{src=\"/demo.mp4\"}",
+      "  ::warning",
+      "    Nested warning.",
+      "  ::",
+      "::",
+    ].join("\n"))).toBe([
+      "::video{src=\"/demo.mp4\"}",
+      "  > **Warning**",
+      "",
+      "  Nested warning.",
+      "::",
+      "",
+    ].join("\n"));
+  });
+
   it("keeps directives in non-list indented code literal", () => {
     expect(toRawMarkdown([
       "- - -",

@@ -24,7 +24,7 @@ async function run(command: string, args: string[], cwd: string) {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
-    // SAFETY: execFile rejects with Node's documented process-error fields.
+    // SAFETY: execFile rejects with the documented Error shape carrying optional output streams.
     const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
     throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
   }
@@ -79,6 +79,13 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "nodejs_compat",
   ], appDir)
   return parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
+}
+
+function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {
+  return Object.values(outputs)
+    .flatMap(output => output.imports || [])
+    .filter(entry => entry.external)
+    .map(entry => entry.path)
 }
 
 describe("packed Source capability closures", () => {
@@ -169,9 +176,8 @@ console.log(item.content)
 
       const mcp = await buildWorker(appDir, "src/mcp.ts", "mcp")
       expect(Object.keys(mcp.inputs).join("\n")).toContain("@vite-hub/source/dist/mcp.js")
-      const externalMcpImports = Object.values(mcp.outputs)
-        .flatMap(output => output.imports || [])
-        .filter(entry => entry.external && /@modelcontextprotocol|pkce-challenge/.test(entry.path))
+      const externalMcpImports = externalImports(mcp.outputs)
+        .filter(path => /@modelcontextprotocol|pkce-challenge/.test(path))
       expect(externalMcpImports).toEqual([])
 
       const runtime = await run("node", ["mcp-run.mjs"], appDir)

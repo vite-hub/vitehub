@@ -244,16 +244,18 @@ function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) 
 function withArtifactLock<T>(outputDir: string, callback: () => T) {
   const lockDir = resolve(outputDir, ".raw-artifacts.lock");
   const lockToken = randomUUID();
+  const candidateDir = resolve(outputDir, `.raw-artifacts.lock-candidate-${lockToken}`);
   mkdirSync(outputDir, { recursive: true });
   const deadline = Date.now() + lockStaleAfterMs;
   while (true) {
     try {
-      mkdirSync(lockDir);
-      writeFileSync(resolve(lockDir, "owner.json"), JSON.stringify({
+      mkdirSync(candidateDir);
+      writeFileSync(resolve(candidateDir, "owner.json"), JSON.stringify({
         identity: currentProcessIdentity,
         pid: process.pid,
         token: lockToken,
       }));
+      renameSync(candidateDir, lockDir);
       if (hasRecoveryClaim(lockDir)) {
         if (ownsLock(lockDir, lockToken)) rmSync(resolve(lockDir, "owner.json"), { force: true });
         continue;
@@ -263,7 +265,8 @@ function withArtifactLock<T>(outputDir: string, callback: () => T) {
       }
       break;
     } catch (error) {
-      if (fileSystemErrorCode(error) !== "EEXIST") throw error;
+      rmSync(candidateDir, { force: true, recursive: true });
+      if (!["EEXIST", "ENOTEMPTY"].includes(fileSystemErrorCode(error) || "")) throw error;
       if (recoverAbandonedLock(lockDir)) continue;
       if (Date.now() >= deadline) throw error;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
@@ -273,6 +276,7 @@ function withArtifactLock<T>(outputDir: string, callback: () => T) {
   try {
     return callback();
   } finally {
+    rmSync(candidateDir, { force: true, recursive: true });
     if (ownsLock(lockDir, lockToken)) rmSync(lockDir, { recursive: true });
   }
 }
