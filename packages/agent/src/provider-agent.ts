@@ -364,7 +364,10 @@ async function configureCodexCredentialHome(homePath: string): Promise<void> {
 }
 
 async function processStartIdentity(pid: number): Promise<string | undefined> {
-  const child = spawn("ps", ["-o", "lstart=", "-p", String(pid)], { stdio: ["ignore", "pipe", "ignore"] })
+  const child = spawn("ps", ["-o", "lstart=", "-p", String(pid)], {
+    env: { ...process.env, LC_ALL: "C", LANG: "C" },
+    stdio: ["ignore", "pipe", "ignore"],
+  })
   let stdout = ""
   child.stdout.setEncoding("utf8")
   child.stdout.on("data", chunk => stdout += chunk)
@@ -1531,13 +1534,13 @@ async function* runProvider<
       await workspaceCleanup
       await cleanupRoot()
     }
-    const providerExecutable = resolveInstalledProviderExecutable(options.provider)
+    const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     const launchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerExecutable,
-      homePath: codexCredentialHome?.homePath,
-      launchArgs,
+      ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
+      ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,

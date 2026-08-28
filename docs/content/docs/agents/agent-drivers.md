@@ -84,7 +84,6 @@ export default defineAgent({
     credentialProfile: 'review',
     credentials: async ({ abortSignal }) => (await loadServerEnv(undefined, { signal: abortSignal })).codexAuthJson,
     kind: 'codex',
-    credentials: () => process.env.CODEX_AUTH_JSON!,
     instructions: 'Review the exact pull request head before changing code.',
     model: 'gpt-5.5',
     permissions: 'ask',

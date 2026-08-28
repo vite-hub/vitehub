@@ -143,6 +143,29 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("preserves explicit provider runtime settings until ViteHub owns them", async () => {
+    const threadId = "thread-provider-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({
+      provider: "codex",
+      providerSettings: {
+        binaryPath: "/opt/codex/bin/codex",
+        homePath: "/var/lib/codex",
+        launchArgs: "--custom-flag",
+      },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: {
+        binaryPath: "/opt/codex/bin/codex",
+        homePath: "/var/lib/codex",
+        launchArgs: "--custom-flag",
+      },
+    }))
+  })
+
   it("projects rotating Codex credentials into one protected profile Home", async () => {
     const profile = `provider-test-${crypto.randomUUID()}`
     let source = JSON.stringify({ OPENAI_API_KEY: "first" })
@@ -703,6 +726,37 @@ cli_auth_credentials_store = "keyring"
       liveProcess.kill()
       await once(liveProcess, "close")
       await rm(staleRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a live credential root when the scavenger locale differs", async () => {
+    const startedAt = spawnSync("ps", ["-o", "lstart=", "-p", String(process.pid)], {
+      encoding: "utf8",
+      env: { ...process.env, LC_ALL: "C", LANG: "C" },
+    }).stdout.trim()
+    expect(startedAt).not.toBe("")
+    const liveRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await writeFile(join(liveRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: process.pid,
+      startedAt,
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(liveRoot, "home"), { mode: 0o700 })
+    const previousLocale = process.env.LC_ALL
+    process.env.LC_ALL = "fr_FR.UTF-8"
+    try {
+      const threadId = "thread-live-private-credentials-different-locale"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(liveRoot)).resolves.toBeUndefined()
+    }
+    finally {
+      if (previousLocale === undefined) delete process.env.LC_ALL
+      else process.env.LC_ALL = previousLocale
+      await rm(liveRoot, { force: true, recursive: true })
     }
   })
 
