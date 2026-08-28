@@ -282,12 +282,11 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         artifactDir = resolve(rootDir, ".vitehub/queue-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const providerImportAliases = internalOptions?.providerImportAliases ?? {}
-        const providerRuntimeInputs = captureQueueProviderRuntimeInputs(providerOutput, providerImportAliases)
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(contributionArtifactDir, "sources"),
           paths: [
             ...definitions.map(definition => definition.handler),
-            ...Object.values(providerRuntimeInputs.aliases).flatMap(aliases => Object.values(aliases)),
+            ...Object.values(providerImportAliases),
           ],
           roots: [rootDir],
         })
@@ -297,15 +296,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         }))
         const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
           .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
-        const retainedRuntimeAliases = Object.fromEntries(Object.entries(providerRuntimeInputs.aliases)
-          .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases)
-            .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))]))
-        // SAFETY: The outer entries preserve provider keys and each inner entry preserves string alias targets.
-        const typedRetainedRuntimeAliases = retainedRuntimeAliases as QueueProviderRuntimeInputs["aliases"]
-        const retainedProviderRuntimeInputs: QueueProviderRuntimeInputs = {
-          aliases: typedRetainedRuntimeAliases,
-          vercelPackages: providerRuntimeInputs.vercelPackages,
-        }
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const nitro = (config as { nitro?: unknown }).nitro
         contributeProviderDeploymentOutput(providerOutput, {
@@ -313,13 +303,27 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           owner: "queue",
           rootDir,
           write: async ({ signal, write }) => {
+            const providerRuntimeInputs = captureQueueProviderRuntimeInputs(providerOutput, retainedProviderImportAliases)
+            const retainedRuntimeSources = await retainProviderOutputSources({
+              artifactDir: resolve(contributionArtifactDir, "runtime-sources"),
+              paths: Object.values(providerRuntimeInputs.aliases).flatMap(aliases => Object.values(aliases)),
+              roots: [rootDir],
+            })
+            const retainedRuntimeAliases = Object.fromEntries(Object.entries(providerRuntimeInputs.aliases)
+              .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases)
+                .map(([specifier, target]) => [specifier, retainedRuntimeSources.resolve(target)]))]))
+            // SAFETY: The outer entries preserve provider keys and each inner entry preserves string alias targets.
+            const typedRetainedRuntimeAliases = retainedRuntimeAliases as QueueProviderRuntimeInputs["aliases"]
             await generateProviderOutputs({
               artifactDir: resolve(contributionArtifactDir, "output"),
               clientOutDir: config.build.outDir,
               cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
               definitions: retainedDefinitions,
               providerImportAliases: retainedProviderImportAliases,
-              providerRuntimeInputs: retainedProviderRuntimeInputs,
+              providerRuntimeInputs: {
+                aliases: typedRetainedRuntimeAliases,
+                vercelPackages: providerRuntimeInputs.vercelPackages,
+              },
               queue: queue ?? (resolveNitroHosting(cloneNitroConfig(nitro))
                 ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
                 : undefined),

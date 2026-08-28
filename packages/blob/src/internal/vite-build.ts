@@ -603,7 +603,7 @@ function getVercelBlobOutputCleanup(options: GenerateProviderOutputsOptions) {
   }
 }
 
-function registerSupportedProviderRuntimeModules(
+export function registerSupportedProviderRuntimeModules(
   providerOutput: ProviderOutputCatalog | undefined,
   artifacts: GeneratedBlobArtifacts,
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,

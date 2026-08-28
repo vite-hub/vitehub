@@ -8,7 +8,7 @@ import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, res
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
-import { createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, renderBlobRuntimeModule, blobPackageName } from "./internal/vite-build.ts"
+import { createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, registerSupportedProviderRuntimeModules, renderBlobRuntimeModule, blobPackageName } from "./internal/vite-build.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -353,6 +353,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
           providerOutput,
           rootDir: blobRootDir,
         })
+        registerSupportedProviderRuntimeModules(providerOutput, providerArtifacts, blobOptions, blobCloudflareOwnedByNitro)
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => {
