@@ -403,8 +403,10 @@ export async function materializeWorkspaceSources(
   options: WorkspaceMaterializeSourcesOptions = {},
   lifecycle?: {
     getContext(source: ResolvedWorkspaceSource): SourceContext
+    onCompleted(source: ResolvedWorkspaceSource): void
     isPrepared(source: ResolvedWorkspaceSource): boolean
     onPrepared(source: ResolvedWorkspaceSource): void
+    onStarted(source: ResolvedWorkspaceSource): void
   },
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const started = Date.now()
@@ -416,6 +418,7 @@ export async function materializeWorkspaceSources(
 
   for (const source of sources) {
     throwIfAborted(options.abortSignal)
+    lifecycle?.onStarted(source)
     const sourceStarted = Date.now()
     await reportMaterializationProgress(options, source, { status: "started" })
     let configHash: string
@@ -473,6 +476,7 @@ export async function materializeWorkspaceSources(
       resultSources.push(ready)
       files += cachedFiles
       bytes += existing?.bytes || 0
+      lifecycle?.onCompleted(source)
       await reportMaterializationProgress(options, source, {
         bytes: existing?.bytes || 0,
         cacheStatus,
@@ -656,6 +660,7 @@ export async function materializeWorkspaceSources(
       files += sourceFiles
       bytes += sourceBytes
       directories += directorySet.size
+      lifecycle?.onCompleted(source)
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,
         cacheStatus,

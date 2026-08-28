@@ -2242,6 +2242,61 @@ describe("lazy sources", () => {
     expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "b.md", "b.md"])
   })
 
+  it("retains completed Source coverage when a later Source is canceled", async () => {
+    const abort = new AbortController()
+    const firstItem = vi.fn(async (key: string) => ({ key, content: "# First\n" }))
+    const secondItem = vi.fn(async (key: string) => {
+      abort.abort(new DOMException("Canceled", "AbortError"))
+      abort.signal.throwIfAborted()
+      return { key, content: "# Second\n" }
+    })
+    const thirdItem = vi.fn(async (key: string) => ({ key, content: "# Third\n" }))
+    const view = createWorkspaceSourceView({
+      name: "lazy-multi-source-cancel",
+      sources: {
+        first: custom({
+          cache: false,
+          materialize: "lazy",
+          mount: "first",
+          async getKeys() {
+            return ["one.md"]
+          },
+          getItem: firstItem,
+        }),
+        second: custom({
+          cache: false,
+          materialize: "lazy",
+          mount: "second",
+          async getKeys() {
+            return ["two.md"]
+          },
+          getItem: secondItem,
+        }),
+        third: custom({
+          cache: false,
+          materialize: "lazy",
+          mount: "third",
+          async getKeys() {
+            return ["three.md"]
+          },
+          getItem: thirdItem,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["third"] })
+    await expect(view.materializeSources({
+      abortSignal: abort.signal,
+      sources: ["first", "second", "third"],
+    })).rejects.toThrow("Canceled")
+    await expect(view.list("first")).resolves.toContainEqual({ path: "first/one.md", type: "file" })
+    await expect(view.list("third")).resolves.toContainEqual({ path: "third/three.md", type: "file" })
+
+    expect(firstItem).toHaveBeenCalledOnce()
+    expect(secondItem).toHaveBeenCalledOnce()
+    expect(thirdItem).toHaveBeenCalledOnce()
+  })
+
   it("keeps a complete source ready when scoped materialization is canceled", async () => {
     const abort = new AbortController()
     let cancel = false

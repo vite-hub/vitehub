@@ -73,6 +73,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (!paths.size) materializedPathsBySource.delete(sourceKey)
   }
 
+  function recordMaterializedPath(sourceKey: string, path: string) {
+    if (path) invalidateMaterializedPath(sourceKey, path)
+    let paths = materializedPathsBySource.get(sourceKey)
+    if (!paths) {
+      paths = new Set()
+      materializedPathsBySource.set(sourceKey, paths)
+    }
+    paths.add(path)
+  }
+
   async function materializeSources(
     options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions,
     behavior: { reusePreparedContext?: boolean } = {},
@@ -84,7 +94,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       .map(source => [source.key, prepareBySource.get(source.key)] as const)
       .filter((entry): entry is readonly [string, Promise<void>] => Boolean(entry[1])))
     const operationContexts = new Map<string, ReturnType<typeof createSourceContext>>()
+    const operationCompleted = new Set<string>()
     const operationPrepared = new Set<string>()
+    const operationStarted = new Set<string>()
     const getOperationContext = (source: (typeof sources)[number]) => {
       let context = operationContexts.get(source.key)
       if (!context) {
@@ -114,8 +126,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         return await materializeWorkspaceSources(definition, store, options, {
           getContext: getOperationContext,
           isPrepared: source => operationPrepared.has(source.key),
+          onCompleted(source) {
+            operationCompleted.add(source.key)
+          },
           onPrepared(source) {
             operationPrepared.add(source.key)
+          },
+          onStarted(source) {
+            operationStarted.add(source.key)
           },
         })
       }
@@ -166,7 +184,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
     catch (error) {
       if (started) {
-        for (const source of selectedSources) invalidateMaterializedPath(source.key, path)
+        for (const source of selectedSources) {
+          if (operationStarted.has(source.key) && !operationCompleted.has(source.key)) {
+            invalidateMaterializedPath(source.key, path)
+            continue
+          }
+          if (operationCompleted.has(source.key)) recordMaterializedPath(source.key, path)
+        }
       }
       throw error
     }
@@ -175,13 +199,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         invalidateMaterializedPath(source.source, path)
         continue
       }
-      if (path) invalidateMaterializedPath(source.source, path)
-      let paths = materializedPathsBySource.get(source.source)
-      if (!paths) {
-        paths = new Set()
-        materializedPathsBySource.set(source.source, paths)
-      }
-      paths.add(path)
+      recordMaterializedPath(source.source, path)
     }
     return result
   }
