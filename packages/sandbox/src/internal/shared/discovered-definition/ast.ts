@@ -395,6 +395,16 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
   }
 
   function visit(node: ts.Node) {
+    if (typescript.isCallExpression(node)
+      && node.expression.kind === typescript.SyntaxKind.ImportKeyword
+      && node.arguments[0]
+      && typescript.isStringLiteralLike(node.arguments[0])
+      && filesystemModuleSpecifiers.has(node.arguments[0].text)) {
+      // Dynamic-import bindings can flow through await, promises, and
+      // destructuring. Preserve the project when a Definition loads a
+      // filesystem module this way unless a future analysis proves its paths.
+      references.push({ relativeTo: 'working-directory' })
+    }
     if (typescript.isCallExpression(node) || typescript.isNewExpression(node)) {
       const operation = filesystemOperation(node.expression)
       if (operation) {

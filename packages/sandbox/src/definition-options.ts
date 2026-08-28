@@ -59,35 +59,48 @@ function readStaticValue(node: ts.Expression): unknown {
   throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options must use static JSON-serializable values.`)
 }
 
-function readSandboxDefinitionFactoryNames(sourceFile: ts.SourceFile): Set<string> {
+function readSandboxDefinitionFactories(sourceFile: ts.SourceFile) {
   const ts = getTypeScript()
   const names = new Set(['defineSandbox'])
+  const namespaces = new Set<string>()
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)
       || !ts.isStringLiteral(statement.moduleSpecifier)
       || statement.moduleSpecifier.text !== '@vite-hub/sandbox'
-      || !statement.importClause?.namedBindings
-      || !ts.isNamedImports(statement.importClause.namedBindings)) {
+      || !statement.importClause?.namedBindings) {
       continue
     }
-    for (const element of statement.importClause.namedBindings.elements) {
+    const bindings = statement.importClause.namedBindings
+    if (ts.isNamespaceImport(bindings)) {
+      namespaces.add(bindings.name.text)
+      continue
+    }
+    for (const element of bindings.elements) {
       if ((element.propertyName ?? element.name).text === 'defineSandbox')
         names.add(element.name.text)
     }
   }
-  return names
+  return { names, namespaces }
 }
 
 function readDefinitionObject(sourceFile: ts.SourceFile): ts.ObjectLiteralExpression | undefined {
   const ts = getTypeScript()
-  const factoryNames = readSandboxDefinitionFactoryNames(sourceFile)
+  const factories = readSandboxDefinitionFactories(sourceFile)
   for (const statement of sourceFile.statements) {
     if (!ts.isExportAssignment(statement))
       continue
     const expression = statement.expression
-    if (!ts.isCallExpression(expression)
-      || !ts.isIdentifier(expression.expression)
-      || !factoryNames.has(expression.expression.text)) {
+    if (!ts.isCallExpression(expression)) {
+      continue
+    }
+    const factory = expression.expression
+    const isFactory = ts.isIdentifier(factory)
+      ? factories.names.has(factory.text)
+      : ts.isPropertyAccessExpression(factory)
+        && ts.isIdentifier(factory.expression)
+        && factories.namespaces.has(factory.expression.text)
+        && factory.name.text === 'defineSandbox'
+    if (!isFactory) {
       continue
     }
     if (expression.arguments.length !== 1 || !ts.isObjectLiteralExpression(expression.arguments[0])) {
