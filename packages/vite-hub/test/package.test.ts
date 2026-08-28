@@ -3,7 +3,7 @@ import { existsSync, globSync, readFileSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import * as ownerAgentEve from "@vite-hub/agent/eve"
+import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process"
 import * as ownerAgentVue from "@vite-hub/agent/vue"
 import ownerAuthHandler from "@vite-hub/auth/server"
 import * as ownerAuthVue from "@vite-hub/auth/vue"
@@ -22,6 +23,7 @@ import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
+import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process"
 import * as frameworkAgentVue from "vite-hub/agent/vue"
 import frameworkAuthHandler from "vite-hub/auth/server"
 import * as frameworkAuthVue from "vite-hub/auth/vue"
@@ -161,6 +163,7 @@ describe("framework package contract", () => {
   it("forwards feature APIs from their owner packages", () => {
     expect(frameworkAgent.defineAgent).not.toBe(ownerAgent.defineAgent)
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
+    expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(ownerAgentProcessRuntime.createProcessAgentCapacity)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent)
@@ -262,6 +265,7 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain("@cloudflare/workers-types")
     const consolePage = readFileSync(`${packageRoot}/dist/console/runtime/components/console-app.vue`, "utf8")
     expect(consolePage).toContain('from "../agent-route"')
+    expect(consolePage).toMatch(/\[data-slot="invocation"\],[\s\S]*?\[data-slot="invocation-inspector"\]\s*\{[\s\S]*?height: 100%;[\s\S]*?width: 100%;[\s\S]*?\}/)
     expect(existsSync(`${packageRoot}/dist/console/runtime/agent-route.js`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true)
@@ -342,26 +346,57 @@ describe("framework package contract", () => {
     }
   })
 
-  it("runs the distributed CLI entrypoint with clean help streams", async () => {
+  it("runs both distributed CLI entrypoints with clean help streams", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"))
     try {
-      await writeFile(join(root, "vite.config.mjs"), `
+      const keepAlive = join(root, "keep-alive.mjs")
+      await Promise.all([
+        writeFile(join(root, "vite.config.mjs"), `
 const namespaces = Array.from({ length: 4096 }, (_, index) => ({
   description: "A package-contributed command whose help output must flush before exit.",
   features: [],
   name: \`namespace-\${String(index).padStart(4, "0")}\`,
 }))
 export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespaces } } }] }
-`)
-      const { stderr, stdout } = await execFileAsync(process.execPath, [`${packageRoot}/${manifest.bin.vitehub}`, "--help"], {
-        cwd: root,
-        env: { ...process.env, NO_COLOR: "1" },
-      })
+`),
+        writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
+      ])
+      const entrypoints = [
+        `${packageRoot}/${manifest.bin.vitehub}`,
+        `${repoRoot}/packages/cli/dist/index.js`,
+      ]
+      for (const entrypoint of entrypoints) {
+        const { stderr, stdout } = await execFileAsync(process.execPath, [entrypoint, "--help"], {
+          cwd: root,
+          env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(keepAlive).href}`, NO_COLOR: "1" },
+          timeout: 5_000,
+        })
 
-      expect(stdout).toContain("Usage: vitehub <namespace> <feature>")
-      expect(stdout).toContain("namespace-4095")
-      expect(stdout).toContain("provision")
-      expect(stderr).toBe("")
+        expect(stdout).toContain("Usage: vitehub <namespace> <feature>")
+        expect(stdout).toContain("namespace-4095")
+        expect(stdout).toContain("provision")
+        expect(stderr).toBe("")
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("flushes direct CLI errors before exiting despite active handles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-error-"))
+    try {
+      const keepAlive = join(root, "keep-alive.mjs")
+      await Promise.all([
+        writeFile(join(root, "vite.config.mjs"), "throw new Error('config exploded')\n"),
+        writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
+      ])
+
+      await expect(execFileAsync(process.execPath, [`${repoRoot}/packages/cli/dist/index.js`], {
+        cwd: root,
+        env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(keepAlive).href}`, NO_COLOR: "1" },
+        timeout: 5_000,
+      })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("config exploded") })
     }
     finally {
       await rm(root, { force: true, recursive: true })
