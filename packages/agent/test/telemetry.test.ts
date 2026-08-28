@@ -256,10 +256,13 @@ describe("Agent telemetry", () => {
           {
             key: "map",
             value: {
-              arrayValue: {
+              kvlistValue: {
                 values: [
-                  { kvlistValue: { values: [{ key: "key", value: { intValue: "1" } }, { key: "value", value: { stringValue: "number" } }] } },
-                  { kvlistValue: { values: [{ key: "key", value: { stringValue: "1" } }, { key: "value", value: { stringValue: "string" } }] } },
+                  { key: "type", value: { stringValue: "Map" } },
+                  { key: "entries", value: { arrayValue: { values: [
+                    { kvlistValue: { values: [{ key: "key", value: { intValue: "1" } }, { key: "value", value: { stringValue: "number" } }] } },
+                    { kvlistValue: { values: [{ key: "key", value: { stringValue: "1" } }, { key: "value", value: { stringValue: "string" } }] } },
+                  ] } } },
                 ],
               },
             },
@@ -274,6 +277,7 @@ describe("Agent telemetry", () => {
             { key: "bytes", value: { bytesValue: "" } },
           ] } } },
           { key: "pattern", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "RegExp" } },
             { key: "source", value: { stringValue: "token" } },
             { key: "flags", value: { stringValue: "gi" } },
             { key: "lastIndex", value: { intValue: "4" } },

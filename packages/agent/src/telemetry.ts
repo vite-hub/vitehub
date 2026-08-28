@@ -94,6 +94,7 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
     return {
       kvlistValue: {
         values: [
+          { key: "type", value: { stringValue: "RegExp" } },
           { key: "source", value: { stringValue: value.source } },
           { key: "flags", value: { stringValue: value.flags } },
           { key: "lastIndex", value: await otlpAnyValue(value.lastIndex, budget) },
@@ -168,15 +169,20 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
     }
     if (value instanceof Map) {
       return {
-        arrayValue: {
-          values: await Promise.all([...value].map(async ([key, child]) => ({
-            kvlistValue: {
-              values: [
-                { key: "key", value: await otlpAnyValue(key, budget, nextAncestors) },
-                { key: "value", value: await otlpAnyValue(child, budget, nextAncestors) },
-              ],
-            },
-          }))),
+        kvlistValue: {
+          values: [
+            { key: "type", value: { stringValue: "Map" } },
+            { key: "entries", value: { arrayValue: {
+              values: await Promise.all([...value].map(async ([key, child]) => ({
+                kvlistValue: {
+                  values: [
+                    { key: "key", value: await otlpAnyValue(key, budget, nextAncestors) },
+                    { key: "value", value: await otlpAnyValue(child, budget, nextAncestors) },
+                  ],
+                },
+              }))),
+            } } },
+          ],
         },
       }
     }
