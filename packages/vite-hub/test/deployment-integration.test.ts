@@ -153,6 +153,7 @@ describe("built-in deployment preset integration", () => {
               required: env({ secret: true, source: env.source("VITEHUB_TOKEN") }),
               optional: env({ optional: true, secret: true, source: env.source("OPTIONAL_TOKEN") }),
               alternatives: env({ secret: true, source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"]) }),
+              external: env({ secret: true, source: env.provider("credentials", "github/token") }),
               publicValue: env({ source: env.source("PUBLIC_VALUE") }),
             },
           },
@@ -165,7 +166,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ preset: "cloudflare" })],
+        plugins: [vitehub({ env: { providers: { credentials: "./server/env/credentials.ts" } }, preset: "cloudflare" })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
 
       expect((config as typeof config & {
@@ -197,10 +198,8 @@ describe("built-in deployment preset integration", () => {
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
-      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
-        secrets?: { required?: string[] }
-      }
-      expect(wrangler.secrets?.required).toEqual(["VITEHUB_TOKEN"])
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({ secrets: { required: ["VITEHUB_TOKEN"] } })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -223,10 +222,8 @@ describe("built-in deployment preset integration", () => {
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
-      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
-        secrets?: { required?: string[] }
-      }
-      expect(wrangler.secrets?.required).toEqual(["APP_TOKEN"])
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({ secrets: { required: ["APP_TOKEN"] } })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -256,10 +253,8 @@ describe("built-in deployment preset integration", () => {
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
-      const wrangler = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8")) as {
-        secrets?: { required?: string[] }
-      }
-      expect(wrangler.secrets?.required).toEqual(["LATE_TOKEN"])
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({ secrets: { required: ["LATE_TOKEN"] } })
     }
     finally {
       await rm(root, { force: true, recursive: true })

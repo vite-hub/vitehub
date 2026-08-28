@@ -1,10 +1,11 @@
 packages:
+  - ".github/ci-tools"
   - "docs"
   - "packages/*"
   - "packages/*/examples/*"
 catalog:
   '@cloudflare/vitest-plugin': ^1.1.0
-  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@99682f626b1d24843d3f82bd082644d77aa0de43
+  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@1248f5ddb9319be23980bb04d5a51ab297c69eaa
   remark-gfm: ^4.0.1
   remark-mdc: ^3.11.1
   remark-parse: ^11.0.0
@@ -16,7 +17,7 @@ catalogMode: prefer
 catalogs:
   ai:
     "@ai-sdk/gateway": 4.0.26
-    "@ai-sdk/mcp": 2.0.0
+    "@ai-sdk/mcp": 2.0.36
     "@ai-sdk/vue": 4.0.38
     "@modelcontextprotocol/sdk": ^1.29.0
     "@types/json-schema": ^7.0.15
