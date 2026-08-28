@@ -31,6 +31,7 @@ import {
   type PullRequest,
   type PullRequestFeedback,
   pullRequestCheckState,
+  prioritizePullRequestJobs,
   resolveMaxOwners,
   resolveRepositories,
   selectPullRequestJobs,
@@ -65,8 +66,9 @@ export async function reconcileBabysitterWork(reason: string) {
   const discovered = await selectPullRequestJobs(repositories, listPullRequests, readCompletion, policyFingerprint)
   const ownerLimit = resolveMaxOwners(maxOwners)
   const availableOwnerSlots = Math.max(0, ownerLimit - runningJobs.size)
-  const jobs = discovered
+  const eligible = discovered
     .filter(job => !runningJobs.has(jobKey(job.repository, job.pullRequest.number)))
+  const jobs = (ownerLimit > 1 ? prioritizePullRequestJobs(eligible) : eligible)
     .slice(0, availableOwnerSlots)
   const batchStartedAt = Date.now()
   const queuedAt = new Map<string, string>()

@@ -7,6 +7,7 @@ import {
   createPolicyFingerprint,
   defaultMaxOwners,
   parseRequiredChecks,
+  prioritizePullRequestJobs,
   type PullRequest,
   pullRequestFingerprint,
   resolveRepositories,
@@ -113,6 +114,34 @@ test('keeps the oldest eligible pull request ahead of repeated newer arrivals', 
 
     assert.equal(jobs[0]?.pullRequest.number, oldest.number)
   }
+})
+
+test('reserves the first owner slot for one clean all-green pull request', async () => {
+  const oldest = {
+    ...pullRequest(1),
+    isDraft: false,
+    mergeStateStatus: 'DIRTY',
+    updatedAt: '2026-01-01T00:00:00Z',
+  }
+  const draft = {
+    ...pullRequest(2),
+    statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
+    updatedAt: '2026-01-02T00:00:00Z',
+  }
+  const mergeReady = {
+    ...pullRequest(3),
+    isDraft: false,
+    statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
+    updatedAt: '2026-01-03T00:00:00Z',
+  }
+  const jobs = await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [mergeReady, draft, oldest],
+    async () => null,
+    policyFingerprint,
+  )
+
+  assert.deepEqual(prioritizePullRequestJobs(jobs).map(job => job.pullRequest.number), [3, 1, 2])
 })
 
 test('orders eligible work globally after filtering completed pull requests', async () => {

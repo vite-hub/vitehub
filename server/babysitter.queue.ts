@@ -95,6 +95,16 @@ export async function selectPullRequestJobs(
     .sort(comparePullRequestJobs)
 }
 
+export function prioritizePullRequestJobs(jobs: PullRequestJob[]) {
+  const fastLaneIndex = jobs.findIndex(({ pullRequest }) => !pullRequest.isDraft
+    && pullRequest.mergeStateStatus === 'CLEAN'
+    && pullRequestCheckState(pullRequest.statusCheckRollup) === 'passed'
+    && (pullRequest.requiredStatusCheckRollup === undefined
+      || pullRequestCheckState(pullRequest.requiredStatusCheckRollup, 'passed') === 'passed'))
+  if (fastLaneIndex <= 0) return jobs
+  return [jobs[fastLaneIndex]!, ...jobs.slice(0, fastLaneIndex), ...jobs.slice(fastLaneIndex + 1)]
+}
+
 function comparePullRequestJobs(left: PullRequestJob, right: PullRequestJob) {
   const leftUpdatedAt = Date.parse(left.pullRequest.updatedAt)
   const rightUpdatedAt = Date.parse(right.pullRequest.updatedAt)
