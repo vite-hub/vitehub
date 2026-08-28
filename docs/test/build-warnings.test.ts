@@ -34,6 +34,7 @@ describe("docs build warning budget", () => {
       "[warn] [PLUGIN_TIMINGS] render pages took 1s",
       "[warn] [INEFFECTIVE_DYNAMIC_IMPORT] Button.vue is dynamically and statically imported",
       "[warn] [Icon] failed to load icon `simple-icons:pnpm`",
+      "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms",
       "[warn] [nitro] [cloudflare] Wrangler config `assets`set by config or modules is overridden and will be ignored.",
     ].join("\n")
 
