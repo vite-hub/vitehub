@@ -279,7 +279,7 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time")
     expect(consolePage).toContain("AgentInvocationList")
     expect(consolePage).toContain(':continuation-key="list.cursor.value"')
-    expect(consolePage).toContain(':retry-key="paginationRetryRevision"')
+    expect(consolePage).toContain(':retry-key="invocationPaginationKey"')
     expect(consolePage).toContain("list.loadMoreError.value")
     expect(consolePage).toContain("Retry loading older sessions")
     expect(consolePage).toContain("Switch Agent")
