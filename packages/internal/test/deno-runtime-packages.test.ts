@@ -997,6 +997,19 @@ load("@img/sharp-linux-x64/sharp.node")
       .rejects.toThrow("already being finalized")
   })
 
+  it("recovers an orphaned deployment output reclaim marker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-orphaned-reclaim-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".output.vitehub-lock"), "2147483647\n", "utf8")
+    await writeFile(join(root, ".output.vitehub-lock.reclaim"), "2147483647\n", "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    expect(existsSync(join(root, ".output.vitehub-lock.reclaim"))).toBe(false)
+  })
+
   it("uses the pnpm package from a bundle marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-pnpm-"))
     const bundled = join(root, "node_modules/.pnpm/sharp@2/node_modules/sharp/package.json")

@@ -1,4 +1,5 @@
-import { access, cp, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { access, cp, link, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -1087,7 +1088,7 @@ export async function finalizeDenoDeploymentOutput(
 async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promise<void>> {
   const lockPath = `${outputDir}.vitehub-lock`
   const reclaimPath = `${lockPath}.reclaim`
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
       await access(reclaimPath).then(() => {
         throw Object.assign(new Error("lock reclamation in progress"), { code: "EEXIST" })
@@ -1103,15 +1104,34 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
     catch (error) {
       // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      const reclaimCandidatePath = `${reclaimPath}.${process.pid}.${randomUUID()}`
       try {
-        await mkdir(reclaimPath)
+        await writeFile(reclaimCandidatePath, `${process.pid}\n`, { encoding: "utf8", flag: "wx" })
+        await link(reclaimCandidatePath, reclaimPath)
       }
       catch (reclaimError) {
         // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
         if ((reclaimError as NodeJS.ErrnoException).code === "EEXIST") {
-          throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized.`)
+          const reclaimer = Number.parseInt(await readFile(reclaimPath, "utf8").catch(() => ""), 10)
+          let reclaimerAlive = Number.isSafeInteger(reclaimer) && reclaimer > 0
+          if (reclaimerAlive) {
+            try { process.kill(reclaimer, 0) }
+            catch (signalError) {
+              // SAFETY: Node process errors expose their stable code through ErrnoException.
+              if ((signalError as NodeJS.ErrnoException).code === "ESRCH") reclaimerAlive = false
+              else throw signalError
+            }
+          }
+          if (reclaimerAlive) {
+            throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized.`)
+          }
+          await rm(reclaimPath, { force: true })
+          continue
         }
         throw reclaimError
+      }
+      finally {
+        await rm(reclaimCandidatePath, { force: true })
       }
       try {
         const owner = Number.parseInt(await readFile(lockPath, "utf8").catch(() => ""), 10)
@@ -1132,7 +1152,7 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
         return async () => rm(lockPath, { force: true })
       }
       finally {
-        await rm(reclaimPath, { force: true, recursive: true })
+        await rm(reclaimPath, { force: true })
       }
     }
   }
