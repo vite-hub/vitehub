@@ -374,7 +374,7 @@ describe("Resend Email driver", () => {
     });
   });
 
-  it.each(["not address", "a>, <https://evil.test>"])(
+  it.each(["not address", "a>, <https://evil.test>", "leave\u0000@example.com"])(
     "rejects an invalid unsubscribe mailto target %j before dispatch",
     async (mailto) => {
       const request = vi.fn();
@@ -830,7 +830,7 @@ describe("Cloudflare Email driver", () => {
     );
   });
 
-  it.each(["not address", "a>, <https://evil.test>"])(
+  it.each(["not address", "a>, <https://evil.test>", "leave\u0000@example.com"])(
     "rejects an invalid unsubscribe mailto target %j before delivery",
     async (mailto) => {
       const send = vi.fn();

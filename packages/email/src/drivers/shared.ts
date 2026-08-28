@@ -103,7 +103,7 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   const url = message.unsubscribe.url?.trim();
   const oneClickEnabled = oneClick ?? Boolean(url);
   let normalizedUrl: string | undefined;
-  if (mailto !== undefined && !/^[^@\s<>,]+@[^@\s<>,]+$/.test(mailto)) {
+  if (mailto !== undefined && (/\p{Cc}/u.test(mailto) || !/^[^@\s<>,]+@[^@\s<>,]+$/.test(mailto))) {
     throw emailProviderError(
       driver,
       "INVALID_OPTIONS",
