@@ -117,6 +117,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
   if (!materializationByDefinition.has(definition)) materializationByDefinition.set(definition, materializationState)
   const { completedSources, generationBySource, materializedSources, pendingBySource } = materializationState
+  const uncachedMaterializedSources = new Set<string>()
   const persistsSourceSnapshots = Boolean(store.getMeta && store.setMeta)
 
   function getSourceContext(source: { key: string, mountPath: string }) {
@@ -276,6 +277,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         const source = sources.find(item => item.key === sourceResult.source)
         if (sourceResult.status === "ready" && source && materializesCompleteSource(source, options)) {
           materializedSources.add(source.key)
+          if (source.materialize === "lazy" && source.cache === false) {
+            uncachedMaterializedSources.add(source.key)
+          }
           if (source.materialize === "startup") {
             completedSources.add(source.key)
           }
@@ -305,10 +309,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function ensureMaterialized(sourceKey: string) {
-    if (materializedSources.has(sourceKey)) return
+    const source = sources.find(item => item.key === sourceKey)
+    if (!source) return
+    const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
+    if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) return
     if (completedSources.has(sourceKey)) {
-      const source = sources.find(item => item.key === sourceKey)
-      if (source && (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source))) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
       completedSources.delete(sourceKey)
     }
     const pending = pendingBySource.get(sourceKey)
@@ -320,7 +326,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         // A lazy consumer owns its fallback independently from a preparation
         // lifecycle that it happened to join.
       }
-      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) return
+      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) {
+        if (isUncachedLazySource) uncachedMaterializedSources.add(sourceKey)
+        return
+      }
     }
     await materializeSerialized({ sources: [sourceKey] })
   }

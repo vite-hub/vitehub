@@ -1566,10 +1566,12 @@ describe("lazy sources", () => {
       sources: {
         docs: custom({
           materialize: "build" as const,
+          mount: "",
           files: [{ path: "build.md", content: "# Build\n" }],
         }),
         generated: custom({
           materialize: "startup" as const,
+          mount: "",
           async getKeys() { return ["startup.md"] },
           getItem,
         }),
