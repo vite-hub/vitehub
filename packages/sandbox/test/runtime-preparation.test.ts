@@ -1,5 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises"
+import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -70,6 +70,97 @@ describe("Sandbox runtime preparation", () => {
     await expect(pruneSandboxRuntimeGeneration("/generated/runtime", remove)).resolves.toBeUndefined()
   })
 
+  it("serializes generation writers through the project filesystem", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const order: string[] = []
+    let releaseFirst!: () => void
+    let markFirstStarted!: () => void
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve
+    })
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+
+    const first = withSandboxRuntimeGenerationLock(root, async () => {
+      order.push("first-start")
+      markFirstStarted()
+      await firstReleased
+      order.push("first-end")
+    })
+    await firstStarted
+    const second = withSandboxRuntimeGenerationLock(root, async () => {
+      order.push("second")
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(order).toEqual(["first-start"])
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(["first-start", "first-end", "second"])
+  })
+
+  it("releases the generation lock when a writer fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => {
+      throw new Error("generation failed")
+    })).rejects.toThrow("generation failed")
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "recovered")).resolves.toBe("recovered")
+  })
+
+  it("reclaims a generation lock left by a terminated process", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    await mkdir(lockDir)
+    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+      host: hostname(),
+      pid: 2_147_483_647,
+      token: "terminated",
+    }))
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
+  })
+
+  it("reclaims an aged generation lock owned on another host", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    await mkdir(lockDir)
+    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+      host: "remote-host",
+      pid: 42,
+      token: "stale",
+    }))
+    const stale = new Date(Date.now() - 301_000)
+    await utimes(lockDir, stale, stale)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
+  })
+
+  it("recovers when a stale-lock reclaimer exits before moving the lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    const claimPath = join(lockDir, ".reclaim")
+    await mkdir(lockDir)
+    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+      host: "remote-host",
+      pid: 42,
+      token: "stale",
+    }))
+    await writeFile(claimPath, "")
+    const staleLock = new Date(Date.now() - 301_000)
+    const staleClaim = new Date(Date.now() - 61_000)
+    await utimes(lockDir, staleLock, staleLock)
+    await utimes(claimPath, staleClaim, staleClaim)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
+  })
+
   it("reads the active Windows generation instead of sorting random suffixes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)
@@ -82,32 +173,5 @@ describe("Sandbox runtime preparation", () => {
       await writeFile(facade, markSandboxRuntimeGeneration("export default {}\n", join(generationsDir, generation)))
       await expect(readSandboxRuntimeGeneration(facade, generationsDir)).resolves.toBe(join(generationsDir, generation))
     }
-  })
-
-  it("serializes generation activation and pruning across writers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
-    tempDirs.push(root)
-    let releaseFirst!: () => void
-    let observeFirst!: () => void
-    const firstPending = new Promise<void>((resolve) => { releaseFirst = resolve })
-    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve })
-    const order: string[] = []
-
-    const first = withSandboxRuntimeGenerationLock(root, async () => {
-      order.push("first:start")
-      observeFirst()
-      await firstPending
-      order.push("first:end")
-    })
-    await firstObserved
-    const second = withSandboxRuntimeGenerationLock(root, async () => {
-      order.push("second")
-    })
-    await new Promise(resolve => setTimeout(resolve, 50))
-    expect(order).toEqual(["first:start"])
-
-    releaseFirst()
-    await Promise.all([first, second])
-    expect(order).toEqual(["first:start", "first:end", "second"])
   })
 })

@@ -259,8 +259,6 @@ async function writeSandboxArtifactsLocked(
 ) {
   const generationsDir = resolve(generatedDir, '.runtime-generations')
   await mkdir(generationsDir, { recursive: true })
-  const existingGenerations = (await readdir(generationsDir))
-    .filter(entry => entry.startsWith('runtime-'))
   const generationDir = await mkdtemp(resolve(generationsDir, 'runtime-'))
   const runtimeDir = resolve(generatedDir, 'runtime')
   const stagedLink = resolve(generatedDir, `.runtime-link-${generationDir.slice(generationsDir.length + 1)}`)
@@ -360,9 +358,6 @@ async function writeSandboxArtifactsLocked(
     generationDir,
     previousGeneration && resolve(generatedDir, previousGeneration),
     previousWindowsGeneration,
-    ...platform === 'win32' && !previousWindowsGeneration
-      ? existingGenerations.map(entry => resolve(generationsDir, entry))
-      : [],
   ].filter(Boolean))
   for (const entry of await readdir(generationsDir)) {
     const path = resolve(generationsDir, entry)

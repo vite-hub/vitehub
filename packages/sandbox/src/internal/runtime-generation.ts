@@ -1,44 +1,132 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { basename, resolve } from 'pathe'
 
 const generationMarker = '// vitehub-sandbox-generation: '
+const generationLockClaimStaleMs = 60_000
+const generationLockName = '.runtime-generation.lock'
+const generationLockWaitMs = 60_000
+const generationLockStaleMs = 300_000
 
-type SandboxRuntimeLockOwner = {
+interface SandboxRuntimeGenerationLockOwner {
   host: string
   pid: number
   token: string
 }
 
-async function readSandboxRuntimeLockOwner(lock: string): Promise<SandboxRuntimeLockOwner | undefined> {
-  const owner = await readFile(resolve(lock, 'owner.json'), 'utf8').catch(() => undefined)
-  if (!owner)
-    return undefined
-  const [host, pidText, token] = owner.split('\n')
-  if (!host || !pidText || !token || !/^\d+$/.test(pidText))
-    return undefined
-  const pid = Number(pidText)
-  return Number.isSafeInteger(pid) ? { host, pid, token } : undefined
+interface SandboxRuntimeGenerationLockObservation {
+  dev: number
+  ino: number
+  mtimeMs: number
+  ownerValue: string | undefined
 }
 
-async function staleSandboxRuntimeLock(lock: string): Promise<string | undefined> {
-  const owner = await readSandboxRuntimeLockOwner(lock)
-  if (!owner) {
-    const item = await stat(lock).catch(() => undefined)
-    return item && Date.now() - item.mtimeMs > 5_000
-      ? `invalid-${item.dev}-${item.ino}-${Math.floor(item.mtimeMs)}`
+function readNodeErrorCode(error: unknown) {
+  return error instanceof Error && 'code' in error ? error.code : undefined
+}
+
+function parseSandboxRuntimeGenerationLockOwner(value: string | undefined): SandboxRuntimeGenerationLockOwner | undefined {
+  if (!value)
+    return undefined
+
+  try {
+    const owner = JSON.parse(value) as Partial<SandboxRuntimeGenerationLockOwner>
+    return typeof owner.host === 'string'
+      && Number.isSafeInteger(owner.pid)
+      && Number(owner.pid) > 0
+      && typeof owner.token === 'string'
+      ? owner as SandboxRuntimeGenerationLockOwner
       : undefined
   }
-  if (owner.host !== hostname())
-    return undefined
-  try {
-    process.kill(owner.pid, 0)
+  catch {
     return undefined
   }
+}
+
+function isLocalProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
   catch (error) {
-    return Reflect.get(Object(error), 'code') === 'ESRCH' ? owner.token : undefined
+    return readNodeErrorCode(error) !== 'ESRCH'
+  }
+}
+
+async function observeSandboxRuntimeGenerationLock(
+  lockDir: string,
+  ownerPath: string,
+): Promise<SandboxRuntimeGenerationLockObservation | undefined> {
+  const before = await stat(lockDir).catch(() => undefined)
+  if (!before)
+    return undefined
+  const ownerValue = await readFile(ownerPath, 'utf8').catch(() => undefined)
+  const after = await stat(lockDir).catch(() => undefined)
+  if (!after || before.dev !== after.dev || before.ino !== after.ino)
+    return undefined
+  return { dev: after.dev, ino: after.ino, mtimeMs: after.mtimeMs, ownerValue }
+}
+
+function isSandboxRuntimeGenerationLockStale(observation: SandboxRuntimeGenerationLockObservation): boolean {
+  const owner = parseSandboxRuntimeGenerationLockOwner(observation.ownerValue)
+  if (owner?.host === hostname())
+    return !isLocalProcessAlive(owner.pid)
+
+  return Date.now() - observation.mtimeMs > generationLockStaleMs
+}
+
+async function reclaimSandboxRuntimeGenerationLock(
+  lockDir: string,
+  ownerPath: string,
+  observation: SandboxRuntimeGenerationLockObservation,
+): Promise<boolean> {
+  const claimPath = resolve(lockDir, '.reclaim')
+  let claim: Awaited<ReturnType<typeof open>> | undefined
+  while (!claim) {
+    try {
+      claim = await open(claimPath, 'wx')
+    }
+    catch (error) {
+      const code = readNodeErrorCode(error)
+      if (code === 'ENOENT')
+        return false
+      if (code !== 'EEXIST')
+        throw error
+
+      const claimInfo = await stat(claimPath).catch(() => undefined)
+      if (!claimInfo || Date.now() - claimInfo.mtimeMs <= generationLockClaimStaleMs)
+        return false
+      await rm(claimPath, { force: true }).catch(() => {})
+    }
+  }
+  await claim.close()
+
+  let reclaimed = false
+  try {
+    const currentOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
+    const current = await stat(lockDir).catch(() => undefined)
+    if (
+      currentOwner !== observation.ownerValue
+      || current?.dev !== observation.dev
+      || current.ino !== observation.ino
+    )
+      return false
+
+    const staleDir = `${lockDir}.stale-${randomUUID()}`
+    reclaimed = await rename(lockDir, staleDir).then(() => true, (error) => {
+      if (readNodeErrorCode(error) === 'ENOENT')
+        return false
+      throw error
+    })
+    if (reclaimed)
+      await rm(staleDir, { recursive: true, force: true })
+    return reclaimed
+  }
+  finally {
+    if (!reclaimed)
+      await rm(claimPath, { force: true }).catch(() => {})
   }
 }
 
@@ -46,43 +134,54 @@ export async function withSandboxRuntimeGenerationLock<T>(
   generatedDir: string,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const lock = resolve(generatedDir, '.runtime-generation.lock')
-  const token = randomUUID()
+  const lockDir = resolve(generatedDir, generationLockName)
+  const ownerPath = resolve(lockDir, 'owner.json')
+  const owner = JSON.stringify({ host: hostname(), pid: process.pid, token: randomUUID() })
+  const deadline = Date.now() + generationLockWaitMs
+  await mkdir(generatedDir, { recursive: true })
+
   while (true) {
-    const acquired = await mkdir(lock, { mode: 0o700 }).then(
-      () => true,
-      async (error: NodeJS.ErrnoException) => {
-        if (error.code !== 'EEXIST')
-          throw error
-        const staleToken = await staleSandboxRuntimeLock(lock)
-        if (!staleToken)
-          return false
-        const tombstone = `${lock}.stale-${staleToken}`
-        const reclaimed = await rename(lock, tombstone).then(() => true, () => false)
-        if (reclaimed)
-          await rm(tombstone, { force: true, recursive: true })
-        return false
-      },
-    )
-    if (acquired) {
-      try {
-        await writeFile(resolve(lock, 'owner.json'), `${hostname()}\n${process.pid}\n${token}\n`)
-      }
-      catch (error) {
-        await rm(lock, { force: true, recursive: true }).catch(() => undefined)
+    try {
+      await mkdir(lockDir)
+    }
+    catch (error) {
+      if (readNodeErrorCode(error) !== 'EEXIST')
         throw error
+
+      const observation = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath)
+      if (observation && isSandboxRuntimeGenerationLockStale(observation)) {
+        await reclaimSandboxRuntimeGenerationLock(lockDir, ownerPath, observation)
+        continue
+      }
+      if (Date.now() >= deadline)
+        throw new Error(`[vitehub] Timed out waiting to prepare the Sandbox runtime in ${generatedDir}.`)
+      await delay(25)
+      continue
+    }
+
+    try {
+      const ownerFile = await open(ownerPath, 'wx')
+      try {
+        await ownerFile.writeFile(owner)
+      }
+      finally {
+        await ownerFile.close()
       }
       break
     }
-    await delay(25)
+    catch (error) {
+      await rm(lockDir, { recursive: true, force: true }).catch(() => {})
+      throw error
+    }
   }
+
   try {
     return await operation()
   }
   finally {
-    const owner = await readSandboxRuntimeLockOwner(lock)
-    if (owner?.token === token)
-      await rm(lock, { force: true, recursive: true })
+    const activeOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
+    if (activeOwner === owner)
+      await rm(lockDir, { recursive: true, force: true })
   }
 }
 

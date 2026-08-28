@@ -1,6 +1,6 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -180,21 +180,35 @@ describe("hubSandbox", () => {
 
   it("loads only the selected generated Definition payload", async () => {
     const rootDir = await createViteRoot()
-    await writeFile(join(rootDir, "src/tools/unrelated.sandbox.ts"), "export default { run: async () => ({ unrelated: true }) }\n")
+    await writeFile(join(rootDir, "src/tools/unrelated.sandbox.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ run: async () => ({ unrelated: true }) })`,
+      ``,
+    ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
-    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
     await configResolved({ root: rootDir, resolve: { alias: [] } })
 
-    const unrelatedArtifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__unrelated.mjs")
-    await writeFile(unrelatedArtifact, 'throw new Error("unrelated Definition loaded")\n')
     const registryFile = await realpath(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"))
-    const registry: { default: Record<string, () => Promise<{ default?: unknown }>> } = await import(pathToFileURL(registryFile).href)
+    const unrelatedFile = await realpath(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__unrelated.mjs"))
+    const unrelatedContents = await readFile(unrelatedFile, "utf8")
+    const loadedMarker = "__vitehubSandboxUnrelatedDefinitionLoaded"
+    delete (globalThis as Record<string, unknown>)[loadedMarker]
+    await writeFile(unrelatedFile, [
+      `globalThis.${loadedMarker} = true`,
+      unrelatedContents,
+    ].join("\n"))
 
-    await expect(registry.default["tools/release-notes"]?.()).resolves.toMatchObject({ default: expect.any(Object) })
-    await expect(registry.default["tools/unrelated"]?.()).rejects.toThrow("unrelated Definition loaded")
+    const registryModule: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(registryFile).href)
+    expect((globalThis as Record<string, unknown>)[loadedMarker]).toBeUndefined()
+    await expect(registryModule.default["tools/release-notes"]?.()).resolves.toBeDefined()
+    expect((globalThis as Record<string, unknown>)[loadedMarker]).toBeUndefined()
+    await expect(registryModule.default["tools/unrelated"]?.()).resolves.toBeDefined()
+    expect((globalThis as Record<string, unknown>)[loadedMarker]).toBe(true)
+    delete (globalThis as Record<string, unknown>)[loadedMarker]
   })
 
   it("accepts direct integration options", async () => {
@@ -1162,6 +1176,29 @@ describe("hubSandbox", () => {
     })
   })
 
+  it("keeps the active runtime intact across independent concurrent writers", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugins = Array.from({ length: 4 }, () => hubSandbox({ provider: "vercel" }))
+    const resolvedConfig = { root: rootDir, resolve: { alias: [] as [] } }
+
+    await Promise.all(plugins.map(async (plugin) => {
+      const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+      await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    }))
+    await Promise.all(plugins.map(async (plugin) => {
+      const configResolved = plugin.configResolved as unknown as (config: typeof resolvedConfig) => unknown | Promise<unknown>
+      await configResolved(resolvedConfig)
+    }))
+
+    const runtimeDir = join(rootDir, ".vitehub/sandbox/runtime")
+    const activeGeneration = await realpath(runtimeDir)
+    const generations = await readdir(join(rootDir, ".vitehub/sandbox/.runtime-generations"))
+    expect(generations).toHaveLength(2)
+    expect(generations).toContain(basename(activeGeneration))
+    await expect(readFile(join(runtimeDir, "sandbox.mjs"), "utf8")).resolves.toContain("setSandboxRuntimeRegistry(sandboxRegistry)")
+  })
+
   it("refreshes generated artifacts during sandbox definition hot updates", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
@@ -1250,6 +1287,7 @@ describe("hubSandbox", () => {
     })
     const generations = await readdir(join(rootDir, ".vitehub/sandbox/.runtime-generations"))
     expect(generations).toHaveLength(2)
+    await expect(readFile(previousResolvedDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await expect(loadPreviousDefinition()).resolves.toBeDefined()
   })
 
