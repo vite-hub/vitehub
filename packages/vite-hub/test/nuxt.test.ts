@@ -1445,7 +1445,7 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
-  it("resolves generated type roots from the effective Vite root", async () => {
+  it("resolves generated type roots from the Nuxt project root", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options.vite, { root: "app" })
 
@@ -1455,7 +1455,7 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
         exclude: ["../app/packages/config/.vitehub/data/**/*.d.ts"],
-        include: ["../app/.vitehub/types.d.ts", "../app/packages/config/.vitehub/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../app/packages/config/.vitehub/**/*.d.ts"],
       },
     })
   })
@@ -1470,7 +1470,7 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
         exclude: ["../packages/db/.vitehub/data/**/*.d.ts"],
-        include: ["../app/.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
       },
     })
   })
