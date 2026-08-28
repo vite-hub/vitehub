@@ -93,6 +93,19 @@ const nullableConfiguredContext = createNullableConfiguredContext("local")
 
 nullableConfiguredContext.runtimeConfig satisfies string | Record<string, unknown>
 
+type RuntimeContextVariant =
+  | { kind: "configured", memo: ExecutionContext["memo"], runtime: string, runtimeConfig: string, waitUntil: ExecutionContext["waitUntil"] }
+  | { kind: "default", memo: ExecutionContext["memo"], runtime: string, waitUntil: ExecutionContext["waitUntil"] }
+declare const runtimeContextVariant: RuntimeContextVariant
+const variantContext = createExecutionContext(runtimeContextVariant)
+
+if (variantContext.kind === "configured") {
+  variantContext.runtimeConfig satisfies string
+}
+else {
+  variantContext.runtimeConfig satisfies Record<string, unknown>
+}
+
 const error = new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
   details: { provider: "fixture" },
 })

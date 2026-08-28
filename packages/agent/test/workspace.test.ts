@@ -2300,7 +2300,7 @@ describe("defineAgent workspace option", () => {
     } as never)
 
     expect(instrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
-      input: { messages: [] },
+      input: { context: {}, messages: [] },
       model: expect.objectContaining({ modelId: "base" }),
       run: expect.objectContaining({ origin: "teams", runId: "run_123" }),
       callSettings: expect.objectContaining({ temperature: 0.2 }),

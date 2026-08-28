@@ -717,11 +717,12 @@ type RuntimeCapabilitiesOf<TContext extends RuntimeHostContext<any>> = "capabili
     : TContext["capabilities"]
   : RuntimeCapabilities
 
-type CreatedExecutionContext<TContext extends RuntimeHostContext<any>> = Omit<TContext, "capabilities" | "runtimeConfig">
-  & {
-    capabilities: RuntimeCapabilitiesOf<TContext>
-    runtimeConfig: RuntimeConfigOf<TContext>
-  }
+type CreatedExecutionContext<TContext extends RuntimeHostContext<any>> = TContext extends unknown
+  ? Omit<TContext, "capabilities" | "runtimeConfig"> & {
+      capabilities: RuntimeCapabilitiesOf<TContext>
+      runtimeConfig: RuntimeConfigOf<TContext>
+    }
+  : never
 
 export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
@@ -731,11 +732,12 @@ export function createExecutionContext<TContext extends RuntimeHostContext<any>>
   // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
   const runtimeConfig = (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>
 
+  // SAFETY: Each union variant is reconstructed with the normalized fields described by CreatedExecutionContext.
   return {
     ...context,
     capabilities,
     runtimeConfig,
-  }
+  } as CreatedExecutionContext<TContext>
 }
 
 export function defineCapability<TKind extends string, TValue>(

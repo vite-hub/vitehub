@@ -17,6 +17,7 @@ import {
   type ApprovalRequest,
   type LeaseStore,
   type RuntimeCapabilities,
+  type RuntimeHostContext,
   type RunLifecycleHooks,
   ViteHubError,
 } from "../src/index.ts"
@@ -128,6 +129,36 @@ describe("@vite-hub/runtime", () => {
     expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
     expect(configuredContext.runtimeConfig).toBe("local")
     expect(omittedContext.runtimeConfig).toEqual({})
+  })
+
+  it("normalizes runtime configuration independently for each context variant", () => {
+    type ContextVariant =
+      | { kind: "configured", memo: RuntimeHostContext["memo"], runtime: string, runtimeConfig: string, waitUntil: RuntimeHostContext["waitUntil"] }
+      | { kind: "default", memo: RuntimeHostContext["memo"], runtime: string, waitUntil: RuntimeHostContext["waitUntil"] }
+    const createContext = (context: ContextVariant) => createExecutionContext(context)
+
+    const configuredContext = createContext({
+      kind: "configured",
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: "local",
+      waitUntil: vi.fn(),
+    })
+    if (configuredContext.kind === "configured") {
+      expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string>()
+      expect(configuredContext.runtimeConfig).toBe("local")
+    }
+
+    const defaultContext = createContext({
+      kind: "default",
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+    if (defaultContext.kind === "default") {
+      expectTypeOf(defaultContext.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+      expect(defaultContext.runtimeConfig).toEqual({})
+    }
   })
 
   it("registers, finds, and resolves capability handles", () => {
