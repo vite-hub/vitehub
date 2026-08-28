@@ -795,6 +795,40 @@ describe("framework generated types", () => {
     }
   })
 
+  it("keeps a generated topology retry after unrelated watcher events", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const collection = join(root, "server/collections/meals.ts")
+      await mkdir(join(root, "server/collections"), { recursive: true })
+      await writeFile(collection, collectionModule("meals"))
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restartHost = vi.fn()
+        .mockRejectedValueOnce(new Error("host restart failed"))
+        .mockResolvedValue(undefined)
+      plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+
+      configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart: vi.fn(async () => {}),
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await rm(collection)
+      await listeners.get("unlink")?.(collection)
+      expect(restartHost).toHaveBeenCalledOnce()
+
+      await listeners.get("change")?.(join(root, "README.md"))
+      await vi.runAllTimersAsync()
+      expect(restartHost).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("cancels generated topology retries when the Vite server closes", async () => {
     vi.useFakeTimers()
     try {

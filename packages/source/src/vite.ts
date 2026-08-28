@@ -481,6 +481,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         return result
       }
       const refreshHost = (file: string) => {
+        if (!root || !sourceDefinitionPath(file, root, serverDirs)) return
         clearHostRefreshRetry()
         hostRefreshRetryDelay = initialHostRefreshRetryDelay
         return queueHostRefresh(file)
