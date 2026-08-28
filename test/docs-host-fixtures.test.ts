@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process"
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -59,16 +60,25 @@ async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.
 }
 
 async function expectDenoLauncherToStart(appRoot: string) {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("Could not allocate a port for the Deno launcher.")
+  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  const port = address.port
   const child = spawn("deno", [
     "run",
     "--unstable-cron",
     "--allow-env",
     "--allow-read=.output",
-    "--allow-net=0.0.0.0:8000",
+    `--allow-net=0.0.0.0:${port}`,
     ".output/main.ts",
   ], {
     cwd: appRoot,
-    env: { ...process.env, HOST: "0.0.0.0", PORT: "8000" },
+    env: { ...process.env, HOST: "0.0.0.0", PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"],
   })
   let output = ""
@@ -83,14 +93,14 @@ async function expectDenoLauncherToStart(appRoot: string) {
     const started = (async () => {
       for (let attempt = 0; attempt < 100; attempt++) {
         try {
-          await fetch("http://127.0.0.1:8000/")
-          return
+          const response = await fetch(`http://127.0.0.1:${port}/`)
+          if ((await response.text()).includes("ViteHub host fixture")) return
         }
         catch {
           await new Promise(resolve => setTimeout(resolve, 100))
         }
       }
-      throw new Error(`Deno launcher did not listen on port 8000\n${output}`)
+      throw new Error(`Deno launcher did not serve its fixture on port ${port}\n${output}`)
     })()
     await Promise.race([
       exit.then(({ code, signal }) => {
@@ -142,7 +152,7 @@ describe("host documentation fixtures", () => {
         await cp(join(fixturesRoot, host), appRoot, { recursive: true })
         await symlink(join(repoRoot, "node_modules"), join(appRoot, "node_modules"), "dir")
         await mkdir(join(appRoot, "src"), { recursive: true })
-        await writeFile(join(appRoot, "index.html"), '<main id="app"></main><script type="module" src="/src/main.ts"></script>\n', "utf8")
+        await writeFile(join(appRoot, "index.html"), '<main id="app">ViteHub host fixture</main><script type="module" src="/src/main.ts"></script>\n', "utf8")
         await writeFile(join(appRoot, "src/main.ts"), 'document.querySelector("#app")!.textContent = "ViteHub host fixture"\n', "utf8")
 
         await run("corepack", ["pnpm", "exec", "vp", "build", appRoot, "--config", join(appRoot, "vite.config.ts")], repoRoot, {

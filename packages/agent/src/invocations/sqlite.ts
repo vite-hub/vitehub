@@ -14,12 +14,20 @@ import type { Client } from "@libsql/client"
 export interface LibsqlAgentInvocationStoreOptions {
   authToken?: string
   client?: Client
+  /** Maximum age of terminal invocation records. Defaults to 30 days. Set to false to disable age-based retention. */
+  maxAgeMs?: false | number
+  /** Maximum number of terminal invocation records. Defaults to 10,000. Set to false to disable count-based retention. */
+  maxRecords?: false | number
   tablePrefix?: string
   url?: string
 }
 
+const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
+const defaultMaxRecords = 10_000
+const maximumDateMs = 8_640_000_000_000_000
 const searchBackfillPageSize = 100
 const searchVersion = 2
+const terminalStatuses = ["completed", "failed", "cancelled"] as const
 
 function tableName(prefix = "vitehub_agent_"): string {
   const name = `${prefix}invocations`
@@ -94,6 +102,38 @@ function searchValue(search: string | undefined): string | undefined {
   return value || undefined
 }
 
+function retentionValue(value: false | number | undefined, fallback: number, name: string, maximum = Number.MAX_SAFE_INTEGER): false | number {
+  if (value === false) return false
+  if (value === undefined) return fallback
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new TypeError(`[vitehub] SQLite Agent Invocation ${name} must be a positive safe integer or false.`)
+  }
+  return value
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  let current = error
+  while (current instanceof Error) {
+    // SAFETY: libSQL errors extend Error with the conventional SQLite error code.
+    if ((current as Error & { code?: unknown }).code === "SQLITE_BUSY") return true
+    current = current.cause
+  }
+  return false
+}
+
+async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation()
+    }
+    catch (error) {
+      if (!isSqliteBusy(error) || attempt >= 12) throw error
+      const maximumDelayMs = Math.min(100, 2 ** attempt)
+      await new Promise(resolve => setTimeout(resolve, 1 + Math.floor(Math.random() * maximumDelayMs)))
+    }
+  }
+}
+
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): AgentInvocationStore {
   if (!options.client && !options.url) {
     throw new TypeError("[vitehub] SQLite Agent Invocations require url or client.")
@@ -103,6 +143,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     url: options.url!,
   })
   const table = tableName(options.tablePrefix)
+  const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs)
+  const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
   let writes = Promise.resolve()
   const write = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -217,6 +259,41 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const row = result.rows[0]
     return row ? deserialize(row.record, row.sequence) : undefined
   }
+  const pruneStatements = (now = Date.now()) => {
+    const filters: string[] = []
+    const args: Array<number | string> = []
+    const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
+    if (maxAgeMs !== false) {
+      filters.push("json_extract(record, '$.updatedAt') < ?")
+      args.push(new Date(now - maxAgeMs).toISOString())
+    }
+    if (maxRecords !== false) {
+      filters.push(`sequence NOT IN (
+        SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
+      )`)
+      args.push(...terminalStatuses, maxRecords)
+    }
+    if (!filters.length) return []
+    const reconcileStatuses = `UPDATE ${table}
+      SET status = json_extract(record, '$.status')
+      WHERE status != json_extract(record, '$.status')`
+    const deleteInvocations = {
+      args: [...terminalStatuses, ...args],
+      sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
+    }
+    const deleteClaims = `DELETE FROM ${table}_claims
+      WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
+    return [reconcileStatuses, deleteInvocations, deleteClaims]
+  }
+  const prune = async (executor?: Pick<Client, "execute">) => {
+    const statements = pruneStatements()
+    if (!statements.length) return
+    if (executor) {
+      for (const statement of statements) await executor.execute(statement)
+      return
+    }
+    await client.batch(statements, "write")
+  }
   return {
     async claim(id, claimId, leaseMs, force) {
       return write(async () => {
@@ -235,13 +312,30 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async create(input: AgentInvocationStoreCreateInput) {
       return write(async () => {
         await initialize()
-        const result = await client.execute({
-          args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
-          sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
+        return await retrySqliteBusy(async () => {
+          const retentionNow = Date.now()
+          const prePrune = pruneStatements(retentionNow)
+          const insertIndex = prePrune.length
+          const statements = [
+            ...prePrune,
+            {
+              args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
+              sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
+            }
+          ]
+          if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
+            statements.push(...pruneStatements(retentionNow))
+          }
+          statements.push({
+            args: [input.id],
+            sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+          })
+          const results = await client.batch(statements, "write")
+          const row = results.at(-1)?.rows[0]
+          const record = row ? deserialize(row.record, row.sequence) : undefined
+          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
+          return { created: results[insertIndex]!.rowsAffected > 0, record }
         })
-        const record = await read(input.id)
-        if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
-        return { created: result.rowsAffected > 0, record }
       })
     },
     get: read,
@@ -305,40 +399,45 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async update(id, input, claimId) {
       return write(async () => {
         await initialize()
-        const transaction = await client.transaction("write")
-        try {
-          const result = await transaction.execute({
-            args: claimId ? [id, id, claimId] : [id],
-            sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId
-              ? ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`
-              : ""} LIMIT 1`,
-          })
-          const row = result.rows[0]
-          const record = row ? deserialize(row.record, row.sequence) : undefined
-          if (!record) {
+        return await retrySqliteBusy(async () => {
+          const transaction = await client.transaction("write")
+          try {
+            const result = await transaction.execute({
+              args: claimId ? [id, id, claimId] : [id],
+              sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId
+                ? ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`
+                : ""} LIMIT 1`,
+            })
+            const row = result.rows[0]
+            const record = row ? deserialize(row.record, row.sequence) : undefined
+            if (!record) {
+              await transaction.commit()
+              return
+            }
+            const updated = applyAgentInvocationStoreUpdate(record, input)
+            const stored = storedRecord(updated)
+            await transaction.execute({
+              args: [id],
+              sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
+            })
+            await transaction.execute({
+              args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, serialize(stored), id],
+              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
+            })
+            if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") {
+              await prune(transaction)
+            }
             await transaction.commit()
-            return
+            return updated
           }
-          const updated = applyAgentInvocationStoreUpdate(record, input)
-          const stored = storedRecord(updated)
-          await transaction.execute({
-            args: [id],
-            sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
-          })
-          await transaction.execute({
-            args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, serialize(stored), id],
-            sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
-          })
-          await transaction.commit()
-          return updated
-        }
-        catch (error) {
-          await transaction.rollback()
-          throw error
-        }
-        finally {
-          await transaction.close()
-        }
+          catch (error) {
+            await transaction.rollback().catch(() => undefined)
+            throw error
+          }
+          finally {
+            await transaction.close()
+          }
+        })
       })
     },
   }

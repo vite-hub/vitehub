@@ -9,6 +9,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import {
+  assertSupportedRelocatedImports,
   collectDenoRuntimePackageNames,
   finalizeDenoDeploymentOutput,
 } from "../src/build/deno-runtime-packages.ts"
@@ -263,6 +264,15 @@ import "real"
     await writeFile(join(root, "main.ts"), 'await import("./helper.ts".slice(0))\n', "utf8")
 
     await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+      "unsupported computed import",
+    )
+  })
+
+  it("rejects computed imports nested in dynamic import options", () => {
+    expect(() => assertSupportedRelocatedImports(
+      'await import("data-package", makeOptions(import("./" + helper)))',
+      "application entrypoint",
+    )).toThrow(
       "unsupported computed import",
     )
   })

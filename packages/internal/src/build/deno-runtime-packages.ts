@@ -100,7 +100,7 @@ function collectImportedPackageNames(source: string): Set<string> {
 }
 
 interface LiteralDynamicImport {
-  end: number
+  literalEnd: number
   specifier: string
   start: number
 }
@@ -191,7 +191,7 @@ function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
     }
     if (depth !== 0) continue
     imports.push({
-      end: cursor,
+      literalEnd,
       specifier: cookImportSpecifier(source.slice(literalStart + 1, literalEnd - 1)),
       start,
     })
@@ -637,7 +637,7 @@ async function readRuntimePackages(runtimeDirs: string[], rootDir: string): Prom
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
+export function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
   const executableSource = maskInertImportText(source)
   for (const match of executableSource.matchAll(/new URL\(\s*["'](\.[^"']*)["']\s*,\s*import\.meta\.url\s*\)/g)) {
     const specifier = match[1]!
@@ -647,7 +647,7 @@ function assertSupportedRelocatedImports(source: string, outputName: string, all
   let remaining = executableSource
     .replaceAll(/import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, specifier: string) => allowedLocalImports.includes(specifier) ? "" : expression)
   for (const literalImport of findLiteralDynamicImports(remaining).reverse()) {
-    remaining = remaining.slice(0, literalImport.start) + " ".repeat(literalImport.end - literalImport.start) + remaining.slice(literalImport.end)
+    remaining = remaining.slice(0, literalImport.start) + " ".repeat(literalImport.literalEnd - literalImport.start) + remaining.slice(literalImport.literalEnd)
   }
   if (/(?:^|[^\w$.#])import\s*\(/.test(remaining)) {
     throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
