@@ -744,8 +744,14 @@ describe("Agent invocation console", () => {
     const result = await invocationsHandler(requestEvent)
 
     expect(result.invocations).toHaveLength(6)
-    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "5" })
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "4" })
     expect(result.remainingStatuses).toContain("pending")
+
+    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(result.cursor!)}`
+    requestEvent.req!.url = requestEvent.node!.req!.url
+    const next = await invocationsHandler(requestEvent)
+
+    expect(next.invocations).toContainEqual(expect.objectContaining({ id: "pending-4" }))
   })
 
   it("preserves an earlier lifecycle cursor when transitions consume its refill", async () => {

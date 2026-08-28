@@ -186,7 +186,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
         .flatMap(([, current]) => current.invocations.map(invocation => invocation.id)))
       const refillLimit = Math.max(0, pageLimit - otherIds.size)
       if (refillLimit === 0) {
-        pages[key] = emptyPage
+        pages[key] = { ...emptyPage }
         deferredGroups.add(key)
       }
       else {
