@@ -1920,7 +1920,7 @@ describe("Agent invocation console", () => {
     expect([...new Set(ids)]).toEqual(["pending-3", "completed-1", "pending-2", "completed-0"])
   })
 
-  it("summarizes recorded usage without requiring the Usage Capability", async () => {
+  it("summarizes recorded usage and marks missing completion evidence unavailable", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
       agentName: "review",
@@ -1954,6 +1954,15 @@ describe("Agent invocation console", () => {
       updatedAt: "2026-08-27T10:00:00.000Z",
     })
     store.create({
+      completedAt: "2026-08-27T10:30:00.000Z",
+      createdAt: "2026-08-27T10:29:00.000Z",
+      id: "missing-usage",
+      observations: [],
+      status: "completed",
+      traceId: "trace-missing-usage",
+      updatedAt: "2026-08-27T10:30:00.000Z",
+    })
+    store.create({
       completedAt: "2026-08-28T10:00:00.000Z",
       createdAt: "2026-08-28T10:00:00.000Z",
       id: "future-usage",
@@ -1977,20 +1986,33 @@ describe("Agent invocation console", () => {
       available: true,
       buckets: expect.arrayContaining([
         expect.objectContaining({
+          costAvailable: false,
           costUsd: "0.03",
-          invocations: 1,
+          invocations: 2,
           start: "2026-08-27T10:00:00.000Z",
           totalTokens: 30,
+          totalTokensAvailable: false,
         }),
       ]),
-      costAvailable: true,
+      costAvailable: false,
       models: [
         { costUsd: "0.01", invocations: 1, model: "model-a", totalTokens: 15 },
         { costUsd: "0.02", invocations: 1, model: "model-b", totalTokens: 15 },
+        expect.objectContaining({ costAvailable: false, invocations: 1, model: "Unknown model", totalTokensAvailable: false }),
       ],
       partial: false,
       resolution: "hour",
-      totals: { costUsd: "0.03", inputTokens: 18, invocations: 1, outputTokens: 12, totalTokens: 30 },
+      totals: {
+        costAvailable: false,
+        costUsd: "0.03",
+        inputTokens: 18,
+        inputTokensAvailable: false,
+        invocations: 2,
+        outputTokens: 12,
+        outputTokensAvailable: false,
+        totalTokens: 30,
+        totalTokensAvailable: false,
+      },
     })
     expect(invocationUsage((await invocations.get("usage-invocation"))!)).toMatchObject({
       cost: { estimated: true, source: "mixed", usd: "0.03" },

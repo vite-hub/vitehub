@@ -339,8 +339,7 @@ export async function createUsageSummary(
     const records = await Promise.all(summaries.map(summary => invocations.get(summary.id)))
     for (const record of records) {
       if (!record) continue
-      const usage = invocationUsage(record)
-      if (!usage) continue
+      const usage = invocationUsage(record) ?? {}
       const bucket = bucketStart(usageTime(record), window.bucket)
       if (!bucket) continue
       addUsage(totals, usage)

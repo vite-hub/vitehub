@@ -10,7 +10,8 @@ function number(value: unknown): number | undefined {
 }
 
 function formatTokens(value: unknown): string {
-  const resolved = number(value) ?? 0
+  const resolved = number(value)
+  if (resolved === undefined) return "—"
   return new Intl.NumberFormat("en", {
     maximumFractionDigits: 1,
     notation: resolved >= 10_000 ? "compact" : "standard",
