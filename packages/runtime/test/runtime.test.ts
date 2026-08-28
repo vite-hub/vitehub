@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import {
   createExecutionContext,
@@ -527,6 +528,23 @@ describe("@vite-hub/runtime", () => {
     await log.append({
       name: "custom.event",
       payload: { value: new AggregateError([new Error("nested")], "failed"), visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it.each([
+    ["RegExp state", runInNewContext('(() => { const value = /trace/gu; value.lastIndex = 3; return value })()')],
+    ["AggregateError children", runInNewContext('new AggregateError([new Error("nested")], "failed")')],
+  ])("falls back to private when cloning loses cross-realm %s", async (_label, value) => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
       type: "lifecycle",
     })
 

@@ -920,6 +920,67 @@ describe("agent message protocol", () => {
     )
   })
 
+  it("classifies finish delivery failures as Agent delivery", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const deliveryFailure = new Error("delivery failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => undefined,
+        id: "finish-delivery-failure",
+        prepare(context) {
+          context.delivery.finishEffect(() => { throw deliveryFailure })
+        },
+      })],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(deliveryFailure)
+
+    const failure = traceLog.entries().find(event => event.name === "agent.invocation.error")
+    expect(failure).toMatchObject({
+      activity: { owner: "agent", phase: "delivery" },
+      attributes: { "error.message": "delivery failed" },
+    })
+  })
+
+  it("traces execution and later Capability cleanup failures once each", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const executionFailure = new Error("run failed")
+    const cleanupFailure = new Error("cleanup failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "cleanup-after-execution-failure",
+      })],
+      driver: { run: async () => { throw executionFailure } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow()
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "run failed" },
+      },
+      {
+        activity: { owner: "vitehub", phase: "teardown" },
+        attributes: { "error.message": "cleanup failed" },
+      },
+    ])
+  })
+
   it("keeps custom Trace Events in the synthesized invocation trace", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

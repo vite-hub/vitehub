@@ -444,6 +444,20 @@ function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): bo
   })
 }
 
+function reflectedRegExpState(value: unknown): { flags: string, lastIndex: number, source: string } | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get?.call(value)
+    const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get?.call(value)
+    const lastIndex = Reflect.get(value, "lastIndex")
+    if (!hasRuntimeType(source, "string") || !hasRuntimeType(flags, "string") || !hasRuntimeType(lastIndex, "number")) return
+    return { flags, lastIndex, source }
+  }
+  catch {
+    return
+  }
+}
+
 function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = new Map<object, object>()): boolean {
   if (!source || !hasRuntimeType(source, "object")) return true
   if (!snapshot || !hasRuntimeType(snapshot, "object")) return false
@@ -451,11 +465,20 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   seen.set(source, snapshot)
 
   if (source instanceof Date && (!(snapshot instanceof Date) || !Object.is(source.getTime(), snapshot.getTime()))) return false
-  if (source instanceof RegExp) {
-    if (!(snapshot instanceof RegExp)
-      || source.source !== snapshot.source
-      || source.flags !== snapshot.flags
-      || source.lastIndex !== snapshot.lastIndex) return false
+  const sourceRegExp = reflectedRegExpState(source)
+  if (sourceRegExp) {
+    const snapshotRegExp = reflectedRegExpState(snapshot)
+    if (!snapshotRegExp
+      || sourceRegExp.source !== snapshotRegExp.source
+      || sourceRegExp.flags !== snapshotRegExp.flags
+      || sourceRegExp.lastIndex !== snapshotRegExp.lastIndex) return false
+  }
+  const sourceAggregateErrors = Object.getOwnPropertyDescriptor(source, "errors")
+  if (sourceAggregateErrors && "value" in sourceAggregateErrors) {
+    const snapshotAggregateErrors = Object.getOwnPropertyDescriptor(snapshot, "errors")
+    if (!snapshotAggregateErrors
+      || !("value" in snapshotAggregateErrors)
+      || !preservesEnumerableFields(sourceAggregateErrors.value, snapshotAggregateErrors.value, seen)) return false
   }
   if (source instanceof AggregateError) {
     if (!(snapshot instanceof AggregateError)

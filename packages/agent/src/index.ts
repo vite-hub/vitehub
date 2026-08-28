@@ -4249,6 +4249,24 @@ async function finishAgentInvocation<
   let runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   let text = runResult?.text
   let closeError: unknown
+  let finishFailureActivity: TraceActivityContext | undefined
+  const tracedErrors = new Set<unknown>()
+  const traceFinishError = async (failure: unknown, activity?: TraceActivityContext) => {
+    if (tracedErrors.has(failure)) return
+    tracedErrors.add(failure)
+    await traceAgentInvocationError(toTraceContext(context), failure, activity)
+  }
+  const runFinishActivity = async <T>(activity: TraceActivityContext, operation: () => MaybePromise<T>): Promise<T> => {
+    try {
+      return await operation()
+    }
+    catch (failure) {
+      finishFailureActivity = activity
+      throw failure
+    }
+  }
+  const deliveryActivity = { owner: "agent", phase: "delivery" } as const
+  const teardownActivity = { owner: "vitehub", phase: "teardown" } as const
   try {
     await context.startTask
     try {
@@ -4295,7 +4313,10 @@ async function finishAgentInvocation<
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalEvent = provisionalFinishEvent(context, eventBase)
-      const provisionallyActiveDeliveryProviders = activeFinishDeliveryEffectProviders(context, provisionalEvent)
+      const provisionallyActiveDeliveryProviders = await runFinishActivity(
+        deliveryActivity,
+        () => activeFinishDeliveryEffectProviders(context, provisionalEvent),
+      )
       const hasDurableFailureDelivery = failed
         && context.durableErrorFallbackTimeout !== undefined
         && provisionallyActiveDeliveryProviders.some(isDurableChatErrorFallbackEffect)
@@ -4304,7 +4325,7 @@ async function finishAgentInvocation<
         : undefined
       const provisionalActiveDeliveryProviders = hasDurableFailureDelivery
         ? provisionallyActiveDeliveryProviders
-        : await prepareProvisionalTitleDeliverySupport(context, eventBase)
+        : await runFinishActivity(deliveryActivity, async () => await prepareProvisionalTitleDeliverySupport(context, eventBase))
       const cleanupOnlyFailure = outcome.status === "success" && closeError !== undefined
       const outcomeHook = failed
         ? cleanupOnlyFailure ? undefined : context.errorHook
@@ -4316,30 +4337,51 @@ async function finishAgentInvocation<
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
+          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
-          const fallbackProviders = activeFinishDeliveryEffectProviders(context, fallbackEvent)
-            .filter(isDurableChatErrorFallbackEffect)
-          await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, durableFailureDeadline!)
+          const fallbackProviders = await runFinishActivity(
+            deliveryActivity,
+            () => activeFinishDeliveryEffectProviders(context, fallbackEvent).filter(isDurableChatErrorFallbackEffect),
+          )
+          await runFinishActivity(
+            deliveryActivity,
+            async () => {
+              await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, durableFailureDeadline)
+            },
+          )
         }
         const extensions = hasDurableFailureDelivery
           ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!)
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
-        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
-          .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
+        const activeDeliveryProviders = await runFinishActivity(
+          deliveryActivity,
+          () => {
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+            return activeFinishDeliveryEffectProviders(context, finishEvent as never)
+              .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
+          },
+        )
         if (hasDurableFailureDelivery) {
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline!)
+          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
+          await runFinishActivity(
+            deliveryActivity,
+            async () => {
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+              await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline)
+            },
+          )
         }
         else {
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
-          for (const intent of finishIntents) {
+          await runFinishActivity(deliveryActivity, async () => {
             // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
-          }
+            const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
+            for (const intent of finishIntents) {
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+              await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
+            }
+          })
         }
         const runOutcomeHook = async (hookContext: typeof context) => {
           const hookFinishEvent = { ...finishEvent, input: hookContext.input }
@@ -4359,7 +4401,10 @@ async function finishAgentInvocation<
           if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
             const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
             appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
-            await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, hookFinishEvent)
+            await runFinishActivity(
+              deliveryActivity,
+              async () => await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, hookFinishEvent),
+            )
           }
         }
         if (durableFailureDeadline) {
@@ -4383,11 +4428,10 @@ async function finishAgentInvocation<
       })
     }
     else {
-      await traceAgentInvocationError(
-        toTraceContext(context),
-        error,
-        error === closeError ? { owner: "vitehub", phase: "teardown" } : undefined,
-      )
+      await traceFinishError(error, error === closeError ? teardownActivity : undefined)
+      if (closeError !== undefined && closeError !== error) {
+        await traceFinishError(closeError, teardownActivity)
+      }
     }
     await context.invocationJournal?.finish(
       failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
@@ -4396,12 +4440,14 @@ async function finishAgentInvocation<
     if (closeError !== undefined) throw closeError
   }
   catch (finishError) {
-    const tracedError = failed ? error : finishError
-    await traceAgentInvocationError(
-      toTraceContext(context),
-      tracedError,
-      tracedError === closeError ? { owner: "vitehub", phase: "teardown" } : undefined,
+    if (failed) await traceFinishError(error, error === closeError ? teardownActivity : undefined)
+    await traceFinishError(
+      finishError,
+      finishError === closeError ? teardownActivity : finishFailureActivity,
     )
+    if (closeError !== undefined && closeError !== error && closeError !== finishError) {
+      await traceFinishError(closeError, teardownActivity)
+    }
     await context.invocationJournal?.finish(
       failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
       failed ? error : finishError,

@@ -22,6 +22,23 @@ type OtlpAnyValue =
 
 const retryableStatuses = new Set([429, 502, 503, 504])
 
+function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean | number | string } | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  for (const [type, unwrap] of [
+    ["Boolean", () => Boolean.prototype.valueOf.call(value)],
+    ["Number", () => Number.prototype.valueOf.call(value)],
+    ["String", () => String.prototype.valueOf.call(value)],
+    ["BigInt", () => BigInt.prototype.valueOf.call(value)],
+  ] as const) {
+    try {
+      return { type, value: unwrap() }
+    }
+    catch {
+      // Try the next intrinsic wrapper.
+    }
+  }
+}
+
 function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyValue {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
@@ -57,13 +74,7 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
       },
     }
   }
-  const primitiveWrapper = value instanceof Boolean
-    ? { type: "Boolean", value: value.valueOf() }
-    : value instanceof Number
-      ? { type: "Number", value: value.valueOf() }
-      : Object.prototype.toString.call(value) === "[object BigInt]"
-        ? { type: "BigInt", value: (value as { valueOf: () => bigint }).valueOf() }
-        : undefined
+  const primitiveWrapper = boxedPrimitive(value)
   if (primitiveWrapper) {
     return {
       kvlistValue: {
