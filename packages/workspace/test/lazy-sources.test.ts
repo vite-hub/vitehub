@@ -1624,6 +1624,27 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it("materializes startup Sources before stat and exists trust stored paths", async () => {
+    const getKeys = vi.fn(async () => [] as string[])
+    const definition = {
+      name: "startup-stale-stat",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          getKeys,
+          async getItem(key) { return { key, content: "unused" } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/stale.md", { content: "stale", path: "docs/stale.md" })
+    const view = createWorkspaceSourceView(definition, store)
+
+    await expect(view.exists("docs/stale.md")).resolves.toBe(false)
+    await expect(view.stat("docs/stale.md")).rejects.toThrow("Workspace path does not exist")
+    expect(getKeys).toHaveBeenCalledOnce()
+  })
+
   it("rematerializes a nested startup Source after build synchronization resets its mount", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
     const definition = {
@@ -1652,6 +1673,35 @@ describe("lazy sources", () => {
 
     await expect(view.readFile("docs/generated/result.md")).resolves.toBe("version 2\n")
     expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
+  it("invalidates an empty startup snapshot before build synchronization removes its mount", async () => {
+    const prepare = vi.fn(async () => {})
+    const definition = {
+      name: "startup-empty-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "docs/generated",
+          prepare,
+          async getKeys() { return [] as string[] },
+          async getItem(key) { return { key, content: "unused" } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["generated"] })
+    await syncWorkspaceDefinition(definition, store)
+    await view.materializeSources({ sources: ["generated"] })
+
+    expect(prepare).toHaveBeenCalledTimes(2)
   })
 
   it("preserves a disjoint root startup snapshot during root build cleanup", async () => {

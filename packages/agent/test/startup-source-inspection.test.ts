@@ -159,12 +159,56 @@ describe("startup Source inspection", () => {
     registerWorkspace(workspaceName, workspace)
     const agent = defineAgent({ name: workspaceName, workspace, driver: { run: () => "ok" } })
 
+    const preparation = createWorkspacePreparation({ workspace: workspaceName })
+    await preparation.start()
     const metadata = await resolveAgentInspectionMetadata(agent)
+    await preparation.stop()
 
     expect(metadata.files).toEqual([
-      expect.objectContaining({ path: "", source: "instructions", status: "lazy" }),
-      expect.objectContaining({ path: "", source: "readme", status: "lazy" }),
+      expect.objectContaining({
+        children: [expect.objectContaining({ path: "AGENTS.md" })],
+        path: "",
+        source: "instructions",
+        status: "ready",
+      }),
+      expect.objectContaining({
+        children: [expect.objectContaining({ path: "README.md" })],
+        path: "",
+        source: "readme",
+        status: "ready",
+      }),
     ])
+  })
+
+  it("preserves the most-specific Source owner in nested inspection", async () => {
+    const workspaceName = `startup-inspection-nested-${crypto.randomUUID()}`
+    const workspace = {
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Docs", key } },
+          async getKeys() { return ["index.md"] },
+          materialize: "startup" as const,
+        }),
+        generated: custom({
+          async getItem(key) { return { content: "# Generated", key } },
+          async getKeys() { return ["output.md"] },
+          materialize: "startup" as const,
+          mount: "docs/generated",
+        }),
+      },
+    }
+    registerWorkspace(workspaceName, workspace)
+    const agent = defineAgent({ name: workspaceName, workspace, driver: { run: () => "ok" } })
+    const preparation = createWorkspacePreparation({ workspace: workspaceName })
+
+    await preparation.start()
+    const metadata = await resolveAgentInspectionMetadata(agent)
+    await preparation.stop()
+
+    const docs = metadata.files?.find(item => item.path === "docs")
+    const generated = docs?.children?.find(item => item.path === "docs/generated")
+    expect(docs).toMatchObject({ source: "docs", status: "ready" })
+    expect(generated).toMatchObject({ source: "generated", status: "ready" })
   })
 
   it("reports a partially materialized startup Source as failed", async () => {

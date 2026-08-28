@@ -172,7 +172,8 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       .map(entry => entry.path)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
-      if (await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths) === false) continue
+      const removesStartupMount = startup.mountPath === mountPath || startup.mountPath.startsWith(`${mountPath}/`)
+      if (!removesStartupMount && await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths) === false) continue
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))

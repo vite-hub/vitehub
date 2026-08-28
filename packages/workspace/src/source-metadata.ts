@@ -9,6 +9,21 @@ export async function listMaterializedWorkspaceEntries(workspace: unknown): Prom
   return await metadata?.list?.("", { recursive: true })
 }
 
+export async function listMaterializedWorkspaceSourceEntries(
+  workspace: unknown,
+  source: WorkspaceSourceMetadata,
+): Promise<WorkspaceEntry[] | undefined> {
+  const metadata = await resolveWorkspaceMetadataTarget(workspace)
+  if (!metadata?.list) return
+  const snapshot = await readCurrentSourceSnapshot(metadata, source)
+  if (!snapshot) return []
+  const ownedPaths = new Set(Object.keys(snapshot.items || {}))
+  return (await metadata.list("", { recursive: true })).filter((entry) => {
+    if (entry.type === "file") return ownedPaths.has(entry.path)
+    return [...ownedPaths].some(path => path.startsWith(`${entry.path}/`))
+  })
+}
+
 export {
   normalizeWorkspaceSourceMetadata,
   normalizeWorkspaceSourcesMetadata,

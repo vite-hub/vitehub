@@ -1,5 +1,5 @@
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
-import { listMaterializedWorkspaceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -1106,6 +1106,10 @@ function markSourceTreeMetadata(
           : item.materialized ? "ready" : isPendingMaterialization(materialize) ? "lazy" : "ready"
       }
       else if (item.path.startsWith(`${mountedRoot}/`)) {
+        if (item.source) {
+          pending.push(...(item.children || []))
+          continue
+        }
         const snapshot = sourceSnapshots.get(source.key)
         item.materialize = materialize
         item.materialized = item.materialized || materialize === "build" || (materialize === "startup" && snapshot?.status === "ready")
@@ -1160,9 +1164,17 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   markSourceTreeMetadata(root, asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>, sourceSnapshots)
   propagateMaterializedDirectories(root)
   const rootSources = sources.filter(source => !sourceMountPath(source))
-  const roots = rootSources.map((rootSource) => {
+  const roots = await Promise.all(rootSources.map(async (rootSource) => {
     const snapshot = sourceSnapshots.get(rootSource.key)
-    const sourceRoot = rootSources.length === 1 ? root : structuredClone(root)
+    const sourceRoot: AgentInspectionFileTreeItem = {
+      children: [],
+      kind: "directory",
+      label: "",
+      path: "",
+    }
+    for (const entry of await listMaterializedWorkspaceSourceEntries(workspace, rootSource) || []) {
+      addFileTreePath(sourceRoot, entry)
+    }
     sourceRoot.label = rootSource.key
     sourceRoot.materialize = sourceMaterialize(rootSource)
     sourceRoot.materialized = snapshot?.status === "ready"
@@ -1172,7 +1184,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
     clearReadyMaterializationHints(sourceRoot)
     sortFileTree(sourceRoot)
     return sourceRoot
-  })
+  }))
   if (roots.length) return roots
   clearReadyMaterializationHints(root)
   sortFileTree(root)
