@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -280,6 +280,38 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("preserves fenced and raw HTML blocks in quoted list items", () => {
+    expect(toRawMarkdown([
+      "> - ```md",
+      ">   [fenced literal](/docs/fenced)",
+      ">   ::warning",
+      ">   ```",
+      "> - <pre>",
+      ">   [HTML literal](/docs/html)",
+      ">   ::warning",
+      ">   </pre>",
+      "[rendered](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "> - ```md",
+      ">   [fenced literal](/docs/fenced)",
+      ">   ::warning",
+      ">   ```",
+      "> - <pre>",
+      ">   [HTML literal](/docs/html)",
+      ">   ::warning",
+      ">   </pre>",
+      "[rendered](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
+  it("rewrites links in indented paragraph continuations", () => {
+    expect(toRawMarkdown([
+      "Paragraph",
+      "    [rendered](/docs/rendered)",
+    ].join("\n"))).toContain("    [rendered](https://vitehub.dev/docs/rendered)");
+  });
+
   it("ends raw HTML blocks when their Markdown container exits", () => {
     expect(toRawMarkdown([
       "> <pre>",
@@ -392,6 +424,26 @@ describe("writeDocsArtifacts", () => {
       expect(readFileSync(resolve(outputDir, "raw/blog/agents.md"), "utf8")).toBe("# Agents blog\n");
       expect(readFileSync(resolve(outputDir, "raw/about.md"), "utf8")).toBe("# About ViteHub\n");
       expect(existsSync(resolve(outputDir, "raw/docs/removed.md"))).toBe(false);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("recovers an abandoned raw-artifact lock", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-abandoned-lock-"));
+    const docsRoot = resolve(rootDir, "docs");
+    const outputDir = resolve(rootDir, ".generated");
+    const lockDir = resolve(outputDir, ".raw-artifacts.lock");
+
+    try {
+      writeText(resolve(docsRoot, "content/docs/index.md"), "# Recovered\n");
+      mkdirSync(lockDir, { recursive: true });
+      utimesSync(lockDir, new Date(0), new Date(0));
+
+      writeDocsArtifacts({ docsRoot, outputDir });
+
+      expect(readFileSync(resolve(outputDir, "raw/docs.md"), "utf8")).toBe("# Recovered\n");
+      expect(existsSync(lockDir)).toBe(false);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }

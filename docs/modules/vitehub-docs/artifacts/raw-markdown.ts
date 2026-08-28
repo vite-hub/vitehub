@@ -28,7 +28,7 @@ function fenceRun(line: string) {
     const container = rest.match(/^[ \t]*(?:(>)|(?:[-+*]|\d+[.)])[ \t]+)/);
     if (!container) break;
     if (container[1]) quoteDepth += 1;
-    else listIndent = indentationColumns((consumed + container[0]).replace(/[^ \t]/g, " "));
+    else listIndent = indentationColumns((consumed + container[0]).replace(/>[ \t]?/g, "").replace(/[^ \t]/g, " "));
     consumed += container[0];
     rest = rest.slice(container[0].length);
   }
@@ -468,7 +468,7 @@ function rewriteLinks(source: string) {
     }
 
     const codeIndent = listIndent !== null && quotePrefix === listQuotePrefix ? listIndent + 4 : 4;
-    if (contentIndent >= codeIndent) {
+    if ((!paragraphOpen || quoteDepth !== paragraphQuoteDepth) && contentIndent >= codeIndent) {
       const index = protectedLines.push(line) - 1;
       outsideFence += `\0INDENT${index}\0${lineWithEnding.endsWith("\n") ? "\n" : ""}`;
       continue;

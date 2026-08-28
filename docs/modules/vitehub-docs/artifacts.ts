@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import {
   array,
@@ -29,6 +29,58 @@ const docsManifestSchema = object({
   version: literal(docsManifestVersion),
 });
 const fileSystemErrorSchema = object({ code: optional(string()) });
+const lockOwnerSchema = object({ pid: number(), token: string() });
+const lockStaleAfterMs = 30_000;
+
+function fileSystemErrorCode(error: unknown) {
+  const parsed = safeParse(fileSystemErrorSchema, error);
+  return parsed.success ? parsed.output.code : undefined;
+}
+
+function processIsRunning(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return fileSystemErrorCode(error) === "EPERM";
+  }
+}
+
+function recoverAbandonedLock(lockDir: string) {
+  try {
+    if (Date.now() - statSync(lockDir).mtimeMs >= lockStaleAfterMs) {
+      rmSync(lockDir, { recursive: true });
+      return true;
+    }
+
+    let owner: unknown;
+    try {
+      owner = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
+    } catch (error) {
+      if (fileSystemErrorCode(error) === "ENOENT") return !existsSync(lockDir);
+      if (error instanceof SyntaxError) return false;
+      throw error;
+    }
+    const parsedOwner = safeParse(lockOwnerSchema, owner);
+    if (!parsedOwner.success || processIsRunning(parsedOwner.output.pid)) return false;
+    rmSync(lockDir, { recursive: true });
+    return true;
+  } catch (error) {
+    if (fileSystemErrorCode(error) === "ENOENT") return true;
+    throw error;
+  }
+}
+
+function ownsLock(lockDir: string, token: string) {
+  try {
+    const owner: unknown = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
+    const parsedOwner = safeParse(lockOwnerSchema, owner);
+    return parsedOwner.success && parsedOwner.output.token === token;
+  } catch (error) {
+    if (fileSystemErrorCode(error) === "ENOENT") return false;
+    throw error;
+  }
+}
 
 function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) {
   const segments = relative(contentRoot, absolutePath)
@@ -44,15 +96,18 @@ function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) 
 function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
   const rawOutputDir = resolve(outputDir, "raw");
   const lockDir = resolve(outputDir, ".raw-artifacts.lock");
+  const lockToken = randomUUID();
   mkdirSync(outputDir, { recursive: true });
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + lockStaleAfterMs;
   while (true) {
     try {
       mkdirSync(lockDir);
+      writeFileSync(resolve(lockDir, "owner.json"), JSON.stringify({ pid: process.pid, token: lockToken }));
       break;
     } catch (error) {
-      const parsedError = safeParse(fileSystemErrorSchema, error);
-      if (!parsedError.success || parsedError.output.code !== "EEXIST" || Date.now() >= deadline) throw error;
+      if (fileSystemErrorCode(error) !== "EEXIST") throw error;
+      if (recoverAbandonedLock(lockDir)) continue;
+      if (Date.now() >= deadline) throw error;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
     }
   }
@@ -79,7 +134,7 @@ function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
       if (!expectedPaths.has(existingPath)) rmSync(existingPath, { force: true });
     }
   } finally {
-    rmSync(lockDir, { recursive: true });
+    if (ownsLock(lockDir, lockToken)) rmSync(lockDir, { recursive: true });
   }
 }
 
