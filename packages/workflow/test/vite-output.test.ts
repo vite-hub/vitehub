@@ -107,6 +107,23 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
 })
 
+it("publishes staged generated Workflow entries during Provider Output finalization", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-output-")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, rootDir, artifactDir)
+
+  await generateWorkflowProviderOutputs({
+    artifacts,
+    clientOutDir: join(rootDir, "dist", "client"),
+    hosting: "node-server",
+    rootDir,
+    workflow: false,
+  }, async options => await options.afterWrite?.())
+
+  await expect(readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8"))
+    .resolves.toBe(await readFile(join(artifactDir, "registry.mjs"), "utf8"))
+})
+
 it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-cloudflare-email-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")

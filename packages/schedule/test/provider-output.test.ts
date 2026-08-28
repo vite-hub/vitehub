@@ -443,6 +443,17 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
   })
 
+  it("preserves a peer Cloudflare worker when removing stale Schedule output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-peer-worker-")
+    const cloudflareWorker = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    await writeFile(cloudflareWorker, "peer worker\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toBe("peer worker\n")
+  })
+
   it("preserves an existing Cloudflare trigger that matches a generated cron", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-cron-ownership-")
     const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)

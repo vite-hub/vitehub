@@ -7,9 +7,9 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { createDefaultCloudflareOutputRoot, createProviderOutputCatalog, getProviderRuntimeModule } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderRuntime, createDefaultCloudflareOutputRoot, createProviderOutputCatalog, getProviderRuntimeModule } from "@vite-hub/internal/build/deployment-output"
 
-import { prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
+import { generateProviderOutputs as generateDatabaseProviderOutputs, prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
 import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
@@ -337,6 +337,38 @@ describe("Vite db provider outputs", () => {
     expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")).toContain("definition-defaults.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toContain("vercel-runtime.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
+  })
+
+  it("keeps Blob runtime aliases local to the prepared Database generation", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-db-vite-blob-generation-")
+    const providerOutput = createProviderOutputCatalog()
+    const runtimeConfig = createRuntimeConfig(rootDir, {
+      cloudflare: {
+        databaseId: "primary-d1-id",
+        databaseName: "primary",
+        http: true,
+      },
+    })
+    contributeProviderRuntime(providerOutput, {
+      owner: "blob",
+      runtimeModules: { cloudflare: "blob-old-cloudflare.mjs", vercel: "blob-old-vercel.mjs" },
+    })
+    const artifacts = await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
+    contributeProviderRuntime(providerOutput, {
+      owner: "blob",
+      runtimeModules: { cloudflare: "blob-new-cloudflare.mjs", vercel: "blob-new-vercel.mjs" },
+    })
+
+    await generateDatabaseProviderOutputs({
+      artifacts,
+      clientOutDir: "dist/client",
+      providerOutput,
+      rootDir,
+      runtimeConfig,
+    }, async (output) => {
+      expect(output.cloudflare?.bundleOptions?.alias?.["@vite-hub/blob"]).toBe("blob-old-cloudflare.mjs")
+      expect(output.vercel?.bundleOptions.alias?.["@vite-hub/blob"]).toBe("blob-old-vercel.mjs")
+    })
   })
 
   it("applies the effective Nuxt D1 binding to named definition runtimes", async () => {

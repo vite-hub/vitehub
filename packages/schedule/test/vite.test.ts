@@ -7,7 +7,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
@@ -51,7 +51,9 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await runProviderOutputHooks(plugin)
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+    expect(getImportAliases).toHaveBeenCalledOnce()
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 
     expect(getImportAliases).toHaveBeenCalledOnce()
   })
@@ -457,6 +459,36 @@ describe("Vite schedule integration", () => {
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.not.toContain("\"5 0 * * *\"")
+  })
+
+  it("resets pending Provider Output when schedule preparation fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-output-invalid-"))
+    const scheduleFile = join(root, "src", "cleanup.schedule.ts")
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(scheduleFile, "export default defineSchedule({ cron: getCron(), handler: () => {} })\n", "utf8")
+
+    const plugin = hubSchedule({ providerOutput: "standalone" })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    const config = {
+      build: { outDir: "dist/client" },
+      command: "build",
+      plugins: [],
+      resolve: { alias: [] },
+      root,
+    }
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)(config)
+    const catalog = useProviderOutputCatalog(config)
+    const write = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir: root, write })
+
+    // SAFETY: This focused hook test supplies no Vite plugin context because the failing discovery path does not read it.
+    await expect((plugin.buildEnd as (this: never) => Promise<void>).call({} as never)).rejects.toThrow()
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
   })
 
   it("preserves forwarded server directories in standalone Provider Output", async () => {

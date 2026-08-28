@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -29,17 +29,193 @@ afterEach(async () => {
 })
 
 describe("Provider Output finalizer", () => {
+  it("shares one build generation across contributors in a Vite environment", async () => {
+    const catalog = createProviderOutputCatalog()
+    const first = createProviderDeploymentOutputGenerationState()
+    const second = createProviderDeploymentOutputGenerationState()
+    const environment = {}
+    const rootDir = await createTempProject()
+    const write = vi.fn(async () => undefined)
+    first.capture({ environment }, catalog)
+    second.capture({ environment }, catalog)
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir, write }, first.get({ environment }))
+
+    await second.reset({ environment }, catalog, new Error("build failed"))
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it("shares one build generation across independently loaded Internal copies", async () => {
+    const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-copy")
+    const catalog = createProviderOutputCatalog()
+    const first = createProviderDeploymentOutputGenerationState()
+    const second = independentModule.createProviderDeploymentOutputGenerationState()
+    const environment = {}
+    const rootDir = await createTempProject()
+    const write = vi.fn(async () => undefined)
+    first.capture({ environment }, catalog)
+    second.capture({ environment }, catalog)
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir, write }, first.get({ environment }))
+
+    await second.reset({ environment }, catalog, new Error("peer build failed"))
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it("shares active finalization and reset coordination across independently loaded Internal copies", async () => {
+    const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-finalization-copy")
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    let activeSignal: AbortSignal | undefined
+    let releaseWrite!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ signal }) => {
+        activeSignal = signal
+        await new Promise<void>(resolve => releaseWrite = resolve)
+        signal.throwIfAborted()
+      },
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(activeSignal).toBeDefined())
+    const reset = independentModule.resetProviderDeploymentOutputs(catalog)
+    expect(activeSignal?.aborted).toBe(true)
+    releaseWrite()
+
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+  })
+
   it("keeps build generations local to each Vite environment", async () => {
     const catalog = createProviderOutputCatalog()
     const generations = createProviderDeploymentOutputGenerationState()
     const environmentA = {}
     const environmentB = {}
+    const rootDir = await createTempProject()
+    const writes: string[] = []
     generations.capture({ environment: environmentA }, catalog)
-    await resetProviderDeploymentOutputs(catalog, new Error("build A failed"))
     generations.capture({ environment: environmentB }, catalog)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("A") },
+    }, generations.get({ environment: environmentA }))
+    await generations.reset({ environment: environmentA }, catalog, new Error("build A failed"))
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("stale A") },
+    }, generations.get({ environment: environmentA }))
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async () => { writes.push("B") },
+    }, generations.get({ environment: environmentB }))
+    await finalizeProviderDeploymentOutputs(catalog)
 
-    expect(generations.get({ environment: environmentA })).toBe(0)
-    expect(generations.get({ environment: environmentB })).toBe(1)
+    expect(writes).toEqual(["B"])
+  })
+
+  it("invalidates every generation when Vite repeats one failure", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const failure = new Error("render failed")
+    const first = captureProviderDeploymentOutputGeneration(catalog)
+    const second = captureProviderDeploymentOutputGeneration(catalog)
+    const writes: string[] = []
+
+    await resetProviderDeploymentOutputs(catalog, failure, first)
+    await resetProviderDeploymentOutputs(catalog, failure, second)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("first") },
+    }, first)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async () => { writes.push("second") },
+    }, second)
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(writes).toEqual([])
+  })
+
+  it("preserves an older owner contribution when its replacement resets", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const first = captureProviderDeploymentOutputGeneration(catalog)
+    const second = captureProviderDeploymentOutputGeneration(catalog)
+    const writes: string[] = []
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("first") },
+    }, first)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("second") },
+    }, second)
+
+    await resetProviderDeploymentOutputs(catalog, new Error("replacement failed"), second)
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(writes).toEqual(["first"])
+  })
+
+  it("does not abort another generation's active finalization", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const failed = captureProviderDeploymentOutputGeneration(catalog)
+    const active = captureProviderDeploymentOutputGeneration(catalog)
+    let activeSignal: AbortSignal | undefined
+    let releaseWrite!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async ({ signal }) => {
+        activeSignal = signal
+        await new Promise<void>(resolve => releaseWrite = resolve)
+      },
+    }, active)
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(activeSignal).toBeDefined())
+    await resetProviderDeploymentOutputs(catalog, new Error("other environment failed"), failed)
+
+    expect(activeSignal?.aborted).toBe(false)
+    releaseWrite()
+    await finalization
+  })
+
+  it("requeues valid generations when a peer resets active finalization", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const failed = captureProviderDeploymentOutputGeneration(catalog)
+    const valid = captureProviderDeploymentOutputGeneration(catalog)
+    const validWrite = vi.fn(async () => undefined)
+    let releaseFailed!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => await new Promise<void>(resolve => releaseFailed = resolve),
+    }, failed)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: validWrite }, valid)
+
+    const failedFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(releaseFailed).toBeDefined())
+    const reset = resetProviderDeploymentOutputs(catalog, new Error("agent failed"), failed)
+    releaseFailed()
+    await reset
+    await expect(failedFinalization).rejects.toThrow("Provider Output finalization reset")
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(validWrite).toHaveBeenCalledOnce()
   })
 
   it("settles contributions in stable owner order and replaces duplicates", async () => {
@@ -138,6 +314,48 @@ describe("Provider Output finalizer", () => {
     expect(write).toHaveBeenCalledTimes(2)
   })
 
+  it("discards a staged contribution rejected after its generation resets", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const generation = captureProviderDeploymentOutputGeneration(catalog)!
+    const discard = vi.fn(async () => undefined)
+    await resetProviderDeploymentOutputs(catalog, new Error("build failed"), generation)
+
+    contributeProviderDeploymentOutput(catalog, { discard, owner: "blob", rootDir, write: async () => undefined }, generation)
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(discard).toHaveBeenCalledOnce()
+  })
+
+  it("retires successful generations from catalog-wide resets", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const generation = captureProviderDeploymentOutputGeneration(catalog)!
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: async () => undefined }, generation)
+
+    await finalizeProviderDeploymentOutputs(catalog)
+    await resetProviderDeploymentOutputs(catalog)
+
+    expect(generation.valid).toBe(true)
+  })
+
+  it("does not restore a fallback after the selected output commits", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const olderGeneration = captureProviderDeploymentOutputGeneration(catalog)!
+    const newerGeneration = captureProviderDeploymentOutputGeneration(catalog)!
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: async () => undefined }, olderGeneration)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: async () => undefined }, newerGeneration)
+    const selected = catalog.takeDeploymentContributions()
+    await catalog.prepareDeploymentContributions(selected)
+    catalog.commitDeploymentContributions(selected)
+
+    catalog.resetDeploymentContributions(newerGeneration)
+    await catalog.completeDeploymentContributions(selected)
+
+    expect(catalog.takeDeploymentContributions()).toEqual([])
+  })
+
   it("rolls back earlier owners when a later owner fails", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
@@ -146,15 +364,23 @@ describe("Provider Output finalizer", () => {
     const customOutputRoot = join(rootDir, "custom-cloudflare")
     const customOutputFile = join(customOutputRoot, "owner.js")
     const ownershipFile = join(rootDir, ".vitehub/blob/cloudflare-output.json")
+    const rateLimitManifest = join(rootDir, ".vitehub/rate-limit/manifest.json")
+    const scheduleRegistry = join(rootDir, ".vitehub/schedule/registry.mjs")
+    const denoCron = join(rootDir, ".vitehub/schedule/deno-cron.mjs")
     await Promise.all([
       mkdir(outputRoot, { recursive: true }),
       mkdir(customOutputRoot, { recursive: true }),
       mkdir(dirname(ownershipFile), { recursive: true }),
+      mkdir(dirname(rateLimitManifest), { recursive: true }),
+      mkdir(dirname(scheduleRegistry), { recursive: true }),
     ])
     await Promise.all([
       writeFile(outputFile, "previous\n"),
       writeFile(customOutputFile, "previous\n"),
       writeFile(ownershipFile, "previous\n"),
+      writeFile(rateLimitManifest, "previous\n"),
+      writeFile(scheduleRegistry, "previous\n"),
+      writeFile(denoCron, "previous\n"),
     ])
     contributeProviderDeploymentOutput(catalog, {
       owner: "agent",
@@ -171,6 +397,11 @@ describe("Provider Output finalizer", () => {
           rootDir,
         })
         await writeFile(ownershipFile, "replacement\n")
+        await Promise.all([
+          writeFile(rateLimitManifest, "replacement\n"),
+          writeFile(scheduleRegistry, "replacement\n"),
+          writeFile(denoCron, "replacement\n"),
+        ])
       },
     })
     contributeProviderDeploymentOutput(catalog, {
@@ -183,6 +414,286 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(customOutputFile, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(rateLimitManifest, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(scheduleRegistry, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(denoCron, "utf8")).resolves.toBe("previous\n")
+  })
+
+  it("restores Vercel output after a later owner removes its parent directory", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const vercelRoot = join(rootDir, ".vercel", "output")
+    const outputFile = join(vercelRoot, "config.json")
+    await mkdir(vercelRoot, { recursive: true })
+    await writeFile(outputFile, "previous\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => await writeFile(outputFile, "replacement\n"),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "schedule",
+      rootDir,
+      write: async () => await rm(dirname(vercelRoot), { recursive: true }),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workflow",
+      rootDir,
+      write: async () => { throw new Error("workflow failed") },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("workflow failed")
+    await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
+  })
+
+  it("restores Schedule ownership when a later owner fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const ownershipFile = join(rootDir, ".vitehub/schedule/cloudflare-output.json")
+    await mkdir(dirname(ownershipFile), { recursive: true })
+    await writeFile(ownershipFile, "previous\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "schedule",
+      rootDir,
+      write: async () => await writeFile(ownershipFile, "replacement\n"),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workflow",
+      rootDir,
+      write: async () => { throw new Error("workflow failed") },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("workflow failed")
+    await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
+  })
+
+  it("does not roll back client output written by a newer build", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const clientOutput = join(rootDir, "dist/client/index.html")
+    await mkdir(dirname(clientOutput), { recursive: true })
+    await writeFile(clientOutput, "older build\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await write({ clientOutDir: "dist/client", rootDir })
+        await writeFile(clientOutput, "newer build\n")
+        throw new Error("older output failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("older output failed")
+    await expect(readFile(clientOutput, "utf8")).resolves.toBe("newer build\n")
+  })
+
+  it("discards superseded contribution artifacts after completion", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const olderDiscard = vi.fn(async () => undefined)
+    const newerDiscard = vi.fn(async () => undefined)
+    const olderWrite = vi.fn(async () => undefined)
+    const newerWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: olderDiscard,
+      owner: "blob",
+      rootDir,
+      write: olderWrite,
+    }, captureProviderDeploymentOutputGeneration(catalog))
+    contributeProviderDeploymentOutput(catalog, {
+      discard: newerDiscard,
+      owner: "blob",
+      rootDir,
+      write: newerWrite,
+    }, captureProviderDeploymentOutputGeneration(catalog))
+
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(olderWrite).not.toHaveBeenCalled()
+    expect(newerWrite).toHaveBeenCalledOnce()
+    expect(olderDiscard).toHaveBeenCalledOnce()
+    expect(newerDiscard).toHaveBeenCalledOnce()
+  })
+
+  it("preserves fallback artifacts when the selected generation resets during cleanup", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const olderDiscard = vi.fn(async () => undefined)
+    const olderWrite = vi.fn(async () => undefined)
+    let cleanupStarted!: () => void
+    let releaseCleanup!: () => void
+    const started = new Promise<void>(resolve => cleanupStarted = resolve)
+    const olderGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    const newerGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: olderDiscard,
+      owner: "blob",
+      rootDir,
+      write: olderWrite,
+    }, olderGeneration)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: async () => {
+        cleanupStarted()
+        await new Promise<void>(resolve => releaseCleanup = resolve)
+      },
+      owner: "blob",
+      rootDir,
+      write: async () => undefined,
+    }, newerGeneration)
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog, undefined, newerGeneration)
+    releaseCleanup()
+
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    expect(olderDiscard).not.toHaveBeenCalled()
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(olderWrite).toHaveBeenCalledOnce()
+    expect(olderDiscard).toHaveBeenCalledOnce()
+  })
+
+  it("discards fallback artifacts invalidated while their replacement is active", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const olderGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    const newerGeneration = captureProviderDeploymentOutputGeneration(catalog)
+    const olderDiscard = vi.fn(async () => undefined)
+    let releaseNewer!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      discard: olderDiscard,
+      owner: "blob",
+      rootDir,
+      write: async () => undefined,
+    }, olderGeneration)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async () => await new Promise<void>(resolve => releaseNewer = resolve),
+    }, newerGeneration)
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(releaseNewer).toBeDefined())
+    await resetProviderDeploymentOutputs(catalog, new Error("older build failed"), olderGeneration)
+    releaseNewer()
+    await finalization
+
+    expect(olderDiscard).toHaveBeenCalledOnce()
+  })
+
+  it("discards pending staged artifacts when their generation resets", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const generation = captureProviderDeploymentOutputGeneration(catalog)
+    const discard = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      discard,
+      owner: "blob",
+      rootDir,
+      write: async () => undefined,
+    }, generation)
+
+    await resetProviderDeploymentOutputs(catalog, new Error("build failed"), generation)
+
+    expect(discard).toHaveBeenCalledOnce()
+  })
+
+  it("rolls back completed roots when a peer root fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const firstRoot = await createTempProject()
+    const secondRoot = await createTempProject()
+    const firstOutput = createDefaultCloudflareOutputRoot(firstRoot)
+    const secondOutput = createDefaultCloudflareOutputRoot(secondRoot)
+    await Promise.all([
+      mkdir(firstOutput, { recursive: true }),
+      mkdir(secondOutput, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(firstOutput, "index.js"), "first previous\n"),
+      writeFile(join(secondOutput, "index.js"), "second previous\n"),
+    ])
+    let firstReady!: () => void
+    const firstCompleted = new Promise<void>(resolve => firstReady = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir: firstRoot,
+      write: async ({ write }) => {
+        await write({
+          clientOutDir: "dist/client",
+          cloudflare: { files: { "index.js": "first replacement\n" }, outputRoot: firstOutput, wranglerConfig: {} },
+          rootDir: firstRoot,
+        })
+        firstReady()
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir: secondRoot,
+      write: async ({ write }) => {
+        await firstCompleted
+        await write({
+          clientOutDir: "dist/client",
+          cloudflare: { files: { "index.js": "second replacement\n" }, outputRoot: secondOutput, wranglerConfig: {} },
+          rootDir: secondRoot,
+        })
+        throw new Error("second root failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("second root failed")
+    await expect(readFile(join(firstOutput, "index.js"), "utf8")).resolves.toBe("first previous\n")
+    await expect(readFile(join(secondOutput, "index.js"), "utf8")).resolves.toBe("second previous\n")
+  })
+
+  it("preserves newer generated inputs when rolling back output ownership", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const generatedInput = join(rootDir, ".vitehub/blob/runtime.mjs")
+    await mkdir(dirname(generatedInput), { recursive: true })
+    await writeFile(generatedInput, "old input\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => {
+        await writeFile(generatedInput, "new input\n")
+        throw new Error("output failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("output failed")
+    await expect(readFile(generatedInput, "utf8")).resolves.toBe("new input\n")
+  })
+
+  it("coalesces a custom parent output root with default child snapshots", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = join(rootDir, "dist")
+    const clientOutput = join(outputRoot, "client", "index.html")
+    const previousFile = join(outputRoot, "existing.txt")
+    await mkdir(dirname(clientOutput), { recursive: true })
+    await Promise.all([
+      writeFile(clientOutput, "older client\n"),
+      writeFile(previousFile, "previous\n"),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          clientOutDir: join(outputRoot, "client"),
+          cloudflare: { files: { "index.js": "replacement\n" }, outputRoot, wranglerConfig: {} },
+          rootDir,
+        })
+        await writeFile(clientOutput, "newer client\n")
+        throw new Error("output failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("output failed")
+    await expect(readFile(previousFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(clientOutput, "utf8")).resolves.toBe("newer client\n")
+    expect(existsSync(join(outputRoot, "index.js"))).toBe(false)
   })
 
   it("does not enter finalization when a root snapshot fails", async () => {
@@ -348,6 +859,36 @@ describe("Provider Output finalizer", () => {
     expect(started).toEqual(["first", "second"])
   })
 
+  it("serializes the same root across independently loaded Internal copies", async () => {
+    const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-lock-copy")
+    const first = createProviderOutputCatalog()
+    const second = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const started: string[] = []
+    let releaseFirst!: () => void
+    contributeProviderDeploymentOutput(first, {
+      owner: "blob",
+      rootDir,
+      write: async () => {
+        started.push("first")
+        await new Promise<void>(resolve => releaseFirst = resolve)
+      },
+    })
+    contributeProviderDeploymentOutput(second, {
+      owner: "blob",
+      rootDir,
+      write: async () => { started.push("second") },
+    })
+
+    const firstFinalization = finalizeProviderDeploymentOutputs(first)
+    const secondFinalization = independentModule.finalizeProviderDeploymentOutputs(second)
+    await vi.waitFor(() => expect(started).toEqual(["first"]))
+    releaseFirst()
+    await Promise.all([firstFinalization, secondFinalization])
+
+    expect(started).toEqual(["first", "second"])
+  })
+
   it("releases state and the root lock after a writer error", async () => {
     const failed = createProviderOutputCatalog()
     const recovered = createProviderOutputCatalog()
@@ -409,6 +950,36 @@ describe("Provider Output finalizer", () => {
     await reset
     await expect(finalization).rejects.toThrow("Provider Output finalization reset")
     expect(laterWrite).not.toHaveBeenCalled()
+  })
+
+  it("rolls back root output when reset interrupts contribution cleanup", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const outputFile = join(outputRoot, "index.js")
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(outputFile, "previous\n")
+    let cleanupStarted!: () => void
+    let releaseCleanup!: () => void
+    const started = new Promise<void>(resolve => cleanupStarted = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: async () => {
+        cleanupStarted()
+        await new Promise<void>(resolve => releaseCleanup = resolve)
+      },
+      owner: "agent",
+      rootDir,
+      write: async () => await writeFile(outputFile, "replacement\n"),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog)
+    releaseCleanup()
+
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
   })
 
   it("finalizes newer contributions registered while reset unwinds", async () => {
@@ -761,5 +1332,90 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(vercelRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ version: 3 })
     expect(existsSync(join(netlifyRoot, "functions", "stale.mjs"))).toBe(false)
     await expect(readFile(join(netlifyRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ version: 1 })
+  })
+
+  it("does not let a disabled owner remove Cloudflare output written by a peer", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: { files: { "index.js": "current\n" } },
+        rootDir,
+      }),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workflow",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cleanup: { cloudflare: { fileNames: ["index.js"] } },
+        rootDir,
+      }),
+    })
+
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    await expect(readFile(join(cloudflareRoot, "index.js"), "utf8")).resolves.toBe("current\n")
+  })
+
+  it("lets a later serialized catalog clean Cloudflare output for the same root", async () => {
+    const writerCatalog = createProviderOutputCatalog()
+    const cleanupCatalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    let releaseWriter!: () => void
+    const writerBlocked = new Promise<void>(resolve => releaseWriter = resolve)
+    contributeProviderDeploymentOutput(writerCatalog, {
+      owner: "blob",
+      rootDir,
+      write: async ({ write }) => await write({
+        afterWrite: async () => await writerBlocked,
+        clientOutDir: "dist/client",
+        cloudflare: { files: { "index.js": "current\n" } },
+        rootDir,
+      }),
+    })
+    contributeProviderDeploymentOutput(cleanupCatalog, {
+      owner: "workflow",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cleanup: { cloudflare: { fileNames: ["index.js"] } },
+        rootDir,
+      }),
+    })
+
+    const writer = finalizeProviderDeploymentOutputs(writerCatalog)
+    await vi.waitFor(() => expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(true))
+    const cleanup = finalizeProviderDeploymentOutputs(cleanupCatalog)
+    releaseWriter()
+    await Promise.all([writer, cleanup])
+
+    expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(false)
+  })
+
+  it("preserves client files when Cloudflare cleanup shares the client directory", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareRoot, { recursive: true })
+    await writeFile(join(cloudflareRoot, "index.js"), "client\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: relative(rootDir, cloudflareRoot),
+        cleanup: { cloudflare: { fileNames: ["index.js"] } },
+        rootDir,
+      }),
+    })
+
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    await expect(readFile(join(cloudflareRoot, "index.js"), "utf8")).resolves.toBe("client\n")
   })
 })

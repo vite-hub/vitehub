@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -514,6 +514,34 @@ describe("hubQueue", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
     await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
+  })
+
+  it("captures plain Vite Queue Definitions before deferred Provider Output finalization", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-vite-generation-"))
+    roots.push(root)
+    const definition = join(root, "current.queue.ts")
+    await writeFile(definition, "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "cloudflare" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      plugins: [],
+      queue: { provider: "cloudflare" },
+      resolve: { alias: [] },
+      root,
+    } as never)
+
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this callable Vite lifecycle hook in the focused test.
+    await (plugin.buildEnd as unknown as () => void | Promise<void>)()
+    await writeFile(join(root, "failed-rebuild.queue.ts"), "export default { handler: async () => undefined }\n")
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this object Vite lifecycle hook in the focused test.
+    await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
+
+    const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
+    expect(registry).toContain("current.queue.ts")
+    expect(registry).not.toContain("queue-generations")
+    expect(registry).not.toContain("failed-rebuild.queue.ts")
+    await expect(readdir(join(root, ".vitehub", "queue-generations")).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error))).resolves.toEqual([])
   })
 
   it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("keeps standalone output after Blob's Nitro bridge when selected by %s", async (environmentVariable) => {

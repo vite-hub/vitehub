@@ -575,6 +575,7 @@ interface GeneratedWorkflowArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  artifacts?: GeneratedWorkflowArtifacts
   agentImportBase?: string
   clientOutDir: string
   hosting?: string
@@ -1033,8 +1034,8 @@ export async function writeProviderEntries(
   includeUserAppEntry = true,
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
+  generatedDir = ensureGeneratedDir(rootDir, productName),
 ) {
-  const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -1348,7 +1349,7 @@ async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
 ): Promise<GeneratedWorkflowArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
+  const artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
@@ -1382,6 +1383,32 @@ async function generateProviderOutputsWithinLock(
         ...options.providerRuntimeImportAliases?.vercel,
       }, options.serverFunctionName)
     : undefined
+  const publishGeneratedArtifacts = async () => {
+    const generatedDir = resolve(options.rootDir, ".vitehub", productName)
+    if (resolve(artifacts.generatedDir) === generatedDir) return
+    const nextDir = `${generatedDir}.${randomUUID()}.next`
+    const previousDir = `${generatedDir}.${randomUUID()}.previous`
+    await cp(artifacts.generatedDir, nextDir, { recursive: true })
+    const hadPrevious = existsSync(generatedDir)
+    try {
+      if (hadPrevious) await rename(generatedDir, previousDir)
+      await rename(nextDir, generatedDir)
+    }
+    catch (error) {
+      await rm(nextDir, { force: true, recursive: true })
+      if (hadPrevious) {
+        try {
+          await rm(generatedDir, { force: true, recursive: true })
+          await rename(previousDir, generatedDir)
+        }
+        catch (restoreError) {
+          throw new AggregateError([error, restoreError], "Generated Workflow artifact rollback failed")
+        }
+      }
+      throw error
+    }
+    await rm(previousDir, { force: true, recursive: true })
+  }
   const writeOutputs = async () => {
     const outputRoot = createDefaultVercelOutputRoot(options.rootDir)
     const previousOutputRoot = `${outputRoot}.vitehub-workflow.previous`
@@ -1404,13 +1431,15 @@ async function generateProviderOutputsWithinLock(
       }, artifacts.vercelNativeFiles)) {
         assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
       }
-      await writeProviderDeploymentOutputs({
+      const deploymentOutput: ProviderDeploymentOutputOptions = {
         clientOutDir: options.clientOutDir,
         cloudflare: cloudflareOutput,
         cleanup: {
           cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
         },
         afterWrite: async (signal) => {
+          signal?.throwIfAborted()
+          await publishGeneratedArtifacts()
           signal?.throwIfAborted()
           if (vercelOutput) {
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
@@ -1426,8 +1455,9 @@ async function generateProviderOutputsWithinLock(
           signal?.throwIfAborted()
         },
         rootDir: options.rootDir,
-        ...(vercelOutput ? { vercel: vercelOutput } : {}),
-      })
+      }
+      if (vercelOutput) deploymentOutput.vercel = vercelOutput
+      await writeProviderDeploymentOutputs(deploymentOutput)
       publicationSucceeded = true
     }
     catch (error) {

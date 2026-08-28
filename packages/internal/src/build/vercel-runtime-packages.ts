@@ -51,6 +51,7 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
   const previousNodeModules = resolve(stagingRoot, "previous-node_modules")
   let movedPreviousOutput = false
   let installedReplacement = false
+  let cleanupStagingRoot = true
 
   try {
     try {
@@ -72,6 +73,7 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     try {
       await rename(outputNodeModules, previousNodeModules)
       movedPreviousOutput = true
+      cleanupStagingRoot = false
     }
     catch (error) {
       // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
@@ -83,15 +85,19 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
       await rename(stagedNodeModules, outputNodeModules)
       installedReplacement = true
       options.signal?.throwIfAborted()
+      cleanupStagingRoot = true
     }
     catch (error) {
       if (installedReplacement) await rm(outputNodeModules, { force: true, recursive: true })
-      if (movedPreviousOutput) await rename(previousNodeModules, outputNodeModules)
+      if (movedPreviousOutput) {
+        await rename(previousNodeModules, outputNodeModules)
+      }
+      cleanupStagingRoot = true
       throw error
     }
   }
   finally {
-    await rm(stagingRoot, { force: true, recursive: true })
+    if (cleanupStagingRoot) await rm(stagingRoot, { force: true, recursive: true })
   }
 }
 
