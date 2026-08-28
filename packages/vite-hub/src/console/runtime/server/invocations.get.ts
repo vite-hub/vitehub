@@ -132,13 +132,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     if (remainingLimit === 0) break
     const page = pages[key]
     if (page.cursor === undefined) continue
-    const backfill = await listLifecyclePage(statuses, remainingLimit, page.cursor, agentName)
+    const backfillBudget = remainingLimit
+    const backfill = await listLifecyclePage(statuses, backfillBudget, page.cursor, agentName)
     pages[key] = {
       ...backfill,
       invocations: [...page.invocations, ...backfill.invocations],
     }
     const currentIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
-    let recheckBudget = backfill.invocations.length
+    let recheckBudget = backfillBudget
     let rollbackBackfill = false
     const groupIndex = groups.findIndex(([groupKey]) => groupKey === key)
     for (const [laterKey, laterStatuses] of groups.slice(groupIndex + 1)) {
