@@ -250,6 +250,33 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("ends raw HTML blocks when their Markdown container exits", () => {
+    expect(toRawMarkdown([
+      "> <pre>",
+      "> [quoted literal](/docs/quoted-literal)",
+      "[rendered after quote](/docs/after-quote)",
+      "::warning",
+      "Rendered warning.",
+      "::",
+      "",
+      "- <script>",
+      "  [listed literal](/docs/listed-literal)",
+      "[rendered after list](/docs/after-list)",
+    ].join("\n"))).toBe([
+      "> <pre>",
+      "> [quoted literal](/docs/quoted-literal)",
+      "[rendered after quote](https://vitehub.dev/docs/after-quote)",
+      "> **Warning**",
+      "",
+      "Rendered warning.",
+      "",
+      "- <script>",
+      "  [listed literal](/docs/listed-literal)",
+      "[rendered after list](https://vitehub.dev/docs/after-list)",
+      "",
+    ].join("\n"));
+  });
+
   it("builds a docs manifest from the unified content tree only", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const docsRoot = resolve(rootDir, "docs");

@@ -56,6 +56,19 @@ function indentationOutsideQuotes(line: string) {
   return indentationColumns(prefix.replace(/>[ \t]?/g, "") + line.slice(prefix.length));
 }
 
+function markdownContainer(line: string) {
+  const parsed = fenceRun(`${referenceContainer(line)}\`\`\``);
+  return {
+    listIndent: parsed?.listIndent ?? null,
+    quoteDepth: parsed?.quoteDepth ?? 0,
+  };
+}
+
+function exitsMarkdownContainer(line: string, listIndent: number | null, quoteDepth: number) {
+  return leadingQuoteDepth(line) < quoteDepth
+    || (listIndent !== null && line.trim() !== "" && indentationOutsideQuotes(line) < listIndent);
+}
+
 function splitFrontmatter(source: string): { body: string, frontmatter: Frontmatter } {
   const normalized = source.replaceAll("\r\n", "\n");
   if (!normalized.startsWith(`${frontmatterBoundary}\n`)) {
@@ -313,6 +326,8 @@ function rewriteLinks(source: string) {
   let outsideFence = "";
   let fence: Fence | null = null;
   let htmlEnd: RegExp | null = null;
+  let htmlListIndent: number | null = null;
+  let htmlQuoteDepth = 0;
   let listIndent: number | null = null;
   let listQuotePrefix = "";
   let paragraphOpen = false;
@@ -329,9 +344,19 @@ function rewriteLinks(source: string) {
     const parsedFence = fenceRun(line);
 
     if (htmlEnd) {
-      output.push(lineWithEnding);
-      if (htmlEnd.test(withoutMarkdownContainers(line))) htmlEnd = null;
-      continue;
+      if (exitsMarkdownContainer(line, htmlListIndent, htmlQuoteDepth)) {
+        htmlEnd = null;
+        htmlListIndent = null;
+        htmlQuoteDepth = 0;
+      } else {
+        output.push(lineWithEnding);
+        if (htmlEnd.test(withoutMarkdownContainers(line))) {
+          htmlEnd = null;
+          htmlListIndent = null;
+          htmlQuoteDepth = 0;
+        }
+        continue;
+      }
     }
 
     const htmlLine = withoutMarkdownContainers(line);
@@ -342,7 +367,12 @@ function rewriteLinks(source: string) {
     if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
-      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
+        const htmlContainer = markdownContainer(line);
+        htmlEnd = nextHtmlEnd;
+        htmlListIndent = htmlContainer.listIndent;
+        htmlQuoteDepth = htmlContainer.quoteDepth;
+      }
       paragraphOpen = false;
       continue;
     }
@@ -461,6 +491,8 @@ function cardListsOutsideFences(source: string) {
   let outsideFence = "";
   let fence: Fence | null = null;
   let htmlEnd: RegExp | null = null;
+  let htmlListIndent: number | null = null;
+  let htmlQuoteDepth = 0;
   const directives: boolean[] = [];
 
   for (const lineWithEnding of source.match(/.*(?:\n|$)/g) || []) {
@@ -472,9 +504,19 @@ function cardListsOutsideFences(source: string) {
     const parsedFence = fenceRun(deindented);
 
     if (htmlEnd) {
-      output.push(lineWithEnding);
-      if (htmlEnd.test(withoutMarkdownContainers(line))) htmlEnd = null;
-      continue;
+      if (exitsMarkdownContainer(line, htmlListIndent, htmlQuoteDepth)) {
+        htmlEnd = null;
+        htmlListIndent = null;
+        htmlQuoteDepth = 0;
+      } else {
+        output.push(lineWithEnding);
+        if (htmlEnd.test(withoutMarkdownContainers(line))) {
+          htmlEnd = null;
+          htmlListIndent = null;
+          htmlQuoteDepth = 0;
+        }
+        continue;
+      }
     }
 
     const htmlLine = withoutMarkdownContainers(line);
@@ -482,7 +524,12 @@ function cardListsOutsideFences(source: string) {
     if (!fence && nextHtmlEnd) {
       output.push(cardList(outsideFence), lineWithEnding);
       outsideFence = "";
-      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
+        const htmlContainer = markdownContainer(line);
+        htmlEnd = nextHtmlEnd;
+        htmlListIndent = htmlContainer.listIndent;
+        htmlQuoteDepth = htmlContainer.quoteDepth;
+      }
       continue;
     }
 
@@ -561,6 +608,8 @@ function stripPresentationDirectives(source: string) {
   const directives: boolean[] = [];
   let fence: (Fence & { indent: number }) | null = null;
   let htmlEnd: RegExp | null = null;
+  let htmlListIndent: number | null = null;
+  let htmlQuoteDepth = 0;
   for (const originalLine of source.split("\n")) {
     const leadingColumns = indentationColumns(originalLine);
     const structuralDepth = directives.filter(Boolean).length;
@@ -568,9 +617,19 @@ function stripPresentationDirectives(source: string) {
     const deindented = removeIndentation(originalLine, structuralIndent);
 
     if (htmlEnd) {
-      output.push(deindented);
-      if (htmlEnd.test(withoutMarkdownContainers(deindented))) htmlEnd = null;
-      continue;
+      if (exitsMarkdownContainer(deindented, htmlListIndent, htmlQuoteDepth)) {
+        htmlEnd = null;
+        htmlListIndent = null;
+        htmlQuoteDepth = 0;
+      } else {
+        output.push(deindented);
+        if (htmlEnd.test(withoutMarkdownContainers(deindented))) {
+          htmlEnd = null;
+          htmlListIndent = null;
+          htmlQuoteDepth = 0;
+        }
+        continue;
+      }
     }
 
     if (
@@ -611,7 +670,12 @@ function stripPresentationDirectives(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     if (nextHtmlEnd) {
       output.push(deindented);
-      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
+      if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
+        const htmlContainer = markdownContainer(deindented);
+        htmlEnd = nextHtmlEnd;
+        htmlListIndent = htmlContainer.listIndent;
+        htmlQuoteDepth = htmlContainer.quoteDepth;
+      }
       continue;
     }
 
