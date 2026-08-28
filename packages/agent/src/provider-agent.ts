@@ -347,6 +347,7 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
 async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeConfig>(
   credentials: AgentProviderCredentialResolver<TRuntimeConfig>,
   context: AgentAdapterRunContext<unknown, TRuntimeConfig>,
+  ownHome: (home: string) => void,
 ): Promise<string> {
   const resolved = await resolveRuntimeValue(credentials, providerAdapterMetadataContext(context))
   const value = isRuntimeRecord(resolved) && hasRuntimeType(resolved.unseal, "function")
@@ -366,6 +367,7 @@ async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeCon
     throw new Error("[vitehub] Codex Driver credentials must contain a JSON object.")
   }
   const home = await mkdtemp(join(tmpdir(), "vitehub-codex-shadow-home-"))
+  ownHome(home)
   try {
     if (providerHostPlatform === "win32") await restrictWindowsCodexCredentialHome(home)
     await chmod(home, 0o700)
@@ -1376,7 +1378,10 @@ async function* runProvider<
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
     if (options.provider === "codex" && options.credentials !== undefined) {
       credentialHome = await waitForProviderOperation(
-        prepareCodexCredentialHome(options.credentials, context),
+        prepareCodexCredentialHome(options.credentials, context, (home) => {
+          credentialHome = home
+          if (effectiveSignal?.aborted) observeLateCleanup(rm(home, { force: true, recursive: true }))
+        }),
         effectiveSignal,
         home => rm(home, { force: true, recursive: true }),
         observeLateCleanup,

@@ -17,6 +17,7 @@ const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: {
 const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
 const readCodexSharedHome = vi.hoisted(() => vi.fn())
 const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
+const beforeCodexCredentialChmod = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
@@ -24,6 +25,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>()
   return {
     ...original,
+    chmod: async (...args: Parameters<typeof original.chmod>) => {
+      await beforeCodexCredentialChmod(...args)
+      return await original.chmod(...args)
+    },
     readdir: (...args: Parameters<typeof original.readdir>) => readCodexSharedHome.getMockImplementation()
       ? readCodexSharedHome(...args)
       : original.readdir(...args),
@@ -216,6 +221,39 @@ describe("Provider Agent Driver", () => {
     await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(access(join(sharedHome, "sessions"))).resolves.toBeUndefined()
     await rm(sharedHome, { force: true, recursive: true })
+  })
+
+  it("removes written Codex credentials when preparation stalls after the write", async () => {
+    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
+    let finishRestriction!: () => void
+    const restriction = new Promise<void>(resolve => finishRestriction = resolve)
+    beforeCodexCredentialChmod.mockImplementation(async (path) => {
+      if (String(path).endsWith("auth.json")) await restriction
+    })
+    const controller = new AbortController()
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const result = Promise.resolve(adapter.generate(context("thread-stalled-credential-preparation", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never))
+
+    try {
+      await vi.waitFor(() => expect(beforeCodexCredentialChmod).toHaveBeenCalledWith(expect.stringContaining("auth.json"), 0o600))
+      controller.abort("cancelled")
+      await expect(result).rejects.toBe("cancelled")
+      await vi.waitFor(async () => {
+        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
+      })
+    }
+    finally {
+      finishRestriction()
+      beforeCodexCredentialChmod.mockReset()
+      controller.abort("cancelled")
+      await result.catch(() => undefined)
+    }
   })
 
   it.each(["linux", "win32"] as const)("preserves Codex history through a private shadow home on %s", async (platformName) => {
@@ -458,9 +496,9 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     })
     const runtimeCalls = createProviderRuntime.mock.calls.length
     // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    const firstResult = adapter.generate(context("thread-stalled-home-first", {
+    const firstResult = Promise.resolve(adapter.generate(context("thread-stalled-home-first", {
       input: { abortSignal: controller.signal, prompt: "hello" },
-    }) as never)
+    }) as never))
 
     try {
       await vi.waitFor(() => expect(readCodexSharedHome).toHaveBeenCalledOnce())
@@ -508,9 +546,9 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       providerSettings: { homePath: sharedHome },
     })
     // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    const result = adapter.generate(context("thread-stalled-home-canonicalization", {
+    const result = Promise.resolve(adapter.generate(context("thread-stalled-home-canonicalization", {
       input: { abortSignal: controller.signal, prompt: "hello" },
-    }) as never)
+    }) as never))
 
     try {
       await vi.waitFor(() => expect(canonicalizeCodexSharedHome).toHaveBeenCalledOnce())
