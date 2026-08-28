@@ -33,10 +33,11 @@ const packageManifestSchema = object({
 })
 
 function isPackageDiagnostic(diagnostic: ts.Diagnostic, sourcePath: string, packageRoot: string) {
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
   return !diagnostic.file
     || diagnostic.file.fileName === sourcePath
     || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)
-    || !diagnostic.file.hasNoDefaultLib
+    || ((diagnostic.code === 2307 || diagnostic.code === 7016) && message.includes("'@vite-hub/"))
 }
 
 async function run(command: string, args: string[], cwd: string) {
@@ -409,7 +410,7 @@ describe("published declaration diagnostics", () => {
     expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
   })
 
-  it("keeps diagnostics from imported dependency declarations", () => {
+  it("ignores diagnostics owned by imported third-party declarations", () => {
     const file = ts.createSourceFile(
       "/consumer/node_modules/.pnpm/dependency/index.d.ts",
       "export type Broken = Missing",
@@ -424,10 +425,10 @@ describe("published declaration diagnostics", () => {
       start: 21,
     }
 
-    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
+    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(false)
   })
 
-  it("keeps diagnostics from imported @types declarations", () => {
+  it("ignores diagnostics owned by imported @types declarations", () => {
     const file = ts.createSourceFile(
       "/consumer/node_modules/.pnpm/@types+example/index.d.ts",
       "export type Broken = Missing",
@@ -440,6 +441,23 @@ describe("published declaration diagnostics", () => {
       length: 7,
       messageText: "Cannot find name 'Missing'.",
       start: 21,
+    }
+
+    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(false)
+  })
+
+  it("keeps unresolved ViteHub imports from dependency declarations", () => {
+    const file = ts.createSourceFile(
+      "/consumer/node_modules/.pnpm/dependency/index.d.ts",
+      'export type Broken = import("@vite-hub/missing").Missing',
+      ts.ScriptTarget.ESNext,
+    )
+    const diagnostic: ts.Diagnostic = {
+      category: ts.DiagnosticCategory.Error,
+      code: 2307,
+      file,
+      messageText: "Cannot find module '@vite-hub/missing' or its corresponding type declarations.",
+      start: 28,
     }
 
     expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
