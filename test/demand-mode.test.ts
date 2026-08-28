@@ -14,7 +14,7 @@ test('uses demand reconciliation without scanning after every owner completion',
   assert.match(plugin, /wake\('startup'\)/)
   assert.doesNotMatch(plugin, /wake\('owner-completed'\)/)
   assert.doesNotMatch(runner, /wakeReconciler/)
-  assert.match(plugin, /repairIntervalMs = 30_000/)
+  assert.match(plugin, /repairIntervalMs = 2 \* 60_000/)
   assert.match(plugin, /listenForBabysitterDrainSignal\(/)
   assert.match(plugin, /process,\s+reconciler\.drain/)
   assert.match(plugin, /await reconciler\.drain\(\)/)

@@ -10,7 +10,7 @@ import {
   registerBabysitterDrainStatus,
 } from '../babysitter.reconciler.ts'
 
-const repairIntervalMs = 30_000
+const repairIntervalMs = 2 * 60_000
 
 export default definePlugin((nitroApp) => {
   const reconciler = createBabysitterReconciler({
