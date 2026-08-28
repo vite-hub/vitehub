@@ -125,7 +125,8 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     const limit = Math.ceil(remainingLimit / remainingGroups)
     const page = await listLifecyclePage(statuses, limit, cursor[key], agentName)
     pages[key] = page
-    remainingLimit -= page.invocations.length
+    const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
+    remainingLimit = Math.max(0, pageLimit - returnedIds.size)
     remainingGroups--
   }
   for (const [key, statuses] of pendingGroups) {

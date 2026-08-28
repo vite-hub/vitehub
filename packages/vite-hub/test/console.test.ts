@@ -759,6 +759,41 @@ describe("Agent invocation console", () => {
     }])
   })
 
+  it("reclaims page capacity after deduplicating lifecycle reads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const id of ["older", "transitioning"]) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${id}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    const list = store.list.bind(store)
+    vi.spyOn(store, "list").mockImplementation(async (options) => {
+      const page = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === undefined) {
+        await store.update("transitioning", {
+          status: "completed",
+          timestamp: "2026-08-23T12:01:00.000Z",
+        })
+      }
+      return page
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=2"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations.map(invocation => invocation.id)).toEqual(["older", "transitioning"])
+    expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(2)
+  })
+
   it("preserves an invocation that becomes terminal between pages", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const id of ["transitioning", "newer", "newest"]) {
