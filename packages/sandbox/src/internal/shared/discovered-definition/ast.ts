@@ -154,10 +154,17 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
   function filesystemRequireSpecifier(expression: ts.Expression | undefined): string | undefined {
     if (expression && (typescript.isPropertyAccessExpression(expression) || typescript.isElementAccessExpression(expression)))
       return filesystemRequireSpecifier(expression.expression)
+    const loader = expression && typescript.isCallExpression(expression) ? expression.expression : undefined
+    const isFilesystemLoader = loader && (
+      (typescript.isIdentifier(loader) && requireBindings.has(loader.text))
+      || (typescript.isPropertyAccessExpression(loader)
+        && typescript.isIdentifier(loader.expression)
+        && loader.expression.text === 'process'
+        && loader.name.text === 'getBuiltinModule')
+    )
     if (!expression
       || !typescript.isCallExpression(expression)
-      || !typescript.isIdentifier(expression.expression)
-      || !requireBindings.has(expression.expression.text)) {
+      || !isFilesystemLoader) {
       return
     }
     const [specifier] = expression.arguments

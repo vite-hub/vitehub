@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { basename, resolve } from 'pathe'
 
 const generationMarker = '// vitehub-sandbox-generation: '
-const generationLockClaimStaleMs = 60_000
+const generationLockClaimStaleMs = 30_000
 const generationLockInitializationStaleMs = 5_000
 const generationLockName = '.runtime-generation.lock'
 const generationLockPublicationStaleMs = 300_000

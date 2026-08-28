@@ -129,6 +129,23 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
   })
 
+  it("rejects invalid Definition timeouts before resolving a provider", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({
+      example: {
+        ...definition,
+        options: { timeout: "invalid" } as never,
+      },
+    })
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result[0]).toMatchObject({
+      message: "[vitehub] Sandbox definition timeout must be a positive integer no greater than 2147483647.",
+    })
+    expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
+  })
+
   it("keeps configured and per-run Cloudflare identity overrides", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare", sandboxId: "configured" })
     setSandboxRuntimeRegistry({ example: definition })

@@ -17,6 +17,7 @@ type SandboxEvent = {
 }
 
 const allowedDefinitionKeys = new Set(['timeout', 'env'])
+const maxTimeout = 2_147_483_647
 const detectProvider = createProviderDetector<'cloudflare' | 'vercel'>([
   { provider: 'cloudflare', when: isCloudflare },
   { provider: 'vercel', when: isVercel },
@@ -104,6 +105,12 @@ export function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) 
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
     throw new TypeError(`[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}`)
+  if (local.timeout !== undefined
+    && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
+    throw new TypeError(
+      `[vitehub] Sandbox definition timeout must be a positive integer no greater than ${maxTimeout}.`,
+    )
+  }
 }
 
 export async function resolveSandboxBox(

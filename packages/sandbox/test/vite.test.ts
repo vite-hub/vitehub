@@ -958,6 +958,26 @@ describe("hubSandbox", () => {
     }])
   })
 
+  it("validates Durable Object bindings against replayed migration state", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const migrations = [
+      { tag: "v1", new_sqlite_classes: ["Legacy", "Removed"] },
+      {
+        tag: "v2",
+        deleted_classes: ["Removed"],
+        renamed_classes: [{ from: "Legacy", to: "Current" }],
+      },
+    ]
+    const target = (classNames: string[]) => ({ cloudflare: { wrangler: {
+      durable_objects: { bindings: classNames.map(class_name => ({ class_name, name: class_name.toUpperCase() })) },
+      migrations,
+    } } })
+
+    expect(() => finalizeCloudflareWranglerConfig(target(["Current"]))).not.toThrow()
+    expect(() => finalizeCloudflareWranglerConfig(target(["Legacy", "Removed"])))
+      .toThrow("Missing Cloudflare durable object migration entries for: Legacy, Removed.")
+  })
+
   it("does not require local migrations for external Durable Object bindings", async () => {
     const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
     const target = { cloudflare: { wrangler: { durable_objects: { bindings: [

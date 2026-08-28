@@ -122,15 +122,19 @@ function validateDurableObjectMigrations(wrangler: MutableWranglerConfig) {
   if (!bindings?.length)
     return
 
-  const declaredClasses = new Set(
-    (wrangler.migrations || [])
-      .flatMap(migration => [
-        ...(migration.new_sqlite_classes || []),
-        ...(migration.new_classes || []),
-        ...(migration.renamed_classes || []).map(entry => entry.to),
-        ...(migration.transferred_classes || []).map(entry => entry.to),
-      ]),
-  )
+  const declaredClasses = new Set<string>()
+  for (const migration of wrangler.migrations || []) {
+    for (const className of [...(migration.new_sqlite_classes || []), ...(migration.new_classes || [])])
+      declaredClasses.add(className)
+    for (const entry of migration.renamed_classes || []) {
+      declaredClasses.delete(entry.from)
+      declaredClasses.add(entry.to)
+    }
+    for (const className of migration.deleted_classes || [])
+      declaredClasses.delete(className)
+    for (const entry of migration.transferred_classes || [])
+      declaredClasses.add(entry.to)
+  }
   const missingClasses = [...new Set(bindings.filter(binding => !binding.script_name).map(binding => binding.class_name))]
     .filter(className => !declaredClasses.has(className))
     .sort(compareNumericStrings)

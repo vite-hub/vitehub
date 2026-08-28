@@ -599,7 +599,7 @@ describe("Sandbox runtime preparation", () => {
     }))
     await writeFile(claimPath, "")
     const staleLock = new Date(Date.now() - 301_000)
-    const staleClaim = new Date(Date.now() - 61_000)
+    const staleClaim = new Date(Date.now() - 31_000)
     await utimes(lockDir, staleLock, staleLock)
     await utimes(claimPath, staleClaim, staleClaim)
 
