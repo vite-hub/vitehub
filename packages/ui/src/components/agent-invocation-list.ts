@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "../types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -101,6 +101,7 @@ function renderItem(
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
       class: "vh-invocation-list__item",
+      "data-invocation-id": item.id,
       "data-relative-time": time?.short,
       "data-status": item.status,
       onClick: () => select(item),
@@ -153,6 +154,7 @@ export const AgentInvocationList = defineComponent({
     const doneOpen = ref(props.items.some(item => item.id === props.selectedId
       && item.status !== "running"
       && item.status !== "pending"));
+    let focusedItemBeforeUpdate: { element: HTMLButtonElement; id: string; status: string | undefined } | undefined;
     const groups = computed(() => {
       const sorted = sortInvocationItems(props.items);
       return [
@@ -231,6 +233,24 @@ export const AgentInvocationList = defineComponent({
     });
     onBeforeUnmount(() => resizeObserver?.disconnect());
     const select = (item: AgentInvocationListItem) => emit("select", item);
+    const rememberFocusedItem = () => {
+      const element = document.activeElement;
+      focusedItemBeforeUpdate = element instanceof HTMLButtonElement
+        && element.classList.contains("vh-invocation-list__item")
+        && viewport.value?.contains(element)
+        && element.dataset.invocationId
+        ? { element, id: element.dataset.invocationId, status: element.dataset.status }
+        : undefined;
+    };
+    const restoreMovedItemFocus = async () => {
+      const focused = focusedItemBeforeUpdate;
+      focusedItemBeforeUpdate = undefined;
+      if (!focused || focused.element.isConnected) return;
+      await nextTick();
+      const element = [...(viewport.value?.querySelectorAll<HTMLButtonElement>("[data-invocation-id]") ?? [])]
+        .find(candidate => candidate.dataset.invocationId === focused.id);
+      if (element?.dataset.status !== focused.status) element?.focus({ preventScroll: true });
+    };
     const renderRows = (group: (typeof groups.value)[number]) => h("ul", {
       class: "vh-invocation-list__group-items",
       "data-group": group.key,
@@ -265,6 +285,8 @@ export const AgentInvocationList = defineComponent({
       "aria-label": props.ariaLabel,
       class: "vh-invocation-list",
       onScroll: requestMoreIfNeeded,
+      onVnodeBeforeUpdate: rememberFocusedItem,
+      onVnodeUpdated: restoreMovedItemFocus,
       ref: viewport,
     }, [
       slots.header?.({ items: props.items }),

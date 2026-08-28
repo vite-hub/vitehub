@@ -262,6 +262,28 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
   });
 
+  it.each([
+    ["pending", "running"],
+    ["running", "completed"],
+  ] as const)("preserves focus when a session moves from %s to %s", async (before, after) => {
+    const wrapper = mount(AgentInvocationList, {
+      attachTo: document.body,
+      props: {
+        items: [{ id: "moving", status: before, title: "Moving" }],
+        selectedId: "moving",
+      },
+    });
+    wrapper.get<HTMLButtonElement>('[data-invocation-id="moving"]').element.focus();
+
+    await wrapper.setProps({
+      items: [{ id: "moving", status: after, title: "Moving" }],
+    });
+    await nextTick();
+
+    expect(document.activeElement).toBe(wrapper.get('[data-invocation-id="moving"]').element);
+    wrapper.unmount();
+  });
+
   it("keeps every session in the accessible navigation list", () => {
     const items = Array.from({ length: 100 }, (_, index) => ({
       description: index === 0 ? "The host stopped before this invocation finished." : undefined,
