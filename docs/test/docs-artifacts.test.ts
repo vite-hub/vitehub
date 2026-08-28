@@ -22,6 +22,13 @@ describe("writeDocsArtifacts", () => {
     );
   });
 
+  it("accepts a frontmatter terminator at the end of the source", () => {
+    const raw = toRawMarkdown("---\ntitle: Frontmatter only\n---");
+    expect(raw).toContain("# Frontmatter only");
+    expect(raw).not.toContain("title:");
+    expect(raw).not.toContain("---");
+  });
+
   it("makes rendered reference-style links portable", () => {
     expect(toRawMarkdown([
       "[Install][install]",
@@ -54,6 +61,8 @@ describe("writeDocsArtifacts", () => {
   });
 
   it("parses complete reference definitions before rewriting destinations", () => {
+    const maximumNesting = `${"(".repeat(32)}leaf${")".repeat(32)}`;
+    const excessiveNesting = `${"(".repeat(33)}leaf${")".repeat(33)}`;
     expect(toRawMarkdown([
       "> [quote\\]d]: /docs/quoted",
       "- [listed]: /docs/listed",
@@ -63,6 +72,11 @@ describe("writeDocsArtifacts", () => {
       "    [literal]: /docs/code",
       "- > [nested]: /docs/nested",
       "[unterminated]: /docs/no \"title",
+      "[nested]: /docs/a(b(c)) 'Nested destination'",
+      `[maximum-nesting]: /docs/${maximumNesting}`,
+      `[excessive-nesting]: /docs/${excessiveNesting}`,
+      "[malformed-title]: /docs/no \"a\" b\"",
+      "[unbalanced-destination]: /docs/no(a(b)",
       "[a[b]: /docs/no",
     ].join("\n"))).toBe([
       "> [quote\\]d]: https://vitehub.dev/docs/quoted",
@@ -73,6 +87,11 @@ describe("writeDocsArtifacts", () => {
       "    [literal]: /docs/code",
       "- > [nested]: https://vitehub.dev/docs/nested",
       "[unterminated]: /docs/no \"title",
+      "[nested]: https://vitehub.dev/docs/a(b(c)) 'Nested destination'",
+      `[maximum-nesting]: https://vitehub.dev/docs/${maximumNesting}`,
+      `[excessive-nesting]: /docs/${excessiveNesting}`,
+      "[malformed-title]: /docs/no \"a\" b\"",
+      "[unbalanced-destination]: /docs/no(a(b)",
       "[a[b]: /docs/no",
       "",
     ].join("\n"));
@@ -95,6 +114,34 @@ describe("writeDocsArtifacts", () => {
       "<custom-tag>",
       "[rendered](/docs/rendered)",
     ].join("\n"))).toContain("[rendered](https://vitehub.dev/docs/rendered)");
+  });
+
+  it("starts type-7 HTML blocks after Markdown block boundaries", () => {
+    expect(toRawMarkdown([
+      "Paragraph",
+      "",
+      "<custom-blank>",
+      "[blank literal](/docs/blank)",
+      "",
+      "# Heading",
+      "<custom-heading>",
+      "[heading literal](/docs/heading)",
+      "",
+      "- List item",
+      "<custom-list>",
+      "[list literal](/docs/list)",
+    ].join("\n"))).toContain([
+      "<custom-blank>",
+      "[blank literal](/docs/blank)",
+      "",
+      "# Heading",
+      "<custom-heading>",
+      "[heading literal](/docs/heading)",
+      "",
+      "- List item",
+      "<custom-list>",
+      "[list literal](/docs/list)",
+    ].join("\n"));
   });
 
   it("keeps protected indented code separate from following references", () => {

@@ -62,10 +62,11 @@ function splitFrontmatter(source: string): { body: string, frontmatter: Frontmat
     return { body: normalized, frontmatter: {} };
   }
 
-  const end = normalized.indexOf(`\n${frontmatterBoundary}\n`, frontmatterBoundary.length + 1);
-  if (end === -1) {
+  const closing = normalized.slice(frontmatterBoundary.length + 1).match(/\n---(?:\n|$)/);
+  if (!closing || closing.index === undefined) {
     return { body: normalized, frontmatter: {} };
   }
+  const end = frontmatterBoundary.length + 1 + closing.index;
 
   const parsed: unknown = parse(normalized.slice(frontmatterBoundary.length + 1, end));
   const frontmatter: Frontmatter = parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -73,7 +74,7 @@ function splitFrontmatter(source: string): { body: string, frontmatter: Frontmat
     : {};
 
   return {
-    body: normalized.slice(end + `\n${frontmatterBoundary}\n`.length),
+    body: normalized.slice(end + closing[0].length),
     frontmatter,
   };
 }
@@ -158,7 +159,48 @@ function validReferenceSuffix(suffix: string) {
   if (trimmed.length === suffix.length) return false;
   const delimiters: Record<string, string> = { "\"": "\"", "'": "'", "(": ")" };
   const close = delimiters[trimmed[0]!];
-  return Boolean(close && trimmed.length >= 2 && trimmed.endsWith(close));
+  if (!close || trimmed.length < 2 || !trimmed.endsWith(close)) return false;
+
+  for (let index = 1; index < trimmed.length - 1; index += 1) {
+    if (trimmed[index] === "\\") {
+      if (index + 1 === trimmed.length - 1) return false;
+      index += 1;
+      continue;
+    }
+    if (trimmed[index] === close || (trimmed[0] === "(" && trimmed[index] === "(")) return false;
+  }
+  return true;
+}
+
+function parseReferenceDestination(value: string) {
+  if (value.startsWith("<")) {
+    const end = value.indexOf(">");
+    if (end === -1 || value.slice(1, end).includes("<")) return null;
+    return { angle: true, destination: value.slice(1, end), suffix: value.slice(end + 1) };
+  }
+
+  let depth = 0;
+  let end = 0;
+  while (end < value.length) {
+    const character = value[end]!;
+    if (character === "\\") {
+      if (end + 1 >= value.length) return null;
+      end += 2;
+      continue;
+    }
+    if (/\s/.test(character)) break;
+    if (character === "<" || character === ">") return null;
+    if (character === "(") {
+      depth += 1;
+      if (depth > 32) return null;
+    } else if (character === ")") {
+      if (depth === 0) return null;
+      depth -= 1;
+    }
+    end += 1;
+  }
+  if (end === 0 || depth !== 0) return null;
+  return { angle: false, destination: value.slice(0, end), suffix: value.slice(end) };
 }
 
 function rewriteReferenceDefinitions(source: string) {
@@ -187,16 +229,13 @@ function rewriteReferenceDefinitions(source: string) {
       destinationAndTitle = continuation[2]!;
     }
 
-    const angleDestination = destinationAndTitle.match(/^<([^<>\n]*)>([ \t]*(?:["'(].*)?)$/);
-    const bareDestination = destinationAndTitle.match(/^((?:\\.|[^\s<>\\()]|\((?:\\.|[^\\()])*\))+)([ \t]*.*)$/);
-    const destination = angleDestination?.[1] ?? bareDestination?.[1];
-    if (!destination?.startsWith("/") || destination.startsWith("//")) continue;
+    const parsed = parseReferenceDestination(destinationAndTitle);
+    if (!parsed?.destination.startsWith("/") || parsed.destination.startsWith("//")) continue;
 
-    const suffix = (angleDestination ?? bareDestination)![2]!;
-    if (!validReferenceSuffix(suffix)) continue;
-    lines[destinationLine] = angleDestination
-      ? `${destinationPrefix}<${absoluteUrl(destination)}>${suffix}`
-      : `${destinationPrefix}${absoluteUrl(destination)}${suffix}`;
+    if (!validReferenceSuffix(parsed.suffix)) continue;
+    lines[destinationLine] = parsed.angle
+      ? `${destinationPrefix}<${absoluteUrl(parsed.destination)}>${parsed.suffix}`
+      : `${destinationPrefix}${absoluteUrl(parsed.destination)}${parsed.suffix}`;
   }
 
   return lines.join("\n");
@@ -221,6 +260,16 @@ function withoutMarkdownContainers(line: string) {
 
 function htmlBlockContinues(end: RegExp, openingLine: string) {
   return end.source === "^\\s*$" || !end.test(openingLine);
+}
+
+function startsParagraph(line: string) {
+  const container = referenceContainer(line);
+  if (/(?:^|[ \t])(?:[-+*]|\d{1,9}[.)])[ \t]+/.test(container)) return false;
+  const content = line.slice(container.length);
+  if (/^[ \t]{0,3}(?:#{1,6}(?:[ \t]+|$)|(?:=+|-+)[ \t]*$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$|(?:-[ \t]*){3,}$)/.test(content)) return false;
+  if (/^[ \t]{0,3}\[((?:\\.|[^\\\]])+)\]:/.test(content)) return false;
+  if (/^[ \t]*:{2,}/.test(content)) return false;
+  return Boolean(content.trim());
 }
 
 function isEscaped(source: string, index: number) {
@@ -267,6 +316,7 @@ function rewriteLinks(source: string) {
   let listIndent: number | null = null;
   let listQuotePrefix = "";
   let paragraphOpen = false;
+  let paragraphQuoteDepth = 0;
   const protectedLines: string[] = [];
   const rewriteOutside = () => rewriteReferenceDefinitions(rewriteInlineLinks(outsideFence)).replace(
     /\0INDENT(\d+)\0/g,
@@ -288,7 +338,8 @@ function rewriteLinks(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const typeSevenHtml = nextHtmlEnd?.source === "^\\s*$"
       && !/^[ \t]{0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(htmlLine);
-    if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen)) {
+    const quoteDepth = leadingQuoteDepth(referenceContainer(line));
+    if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) htmlEnd = nextHtmlEnd;
@@ -326,6 +377,7 @@ function rewriteLinks(source: string) {
       outsideFence += lineWithEnding;
       output.push(rewriteOutside());
       outsideFence = "";
+      paragraphOpen = false;
       continue;
     }
 
@@ -351,7 +403,8 @@ function rewriteLinks(source: string) {
     }
 
     outsideFence += lineWithEnding;
-    paragraphOpen = true;
+    paragraphOpen = startsParagraph(line);
+    paragraphQuoteDepth = quoteDepth;
   }
 
   output.push(rewriteOutside());
