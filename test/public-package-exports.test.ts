@@ -31,12 +31,9 @@ describe("public package export contracts", () => {
     const eagerPeerExports = new Map<string, string>([
       ["@vite-hub/auth/agent", "@vite-hub/agent"],
       ["@vite-hub/auth/nuxt", "vite"],
-      ["@vite-hub/browser/controllers/playwright", "playwright-core"],
-      ["@vite-hub/blob/drivers/files-sdk", "files-sdk"],
       ["@vite-hub/source/client", "vue"],
       ["@vite-hub/workspace/collections/client", "vue"],
       ["vite-hub", "vite"],
-      ["vite-hub/browser/controllers/playwright", "playwright-core"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/ui", "vue"],
