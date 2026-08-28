@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
 
 import {
@@ -17,12 +17,152 @@ import {
   type ApprovalDecision,
   type ApprovalRequest,
   type LeaseStore,
+  type RuntimeCapabilities,
+  type RuntimeHostContext,
   type RunLifecycleHooks,
   type TraceEventLogEntry,
   ViteHubError,
 } from "../src/index.ts"
 
 describe("@vite-hub/runtime", () => {
+  it("creates complete execution contexts from omitted host fields", () => {
+    const first = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
+    const second = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
+
+    expect(first.capabilities).toEqual({})
+    expect(first.runtimeConfig).toEqual({})
+    expect(first.capabilities).not.toBe(second.capabilities)
+    expect(first.runtimeConfig).not.toBe(second.runtimeConfig)
+  })
+
+  it("preserves supplied execution context fields", () => {
+    const capabilities = {
+      db: defineCapability("db", { query: vi.fn() }),
+    }
+    const runtimeConfig = { region: "local" }
+    const context = createExecutionContext({
+      capabilities,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.capabilities.db).toEqualTypeOf(capabilities.db)
+    expectTypeOf(context.capabilities.db.value.query).toEqualTypeOf(capabilities.db.value.query)
+    expect(context.capabilities).toBe(capabilities)
+    expect(context.runtimeConfig).toBe(runtimeConfig)
+  })
+
+  it("normalizes explicitly undefined execution context fields", () => {
+    const context = createExecutionContext({
+      capabilities: undefined,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: undefined,
+      source: "host" as const,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.capabilities).toEqualTypeOf<RuntimeCapabilities>()
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expectTypeOf(context.source).toEqualTypeOf<"host">()
+    expect(context.capabilities).toEqual({})
+    expect(context.runtimeConfig).toEqual({})
+    expect(context.source).toBe("host")
+  })
+
+  it("normalizes explicitly null runtime configuration", () => {
+    const context = createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: null,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expect(context.runtimeConfig).toEqual({})
+  })
+
+  it("widens union-typed execution context fields that may be undefined", () => {
+    const createContext = (
+      capabilities: RuntimeCapabilities | undefined,
+      runtimeConfig: { region: string } | undefined,
+    ) => createExecutionContext({
+      capabilities,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const context = createContext(undefined, undefined)
+
+    expectTypeOf(context.capabilities).toEqualTypeOf<RuntimeCapabilities>()
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expect(context.capabilities).toEqual({})
+    expect(context.runtimeConfig).toEqual({})
+  })
+
+  it("preserves defined non-record runtime configuration union members", () => {
+    const createContext = (runtimeConfig: string | undefined) => createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const configuredContext = createContext("local")
+    const omittedContext = createContext(undefined)
+
+    expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
+    expect(configuredContext.runtimeConfig).toBe("local")
+    expect(omittedContext.runtimeConfig).toEqual({})
+  })
+
+  it("widens runtime configuration unions that may be null", () => {
+    const createContext = (runtimeConfig: string | null) => createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const configuredContext = createContext("local")
+    const omittedContext = createContext(null)
+
+    expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
+    expect(configuredContext.runtimeConfig).toBe("local")
+    expect(omittedContext.runtimeConfig).toEqual({})
+  })
+
+  it("normalizes runtime configuration independently for each context variant", () => {
+    type ContextVariant =
+      | { kind: "configured", memo: RuntimeHostContext["memo"], runtime: string, runtimeConfig: string, waitUntil: RuntimeHostContext["waitUntil"] }
+      | { kind: "default", memo: RuntimeHostContext["memo"], runtime: string, waitUntil: RuntimeHostContext["waitUntil"] }
+    const createContext = (context: ContextVariant) => createExecutionContext(context)
+
+    const configuredContext = createContext({
+      kind: "configured",
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: "local",
+      waitUntil: vi.fn(),
+    })
+    if (configuredContext.kind === "configured") {
+      expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string>()
+      expect(configuredContext.runtimeConfig).toBe("local")
+    }
+
+    const defaultContext = createContext({
+      kind: "default",
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+    if (defaultContext.kind === "default") {
+      expectTypeOf(defaultContext.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+      expect(defaultContext.runtimeConfig).toEqual({})
+    }
+  })
+
   it("registers, finds, and resolves capability handles", () => {
     const db = defineCapability("db", { query: vi.fn() }, { name: "primary" })
     const context = createExecutionContext({

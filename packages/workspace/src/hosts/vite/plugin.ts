@@ -41,13 +41,6 @@ const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindin
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
 
-function hasVercelBlobWorkspaceDefinition(definitions: DiscoveredWorkspaceDefinition[]): boolean {
-  return definitions.some((definition) => {
-    if (!definition.source) return false
-    return /\bprovider\s*:\s*["']vercel-blob["']/.test(definition.source)
-  })
-}
-
 const sourceModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs", ".tsx", ".jsx"]
 
 async function readSourceModule(file: string): Promise<{ file: string, source: string } | undefined> {
@@ -158,11 +151,9 @@ async function sourceModuleUsesCloudflareArtifacts(
   return false
 }
 
-function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[] = []) {
-  const hasVercelBlobStore = (options && options.store?.provider === "vercel-blob") || hasVercelBlobWorkspaceDefinition(definitions)
+function vercelFunctionRuntimePackages() {
   return [
     { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
-    ...(hasVercelBlobStore ? [{ name: "@vercel/blob" }] : []),
   ]
 }
 
@@ -1015,7 +1006,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         }))
         await Promise.all([
           copyVercelFunctionRuntimePackages({
-            packages: vercelFunctionRuntimePackages(resolvedOptions, definitions),
+            packages: vercelFunctionRuntimePackages(),
             rootDir: roots.projectRoot,
           }),
           writeCloudflareArtifactsProviderOutput(

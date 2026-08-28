@@ -71,6 +71,10 @@ only observes rejected promises in a long-lived process. It does not keep a
 serverless request alive. A production host must delegate background work to its
 provider lifetime API.
 
+`createExecutionContext()` always returns a complete Execution Context. It creates
+fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
+and preserves the supplied objects when the host provides them.
+
 ## Understand the boundaries
 
 ### Runtime Host Context

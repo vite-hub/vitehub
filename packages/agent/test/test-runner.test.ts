@@ -4,6 +4,7 @@ import { adapterDefinition } from "./adapter-definition.ts"
 const readFile = vi.fn()
 const list = vi.fn()
 const inspectTools = vi.fn(() => ({}))
+// SAFETY: The mocked settings are recorded as opaque objects for assertion only.
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 const workflowMock = vi.hoisted(() => {
@@ -164,7 +165,7 @@ describe("agent test runner", () => {
           id: "review-output",
           finish(event) {
             return {
-              resultKind: typeof event.result,
+              resultKind: Object.prototype.toString.call(event.result).slice(8, -1).toLowerCase(),
               runId: event.invocation.run?.runId,
             }
           },
@@ -264,6 +265,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
+      // SAFETY: This test exercises workspace tools and never invokes the placeholder model.
       driver: { model: {} as never, },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -355,6 +357,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
+      // SAFETY: This test exercises tool limits and never invokes the placeholder model.
       driver: { model: {} as never, },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -392,6 +395,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
+      // SAFETY: This test exercises tool output parsing and never invokes the placeholder model.
       driver: { model: {} as never, },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -425,6 +429,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
+      // SAFETY: This test exercises shell metadata and never invokes the placeholder model.
       driver: { model: {} as never, },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -513,6 +518,7 @@ describe("agent test runner", () => {
     try {
       const runner = createAgentTestRunner(defineAgent({
         workspace: {},
+        // SAFETY: This test exercises debug logging and never invokes the placeholder model.
         driver: { model: {} as never, },
         capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
       }), {
@@ -537,17 +543,20 @@ describe("agent test runner", () => {
     const baseModel = { id: "base" }
     const agentWrappedModel = { id: "agent-wrapped" }
     const testWrappedModel = { id: "test-wrapped" }
+    // SAFETY: The test models are identity sentinels, and the mock never invokes them.
     const agentInstrumentation = vi.fn(() => agentWrappedModel as never)
+    // SAFETY: The test models are identity sentinels, and the mock never invokes them.
     const testInstrumentation = vi.fn(() => testWrappedModel as never)
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
       driver: {
         execution: {
-        instrumentation: {
-          model: agentInstrumentation,
+          instrumentation: {
+            model: agentInstrumentation,
+          },
         },
-      },
+        // SAFETY: The test model is an identity sentinel consumed only by mocked generation.
         model: baseModel as never,
       },
     }), {

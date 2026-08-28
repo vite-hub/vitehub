@@ -251,11 +251,9 @@ export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
 
 export type ExecutionContext<TRuntimeConfig = Record<string, unknown>> =
   RuntimeHostContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
     runtimeConfig: TRuntimeConfig
   }
-
-export type ResolvedRuntimeHostContext<TRuntimeConfig = Record<string, unknown>> =
-  ExecutionContext<TRuntimeConfig>
 
 export interface CapabilityHandle<TKind extends string = string, TValue = unknown> {
   kind: TKind
@@ -1114,35 +1112,45 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
-type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRuntimeConfig }
-  ? Exclude<TRuntimeConfig, undefined>
+type NormalizedRuntimeConfig<TConfig> = Exclude<TConfig, null | undefined> extends Record<string, unknown>
+  ? Record<string, unknown>
+  : Exclude<TConfig, null | undefined> | Record<string, unknown>
+
+type RuntimeConfigOf<TContext extends RuntimeHostContext<any>> = "runtimeConfig" extends keyof TContext
+  ? undefined extends TContext["runtimeConfig"]
+    ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
+    : null extends TContext["runtimeConfig"]
+      ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
+    : TContext["runtimeConfig"]
   : Record<string, unknown>
+
+type RuntimeCapabilitiesOf<TContext extends RuntimeHostContext<any>> = "capabilities" extends keyof TContext
+  ? undefined extends TContext["capabilities"]
+    ? RuntimeCapabilities
+    : TContext["capabilities"]
+  : RuntimeCapabilities
+
+type CreatedExecutionContext<TContext extends RuntimeHostContext<any>> = TContext extends unknown
+  ? Omit<TContext, "capabilities" | "runtimeConfig"> & {
+      capabilities: RuntimeCapabilitiesOf<TContext>
+      runtimeConfig: RuntimeConfigOf<TContext>
+    }
+  : never
 
 export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
-  return resolveExecutionContext(context)
-}
+): CreatedExecutionContext<TContext> {
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const capabilities = (context.capabilities ?? {}) as RuntimeCapabilitiesOf<TContext>
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const runtimeConfig = (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>
 
-export function resolveExecutionContext<TContext extends RuntimeHostContext<any>>(
-  context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
+  // SAFETY: Each union variant is reconstructed with the normalized fields described by CreatedExecutionContext.
   return {
     ...context,
-    capabilities: context.capabilities || {},
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
-  }
-}
-
-export function resolveRuntimeContext<TContext extends RuntimeHostContext<any>>(
-  context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
-  return {
-    ...context,
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
-  }
+    capabilities,
+    runtimeConfig,
+  } as CreatedExecutionContext<TContext>
 }
 
 export function defineCapability<TKind extends string, TValue>(
