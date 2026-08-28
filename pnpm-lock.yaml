@@ -761,6 +761,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260509.1
         version: 4.20260509.1
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -783,9 +786,6 @@ importers:
       '@types/mdast':
         specifier: catalog:markdown
         version: 4.0.4
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.13.3
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../agent

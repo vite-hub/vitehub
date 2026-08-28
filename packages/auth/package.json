@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "@cloudflare/workers-types": "^4.20260509.1",
+    "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",

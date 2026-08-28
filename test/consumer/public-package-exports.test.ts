@@ -161,7 +161,7 @@ async function importPackagesWithoutRootFallback(
     )
     await withoutRootDependencies(appDir, new Set([
       info.packageName,
-      "@types/node",
+      ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
       ...requiredPeers,
       ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
     ]), async () => {
@@ -218,7 +218,10 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
       ].join("\n"), "utf8"),
       writeFile(join(appDir, "package.json"), JSON.stringify({
         dependencies: { [info.packageName]: specs[info.packageName] },
-        devDependencies: Object.fromEntries(["@types/node", ...requiredPeers].map(name => {
+        devDependencies: Object.fromEntries([
+          ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+          ...requiredPeers,
+        ].map(name => {
           const spec = specs[name] || requiredPeerSpecs[name]
           if (!spec) throw new Error(`Missing required peer spec for ${name}`)
           return [name, spec]
@@ -365,7 +368,7 @@ async function typecheckPackageModule(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    types: ["node"],
+    types: packageName === "@vite-hub/auth" ? [] : ["node"],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program)

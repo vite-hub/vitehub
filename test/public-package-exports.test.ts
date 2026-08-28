@@ -77,9 +77,11 @@ describe("public package export contracts", () => {
 
   it("publishes Better Auth host declarations in its dependency closure", () => {
     const manifest = readPackageManifest("auth")
-    for (const dependency of ["@cloudflare/workers-types", "bun-types"]) {
+    for (const dependency of ["@cloudflare/workers-types", "@types/node", "bun-types"]) {
       expect(manifest.dependencies?.[dependency], `auth should install ${dependency}`).toEqual(expect.any(String))
     }
+    const hostDeclarations = readFileSync(join(packageDir("auth"), "src/host-declarations.d.ts"), "utf8")
+    expect(hostDeclarations).not.toMatch(/interface Timer/)
   })
 
   it("keeps Blob declarations independent from H3 host declarations", () => {

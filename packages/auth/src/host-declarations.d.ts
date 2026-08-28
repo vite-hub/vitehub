@@ -1,5 +1,3 @@
-import "bun-types/sqlite.d.ts"
+/// <reference types="node" />
 
-declare global {
-  interface Timer extends NodeJS.Timer {}
-}
+import "bun-types/sqlite.d.ts"
