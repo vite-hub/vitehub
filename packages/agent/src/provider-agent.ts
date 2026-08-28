@@ -309,8 +309,8 @@ function codexFileCredentialStoreConfig(config: string): string {
       }
     }
     let quoted: `'` | `"` | undefined
-    for (let offset = 0; offset < line.length - 2; offset++) {
-      const delimiter = line.slice(offset, offset + 3)
+    for (let offset = 0; offset < line.length; offset++) {
+      const delimiter = offset + 2 < line.length ? line.slice(offset, offset + 3) : ""
       if (multiline) {
         if (delimiter !== multiline || (multiline === '"""' && /(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, offset)))) continue
         multiline = undefined
@@ -1380,8 +1380,9 @@ async function* runProvider<
   }
   const releaseCodexCredentialHome = async (reason?: unknown) => {
     const home = codexCredentialHome
-    codexCredentialHome = undefined
-    await home?.release(reason)
+    if (!home) return
+    await home.release(reason)
+    if (codexCredentialHome === home) codexCredentialHome = undefined
   }
   const finalizeDeferredRuntime = async (sessionThreadId?: ThreadId, turnId?: TurnId) => {
     try {
@@ -1656,7 +1657,8 @@ async function* runProvider<
       }
       if (!runtimeCleanupDeferred) {
         try {
-          await releaseCodexCredentialHome()
+          const runtimeResult = runtimeAndToolCleanup[0]
+          await releaseCodexCredentialHome(runtimeResult?.status === "rejected" ? runtimeResult.reason : undefined)
         }
         catch (error) {
           cleanupErrors.push(error)
@@ -1700,6 +1702,14 @@ async function* runProvider<
     })()
     try {
       await waitForProviderOperation(cleanupTask, cleanup.signal)
+      if (codexCredentialHome) {
+        try {
+          await releaseCodexCredentialHome()
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
     }
     catch (error) {
       cleanupTimedOut = providerCleanupTimedOut(error)

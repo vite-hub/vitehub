@@ -249,6 +249,34 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it("does not rewrite a table-scoped credential-store setting after a multiline array", async () => {
+    const profile = `provider-table-array-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `models = [
+  "gpt-5.6",
+]
+[provider]
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-table-array-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(`cli_auth_credentials_store = "file"
+${config}`)
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
   it("ignores multiline delimiters in TOML comments", async () => {
     const profile = `provider-commented-multiline-config-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
@@ -2316,6 +2344,20 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it("quarantines a named credential profile when provider cleanup rejects", async () => {
+    const threadId = "thread-profile-cleanup-rejection"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    provider.close.mockRejectedValueOnce(new Error("close failed"))
+    const options = {
+      credentialProfile: `cleanup-rejection-${crypto.randomUUID()}`,
+      credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex" as const,
+    }
+
+    await expect(createProviderAgentAdapter(options).generate(context(threadId) as never)).resolves.toBeDefined()
+    await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+  })
+
   it("releases a named credential profile when only Capability cleanup stalls", async () => {
     vi.useFakeTimers()
     let client: McpClient | undefined
@@ -2361,6 +2403,7 @@ cli_auth_credentials_store = "keyring"
     vi.useFakeTimers()
     let client: McpClient | undefined
     let resolveExecute: (() => void) | undefined
+    let toolCall: Promise<void> | undefined
     try {
       const threadId = "thread-profile-deferred-runtime-tool-timeout"
       let resolveTurn!: () => void
@@ -2373,7 +2416,7 @@ cli_auth_credentials_store = "keyring"
             requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
           })
           await client.connect(transport)
-          void client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }).then(() => undefined, () => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
           await turnPending
         },
@@ -2401,6 +2444,7 @@ cli_auth_credentials_store = "keyring"
       resolveTurn()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       resolveExecute?.()
+      await toolCall
     }
     finally {
       await client?.close().catch(() => undefined)
