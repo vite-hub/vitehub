@@ -347,6 +347,16 @@ async function typecheckPackageModule(
   const sourcePath = join(runnerDir, `export-${index}.ts`)
   await writeFile(sourcePath, `${source}\n`, "utf8")
   const rootNames = [sourcePath]
+  if (packageName === "@vite-hub/auth") {
+    const authHostTypesPath = join(runnerDir, "auth-host-types.d.ts")
+    await writeFile(authHostTypesPath, [
+      "type Timer = ReturnType<typeof setTimeout>",
+      "declare module \"bun:sqlite\" { export class Database {} }",
+      "declare module \"@cloudflare/workers-types\" { export interface D1Database {} }",
+      "",
+    ].join("\n"), "utf8")
+    rootNames.push(authHostTypesPath)
+  }
   let hostTypesPath: string | undefined
   if (withCloudflareHost) {
     hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
@@ -361,6 +371,9 @@ async function typecheckPackageModule(
     rootNames.push(hostTypesPath)
   }
   const paths: ts.CompilerOptions["paths"] = {}
+  if (["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)) {
+    paths["json-schema"] = [resolve(packageRoot, "../../@types/json-schema/index.d.ts")]
+  }
   if (hostTypesPath) {
     paths["cloudflare:workers"] = [hostTypesPath]
   }
@@ -372,7 +385,12 @@ async function typecheckPackageModule(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    types: ["node"],
+    typeRoots: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
+      ? [resolve(packageRoot, "../../@types"), resolve(runnerDir, "../..", "node_modules/@types")]
+      : undefined,
+    types: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
+      ? ["json-schema", "mdast", "node"]
+      : ["node"],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
