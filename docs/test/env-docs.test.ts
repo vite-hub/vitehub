@@ -12,12 +12,14 @@ import {
   isObjectLiteralExpression,
   isPropertyAccessExpression,
   isPropertyAssignment,
+  isShorthandPropertyAssignment,
   isSpreadAssignment,
   isStringLiteralLike,
   isVariableDeclaration,
   type CallExpression,
   type Expression,
   type Node,
+  type ObjectLiteralExpression,
   ScriptKind,
   ScriptTarget,
 } from "typescript";
@@ -109,7 +111,10 @@ function sectionObjects(sourceFile: Node) {
     forEachChild(node, collectBindings);
   }
 
-  function resolveObject(expression: Expression, seen = new Set<string>()) {
+  function resolveObject(
+    expression: Expression,
+    seen = new Set<string>(),
+  ): ObjectLiteralExpression | undefined {
     if (isObjectLiteralExpression(expression)) return expression;
     if (!isIdentifier(expression) || seen.has(expression.text)) return;
     seen.add(expression.text);
@@ -117,18 +122,38 @@ function sectionObjects(sourceFile: Node) {
     return initializer ? resolveObject(initializer, seen) : undefined;
   }
 
+  function propertyValue(object: ObjectLiteralExpression, name: string) {
+    for (const property of object.properties) {
+      if (isPropertyAssignment(property) && propertyName(property.name) === name) {
+        return property.initializer;
+      }
+      if (isShorthandPropertyAssignment(property) && property.name.text === name) {
+        return property.name;
+      }
+    }
+  }
+
+  collectBindings(sourceFile);
   function collectSections(node: Node) {
-    if (isPropertyAssignment(node)) {
-      const section = propertyName(node.name);
-      if (section === "define" || section === "public") {
-        const object = resolveObject(node.initializer);
-        if (object) sections.set(object, section);
+    if (
+      isCallExpression(node) &&
+      isIdentifier(node.expression) &&
+      node.expression.text === "defineConfig"
+    ) {
+      const config = node.arguments[0] && resolveObject(node.arguments[0]);
+      const env = config && propertyValue(config, "env");
+      const envConfig = env && resolveObject(env);
+      if (envConfig) {
+        for (const section of ["define", "public"] as const) {
+          const value = propertyValue(envConfig, section);
+          const object = value && resolveObject(value);
+          if (object) sections.set(object, section);
+        }
       }
     }
     forEachChild(node, collectSections);
   }
 
-  collectBindings(sourceFile);
   collectSections(sourceFile);
   return sections;
 }
@@ -177,7 +202,7 @@ function buildEnvCalls(source: string) {
 function fixtureHasBuildMode(options: string) {
   const call = buildEnvCalls(`
 \`\`\`ts
-const config = { public: { value: env(${options}) } }
+defineConfig({ env: { public: { value: env(${options}) } } })
 \`\`\`
   `)[0]?.call;
   return call ? hasBuildMode(call) : false;
@@ -189,10 +214,11 @@ describe("Env documentation", () => {
 \`\`\`ts
 import { env as declareEnv } from "@vite-hub/env/vite"
 import * as envApi from "@vite-hub/env/vite"
+import { defineConfig } from "vite"
 import * as unrelatedApi from "unrelated-env"
 import { env as unrelatedEnv } from "unrelated-env"
 
-const publicEnv = {
+const public = {
     appName: declareEnv({ source: declareEnv.source("APP_NAME"), mode: "build" }),
     region: declareEnv.variable({ mode: "build" }),
     target: envApi.env({ mode: "build" }),
@@ -203,10 +229,7 @@ const publicEnv = {
 const defineEnv = {
   __TARGET__: declareEnv({ mode: "build" }),
 }
-const config = {
-  public: publicEnv,
-  define: defineEnv,
-}
+defineConfig({ env: { public, define: defineEnv } })
 // env({ mode: "runtime" })
 const example = "env({ mode: 'runtime' })"
 \`\`\`
@@ -220,6 +243,22 @@ const example = "env({ mode: 'runtime' })"
       "define",
     ]);
     expect(calls.every(({ call }) => hasBuildMode(call))).toBe(true);
+  });
+
+  it("ignores similarly named Server Env keys", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+defineConfig({
+  env: {
+    server: {
+      public: { token: env({ secret: true }) },
+    },
+  },
+})
+\`\`\`
+    `);
+
+    expect(calls).toEqual([]);
   });
 
   it("requires the last effective top-level mode to be build", () => {
