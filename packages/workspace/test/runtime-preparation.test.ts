@@ -534,6 +534,69 @@ describe("Workspace runtime preparation", () => {
     await preparation.stop()
   })
 
+  it("waits for definition synchronization snapshots before restarting", async () => {
+    const base = createMemoryWorkspaceStore()
+    let releaseSnapshot!: () => void
+    const snapshotBlocked = new Promise<void>((resolve) => { releaseSnapshot = resolve })
+    let snapshotStarted!: () => void
+    const snapshotting = new Promise<void>((resolve) => { snapshotStarted = resolve })
+    let activeSnapshots = 0
+    let maxActiveSnapshots = 0
+    let snapshots = 0
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property) {
+        if (property !== "snapshot") {
+          const value = Reflect.get(target, property, target)
+          return value instanceof Function ? value.bind(target) : value
+        }
+        return async (...args: Parameters<WorkspaceStore["snapshot"]>) => {
+          snapshots++
+          activeSnapshots++
+          maxActiveSnapshots = Math.max(maxActiveSnapshots, activeSnapshots)
+          if (snapshots === 1) {
+            snapshotStarted()
+            await snapshotBlocked
+          }
+          try {
+            return await base.snapshot(...args)
+          }
+          finally {
+            activeSnapshots--
+          }
+        }
+      },
+    })
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    registerWorkspace(name, {
+      loaders: [{ name: "startup", async load() {} }],
+      sources: {
+        docs: custom({
+          getItem: async key => ({ content: "# Ready", key }),
+          getItems: async () => [{ content: "# Ready", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          materialize: "startup",
+        }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await snapshotting
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    await expect(Promise.race([restarted.then(() => "restarted"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(snapshots).toBe(1)
+    releaseSnapshot()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    expect(maxActiveSnapshots).toBe(1)
+    expect(snapshots).toBe(2)
+    await preparation.stop()
+  })
+
   it("waits for publisher side effects before restarting preparation", async () => {
     let releasePublish!: () => void
     const publishBlocked = new Promise<void>((resolve) => { releasePublish = resolve })

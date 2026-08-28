@@ -46,7 +46,7 @@ export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, 
   }
 }
 
-const STORE_MUTATIONS = new Set(["mkdir", "rebase", "rm", "setMeta", "writeFile", "writeFileConditional", "writeFileStream"])
+const STORE_MUTATIONS = new Set(["mkdir", "rebase", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream"])
 
 function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal) {
   const active = new Set<Promise<unknown>>()
