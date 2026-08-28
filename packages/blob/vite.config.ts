@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import { defineConfig } from "vite-plus";
 
 const bundledFilesSdkDrivers = new Set([
@@ -38,11 +40,11 @@ const filesSdkProviderPeers = [
 export default defineConfig({
   pack: {
     alias: {
-      "@vercel/oidc": new URL("./src/internal/vercel-oidc.ts", import.meta.url).pathname,
-      "async-retry": new URL("./src/internal/vercel-retry.ts", import.meta.url).pathname,
-      "is-buffer": new URL("./src/internal/vercel-is-buffer.ts", import.meta.url).pathname,
-      throttleit: new URL("./src/internal/vercel-throttle.ts", import.meta.url).pathname,
-      undici: new URL("./src/internal/vercel-fetch.ts", import.meta.url).pathname,
+      "@vercel/oidc": fileURLToPath(new URL("./src/internal/vercel-oidc.ts", import.meta.url)),
+      "async-retry": fileURLToPath(new URL("./src/internal/vercel-retry.ts", import.meta.url)),
+      "is-buffer": fileURLToPath(new URL("./src/internal/vercel-is-buffer.ts", import.meta.url)),
+      throttleit: fileURLToPath(new URL("./src/internal/vercel-throttle.ts", import.meta.url)),
+      undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
     },
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
