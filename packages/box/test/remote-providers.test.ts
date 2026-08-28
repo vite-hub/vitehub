@@ -123,6 +123,29 @@ describe("remote Box providers", () => {
     await session.close();
   });
 
+  it("honors caller Cloudflare execution timeouts beyond the transport default", async () => {
+    vi.useFakeTimers();
+    let receivedTimeout: number | undefined;
+    const stub = cloudflareStub(async (_command, options) => {
+      receivedTimeout = options?.timeout;
+      await new Promise(resolve => setTimeout(resolve, 200_000));
+      return { exitCode: 0, stderr: "", stdout: "complete", success: true };
+    });
+    const box = await resolveBox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await box.open();
+    const settled = vi.fn();
+
+    const result = session.exec("long-analysis", [], { timeout: 600_000 });
+    void result.then(value => settled({ value }), error => settled({ error }));
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(result).resolves.toMatchObject({ code: 0, stdout: "complete" });
+    expect(receivedTimeout).toBe(600_000);
+    await session.close();
+  });
+
   it("rejects Cloudflare cancellation without waiting for cleanup", async () => {
     let finishCleanup!: () => void;
     const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });

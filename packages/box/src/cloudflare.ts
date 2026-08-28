@@ -153,13 +153,16 @@ function createCloudflareSession(
     abortSignal?: AbortSignal;
     command: string;
     env?: Record<string, string>;
+    timeout?: number;
     workingDirectory?: string;
   }) => {
+    const timeout = options.timeout ?? cloudflareExecTimeout;
     const result = await abortable(
       request("exec", async () => await stub.exec(options.command, {
         cwd: options.workingDirectory ?? "/workspace",
         env: { ...baseEnv, ...options.env },
-      }), cloudflareExecTimeout),
+        timeout,
+      }), timeout),
       options.abortSignal,
       destroy,
     );
