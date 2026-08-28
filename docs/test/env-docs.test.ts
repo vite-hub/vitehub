@@ -6,6 +6,7 @@ import {
   forEachChild,
   isArrowFunction,
   isAsExpression,
+  isAwaitExpression,
   isBlock,
   isCallExpression,
   isConditionalExpression,
@@ -359,23 +360,26 @@ function sectionObjects(sourceFile: Node) {
 
   function deepEffectiveProperties(
     expression: Expression,
-    prefix = "",
+    prefix: readonly (string | Node)[] = [],
     seen = new Set<ObjectLiteralExpression>(),
   ): EffectiveProperties[] {
     return effectiveProperties(expression, seen).flatMap((properties) => {
       let alternatives: EffectiveProperties[] = [new Map()];
       for (const [name, property] of properties) {
         const value = propertyValue(property);
-        const nested = value
-          ? deepEffectiveProperties(value, `${prefix}${String(name)}.`, seen)
-          : [];
+        const nested = value ? deepEffectiveProperties(value, [...prefix, name], seen) : [];
         if (nested.length > 0) {
           alternatives = alternatives.flatMap((effective) =>
             nested.map((nestedProperties) => new Map([...effective, ...nestedProperties])),
           );
         } else {
           for (const effective of alternatives) {
-            effective.set(`${prefix}${String(name)}`, property);
+            effective.set(
+              [...prefix, name].every((segment) => typeof segment === "string")
+                ? JSON.stringify([...prefix, name])
+                : property,
+              property,
+            );
           }
         }
       }
@@ -395,7 +399,23 @@ function sectionObjects(sourceFile: Node) {
     later: EffectiveProperties,
   ): EffectiveProperties {
     const merged = new Map(earlier);
-    for (const [name, property] of later) merged.set(name, property);
+    for (const [name, property] of later) {
+      if (typeof name === "string") {
+        const laterPath = JSON.parse(name) as string[];
+        for (const earlierName of merged.keys()) {
+          if (typeof earlierName !== "string") continue;
+          const earlierPath = JSON.parse(earlierName) as string[];
+          const sharedLength = Math.min(earlierPath.length, laterPath.length);
+          const sameBranch = earlierPath
+            .slice(0, sharedLength)
+            .every((segment, index) => segment === laterPath[index]);
+          if (sameBranch && earlierPath.length !== laterPath.length) {
+            merged.delete(earlierName);
+          }
+        }
+      }
+      merged.set(name, property);
+    }
     return merged;
   }
 
@@ -405,7 +425,8 @@ function sectionObjects(sourceFile: Node) {
       isAsExpression(expression) ||
       isSatisfiesExpression(expression) ||
       isTypeAssertionExpression(expression) ||
-      isNonNullExpression(expression)
+      isNonNullExpression(expression) ||
+      isAwaitExpression(expression)
     ) {
       return configSectionAlternatives(expression.expression);
     }
@@ -1090,11 +1111,30 @@ defineConfig(mergeConfig(
   { env: { define: { group: { replaced: env({ mode: "runtime" }) } } } },
   { env: { define: { group: { replaced: env({ mode: "build" }) } } } },
 ))
+defineConfig(mergeConfig(
+  { env: { define: { group: { removed: env({ mode: "runtime" }) } } } },
+  { env: { define: { group: "disabled" } } },
+))
 \`\`\`
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["define", "define"]);
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([false, true]);
+  });
+
+  it("keeps dotted and nested Define Env paths distinct", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig } from "vite"
+defineConfig({ env: { define: {
+  "group.value": env({ mode: "runtime" }),
+  group: { value: "ok" },
+} } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("applies Vite config combinator overrides through callbacks and bindings", () => {
@@ -1185,6 +1225,20 @@ defineConfig(Promise.resolve({ env: { define: { group } } }))
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("follows awaited configuration values", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig } from "vite"
+defineConfig(async () => await Promise.resolve({
+  env: { public: { appName: env({ mode: "runtime" }) } },
+}))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
