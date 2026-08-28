@@ -36,7 +36,7 @@ function memoryKV(stores: Record<string, Map<string, unknown>>): { storage: KVSt
     return {
       clear: async () => { writes("clear"); return success(undefined) },
       del: async () => { writes("del"); return success(undefined) },
-      get: async key => success(values.get(key) ?? null),
+      get: async <T>(key: string) => success((values.get(key) ?? null) as T | null),
       has: async key => success(values.has(key)),
       keys: async base => success([...values.keys()].filter(key => key.startsWith(base ?? ""))),
       set: async () => { writes("set"); return success(undefined) },
@@ -73,7 +73,7 @@ describe("Console KV inspection", () => {
   it("lists keys in stable order and exposes configured stores", async () => {
     const { storage, writes } = memoryKV({
       cache: new Map([["session:2", "second"]]),
-      default: new Map([["user:2", true], ["user:1", false], ["other", 1]]),
+      default: new Map<string, unknown>([["user:2", true], ["user:1", false], ["other", 1]]),
     })
     installConsoleKV("/project", storage, ["cache", "default", "cache"])
 
