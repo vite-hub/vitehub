@@ -86,11 +86,13 @@ describe("Workspace runtime preparation", () => {
         return value instanceof Function ? value.bind(target) : value
       },
     })
-    const preparation = createWorkspacePreparation({
-      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }], store),
-    })
+    const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
+    const name = registerPreparationWorkspace(getItems, store)
+    const preparation = createWorkspacePreparation({ workspace: name })
 
     await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await expect(useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Ready")
+    expect(getItems).toHaveBeenCalledOnce()
     await preparation.stop()
   })
 
@@ -573,6 +575,8 @@ describe("Workspace runtime preparation", () => {
     const stopping = preparation.stop()
     const restarted = preparation.start()
     await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    await expect(Promise.race([restarted.then(() => "restarted"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(publications).toBe(1)
     releasePublish()
     await stopping
     await expect(first).resolves.toMatchObject({ status: "stopped" })

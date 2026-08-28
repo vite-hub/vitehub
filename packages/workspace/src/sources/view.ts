@@ -117,6 +117,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
   if (!materializationByDefinition.has(definition)) materializationByDefinition.set(definition, materializationState)
   const { completedSources, generationBySource, materializedSources, pendingBySource } = materializationState
+  const persistsSourceSnapshots = Boolean(store.getMeta && store.setMeta)
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)
@@ -200,7 +201,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     if (source.materialize === "startup" && completedSources.has(sourceKey)) {
-      if (await hasCurrentSourceSnapshot(store, source)) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
       completedSources.delete(sourceKey)
     }
     if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source)) {
@@ -307,7 +308,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (materializedSources.has(sourceKey)) return
     if (completedSources.has(sourceKey)) {
       const source = sources.find(item => item.key === sourceKey)
-      if (source && await hasCurrentSourceSnapshot(store, source)) return
+      if (source && (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source))) return
       completedSources.delete(sourceKey)
     }
     const pending = pendingBySource.get(sourceKey)
