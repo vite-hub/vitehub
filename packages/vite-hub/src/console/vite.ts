@@ -259,7 +259,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         fallthrough: false,
       })
 
-      consoleConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
+      consoleConfig.nitro = { ...nitro, handlers: nitro.handlers, plugins, publicAssets }
     },
     async configResolved(config) {
       root = config.root

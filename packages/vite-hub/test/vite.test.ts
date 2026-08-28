@@ -216,6 +216,9 @@ describe("vitehub", () => {
       )
       const namedConfig: Record<string, unknown> = { root }
       await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
+      expect(namedConfig.nitro).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
       namedConfig.kv = { stores: { cache: { driver: "memory" }, sessions: { driver: "memory" } } }
       await callHook(named.configResolved, [namedConfig])
 
