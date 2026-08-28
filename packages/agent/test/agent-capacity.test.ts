@@ -1414,6 +1414,80 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("finishes the held lifecycle when only textStream is consumed", async () => {
+    const starts: string[] = []
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
+          const prompt = input.prompt as string
+          starts.push(prompt)
+          if (prompt === "second") return "done"
+          return {
+            stream: (async function* () { yield { text: "done", type: "text-delta" } })(),
+            textStream: (async function* () { yield "done" })(),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    // SAFETY: this Driver returns the textStream object constructed above.
+    const first = await streamAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: AsyncIterable<string> }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const text: string[] = []
+    for await (const chunk of first.textStream) text.push(chunk)
+
+    await expect(second).resolves.toBe("done")
+    expect(text).toEqual(["done"])
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("interrupts a usage-driven pending read before throwing into the event iterator", async () => {
+    const starts: string[] = []
+    const nextStarted = deferred()
+    let resolveNext!: (result: IteratorResult<unknown>) => void
+    let cancelled = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
+          const prompt = input.prompt as string
+          starts.push(prompt)
+          if (prompt === "second") return "done"
+          const stream: AsyncIterableIterator<unknown> = {
+            [Symbol.asyncIterator]: () => stream,
+            next() {
+              nextStarted.resolve()
+              return new Promise(resolve => { resolveNext = resolve })
+            },
+            async return() {
+              cancelled = true
+              resolveNext({ done: true, value: undefined })
+              return { done: true, value: undefined }
+            },
+          }
+          return { stream, usage: Promise.resolve({ totalTokens: 0 }) }
+        },
+      },
+      runtime: false,
+    })
+
+    // SAFETY: events output implements the documented async iterator and usage contracts.
+    const first = await streamAgentInline(agent, runtime(), { prompt: "first" }) as AsyncIterableIterator<unknown> & { usage: PromiseLike<unknown> }
+    void Promise.resolve(first.usage).catch(() => undefined)
+    await nextStarted.promise
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const failure = new Error("stop")
+
+    await expect(first.throw!(failure)).rejects.toBe(failure)
+    await expect(second).resolves.toBe("done")
+    expect(cancelled).toBe(true)
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("awaits preserved stream cancellation before releasing capacity", async () => {
     const starts: string[] = []
     const controller = new AbortController()
@@ -1953,6 +2027,60 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first"])
 
     cancelGate.resolve()
+    await expect(second).resolves.toBe("done")
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("awaits events-backed UI-message shutdown after consumer cancellation", async () => {
+    const starts: string[] = []
+    const cancelGate = deferred()
+    const pendingReadStarted = deferred()
+    let resolvePendingRead!: (result: IteratorResult<unknown>) => void
+    let cancelled = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          // SAFETY: this test invokes the Driver only with string prompts.
+          const prompt = input.prompt as string
+          starts.push(prompt)
+          if (prompt === "second") return "done"
+          let emitted = false
+          const stream: AsyncIterableIterator<unknown> = {
+            [Symbol.asyncIterator]: () => stream,
+            next() {
+              if (!emitted) {
+                emitted = true
+                return Promise.resolve({ done: false, value: { text: "hello", type: "text-delta" } })
+              }
+              pendingReadStarted.resolve()
+              return new Promise(resolve => { resolvePendingRead = resolve })
+            },
+            async return() {
+              cancelled = true
+              await cancelGate.promise
+              resolvePendingRead({ done: true, value: undefined })
+              return { done: true, value: undefined }
+            },
+          }
+          return stream
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "ui-message-stream" })
+    // SAFETY: UI-message output is a ReadableStream under the selected output contract.
+    const reader = (first as ReadableStream<unknown>).getReader()
+    await reader.read()
+    await pendingReadStarted.promise
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const cancellation = reader.cancel()
+    await vi.waitFor(() => expect(cancelled).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    cancelGate.resolve()
+    await cancellation
     await expect(second).resolves.toBe("done")
     expect(starts).toEqual(["first", "second"])
   })

@@ -73,6 +73,7 @@ export function createAgentUIMessageStream(options: {
   return new ReadableStream<unknown>({
     cancel(reason) {
       cancellation.abort(reason ?? new DOMException("[vitehub] Agent UI-message stream cancelled.", "AbortError"))
+      return execution
     },
     pull(controller) {
       if (execution) return execution

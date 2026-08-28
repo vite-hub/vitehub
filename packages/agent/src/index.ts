@@ -3616,7 +3616,34 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
       [Symbol.toStringTag]: "Promise",
     }
   }
-  const driven = {
+  const drivenTextStream = () => {
+    const textStream = Reflect.get(result, "textStream")
+    if (!isAsyncIterable(textStream)) return textStream
+    return (async function* () {
+      const textIterator = textStream[Symbol.asyncIterator]()
+      let completed = false
+      try {
+        for (;;) {
+          const item = await textIterator.next()
+          if (item.done) {
+            completed = true
+            break
+          }
+          yield item.value
+        }
+      }
+      finally {
+        if (!completed) {
+          await Promise.allSettled([
+            Promise.resolve(textIterator.return?.()),
+            Promise.resolve(driven.return?.()),
+          ])
+        }
+        else await drive()
+      }
+    })()
+  }
+  const driven: AsyncIterableIterator<StreamEvent> = {
     [Symbol.asyncIterator]() {
       return driven
     },
@@ -3635,6 +3662,7 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
       return { done: true as const, value: undefined }
     },
     async throw(error?: unknown) {
+      if (hasRuntimeType(directCancel, "function")) await directCancel(error)
       if (iterator.throw) return await iterator.throw(error)
       await iterator.return?.()
       throw error
@@ -3645,7 +3673,9 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
     enumerable: true,
     get: key === "usage"
       ? lazyUsage
-      : () => Reflect.get(result, key),
+      : key === "textStream"
+        ? drivenTextStream
+        : () => Reflect.get(result, key),
   }]))
   Object.defineProperties(driven, descriptors)
   return driven
