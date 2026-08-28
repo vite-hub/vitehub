@@ -677,6 +677,55 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("normalizes accessor-backed provider usage aliases on raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class Usage {
+      get promptTokens() {
+        return 2
+      }
+
+      get completion_tokens() {
+        return 3
+      }
+    }
+    const raw = Object.assign((async function* () {})(), { usage: new Usage() })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } },
+    })
+  })
+
+  it("preserves provider metadata with top-level raw usage", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = Object.assign((async function* () {})(), {
+      modelId: "provider/model",
+      provider: "gateway",
+      response: { id: "response-1" },
+      usage: { totalTokens: 3 },
+    })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        usageRecord: {
+          model: "provider/model",
+          response: { id: "response-1" },
+          transport: "gateway",
+          usage: { totalTokens: 3 },
+        },
+      },
+    })
+  })
+
   it("preserves accessor-backed token details from top-level raw usage", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

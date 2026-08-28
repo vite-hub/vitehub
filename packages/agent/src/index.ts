@@ -29,6 +29,8 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
+import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
+import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
@@ -665,6 +667,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
     workflowName: string
   }
   requestUrl?: string
+  parsedMessageMeta?: ParsedAgentMessageMetaState
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   trace?: AgentRuntimeContext["trace"]
@@ -920,12 +923,17 @@ async function runAgentAsWorkflow<
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
-  const workflowInput = await portableAgentWorkflowInput(input)
+  const parsedInput = hasAgentDefinition(agent)
+    ? await withParsedAgentMessageMeta(agent, input, context.run)
+    : input
+  const workflowInput = await portableAgentWorkflowInput(parsedInput)
   const channelDeliveryBinding = input.context?.[agentChannelDeliveryWorkflowContextKey]
   const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
   const inheritedRun = options.fresh && context.run && !durableChannelDelivery
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
+  // SAFETY: withParsedAgentMessageMeta preserves this invocation's call-options type.
+  const parsedMessageMeta = parsedAgentMessageMetaState(agent, parsedInput as AgentRunInput<CALL_OPTIONS>, context.run)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
@@ -933,6 +941,7 @@ async function runAgentAsWorkflow<
     input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
+    ...(parsedMessageMeta !== undefined ? { parsedMessageMeta } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
@@ -1056,13 +1065,6 @@ function createAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const { runtimeConfig: _runtimeConfig, ...callbackContext } = createResolvedRuntimeContext(context)
   return callbackContext
-}
-
-type AgentTriggerContextValue = {
-  channelId?: string
-  id?: string
-  name?: string
-  source?: "capability" | "channel"
 }
 
 function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2974,6 +2976,8 @@ async function createAgentInvocationContext<
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  await parseAgentMessageMeta(definition, invocationContext, context.run)
+  input = { ...input, context: { ...input.context, ...invocationContext.toJSON() } }
   const telemetryInvocationId = createTraceId()
   let telemetryScheduler: AgentTelemetryScheduler | undefined
   const telemetryChanged = (entry: TraceEventLogEntry) => telemetryScheduler?.changed(entry)
@@ -3767,7 +3771,29 @@ function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
     // Ignore provider then getters that cannot be read during usage normalization.
   }
   const usage: Record<string, unknown> = { ...definedObjectProperties(value) }
-  for (const key of ["details", "inputTokenDetails", "inputTokens", "outputTokenDetails", "outputTokens", "raw", "totalTokens"] as const) {
+  for (const key of [
+    "completion_token_details",
+    "completion_tokens",
+    "completionTokenDetails",
+    "completionTokens",
+    "details",
+    "input_token_details",
+    "input_tokens",
+    "inputTokenDetails",
+    "inputTokens",
+    "output_token_details",
+    "output_tokens",
+    "outputTokenDetails",
+    "outputTokens",
+    "prompt_token_details",
+    "prompt_tokens",
+    "promptTokenDetails",
+    "promptTokens",
+    "raw",
+    "tokens",
+    "total_tokens",
+    "totalTokens",
+  ] as const) {
     if (usage[key] !== undefined) continue
     try {
       if (!Reflect.has(value, key)) continue
@@ -3892,7 +3918,22 @@ async function resultWithStreamedTextAndUsage(
       }
     }
     const normalizedUsage = normalizedAgentUsage(resolvedUsage)
-    const canonicalUsage = normalizedUsage ? (await resolveAgentUsageRecord({ usage: normalizedUsage }))?.usage : undefined
+    let canonicalUsageRecord: AgentUsageRecord | undefined
+    if (normalizedUsage) {
+      try {
+        const metadataSource = Object.create(result)
+        Object.defineProperty(metadataSource, "usage", {
+          configurable: true,
+          enumerable: true,
+          value: normalizedUsage,
+        })
+        canonicalUsageRecord = await resolveAgentUsageRecord(metadataSource)
+      }
+      catch {
+        canonicalUsageRecord = await resolveAgentUsageRecord({ usage: normalizedUsage })
+      }
+    }
+    const canonicalUsage = canonicalUsageRecord?.usage
     const canonicalResolvedUsage = canonicalUsage
       ? {
           ...canonicalUsage,
@@ -3932,7 +3973,8 @@ async function resultWithStreamedTextAndUsage(
             : {}),
         }
       : undefined
-    const usageRecordValues = [fallbackUsageRecordProperties, streamedUsageRecordProperties, sourceUsageRecordProperties, normalizedUsageRecordProperties]
+    const canonicalUsageRecordProperties = mergedUsageRecords(canonicalUsageRecord)
+    const usageRecordValues = [canonicalUsageRecordProperties, fallbackUsageRecordProperties, streamedUsageRecordProperties, sourceUsageRecordProperties, normalizedUsageRecordProperties]
     const mergedUsageRecord = mergedUsage || usageRecordValues.some(value => Object.keys(value).length > 0) || hasSourceUsageRecord
       ? {
           ...mergedUsageRecords(...usageRecordValues),
@@ -5574,9 +5616,11 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const driverUsageRecord = isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
-      ? undefined
-      : await resolveFinishUsageRecord(invocation, result)
+    const driverUsageRecord = isAsyncIterable(result)
+      ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "", undefined, undefined, false)).usageRecord
+      : hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+        ? undefined
+        : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
       const projection = hasRuntimeType(definition?.uiMessageStream, "function")
