@@ -13,6 +13,7 @@ import {
   isConditionalExpression,
   isComputedPropertyName,
   isExportAssignment,
+  isExportDeclaration,
   isFunctionDeclaration,
   isFunctionExpression,
   isGetAccessorDeclaration,
@@ -20,6 +21,7 @@ import {
   isIfStatement,
   isImportDeclaration,
   isMethodDeclaration,
+  isNamedExports,
   isNamedImports,
   isNamespaceImport,
   isNonNullExpression,
@@ -577,7 +579,7 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
     ) {
       if (!expression.body) return [];
       const body = expression.body;
-      const parameterScope = isBlock(body) ? body : expression;
+      const parameterScope = isBlock(body) ? body : bindingScope(expression);
       const scopeBindings =
         bindings.get(parameterScope) ?? new Map<string, Expression | FunctionDeclaration>();
       const previousBindings = new Map<string, Expression | FunctionDeclaration | undefined>();
@@ -674,6 +676,15 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
       if (node.arguments[0]) collectConfig(node.arguments[0]);
     } else if (isExportAssignment(node)) {
       collectConfig(node.expression);
+    } else if (
+      isExportDeclaration(node) &&
+      !node.moduleSpecifier &&
+      node.exportClause &&
+      isNamedExports(node.exportClause)
+    ) {
+      for (const element of node.exportClause.elements) {
+        if (element.name.text === "default") collectConfig(element.propertyName ?? element.name);
+      }
     } else if (
       isFunctionDeclaration(node) &&
       node.modifiers?.some(({ kind }) => kind === SyntaxKind.ExportKeyword) &&
@@ -1321,12 +1332,36 @@ export default function config() {
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
+  it("follows named default exports", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const config = { env: { public: { appName: env({ mode: "runtime" }) } } }
+export { config as default }
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
   it("binds invoked configuration factory parameters", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
 function config(publicEnv) {
   return { env: { public: publicEnv } }
 }
+defineConfig(config({ appName: env({ mode: "runtime" }) }))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("binds expression-bodied configuration factory parameters", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const config = publicEnv => ({ env: { public: publicEnv } })
 defineConfig(config({ appName: env({ mode: "runtime" }) }))
 \`\`\`
     `);
