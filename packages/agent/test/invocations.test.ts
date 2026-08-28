@@ -134,6 +134,63 @@ describe("Agent Invocations", () => {
     expect(record.observations.slice(-3).every(observation => observation.attributes?.["vitehub.trace.truncated"] === true)).toBe(true)
   })
 
+  it("reserves lifecycle evidence before recent delivery outcomes", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const lifecycle = [
+      {
+        attributes: { "error.message": "run failed", "vitehub.observation.id": "journal:run-error" },
+        name: "run.error",
+        sequence: 0,
+        timestamp: createdAt,
+        type: "error" as const,
+      },
+      {
+        attributes: { "vitehub.observation.id": "journal:invocation-finish" },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run" as const,
+      },
+    ]
+    const deliveries = Array.from({ length: 254 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:delivery:${index}` },
+      name: "agent.channel.delivery.effect",
+      sequence: index + 2,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const latestDelivery = {
+      attributes: { "vitehub.observation.id": "journal:delivery:254" },
+      name: "agent.channel.delivery.effect",
+      sequence: 256,
+      timestamp: createdAt,
+      type: "run" as const,
+    }
+
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "delivery-overflow-lifecycle",
+      observations: [...lifecycle, ...deliveries],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: latestDelivery,
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.slice(0, 2).map(observation => observation.name)).toEqual([
+      "run.error",
+      "agent.invocation.finish",
+    ])
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .not.toContain("journal:delivery:0")
+    expect(record.observations.at(-1)?.attributes?.["vitehub.observation.id"]).toBe("journal:delivery:254")
+    expect(record.observationsTruncated).toBe(true)
+  })
+
   it("keeps unidentified observations that share a locally assigned sequence", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const record = applyAgentInvocationStoreUpdate({
