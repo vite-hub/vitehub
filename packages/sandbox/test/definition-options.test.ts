@@ -111,11 +111,14 @@ describe("extractSandboxDefinitionMetadata", () => {
     await expect(extractSandboxDefinitionMetadata(file)).rejects.toThrow("project must be a boolean")
   })
 
-  it("ignores local bindings because build options must be inspectable", async () => {
+  it("reads project policy through an exported immutable Definition binding", async () => {
     const file = await writeDefinition([
-      `const definition = defineSandbox({ run: async () => null, timeout: 1000 })`,
+      `const definition = defineSandbox({ project: false, run: async () => null, timeout: 1000 })`,
       `export default definition`,
     ].join("\n"))
-    await expect(extractSandboxDefinitionMetadata(file)).resolves.toBeUndefined()
+    await expect(extractSandboxDefinitionMetadata(file)).resolves.toEqual({
+      options: { timeout: 1000 },
+      project: false,
+    })
   })
 })

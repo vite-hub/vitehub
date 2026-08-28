@@ -410,10 +410,11 @@ describe("hubSandbox", () => {
       `})`,
     ].join("\n"))
     await writeFile(join(rootDir, "src/tools/forced-project.sandbox.ts"), [
-      `export default defineSandbox({`,
+      `const definition = defineSandbox({`,
       `  project: true,`,
       `  run: async () => "project",`,
       `})`,
+      `export default definition`,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider })
@@ -1951,5 +1952,61 @@ describe("hubSandbox", () => {
 
     const generated = await readFile(artifact, "utf8")
     expect(generated).toContain(Buffer.from("new prompt").toString("base64"))
+  })
+
+  it("refreshes a package-entry Sandbox when a workspace dependency asset is added", async () => {
+    const rootDir = await createViteRoot()
+    const sandboxRoot = join(rootDir, "server/sandboxes/example")
+    const dependencyRoot = join(rootDir, "packages/prompts")
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await mkdir(sandboxRoot, { recursive: true })
+    await mkdir(dependencyRoot, { recursive: true })
+    await writeFile(join(rootDir, "pnpm-workspace.yaml"), [
+      `packages:`,
+      `  - "server/sandboxes/*"`,
+      `  - "packages/*"`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(sandboxRoot, "package.json"), JSON.stringify({
+      dependencies: { "@fixture/prompts": "workspace:*" },
+      name: "@fixture/example-sandbox",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(sandboxRoot, "index.ts"), [
+      `import "@fixture/prompts"`,
+      `export default async function run() { return { ok: true } }`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(dependencyRoot, "package.json"), JSON.stringify({
+      exports: "./index.js",
+      name: "@fixture/prompts",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(dependencyRoot, "index.js"), `export const ready = true\n`)
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const artifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs")
+    const projectAsset = join(dependencyRoot, "prompts/new.md")
+    await mkdir(dirname(projectAsset), { recursive: true })
+    await writeFile(projectAsset, "new workspace prompt")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: projectAsset,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const generated = await readFile(artifact, "utf8")
+    expect(generated).toContain(Buffer.from("new workspace prompt").toString("base64"))
   })
 })

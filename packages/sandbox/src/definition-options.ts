@@ -86,10 +86,25 @@ function readSandboxDefinitionFactories(sourceFile: ts.SourceFile) {
 function readDefinitionObject(sourceFile: ts.SourceFile): ts.ObjectLiteralExpression | undefined {
   const ts = getTypeScript()
   const factories = readSandboxDefinitionFactories(sourceFile)
+  const immutableBindings = new Map<string, ts.Expression>()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)
+      || !(statement.declarationList.flags & ts.NodeFlags.Const)) {
+      continue
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer)
+        immutableBindings.set(declaration.name.text, declaration.initializer)
+    }
+  }
   for (const statement of sourceFile.statements) {
     if (!ts.isExportAssignment(statement))
       continue
-    const expression = statement.expression
+    const expression = ts.isIdentifier(statement.expression)
+      ? immutableBindings.get(statement.expression.text)
+      : statement.expression
+    if (!expression)
+      continue
     if (!ts.isCallExpression(expression)) {
       continue
     }
