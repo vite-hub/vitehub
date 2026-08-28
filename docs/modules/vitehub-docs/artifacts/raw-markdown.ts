@@ -305,6 +305,20 @@ function rewriteReferenceDefinitions(source: string) {
   return lines.join("\n");
 }
 
+function isCompleteReferenceDefinition(line: string) {
+  const content = line.slice(referenceContainer(line).length);
+  const definition = content.match(/^[ \t]{0,3}\[((?:\\.|[^\\\]])+)\]:[ \t]*(.*)$/);
+  if (!definition || !validReferenceLabel(definition[1]!)) return false;
+  const parsed = parseReferenceDestination(definition[2]!);
+  return Boolean(parsed && validReferenceSuffix(parsed.suffix));
+}
+
+function isOrdinaryParagraphLine(line: string) {
+  const content = line.slice(referenceContainer(line).length).trimStart();
+  return Boolean(content)
+    && !/^(?:`|~|:{2,}|\[((?:\\.|[^\\\]])+)\]:)/.test(content);
+}
+
 function rawHtmlBlockEnd(line: string) {
   const start = line.match(/^[ \t]{0,3}<(script|pre|style|textarea)(?:[ \t>]|$)/i);
   if (start) return new RegExp(`</${start[1]}>`, "i");
@@ -343,7 +357,7 @@ function startsParagraph(line: string, paragraphOpen: boolean) {
   const definition = content.match(/^[ \t]{0,3}\[((?:\\.|[^\\\]])+)\]:[ \t]*(.*)$/);
   if (definition && validReferenceLabel(definition[1]!)) {
     const parsed = parseReferenceDestination(definition[2]!);
-    if (parsed && validReferenceSuffix(parsed.suffix)) return false;
+    if (parsed && validReferenceSuffix(parsed.suffix)) return paragraphOpen;
   }
   if (/^[ \t]*:{2,}/.test(content)) return false;
   return Boolean(content.trim());
@@ -355,10 +369,7 @@ function interruptsInlineBlock(line: string) {
   if (/^[ \t]{0,3}#{1,6}(?:[ \t]+|$)/.test(content)) return true;
   if (/^[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.test(content)) return true;
   if (/^[ \t]*:{2,}/.test(content)) return true;
-  const definition = content.match(/^[ \t]{0,3}\[((?:\\.|[^\\\]])+)\]:[ \t]*(.*)$/);
-  if (!definition || !validReferenceLabel(definition[1]!)) return false;
-  const parsed = parseReferenceDestination(definition[2]!);
-  return Boolean(parsed && validReferenceSuffix(parsed.suffix));
+  return false;
 }
 
 function isEscaped(source: string, index: number) {
@@ -426,16 +437,41 @@ type MarkdownListState = {
   quotePrefix: string;
 };
 
+function isMarkdownThematicBreak(content: string) {
+  const indentation = content.match(/^[ \t]*/)?.[0] || "";
+  if (indentationColumns(indentation) > 3) return false;
+  return /^(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.test(content.slice(indentation.length));
+}
+
+function markdownListItemPrefix(content: string) {
+  const indentation = content.match(/^[ \t]*/)?.[0] || "";
+  if (indentationColumns(indentation) > 3) return null;
+  const marker = content.slice(indentation.length).match(/^(?:[-+*]|\d{1,9}[.)])/)?.[0];
+  if (!marker) return null;
+  const markerEnd = indentation.length + marker.length;
+  const padding = content.slice(markerEnd).match(/^[ \t]+/)?.[0];
+  if (!padding) return null;
+  const beforePadding = `${indentation}${marker.replace(/./g, " ")}`;
+  const paddingColumns = indentationColumns(`${beforePadding}${padding}`) - indentationColumns(beforePadding);
+  return paddingColumns >= 1 && paddingColumns <= 4
+    ? content.slice(0, markerEnd + padding.length)
+    : null;
+}
+
 function updateMarkdownListState(line: string, state: MarkdownListState) {
   const quotePrefix = line.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] || "";
   const content = line.slice(quotePrefix.length);
+  if (isMarkdownThematicBreak(content)) {
+    state.indent = null;
+    return;
+  }
   let listPrefix = "";
   let remainder = content;
   while (true) {
-    const listItem = remainder.match(/^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+/);
+    const listItem = markdownListItemPrefix(remainder);
     if (!listItem) break;
-    listPrefix += listItem[0];
-    remainder = remainder.slice(listItem[0].length);
+    listPrefix += listItem;
+    remainder = remainder.slice(listItem.length);
   }
   if (listPrefix) {
     state.indent = indentationColumns(listPrefix.replace(/[^ \t]/g, " "));
@@ -466,6 +502,7 @@ function rewriteLinks(source: string) {
   let paragraphOpen = false;
   let paragraphListIndent: number | null = null;
   let paragraphQuoteDepth = 0;
+  let previousLineWasOrdinaryParagraph = false;
   const protectedLines: string[] = [];
   const rewriteOutside = () => {
     const codeSpans = protectCodeSpans(outsideFence);
@@ -522,6 +559,7 @@ function rewriteLinks(source: string) {
       }
       paragraphOpen = false;
       paragraphListIndent = null;
+      previousLineWasOrdinaryParagraph = false;
       continue;
     }
 
@@ -530,6 +568,7 @@ function rewriteLinks(source: string) {
       outsideFence = "";
       paragraphOpen = false;
       paragraphListIndent = null;
+      previousLineWasOrdinaryParagraph = false;
       fence = {
         length: parsedFence.run.length,
         listIndent: parsedFence.listIndent,
@@ -558,6 +597,7 @@ function rewriteLinks(source: string) {
       outsideFence = "";
       paragraphOpen = false;
       paragraphListIndent = null;
+      previousLineWasOrdinaryParagraph = false;
       continue;
     }
 
@@ -568,6 +608,16 @@ function rewriteLinks(source: string) {
     if ((!paragraphOpen || quoteDepth !== paragraphQuoteDepth) && contentIndent >= codeIndent) {
       const index = protectedLines.push(line) - 1;
       outsideFence += `\0INDENT${index}\0${lineWithEnding.endsWith("\n") ? "\n" : ""}`;
+      previousLineWasOrdinaryParagraph = false;
+      continue;
+    }
+
+    if (paragraphOpen && previousLineWasOrdinaryParagraph && isCompleteReferenceDefinition(line)) {
+      const index = protectedLines.push(line) - 1;
+      outsideFence += `\0INDENT${index}\0${lineWithEnding.endsWith("\n") ? "\n" : ""}`;
+      paragraphOpen = false;
+      paragraphListIndent = null;
+      previousLineWasOrdinaryParagraph = false;
       continue;
     }
 
@@ -587,6 +637,7 @@ function rewriteLinks(source: string) {
     }
     paragraphOpen = nextParagraphOpen;
     paragraphQuoteDepth = quoteDepth;
+    previousLineWasOrdinaryParagraph = nextParagraphOpen && isOrdinaryParagraphLine(line);
   }
 
   output.push(rewriteOutside());

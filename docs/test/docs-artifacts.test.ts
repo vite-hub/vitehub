@@ -515,6 +515,46 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("keeps directives in non-list indented code literal", () => {
+    expect(toRawMarkdown([
+      "- - -",
+      "    ::warning",
+      "    Thematic-break-adjacent code.",
+      "    ::",
+      "",
+      "    - item",
+      "    ::tip",
+      "    Root indented code.",
+      "    ::",
+    ].join("\n"))).toBe([
+      "- - -",
+      "    ::warning",
+      "    Thematic-break-adjacent code.",
+      "    ::",
+      "",
+      "    - item",
+      "    ::tip",
+      "    Root indented code.",
+      "    ::",
+      "",
+    ].join("\n"));
+  });
+
+  it("keeps definition-looking lines inside open paragraphs literal", () => {
+    expect(toRawMarkdown([
+      "Paragraph",
+      "[literal]: /docs/literal",
+      "",
+      "[definition]: /docs/definition",
+    ].join("\n"))).toBe([
+      "Paragraph",
+      "[literal]: /docs/literal",
+      "",
+      "[definition]: https://vitehub.dev/docs/definition",
+      "",
+    ].join("\n"));
+  });
+
   it("preserves fenced and raw HTML blocks in quoted list items", () => {
     expect(toRawMarkdown([
       "> - ```md",
