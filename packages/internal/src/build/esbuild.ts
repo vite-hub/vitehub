@@ -113,7 +113,7 @@ async function resolveViteRawSpecifier(path: string, rootDir: string | undefined
     return publicPath
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
     return resolve(rootDir, rootRelativePath)
   }
 }
@@ -137,16 +137,18 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
         if (!markdownTemplate && !raw) return
         const path = markdownTemplate?.path ?? args.path.slice(0, args.path.indexOf("?"))
         const specifier = await resolveViteRawSpecifier(path, rootDir)
+        let pluginData = args.pluginData
+        if (markdownTemplate) {
+          pluginData = {
+            ...args.pluginData,
+            [skipMarkdownTemplateResolve]: true,
+          }
+        }
         const resolved = await build.resolve(specifier, {
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
-          pluginData: markdownTemplate
-            ? {
-                ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
-                [skipMarkdownTemplateResolve]: true,
-              }
-            : args.pluginData,
+          pluginData,
           resolveDir: args.resolveDir,
           with: args.with,
         })
@@ -196,7 +198,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
                 importer,
                 kind: "import-statement",
                 pluginData: {
-                  ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
+                  ...args.pluginData,
                   [skipMarkdownTemplateResolve]: true,
                 },
                 resolveDir: dirname(importer),
