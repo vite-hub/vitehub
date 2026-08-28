@@ -126,9 +126,11 @@ function normalizeMetadataValue(value: unknown): unknown {
     .map(([key, entry]) => [key, normalizeMetadataValue(entry)]))
 }
 
-function observableFileMetadata(metadata: Record<string, unknown> | undefined) {
-  return normalizeMetadataValue(Object.fromEntries(Object.entries(metadata || {})
-    .filter(([key, value]) => key !== "materializedAt" && key !== "validatedAt" && value !== undefined)))
+function observableFileMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(metadata || {})
+    .filter(([key, value]) => key !== "materializedAt" && key !== "validatedAt" && value !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => [key, normalizeMetadataValue(value)]))
 }
 
 function fileAttributesEqual(
@@ -137,14 +139,12 @@ function fileAttributesEqual(
   mediaType: string | undefined,
   metadata: Record<string, unknown>,
 ) {
-  const previousMediaType = previousSnapshot?.materializedAttributes
-    ? previousSnapshot.materializedMediaType
-    : previous.mediaType
-  const previousMetadata = previousSnapshot?.materializedAttributes
-    ? previousSnapshot.materializedMetadata
-    : previous.metadata
-  return previousMediaType === undefined || previousMediaType === mediaType
-    ? previousMetadata === undefined || isDeepStrictEqual(observableFileMetadata(previousMetadata), observableFileMetadata(metadata))
+  if (previousSnapshot?.materializedAttributes) {
+    return previousSnapshot.materializedMediaType === mediaType
+      && isDeepStrictEqual(observableFileMetadata(previousSnapshot.materializedMetadata), observableFileMetadata(metadata))
+  }
+  return previous.mediaType === undefined || previous.mediaType === mediaType
+    ? previous.metadata === undefined || isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata))
     : false
 }
 
@@ -560,7 +560,7 @@ export async function materializeWorkspaceSources(
           ...entry.metadata,
           materializedAttributes: true,
           materializedMediaType: item.mediaType,
-          materializedMetadata: observableFileMetadata(fileMetadata) as Record<string, unknown>,
+          materializedMetadata: observableFileMetadata(fileMetadata),
         }
         sourceFiles++
         sourceBytes += written.size || 0

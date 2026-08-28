@@ -61,33 +61,68 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const materializedPathsBySource = new Map<string, Set<string>>()
   let materializationQueue = Promise.resolve()
 
-  async function materializeSources(options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions) {
+  function invalidateMaterializedPath(sourceKey: string, path: string) {
+    const paths = materializedPathsBySource.get(sourceKey)
+    if (!paths) return
+    for (const materializedPath of paths) {
+      if (!path || !materializedPath || path === materializedPath || path.startsWith(`${materializedPath}/`) || materializedPath.startsWith(`${path}/`)) {
+        paths.delete(materializedPath)
+      }
+    }
+    if (!paths.size) materializedPathsBySource.delete(sourceKey)
+  }
+
+  async function materializeSources(
+    options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions,
+    behavior: { reusePreparedContext?: boolean } = {},
+  ) {
     let started = false
+    const selectedSources = sources
+      .filter(source => !options?.sources?.length || options.sources.includes(source.key))
+    const concurrentPreparations = new Map(selectedSources
+      .map(source => [source.key, prepareBySource.get(source.key)] as const)
+      .filter((entry): entry is readonly [string, Promise<void>] => Boolean(entry[1])))
+    const operationContexts = new Map<string, ReturnType<typeof createSourceContext>>()
+    const operationPrepared = new Set<string>()
+    const getOperationContext = (source: (typeof sources)[number]) => {
+      let context = operationContexts.get(source.key)
+      if (!context) {
+        context = behavior.reusePreparedContext && preparedSources.has(source.key)
+          ? getSourceContext(source)
+          : createSourceContext(definition, source, store)
+        operationContexts.set(source.key, context)
+        if (behavior.reusePreparedContext && preparedSources.has(source.key)) operationPrepared.add(source.key)
+      }
+      return context
+    }
+    const promotePreparedContexts = () => {
+      for (const sourceKey of operationPrepared) {
+        const context = operationContexts.get(sourceKey)
+        if (!context) continue
+        sourceContexts.set(sourceKey, context)
+        preparedSources.add(sourceKey)
+      }
+    }
     const pending = materializationQueue.then(async () => {
       started = true
       options?.abortSignal?.throwIfAborted()
-      const preparedForMaterialization = new Set<string>()
-      await Promise.all(sources
-        .filter(source => !options?.sources?.length || options.sources.includes(source.key))
-        .map(async (source) => {
-          const preparation = prepareBySource.get(source.key)
-          if (!preparation) return
-          await preparation.catch(() => undefined)
-          preparedForMaterialization.add(source.key)
-        }))
+      await Promise.all([...concurrentPreparations.values()].map(async preparation => await preparation.catch(() => undefined)))
       options?.abortSignal?.throwIfAborted()
-      return await materializeWorkspaceSources(definition, store, options, {
-        getContext: getSourceContext,
-        isPrepared: source => preparedForMaterialization.has(source.key),
-        onPrepared(source) {
-          preparedSources.add(source.key)
-          preparedForMaterialization.add(source.key)
-        },
-      })
+      try {
+        return await materializeWorkspaceSources(definition, store, options, {
+          getContext: getOperationContext,
+          isPrepared: source => operationPrepared.has(source.key),
+          onPrepared(source) {
+            operationPrepared.add(source.key)
+          },
+        })
+      }
+      finally {
+        promotePreparedContexts()
+      }
     })
     materializationQueue = pending.then(() => undefined, () => undefined)
-    for (const source of sources) {
-      if (options?.sources?.length && !options.sources.includes(source.key)) continue
+    for (const source of selectedSources) {
       const previous = materializationPreparationBySource.get(source.key)
       const barrier = Promise.all([
         previous?.catch(() => undefined),
@@ -100,41 +135,42 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
       })
     }
-    const result = options?.abortSignal
-      ? await new Promise<Awaited<typeof pending>>((resolve, reject) => {
-          const signal = options.abortSignal!
-          const aborted = () => {
-            if (!started) reject(signal.reason)
-          }
-          if (signal.aborted) {
-            aborted()
-            return
-          }
-          signal.addEventListener("abort", aborted, { once: true })
-          pending.then(
-            (value) => {
-              signal.removeEventListener("abort", aborted)
-              resolve(value)
-            },
-            (error) => {
-              signal.removeEventListener("abort", aborted)
-              reject(error)
-            },
-          )
-        })
-      : await pending
     const path = normalizeWorkspacePath(options?.path || "")
+    let result: Awaited<typeof pending>
+    try {
+      result = options?.abortSignal
+        ? await new Promise<Awaited<typeof pending>>((resolve, reject) => {
+            const signal = options.abortSignal!
+            const aborted = () => {
+              if (!started) reject(signal.reason)
+            }
+            if (signal.aborted) {
+              aborted()
+              return
+            }
+            signal.addEventListener("abort", aborted, { once: true })
+            pending.then(
+              (value) => {
+                signal.removeEventListener("abort", aborted)
+                resolve(value)
+              },
+              (error) => {
+                signal.removeEventListener("abort", aborted)
+                reject(error)
+              },
+            )
+          })
+        : await pending
+    }
+    catch (error) {
+      if (started) {
+        for (const source of selectedSources) invalidateMaterializedPath(source.key, path)
+      }
+      throw error
+    }
     for (const source of result.sources) {
       if (source.status !== "ready") {
-        const paths = materializedPathsBySource.get(source.source)
-        if (paths) {
-          for (const materializedPath of paths) {
-            if (!path || !materializedPath || path === materializedPath || path.startsWith(`${materializedPath}/`) || materializedPath.startsWith(`${path}/`)) {
-              paths.delete(materializedPath)
-            }
-          }
-          if (!paths.size) materializedPathsBySource.delete(source.source)
-        }
+        invalidateMaterializedPath(source.source, path)
         continue
       }
       let paths = materializedPathsBySource.get(source.source)
@@ -254,7 +290,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
-      pending = materializeSources({ path, sources: [sourceKey] }).then(() => undefined)
+      pending = materializeSources({ path, sources: [sourceKey] }, { reusePreparedContext: true }).then(() => undefined)
       materializeBySource.set(sourceKey, pending)
       try {
         await pending

@@ -724,6 +724,56 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it("retries a failed concurrent preparation before materializing the Source", async () => {
+    let releasePreparation!: () => void
+    let observePreparation!: () => void
+    const preparationPending = new Promise<void>((resolve) => {
+      releasePreparation = resolve
+    })
+    const preparationObserved = new Promise<void>((resolve) => {
+      observePreparation = resolve
+    })
+    const clients = new WeakMap<object, { keys: string[] }>()
+    let attempts = 0
+    const prepare = vi.fn(async (context: SourceContext) => {
+      attempts++
+      if (attempts === 1) {
+        observePreparation()
+        await preparationPending
+        throw new Error("temporary preparation failure")
+      }
+      clients.set(context, { keys: ["guide.md"] })
+    })
+    const view = createWorkspaceSourceView({
+      name: "concurrent-preparation-retry",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          prepare,
+          async getKeys(context: SourceContext) {
+            return clients.get(context)?.keys || []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Guide\n" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const listing = view.list("docs", { recursive: true })
+    await preparationObserved
+    const materialization = view.materializeSources({ sources: ["docs"] })
+    releasePreparation()
+
+    await expect(listing).rejects.toThrow("temporary preparation failure")
+    await expect(materialization).resolves.toMatchObject({
+      sources: [{ files: 1, status: "ready" }],
+    })
+    await expect(view.readFile("docs/guide.md", { encoding: "utf8" })).resolves.toBe("# Guide\n")
+    expect(prepare).toHaveBeenCalledTimes(2)
+  })
+
   it("prepares a live Source after a cache hit in a fresh view", async () => {
     const store = createMemoryWorkspaceStore()
     const client = {
@@ -827,6 +877,59 @@ describe("lazy sources", () => {
     })
     await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "commit-456" })
     expect(resolveRevision).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps an active Source read on its original revision during refresh", async () => {
+    const revisions = [
+      { id: "commit-123", immutable: true, ref: "main" },
+      { id: "commit-456", immutable: true, ref: "main" },
+    ]
+    const resolveRevision = vi.fn(async () => revisions.shift())
+    let releaseRead!: () => void
+    let observeRead!: () => void
+    const readPending = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    const readObserved = new Promise<void>((resolve) => {
+      observeRead = resolve
+    })
+    let blockRead = false
+    let blocked = false
+    let revisionBeforeAwait: string | undefined
+    let revisionAfterAwait: string | undefined
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      resolveRevision,
+      async getKeys() {
+        return ["guide.md"]
+      },
+      async getItem(key, context) {
+        if (blockRead && !blocked) {
+          blocked = true
+          revisionBeforeAwait = context.revision?.id
+          observeRead()
+          await readPending
+          revisionAfterAwait = context.revision?.id
+        }
+        return { key, path: key, content: context.revision?.id || "missing revision" }
+      },
+    })
+    markLiveWorkspaceSource(source, { "docs/guide.md": "guide.md" })
+    const view = createWorkspaceSourceView({ name: "materialization-revision-isolation", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    blockRead = true
+    const read = view.readFile("docs/guide.md", { encoding: "utf8" })
+    await readObserved
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ revision: { id: "commit-456" }, status: "ready" }],
+    })
+    releaseRead()
+
+    await expect(read).resolves.toBe("commit-123")
+    expect(revisionBeforeAwait).toBe("commit-123")
+    expect(revisionAfterAwait).toBe("commit-123")
   })
 
   it("prepares the persistent non-live Source context after signaled explicit materialization", async () => {
@@ -1286,6 +1389,50 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ path: "docs", sources: ["docs"] })).resolves.toMatchObject({
       sources: [expect.objectContaining({ status: "error" })],
     })
+    await expect(view.glob("docs/**")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/a.md", type: "file" }),
+    ]))
+    expect(getKeys).toHaveBeenCalledTimes(3)
+  })
+
+  it("retries a covered path after an active refresh is canceled", async () => {
+    let attempt = 0
+    let observeRefresh!: () => void
+    const refreshObserved = new Promise<void>((resolve) => {
+      observeRefresh = resolve
+    })
+    const getKeys = vi.fn(async (context: SourceContext) => {
+      attempt++
+      if (attempt === 2) {
+        observeRefresh()
+        await new Promise<void>((resolve) => {
+          context.abortSignal?.addEventListener("abort", () => resolve(), { once: true })
+        })
+        context.abortSignal?.throwIfAborted()
+      }
+      return ["a.md"]
+    })
+    const view = createWorkspaceSourceView({
+      name: "canceled-covered-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          getKeys,
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ path: "docs", sources: ["docs"] })
+    const abort = new AbortController()
+    const refresh = view.materializeSources({ abortSignal: abort.signal, path: "docs", sources: ["docs"] })
+    await refreshObserved
+    abort.abort(new DOMException("Canceled", "AbortError"))
+
+    await expect(refresh).rejects.toThrow("Canceled")
     await expect(view.glob("docs/**")).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "docs/a.md", type: "file" }),
     ]))
