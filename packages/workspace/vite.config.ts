@@ -1,11 +1,9 @@
-import { fileURLToPath } from "node:url";
-
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
     alias: {
-      undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
+      undici: new URL("./src/internal/vercel-fetch.ts", import.meta.url).pathname,
     },
     tsconfig: "tsconfig.build.json",
     deps: {
