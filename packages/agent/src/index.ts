@@ -5390,7 +5390,7 @@ async function executeAgentInvocationWithCapacityLease<
         const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
         const lazyPrimaryDescriptors = new Map<"fullStream" | "stream", PropertyDescriptor>()
         const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
-        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource> | undefined>()
         try {
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           for (const property of ["stream", "fullStream"] as const) {
@@ -5412,34 +5412,47 @@ async function executeAgentInvocationWithCapacityLease<
         }
         catch (error) {
           await Promise.allSettled(
-            [...preservedSources.values()].map(({ cancel }) => cancel(error)),
+            [...preservedSources.values()].flatMap(source => source ? [source.cancel(error)] : []),
           )
           throw error
+        }
+        if (options.holdCapacity === true) {
+          for (const stream of streamPropertyValues.values()) preservedSources.set(stream, undefined)
         }
         const streamProperties = [...streamPropertyValues.keys()]
         let finishTask: Promise<void> | undefined
         let finishing = false
         let preserved: object
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
+        const preservedSource = (stream: AsyncIterable<unknown>) => {
+          const existing = preservedSources.get(stream)
+          if (existing) return existing
+          const source = cancellableAsyncIterableSource(stream)
+          preservedSources.set(stream, source)
+          return source
+        }
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
           if (options.holdCapacity !== true) return outcome
           const cancellations = await Promise.allSettled(
-            [...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)),
+            [...preservedSources.keys()].map(stream => preservedSource(stream).cancel(outcome.failed ? outcome.error : undefined)),
           )
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           return rejected ? { error: rejected.reason, failed: true } : outcome
         }
         const onAbort = () => {
-          if (preservedSources.size) return
+          if ([...preservedSources.values()].some(Boolean)) return
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
-          finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
+          finishing = true
+          finishTask ||= (async () => {
+            const outcome = await cancelPreservedSources({ error: reason, failed: true })
+            await finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+          })()
           void finishTask.catch(() => {})
         }
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
           const existing = preservedStreams.get(renderedStream)
           if (existing) return existing
-          const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
-          preservedSources.set(renderedStream, source)
+          const source = preservedSource(renderedStream)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
