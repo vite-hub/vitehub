@@ -181,7 +181,11 @@ import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sql
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
-  store: createLibsqlAgentInvocationStore({ url: 'file:./.data/invocations.db' }),
+  store: createLibsqlAgentInvocationStore({
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    maxRecords: 10_000,
+    url: 'file:./.data/invocations.db',
+  }),
 })
 
 export default defineAgent({
@@ -189,6 +193,8 @@ export default defineAgent({
   invocations,
 })
 ```
+
+The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs after successful creates and terminal transitions, so a journal without either event may retain an expired record.
 
 Invocation journals are metadata-only by default. Set `content: 'content'` only when the application must persist prompts, messages, reasoning, tool inputs and outputs, and result text. That opt-in stores sensitive model content in the configured durable store; apply the same access controls, retention policy, and encryption requirements as the source data.
 
@@ -210,41 +216,9 @@ Vercel Agent Definitions currently run through the inline Workflow adapter becau
 
 ## Inspect invocations in the console
 
-Enable the read-only invocation console in a Vite application:
+Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, API, plugin, and assets do not exist when `console` is omitted or set to `false`.
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({
-    agent: true,
-    console: true,
-    preset: 'node',
-  })],
-})
-```
-
-Nuxt applications also install the console from the same option. Add Nuxt UI first:
-
-```bash
-pnpm add @nuxt/ui
-```
-
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  vitehub: {
-    agent: true,
-    console: true,
-    preset: 'cloudflare',
-  },
-})
-```
-
-Open `/_vitehub` to inspect Agent sessions and trace observations. ViteHub includes the console in development and production builds and stores its fallback journal in `.vitehub/data/console.sqlite`.
-
-The console does not add authorization. `console: true` exposes its read-only page and API through the application host, including production ingress. Protect `/_vitehub` and `/api/_vitehub/console/**` at the host boundary when invocation metadata must remain private.
-
-The fallback applies to Agent Definitions imported from `vite-hub/agent`. An explicit `defineAgent({ invocations })` store, including one assigned later by an integration, remains authoritative. Imports directly from `@vite-hub/agent` do not receive the framework console fallback.
+The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. An explicit `defineAgent({ invocations })` store remains authoritative when the Console is enabled.
 
 ## Control child work
 

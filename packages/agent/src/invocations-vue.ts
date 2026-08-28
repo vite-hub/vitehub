@@ -217,8 +217,10 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
       const result = await options.load(controller.signal);
       if (active !== controller) return;
       if (result === undefined) options.clear();
-      else options.apply(result);
-      options.onSuccess?.();
+      else {
+        options.apply(result);
+        options.onSuccess?.();
+      }
       return result;
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return;

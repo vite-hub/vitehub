@@ -62,7 +62,7 @@ function mountInfoPath(value: string): string {
   return value.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)))
 }
 
-function cgroupRoot(mountinfo: string, membership: string): string | undefined {
+export function resolveLinuxCgroupV2Path(mountinfo: string, membership: string): string | undefined {
   const mounts = mountinfo.trim().split("\n").flatMap((line) => {
     const fields = line.trim().split(/\s+/)
     const separator = fields.indexOf("-")
@@ -115,7 +115,7 @@ async function cgroupObservations(readText: ReadText, signal?: AbortSignal): Pro
   if (mountinfoRead.value === undefined) {
     return { observations: [], support: { reason: readFailureReason([mountinfoRead], "mount-unavailable"), scope: "service", source: "linux-cgroup-v2", supported: false } }
   }
-  const root = cgroupRoot(mountinfoRead.value, relative)
+  const root = resolveLinuxCgroupV2Path(mountinfoRead.value, relative)
   if (!root) {
     return { observations: [], support: { reason: "mount-unavailable", scope: "service", source: "linux-cgroup-v2", supported: false } }
   }

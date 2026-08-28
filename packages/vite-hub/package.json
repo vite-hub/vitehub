@@ -71,6 +71,7 @@
     "./agent/cloudflare": "./dist/agent/cloudflare.js",
     "./agent/eval": "./dist/agent/eval.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
+    "./agent/runtime/process": "./dist/agent/runtime/process.js",
     "./agent/server": "./dist/agent/server.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
     "./agent/vue": "./dist/agent/vue.js",
@@ -101,7 +102,6 @@
     "./env/schema": "./dist/env/schema.js",
     "./env/secret": "./dist/env/secret.js",
     "./env/server": "./dist/env/server.js",
-    "./history": "./dist/history.js",
     "./kv": "./dist/kv.js",
     "./markdown-template": "./dist/markdown-template.js",
     "./nuxt": "./dist/nuxt.js",
@@ -180,7 +180,6 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
-    "@vite-hub/history": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/queue": "workspace:*",
@@ -214,6 +213,7 @@
     "@vite-hub/internal": "workspace:*",
     "h3-v1": "npm:h3@^1.15.11",
     "publint": "catalog:tooling",
+    "reka-ui": "^2.10.3",
     "tailwindcss": "^4.3.2",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
@@ -226,6 +226,7 @@
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",
     "comark-content": "catalog:markdown",
+    "reka-ui": "^2.10.3",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -233,6 +234,9 @@
       "optional": true
     },
     "comark-content": {
+      "optional": true
+    },
+    "reka-ui": {
       "optional": true
     },
     "vite": {

@@ -15,7 +15,8 @@ import {
   createBackedAgentInvocationController,
   startLiveAgentInvocation,
 } from "./agent-invocation.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput, withAgentInvocationControlId } from "./internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput } from "./internal/agent-invocation-control.ts"
+import { withAgentInvocationResponseOwner } from "./internal/agent-invocation-response-owner.ts"
 import {
   createReactionDeliveryEffectIntent,
   createReplyDeliveryEffectIntent,
@@ -29,6 +30,8 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
+import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
+import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
@@ -336,8 +339,11 @@ export type {
   AgentInspectionToolDefinition,
   AgentInspectionValue,
   AgentDriver,
+  AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
   AgentDriverCapacityQueueOptions,
+  AgentDriverCapacitySample,
+  AgentDriverCapacitySampleContext,
   AgentDriverContribution,
   AgentDriverContributionKind,
   AgentDriverKind,
@@ -664,6 +670,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
     workflowName: string
   }
   requestUrl?: string
+  parsedMessageMeta?: ParsedAgentMessageMetaState
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   trace?: AgentRuntimeContext["trace"]
@@ -919,12 +926,17 @@ async function runAgentAsWorkflow<
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
-  const workflowInput = await portableAgentWorkflowInput(input)
+  const parsedInput = hasAgentDefinition(agent)
+    ? await withParsedAgentMessageMeta(agent, input, context.run)
+    : input
+  const workflowInput = await portableAgentWorkflowInput(parsedInput)
   const channelDeliveryBinding = input.context?.[agentChannelDeliveryWorkflowContextKey]
   const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
   const inheritedRun = options.fresh && context.run && !durableChannelDelivery
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
+  // SAFETY: withParsedAgentMessageMeta preserves this invocation's call-options type.
+  const parsedMessageMeta = parsedAgentMessageMetaState(agent, parsedInput as AgentRunInput<CALL_OPTIONS>, context.run)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
@@ -932,6 +944,7 @@ async function runAgentAsWorkflow<
     input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
+    ...(parsedMessageMeta !== undefined ? { parsedMessageMeta } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
@@ -1055,13 +1068,6 @@ function createAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const { runtimeConfig: _runtimeConfig, ...callbackContext } = createResolvedRuntimeContext(context)
   return callbackContext
-}
-
-type AgentTriggerContextValue = {
-  channelId?: string
-  id?: string
-  name?: string
-  source?: "capability" | "channel"
 }
 
 function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2973,6 +2979,8 @@ async function createAgentInvocationContext<
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  await parseAgentMessageMeta(definition, invocationContext, context.run)
+  input = { ...input, context: { ...input.context, ...invocationContext.toJSON() } }
   const telemetryInvocationId = createTraceId()
   let telemetryScheduler: AgentTelemetryScheduler | undefined
   const telemetryChanged = (entry: TraceEventLogEntry) => telemetryScheduler?.changed(entry)
@@ -6126,7 +6134,7 @@ function createInlineAgentInvocationController<
     parentAbortSignal: input.abortSignal,
     sendInput: (id, nextInput, options) => sendAgentInvocationInput(id, nextInput, options),
     start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
-      ...withAgentInvocationControlId(context, id),
+      ...withAgentInvocationResponseOwner(context, id),
       run: { ...context.run, runId: runId || id },
     }, { ...input, abortSignal }, {
       kind: "run",

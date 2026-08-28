@@ -1,5 +1,7 @@
 <template>
-  <RouterView />
+  <UApp :toaster="null">
+    <RouterView />
+  </UApp>
 </template>
 
 <script setup lang="ts">

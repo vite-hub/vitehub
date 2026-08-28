@@ -843,6 +843,73 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
   })
 
+  it("includes streamed workspace fallback synthesis in invocation usage", async () => {
+    const baseModel = model(["Synthesized from the workspace"])
+    const fakeModel = {
+      ...baseModel,
+      doGenerate: vi.fn(async (options: ModelCall) => ({
+        ...await baseModel.doGenerate(options),
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+      })),
+      doStream: vi.fn(async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] })
+            controller.enqueue({ input: "{\"query\":\"users\"}", toolCallId: "call-1", toolName: "search", type: "tool-call" })
+            controller.enqueue({
+              finishReason: { raw: "tool-calls", unified: "tool-calls" },
+              providerMetadata: { test: { usage: { cost: 0.1 } } },
+              type: "finish",
+              usage: {
+                inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+                outputTokens: { reasoning: 0, text: 1, total: 1 },
+              },
+            })
+            controller.close()
+          },
+        }),
+      })),
+    }
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "search-test",
+        tools: {
+          search: {
+            execute: () => "found",
+            inputSchema: toolInputSchema,
+            name: "search",
+          },
+        },
+      })],
+      driver: {
+        execution: { stepLimit: 1, workspaceFallback: true },
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+      },
+      hooks: { "agent:finish": finish },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const _event of result as AsyncIterable<unknown>) {}
+
+    expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: [
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          ],
+          cost: expect.objectContaining({ usd: "0.3" }),
+          usage: expect.objectContaining({ totalTokens: 4 }),
+        }),
+      }),
+    }))
+  })
+
   it("emits arbitrary structured output from streamed invocations", async () => {
     const fakeModel = model([])
     const doStream = vi.fn(async () => ({

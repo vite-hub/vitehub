@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { rootTestTasks } from "./test/tasks.ts";
+
 export default defineConfig({
   run: {
     tasks: {
@@ -29,6 +31,11 @@ export default defineConfig({
       "docs:dev": {
         cache: false,
         command: "vp run --filter vitehub-docs dev",
+      },
+      "examples:verify": {
+        cache: false,
+        command: "node test/package-examples.mjs",
+        dependsOn: ["build"],
       },
       "e2e:local": {
         cache: false,
@@ -86,6 +93,10 @@ export default defineConfig({
         command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
         dependsOn: ["@vite-hub/cli#build"],
       },
+      preflight: {
+        cache: false,
+        command: "node test/preflight.mjs",
+      },
       "queue:e2e": {
         cache: false,
         command: "node packages/queue/test/e2e-live.mjs",
@@ -111,32 +122,7 @@ export default defineConfig({
         command: "node packages/schedule/test/e2e-live.mjs",
         dependsOn: ["@vite-hub/schedule#build"],
       },
-      test: {
-        cache: false,
-        command: "node test/run-package-task.mjs test",
-      },
-      "test:contracts": {
-        cache: false,
-        command: "vp test",
-      },
-      "test:consumer": {
-        cache: false,
-        command:
-          "VITEHUB_CONSUMER_CONTRACT=1 vp test test/consumer/vite-hub.test.ts test/consumer/source-closures.test.ts",
-        dependsOn: ["build"],
-      },
-      "test:output": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts",
-      },
-      "test:output:cloudflare": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts",
-      },
-      "test:output:vercel": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts test/output/vercel.test.ts",
-      },
+      ...rootTestTasks,
       typecheck: {
         cache: false,
         command:
@@ -145,7 +131,7 @@ export default defineConfig({
       verify: {
         cache: false,
         command:
-          "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+          "vp run preflight && vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,

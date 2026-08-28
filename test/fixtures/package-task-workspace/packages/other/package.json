@@ -1,0 +1,7 @@
+{
+  "name": "@vite-hub/runtime",
+  "scripts": {
+    "build": "node ../../task.mjs build @vite-hub/runtime",
+    "test": "node ../../task.mjs test @vite-hub/runtime"
+  }
+}

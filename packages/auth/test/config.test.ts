@@ -136,7 +136,7 @@ describe("resolveAuthViteConfig", () => {
       "    routes: [",
       "      '/app',",
       "      '/app/**',",
-      "      { method: 'POST', route: '/api/app' },",
+      "      { authorize: ({ user }) => user.isAdmin === true, method: 'POST', route: '/api/app' },",
       "    ],",
       "  },",
     ])
@@ -146,9 +146,43 @@ describe("resolveAuthViteConfig", () => {
         routes: [
           { route: "/app" },
           { route: "/app/**" },
-          { method: "POST", route: "/api/app" },
+          { authorize: true, method: "POST", route: "/api/app" },
         ],
       },
+    })
+  })
+
+  it("resolves shorthand authorize callbacks", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  access: { routes: [",
+      "    { authorize, route: '/app/**' },",
+      "  ] },",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: { routes: [{ authorize: true, route: "/app/**" }] },
+    })
+  })
+
+  it("marks every declared authorize policy for fail-closed runtime enforcement", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  access: { routes: [",
+      "    { authorize: undefined, route: '/app/**' },",
+      "    { authorize: enabled ? authorizeApp : void 0, route: '/admin/**' },",
+      "    { authorize({ user }) { return user.isAdmin }, route: '/method/**' },",
+      "    { async authorize({ user }) { return user.isAdmin }, route: '/async-method/**' },",
+      "  ] },",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: { routes: [
+        { authorize: true, route: "/app/**" },
+        { authorize: true, route: "/admin/**" },
+        { authorize: true, route: "/method/**" },
+        { authorize: true, route: "/async-method/**" },
+      ] },
     })
   })
 

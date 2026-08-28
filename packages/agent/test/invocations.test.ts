@@ -1679,7 +1679,296 @@ describe("Agent Invocations", () => {
     }
   })
 
-  it("initializes the libSQL search column concurrently", async () => {
+  it("bounds terminal SQLite invocation records by age and count", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-retention-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: 2 })
+    const recent = new Date().toISOString()
+    const expired = new Date(Date.now() - 2_000).toISOString()
+    const record = (id: string, status: "completed" | "running", updatedAt = recent) => ({
+      createdAt: updatedAt,
+      id,
+      observations: [],
+      status,
+      traceId: `${id}-trace`,
+      updatedAt,
+    })
+    try {
+      await unboundedStore.create(record("expired", "completed", expired))
+      await store.create(record("active", "running", expired))
+      await store.create(record("first", "completed"))
+      await expect(store.claim("first", "first-claim", 30_000)).resolves.toBe(true)
+      await store.create(record("second", "completed"))
+      await store.create(record("third", "completed"))
+
+      await expect(store.get("expired")).resolves.toBeUndefined()
+      await expect(store.get("first")).resolves.toBeUndefined()
+      await expect(store.get("active")).resolves.toMatchObject({ status: "running" })
+      await expect(store.list({ limit: 10 })).resolves.toMatchObject({
+        invocations: [
+          expect.objectContaining({ id: "third" }),
+          expect.objectContaining({ id: "second" }),
+          expect.objectContaining({ id: "active" }),
+        ],
+      })
+      const orphanedClaims = await client.execute("SELECT count(*) AS count FROM vitehub_agent_invocations_claims")
+      expect(Number(orphanedClaims.rows[0]?.count)).toBe(0)
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("prunes SQLite retention when an invocation becomes terminal", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-retention-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
+    const timestamp = new Date().toISOString()
+    const pending = (id: string) => ({
+      createdAt: timestamp,
+      id,
+      observations: [],
+      status: "pending" as const,
+      traceId: `${id}-trace`,
+      updatedAt: timestamp,
+    })
+    try {
+      await store.create(pending("first"))
+      await store.update("first", { status: "completed", timestamp })
+      await store.create(pending("second"))
+      await store.update("second", { status: "completed", timestamp })
+
+      await expect(store.get("first")).resolves.toBeUndefined()
+      await expect(store.get("second")).resolves.toMatchObject({ status: "completed" })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("recreates a duplicate SQLite invocation when retention prunes the old record", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-duplicate-retention-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const expired = new Date(Date.now() - 2_000).toISOString()
+    const current = new Date().toISOString()
+    try {
+      await unboundedStore.create({
+        createdAt: expired,
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "old-trace",
+        updatedAt: expired,
+      })
+
+      await expect(store.create({
+        createdAt: current,
+        id: "retry",
+        observations: [],
+        status: "pending",
+        traceId: "new-trace",
+        updatedAt: current,
+      })).resolves.toMatchObject({
+        created: true,
+        record: { id: "retry", status: "pending", traceId: "new-trace" },
+      })
+      await expect(store.get("retry")).resolves.toMatchObject({ status: "pending", traceId: "new-trace" })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("returns the current SQLite invocation when stores concurrently recreate a pruned duplicate", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-concurrent-duplicate-retention-"))
+    const clients = [
+      createClient({ url: `file:${join(directory, "invocations.sqlite")}` }),
+      createClient({ url: `file:${join(directory, "invocations.sqlite")}` }),
+    ]
+    const unboundedStore = createLibsqlAgentInvocationStore({ client: clients[0], maxAgeMs: false, maxRecords: false })
+    const stores = clients.map(client => createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false }))
+    const expired = new Date(Date.now() - 2_000).toISOString()
+    const current = new Date().toISOString()
+    try {
+      await unboundedStore.create({
+        createdAt: expired,
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "old-trace",
+        updatedAt: expired,
+      })
+
+      const results = await Promise.all(stores.map((store, index) => store.create({
+        createdAt: current,
+        id: "retry",
+        observations: [],
+        status: "pending",
+        traceId: `new-trace-${index}`,
+        updatedAt: current,
+      })))
+
+      expect(results.filter(result => result.created)).toHaveLength(1)
+      expect(results[0]!.record).toEqual(results[1]!.record)
+      await expect(stores[0]!.get("retry")).resolves.toEqual(results[0]!.record)
+    }
+    finally {
+      clients.forEach(client => client.close())
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("prunes a recreated terminal SQLite duplicate before create returns", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-retention-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
+    const timestamp = new Date().toISOString()
+    const terminal = (id: string, traceId = `${id}-trace`) => ({
+      createdAt: timestamp,
+      id,
+      observations: [],
+      status: "completed" as const,
+      traceId,
+      updatedAt: timestamp,
+    })
+    try {
+      await unboundedStore.create(terminal("retry", "old-trace"))
+      await unboundedStore.create(terminal("newer"))
+
+      await expect(store.create(terminal("retry", "replacement-trace"))).resolves.toMatchObject({
+        created: true,
+        record: { id: "retry", traceId: "replacement-trace" },
+      })
+      await expect(store.list({ limit: 10 })).resolves.toMatchObject({ invocations: [{ id: "retry" }] })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("uses one age cutoff while creating a terminal SQLite duplicate", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-cutoff-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const now = Date.now()
+    const nearlyExpired = new Date(now - 999).toISOString()
+    try {
+      await unboundedStore.create({
+        createdAt: nearlyExpired,
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "old-trace",
+        updatedAt: nearlyExpired,
+      })
+      const clock = vi.spyOn(Date, "now")
+        .mockReturnValueOnce(now)
+        .mockReturnValue(now + 2)
+
+      await expect(store.create({
+        createdAt: new Date(now).toISOString(),
+        id: "retry",
+        observations: [],
+        status: "completed",
+        traceId: "replacement-trace",
+        updatedAt: new Date(now).toISOString(),
+      })).resolves.toMatchObject({
+        created: false,
+        record: { id: "retry", traceId: "old-trace" },
+      })
+      clock.mockRestore()
+      await expect(store.get("retry")).resolves.toMatchObject({ traceId: "old-trace" })
+    }
+    finally {
+      vi.restoreAllMocks()
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an age-expired terminal SQLite create that retention removes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-expired-create-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const expired = new Date(Date.now() - 2_000).toISOString()
+    try {
+      await expect(store.create({
+        createdAt: expired,
+        id: "expired",
+        observations: [],
+        status: "completed",
+        traceId: "expired-trace",
+        updatedAt: expired,
+      })).rejects.toThrow("removed by retention")
+      await expect(store.get("expired")).resolves.toBeUndefined()
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("prunes terminal SQLite records written with a stale status column", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-stale-status-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
+    const timestamp = new Date().toISOString()
+    try {
+      await unboundedStore.create({ createdAt: timestamp, id: "legacy", observations: [], status: "running", traceId: "legacy-trace", updatedAt: timestamp })
+      await client.execute({
+        args: [JSON.stringify({ createdAt: timestamp, id: "legacy", observations: [], status: "completed", traceId: "legacy-trace", updatedAt: timestamp }), "legacy"],
+        sql: "UPDATE vitehub_agent_invocations SET record = ? WHERE id = ?",
+      })
+      await store.create({ createdAt: timestamp, id: "newer", observations: [], status: "completed", traceId: "newer-trace", updatedAt: timestamp })
+
+      await expect(store.get("legacy")).resolves.toBeUndefined()
+      await expect(store.get("newer")).resolves.toMatchObject({ status: "completed" })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("validates and disables SQLite invocation retention limits", async () => {
+    for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      // SAFETY: invalid retention options throw before the client is accessed.
+      expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAgeMs: value })).toThrow("maxAgeMs")
+      // SAFETY: invalid retention options throw before the client is accessed.
+      expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxRecords: value })).toThrow("maxRecords")
+    }
+    // SAFETY: invalid retention options throw before the client is accessed.
+    expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAgeMs: Number.MAX_SAFE_INTEGER })).toThrow("maxAgeMs")
+    // SAFETY: constructing the store does not access the client.
+    expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxRecords: Number.MAX_SAFE_INTEGER })).not.toThrow()
+
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-unbounded-retention-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    try {
+      const expired = "2020-01-01T00:00:00.000Z"
+      for (const id of ["first", "second", "third"]) {
+        await store.create({ createdAt: expired, id, observations: [], status: "completed", traceId: `${id}-trace`, updatedAt: expired })
+      }
+      await expect(store.list({ limit: 10 })).resolves.toMatchObject({ invocations: [{ id: "third" }, { id: "second" }, { id: "first" }] })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("initializes the libSQL search index concurrently", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-migration-"))
     const url = `file:${join(directory, "invocations.sqlite")}`
     const setupClient = createClient({ url })
@@ -1740,7 +2029,7 @@ describe("Agent Invocations", () => {
       const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
-        .resolves.toEqual({ invocations: [] })
+        .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
 
@@ -1774,24 +2063,58 @@ describe("Agent Invocations", () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-fresh-overlap-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     try {
-      const store = createLibsqlAgentInvocationStore({ client })
+      const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
       await store.list()
       await client.execute({
-        args: [JSON.stringify({
+        args: ["review completed", JSON.stringify({
           agentName: "review",
           createdAt: "2026-01-01T00:00:00.000Z",
           id: "fresh-overlapping-legacy-writer",
-          observations: [],
+          observations: [{
+            attributes: { result: "fresh observation-only text" },
+            name: "legacy",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            type: "run",
+          }],
           status: "completed",
           traceId: "fresh-overlapping-legacy-trace",
           updatedAt: "2026-01-01T00:00:00.000Z",
         })],
-        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('fresh-overlapping-legacy-writer', 'completed', ?)",
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, search, record) VALUES ('fresh-overlapping-legacy-writer', 'completed', ?, ?)",
       })
 
       await expect(store.list({ agentName: "review" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
       })
+      await expect(store.list({ search: "fresh observation-only" })).resolves.toEqual({ invocations: [] })
+      await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "fresh observation-only" }))
+        .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
+
+      await store.update("fresh-overlapping-legacy-writer", {
+        status: "running",
+        timestamp: "2026-01-01T00:01:00.000Z",
+      })
+      await client.execute({
+        args: ["review completed", JSON.stringify({
+          agentName: "review",
+          annotations: { writer: "legacy" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          id: "fresh-overlapping-legacy-writer",
+          observations: [{
+            attributes: { result: "updated observation-only text" },
+            name: "legacy",
+            timestamp: "2026-01-01T00:02:00.000Z",
+            type: "run",
+          }],
+          status: "completed",
+          traceId: "fresh-overlapping-legacy-trace",
+          updatedAt: "2026-01-01T00:02:00.000Z",
+        }), "fresh-overlapping-legacy-writer"],
+        sql: "UPDATE vitehub_agent_invocations SET search = ?, record = ? WHERE id = ?",
+      })
+      await expect(store.list({ search: "updated observation-only" })).resolves.toEqual({ invocations: [] })
+      await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "updated observation-only" }))
+        .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
     }
     finally {
       client.close()

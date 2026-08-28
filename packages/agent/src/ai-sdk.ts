@@ -695,10 +695,14 @@ function streamEventType(event: unknown): string | undefined {
     : undefined
 }
 
-function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
+function workspaceFallbackFinishEvent(finishEvent: unknown, usage?: unknown, usageRecord?: AgentUsageRecord): unknown {
+  const usageFields = {
+    ...(usage === undefined ? {} : { usage }),
+    ...(usageRecord ? { usageRecord } : {}),
+  }
   return hasRuntimeType(finishEvent, "object") && finishEvent !== null
-    ? { ...finishEvent, finishReason: "workspace-fallback", type: "finish" }
-    : { finishReason: "workspace-fallback", type: "finish" }
+    ? { ...finishEvent, finishReason: "workspace-fallback", type: "finish", ...usageFields }
+    : { finishReason: "workspace-fallback", type: "finish", ...usageFields }
 }
 
 function finishEventReason(event: unknown): string | undefined {
@@ -756,6 +760,8 @@ function withWorkspaceFallbackFullStream(
   context: AgentAdapterRunContext,
   maxToolResults: number,
   capturedEvidence?: () => string[],
+  fallbackUsageCapture?: ReturnType<typeof createUsageCapture>,
+  usageCaptures?: () => readonly ReturnType<typeof createUsageCapture>[],
 ): AsyncIterable<unknown> {
   return (async function* () {
     let text = ""
@@ -788,10 +794,17 @@ function withWorkspaceFallbackFullStream(
       return
     }
 
-    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence)
+    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
     if (synthesized) {
       yield* workspaceFallbackTextEvents(synthesized.text)
-      yield workspaceFallbackFinishEvent(finishEvent)
+      const captures = usageCaptures?.()
+      const usage = captures?.some(capture => capture.captured)
+        ? await combinedCapturedUsage(captures)
+        : undefined
+      const usageRecord = captures && usage !== undefined
+        ? await combinedUsageRecord(captures.map(capture => ({ capture })), usage)
+        : undefined
+      yield workspaceFallbackFinishEvent(finishEvent, usage, usageRecord)
       return
     }
     if (finishEvent) yield finishEvent
@@ -804,18 +817,20 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   context: AgentAdapterRunContext,
   fallback: Required<AiSdkWorkspaceFallbackOptions>,
   capturedEvidence?: () => string[],
+  fallbackUsageCapture?: ReturnType<typeof createUsageCapture>,
+  usageCaptures?: () => readonly ReturnType<typeof createUsageCapture>[],
 ): T {
   if (!fallback.enabled) return result
   const stream = result.stream
   const fullStream = result.fullStream
   if (stream || fullStream) {
     const wrappedStream = stream
-      ? withWorkspaceFallbackFullStream(stream, model, context, fallback.maxToolResults, capturedEvidence)
+      ? withWorkspaceFallbackFullStream(stream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures)
       : undefined
     const wrappedFullStream = fullStream
       ? fullStream === stream && wrappedStream
         ? wrappedStream
-        : withWorkspaceFallbackFullStream(fullStream, model, context, fallback.maxToolResults, capturedEvidence)
+        : withWorkspaceFallbackFullStream(fullStream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures)
       : undefined
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return cloneStreamTextResult(result as object, {
@@ -825,7 +840,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   }
   if (isAsyncIterable(result)) {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    return asUnknownBoundary(withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence)) as T
+    return asUnknownBoundary(withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures)) as T
   }
   return result
 }
@@ -2040,6 +2055,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     async stream(context) {
       const invocationDeadline = createAiSdkInvocationDeadline(context.input.timeout)
       const usageCapture = createUsageCapture()
+      const fallbackUsageCapture = createUsageCapture()
       const execution = options.execution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled || Boolean(context.output)
@@ -2073,7 +2089,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           onStepEnd: repairUsageCapture.onStepEnd,
         }
       }
-      const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
+      const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
       const cancelProvider = (reason?: unknown) => {
         if (!streamCancellation.signal.aborted) streamCancellation.abort(reason)
       }
@@ -2279,16 +2295,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
               }, repairCallInput)
             }
             catch (error) {
-              const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
+              const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
               const usageRecord = await combinedUsageRecord([
                 { capture: usageCapture },
                 ...toolRepairUsageCaptures.map(capture => ({ capture })),
                 ...repairUsageCaptures.map(capture => ({ capture })),
+                { capture: fallbackUsageCapture },
               ], combinedCapturedUsage(captures))
               if (usageRecord) Object.assign(failedRepairUsageRecord, usageRecord)
               throw error
             }
-            const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
+            const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
             const usageRecord = await combinedUsageRecord([
               { capture: usageCapture },
               ...toolRepairUsageCaptures.map(capture => ({ capture })),
@@ -2296,6 +2313,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
                 capture,
                 ...(index === repairUsageCaptures.length - 1 ? { result: repaired } : {}),
               })),
+              { capture: fallbackUsageCapture },
             ], combinedCapturedUsage(captures))
             if (repaired && hasRuntimeType(repaired, "object") && usageRecord) {
               Object.defineProperty(repaired, "usageRecord", {
@@ -2313,7 +2331,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         value: outputUsageLifecycle,
       })
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
+      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence, fallbackUsageCapture, usageCaptures)
     },
   })
 }

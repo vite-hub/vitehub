@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AgentInvocation, AgentInvocationInspector, AgentInvocationList } from "@vite-hub/ui";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
@@ -10,48 +10,55 @@ import type {
   AgentInvocationListItem,
   AgentInvocationView,
 } from "@vite-hub/ui";
+import { decodeAgentRouteParam, encodeAgentRouteParam, resolveAgentRouteName } from "../agent-route";
+import { requestConsole } from "../client/request";
+import { relativeDuration } from "../client/time";
+import ConsoleSearch from "./console-search.vue";
 
 const route = useRoute();
 const router = useRouter();
-const props = defineProps<{ agentsBase: string; apiBase: string }>();
-const initialAgentQuery = Array.isArray(route.query.agent) ? route.query.agent[0] : route.query.agent;
+const props = defineProps<{ agentsBase: string; apiBase: string; searchBase: string }>();
+const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
-const selectedAgentName = ref(initialAgentQuery?.trim() ? initialAgentQuery : undefined);
+const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
+const agentsError = ref<unknown>();
 const paginationRetryRevision = ref(0);
 const lastSuccessfulPollAt = ref<Date>();
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
+const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
+const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
-
-const request = async (path: string, options: { signal?: AbortSignal }): Promise<unknown> => {
-  const response = await fetch(path, { signal: options.signal });
-  if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`);
-  return response.json();
-};
 const recordSuccessfulPoll = () => {
   lastSuccessfulPollAt.value = new Date();
 };
+const listPollInterval = computed(() => pageVisible.value ? 5_000 : false);
+const detailPollInterval = computed(() =>
+  pageVisible.value && selectedInvocationId.value ? 3_000 : false,
+);
 
 const list = useAgentInvocations({
   baseURL: props.apiBase,
+  immediate: pageVisible.value,
   onSuccess: recordSuccessfulPoll,
-  pollInterval: 5_000,
-  request,
-  requestSummaries: request,
-  query: computed(() => selectedAgentName.value ? { agent: selectedAgentName.value } : undefined),
+  pollInterval: listPollInterval,
+  request: requestConsole,
+  requestSummaries: requestConsole,
+  query: computed(() => selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
+  immediate: pageVisible.value,
   onSuccess: recordSuccessfulPoll,
-  pollInterval: 3_000,
-  request,
+  pollInterval: detailPollInterval,
+  request: requestConsole,
 });
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
@@ -84,8 +91,7 @@ const routeInvocation = computed(() => {
   return Array.isArray(value) ? value[0] : value;
 });
 const routeAgent = computed(() => {
-  const value = route.query.agent;
-  return Array.isArray(value) ? value[0] : value;
+  return decodeAgentRouteParam(route.params.agent);
 });
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
@@ -148,6 +154,12 @@ const syncLabel = computed(() => {
   return `Stale · ${relativeDuration(syncAgeMs.value)}`;
 });
 
+function selectActivity(id: string) {
+  selectedActivityId.value = undefined;
+  if (!isDesktop.value) detailsOpen.value = false;
+  void nextTick(() => { selectedActivityId.value = id; });
+}
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
@@ -180,18 +192,16 @@ function errorMessage(error: unknown): string | undefined {
       : undefined;
 }
 
-function relativeDuration(elapsed: number): string {
-  if (elapsed < 60_000) return `${Math.floor(elapsed / 1_000)}s`;
-  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
-  return `${Math.floor(elapsed / 3_600_000)}h`;
-}
-
-async function selectInvocation(id: string): Promise<void> {
+async function selectInvocation(
+  invocation: Pick<AgentInvocationListItem, "agent" | "id">,
+): Promise<void> {
+  const agentName = invocation.agent?.trim() || selectedAgentName.value;
+  if (!agentName) return;
   sessionsOpen.value = false;
+  selectedAgentName.value = agentName;
   await router.push({
-    name: "vitehub-console-agents",
-    params: { invocation: id },
-    query: selectedAgentName.value ? { agent: selectedAgentName.value } : {},
+    name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
+    params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
   });
 }
 
@@ -200,8 +210,8 @@ async function selectAgent(name: string): Promise<void> {
   selectedAgentName.value = name;
   selectedInvocationId.value = undefined;
   await router.push({
-    name: "vitehub-console-agents",
-    query: { agent: name },
+    name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+    params: { agent: encodeAgentRouteParam(name) },
   });
 }
 
@@ -211,14 +221,18 @@ async function loadAgents(): Promise<void> {
   agentsRequest = controller;
   agentsLoading.value = true;
   try {
-    const value = record(await request(props.agentsBase, { signal: controller.signal }));
+    const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
     const names = Array.isArray(value?.agents)
       ? value.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
       : [];
-    if (agentsRequest === controller) agentNames.value = [...new Set(names)];
+    if (agentsRequest === controller) {
+      agentNames.value = [...new Set(names)];
+      agentsError.value = undefined;
+    }
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return;
+    if (error instanceof Object && "name" in error && error.name === "AbortError") return;
+    if (agentsRequest === controller) agentsError.value = error;
   } finally {
     if (agentsRequest === controller) {
       agentsRequest = undefined;
@@ -243,15 +257,32 @@ function updateDesktop(event?: MediaQueryListEvent): void {
   isDesktop.value = event?.matches ?? media?.matches ?? false;
 }
 
+function syncClock(): void {
+  if (clock) clearInterval(clock);
+  clock = undefined;
+  if (!pageVisible.value) return;
+  nowMs.value = Date.now();
+  clock = setInterval(() => {
+    nowMs.value = Date.now();
+  }, 1_000);
+}
+
+function updatePageVisibility(): void {
+  const wasVisible = pageVisible.value;
+  pageVisible.value = document.visibilityState !== "hidden";
+  syncClock();
+  if (!wasVisible && pageVisible.value) void refresh();
+}
+
 watch(
-  [routeInvocation, () => list.invocations.value[0]?.id],
-  async ([requestedInvocation, firstInvocation]) => {
-    selectedInvocationId.value = requestedInvocation || firstInvocation;
-    if (!requestedInvocation && firstInvocation) {
+  [routeInvocation, routeAgent, () => list.invocations.value[0]?.id, selectedAgentName],
+  async ([requestedInvocation, requestedAgent, firstInvocation, agentName]) => {
+    const agentRouteReady = !requestedAgent || requestedAgent === agentName;
+    selectedInvocationId.value = requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
+    if (!requestedInvocation && firstInvocation && agentName && agentRouteReady) {
       await router.replace({
-        name: "vitehub-console-agents",
-        params: { invocation: firstInvocation },
-        query: selectedAgentName.value ? { agent: selectedAgentName.value } : {},
+        name: resolveAgentRouteName(route.name, "vitehub-console-invocation"),
+        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation },
       });
     }
   },
@@ -260,11 +291,18 @@ watch(
 
 watch(
   [routeAgent, agentNames],
-  ([requestedAgent, names]) => {
+  async ([requestedAgent, names]) => {
     if (!names.length) return;
-    selectedAgentName.value = requestedAgent && names.includes(requestedAgent)
+    const agentName = requestedAgent && names.includes(requestedAgent)
       ? requestedAgent
       : names[0];
+    selectedAgentName.value = agentName;
+    if (requestedAgent !== agentName) {
+      await router.replace({
+        name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+        params: { agent: encodeAgentRouteParam(agentName) },
+      });
+    }
   },
   { immediate: true },
 );
@@ -279,24 +317,31 @@ watch(
       invocation.agentName === agentName
     ) return;
     selectedInvocationId.value = undefined;
-    await router.replace({ name: "vitehub-console-agents", query: { agent: agentName } });
+    await router.replace({
+      name: resolveAgentRouteName(route.name, "vitehub-console-agent"),
+      params: { agent: encodeAgentRouteParam(agentName) },
+    });
   },
 );
 
+watch(selectedInvocationId, () => {
+  selectedActivityId.value = undefined;
+});
+
 onMounted(() => {
-  void loadAgents();
   media = window.matchMedia("(min-width: 1024px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
-  clock = setInterval(() => {
-    nowMs.value = Date.now();
-  }, 1_000);
+  document.addEventListener("visibilitychange", updatePageVisibility);
+  updatePageVisibility();
+  if (pageVisible.value) void loadAgents();
 });
 
 onBeforeUnmount(() => {
   agentsRequest?.abort();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
+  document.removeEventListener("visibilitychange", updatePageVisibility);
 });
 </script>
 
@@ -318,6 +363,7 @@ onBeforeUnmount(() => {
       <template #header="{ collapsed }">
         <UDropdownMenu
           :items="agentMenuItems"
+          :disabled="!hasMultipleAgents"
           :content="{ align: 'start', collisionPadding: 12 }"
           :ui="{ content: collapsed ? 'w-44' : 'w-(--reka-dropdown-menu-trigger-width)' }"
         >
@@ -360,7 +406,25 @@ onBeforeUnmount(() => {
             >
             <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Sessions</h1>
           </div>
-          <span class="text-xs text-dimmed">{{ invocationItems.length }}</span>
+          <span class="text-xs text-muted">{{ invocationItems.length }}</span>
+        </div>
+        <div v-if="!collapsed && errorMessage(agentsError)" class="px-3 pb-3">
+          <UAlert
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load agents"
+            :description="errorMessage(agentsError)"
+            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadAgents }]"
+          />
+        </div>
+        <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
+          <UDashboardSearchButton
+            :collapsed="collapsed"
+            block
+            class="w-full bg-transparent ring-default"
+            label="Search sessions"
+          />
         </div>
         <div
           v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
@@ -403,7 +467,7 @@ onBeforeUnmount(() => {
                 :variant="selectedInvocationId === invocation.id ? 'soft' : 'ghost'"
                 block
                 :aria-label="invocation.title"
-                @click="selectInvocation(invocation.id)"
+                @click="selectInvocation(invocation)"
             /></UTooltip>
           </div>
         </div>
@@ -420,7 +484,7 @@ onBeforeUnmount(() => {
           :retry-key="paginationRetryRevision"
           :selected-id="selectedInvocationId"
           @end-reached="list.loadMore()"
-          @select="selectInvocation($event.id)"
+          @select="selectInvocation($event)"
         >
           <template #empty
             ><UEmpty
@@ -436,7 +500,7 @@ onBeforeUnmount(() => {
         <template v-if="!collapsed"
           ><span class="flex items-center gap-1.5 text-xs text-muted"
             ><UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only</span
-          ><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-dimmed'">{{
+          ><span class="ml-auto text-xs" :class="syncStale ? 'text-warning' : 'text-muted'">{{
             syncLabel
           }}</span></template
         >
@@ -462,6 +526,8 @@ onBeforeUnmount(() => {
         />
       </template>
     </UDashboardSidebar>
+
+    <ConsoleSearch :agent-names="agentNames" :search-base="searchBase" />
 
     <UDashboardPanel id="agent-session">
       <div class="min-h-0 flex-1" aria-live="polite">
@@ -503,7 +569,7 @@ onBeforeUnmount(() => {
             class="min-h-0 flex-1"
           >
             <template #thread
-              ><AgentInvocation :invocation="invocationView" class="h-full"
+              ><AgentInvocation :invocation="invocationView" :selected-activity-id="selectedActivityId" class="h-full"
                 ><template #title>{{ selectedTitle }}</template
                 ><template #actions
                   ><UTooltip text="Session details"
@@ -517,7 +583,7 @@ onBeforeUnmount(() => {
                       @click="detailsOpen = !detailsOpen" /></UTooltip></template></AgentInvocation
             ></template>
             <template #details
-              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
+              ><AgentInvocationInspector :invocation="invocationView" class="h-full" @select-activity="selectActivity"
                 ><template #actions
                   ><UButton
                     icon="i-lucide-panel-right-close"
@@ -528,7 +594,7 @@ onBeforeUnmount(() => {
                     @click="detailsOpen = false" /></template></AgentInvocationInspector
             ></template>
           </USplitter>
-          <AgentInvocation v-else :invocation="invocationView" class="min-h-0 flex-1"
+          <AgentInvocation v-else :invocation="invocationView" :selected-activity-id="selectedActivityId" class="min-h-0 flex-1"
             ><template #title>{{ selectedTitle }}</template
             ><template #actions
               ><div class="flex items-center gap-1">
@@ -555,7 +621,7 @@ onBeforeUnmount(() => {
             title="Session details"
             :ui="{ content: 'w-full max-w-sm p-0' }"
             ><template #content
-              ><AgentInvocationInspector :invocation="invocationView" class="h-full"
+              ><AgentInvocationInspector :invocation="invocationView" class="h-full" @select-activity="selectActivity"
                 ><template #actions
                   ><UButton
                     icon="i-lucide-x"
@@ -570,3 +636,21 @@ onBeforeUnmount(() => {
     </UDashboardPanel>
   </UDashboardGroup>
 </template>
+
+<style>
+.vitehub-console {
+  height: 100dvh;
+  min-height: 32rem;
+  overflow: hidden;
+}
+
+.vitehub-console [data-slot="invocation"],
+.vitehub-console [data-slot="invocation-inspector"] {
+  height: 100%;
+  width: 100%;
+}
+
+.vitehub-console [data-slot="invocation-inspector"] {
+  border-inline-start: 0;
+}
+</style>

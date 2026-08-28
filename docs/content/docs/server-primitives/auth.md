@@ -81,7 +81,7 @@ Better Auth-compatible options stay top-level. ViteHub reserves Auth fields such
 | `secondaryStorage` | `AuthSecondaryStorageConfiguration` | disabled | Records intended Default or named KV Store placement for inspection. Use `true` or `{ store }`. It does not create a Better Auth secondary storage adapter. |
 | `basePath` | `string` | `/api/auth` | Sets the Auth Base Path. |
 | `route` | `false` | enabled | Disables automatic Auth Route Exposure when set to `false`. |
-| `access.routes` | `AuthAccessRoute[]` | `[]` | Routes guarded by generated Auth access middleware. Each entry is a route string or `{ method, route }`. |
+| `access.routes` | `AuthAccessRoute[]` | `[]` | Routes guarded by generated Auth access middleware. Route objects accept `method`, `route`, and an `authorize` callback. |
 | `access.signIn` | `{ provider: string, callbackURL?: string, errorCallbackURL?: string, requestSignUp?: boolean, scopes?: string[] }` | none | Redirect behavior for HTML requests rejected by `requireAuth()`. |
 | `runtime` | `AuthRuntimeConfiguration` | none | Supplies runtime-only Better Auth values such as `baseURL`, `secret`, and `secrets`. |
 
@@ -148,6 +148,33 @@ When `@vite-hub/env` is installed before Auth, the callback receives typed Serve
 | `handleAuthRequest(definition, request, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
 | `createAuthHandler(definition, runtimeOptions?)` | Creates a Better Auth handler from a Definition. |
 | `requireAuth(input, definition?)` | Returns `undefined` when a session exists, otherwise returns an unauthorized or sign-in response. |
+
+### Authorize access routes
+
+Add `authorize` when a session alone is not enough. ViteHub calls it only after authentication and returns `403` when it returns `false`. The callback can return a `Response` for a custom rejection. Returning `true` allows the request.
+
+```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+
+export default defineAuth({
+  access: {
+    routes: [
+      {
+        route: '/_vitehub/**',
+        authorize: ({ user }) => user.isAdmin === true,
+      },
+      {
+        route: '/api/_vitehub/console/**',
+        authorize: ({ user }) => user.isAdmin === true,
+      },
+    ],
+  },
+})
+```
+
+The callback receives the authenticated `user`, `session`, and request. ViteHub does not define an admin role. The host maps its own role or permission model here.
+
+Read [Console](/docs/development/console#protect-both-route-groups) for its page and API routes, plus the behavior when Console is disabled.
 
 ## Storage placement metadata
 
@@ -237,5 +264,6 @@ When a default Better Auth request or session operation fails, the boundary thro
 ## Next steps
 
 - Configure typed secrets with [Env](/docs/server-primitives/env).
+- Protect the [ViteHub Console](/docs/development/console) before enabling it in production.
 - Use [Database](/docs/server-primitives/database) and [KV](/docs/server-primitives/kv) as application primitives; Auth placement metadata does not wire them into Better Auth.
 - Learn shared identity boundaries in [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers).

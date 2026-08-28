@@ -16,13 +16,11 @@ jobs:
     name: ci
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: 2.9.3
+      - uses: ./.github/actions/setup-deno
 
       - name: Fallow dead-code
         shell: bash
@@ -48,17 +46,20 @@ jobs:
           VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
       - run: vp run typecheck
       - run: vp run test:contracts
-      - run: vp run test
+      - run: vp run examples:verify
+      - name: Package tests
+        run: vp run test
 
   docs:
     name: docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
       - run: vp run --filter vitehub-docs test
       - run: vp run docs:build
+      - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
         working-directory: docs
         run: vp dlx "wrangler@4.112.0" deploy --dry-run --config .output/server/wrangler.json
@@ -68,8 +69,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: 2.9.3
 
       - run: vp run test:consumer
 
@@ -78,11 +82,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
-      - run: vp run build
-      - run: vp run playground:vite:build:local --provider cloudflare
       - name: Provider Output Contract
         run: vp run test:output:cloudflare
       - name: Local Provider Run
@@ -110,11 +112,9 @@ jobs:
         ports:
           - 8080:8080
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
-      - run: vp run build
-      - run: vp run playground:vite:build:local --provider vercel
       - name: Provider Output Contract
         run: vp run test:output:vercel
       - name: Local Provider Run
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
       - run: npm install -g netlify-cli@23.15.1

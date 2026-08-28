@@ -14,6 +14,7 @@ metadata.
 | Proof path | Use it for | Output to inspect |
 | --- | --- | --- |
 | Vite dev server | Definition discovery, server imports, Agent streams, and local providers | Terminal output, CLI behavior, and resolved Agent metadata |
+| ViteHub Console | Discovered Agents, retained sessions, search, invocation events, and provider usage | `/_vitehub` and the configured Agent Invocation store |
 | ViteHub CLI | Package-owned command workflows such as Agent Evals and Provision | CLI exit code, concise output, optional JSON files |
 | Generated files | Registries, generated env access, deployment output, and provision state | `.vitehub/**`, `.vercel/output/**`, `dist/**`, or provider config files |
 | Application tests | Server API behavior and application regressions | Test output and application fixtures |
@@ -51,8 +52,9 @@ packages and selected host determine which files appear.
 ## Inspect interactive Agent behaviour
 
 Use [the ViteHub CLI](/docs/development/cli) to inspect Agent metadata or run an
-Agent locally. The [Agents overview](/docs/agents) links to registration,
-invocation, and deployment details.
+Agent locally. Enable the [ViteHub Console](/docs/development/console) when you
+need retained session search and invocation event inspection in a browser. The
+[Agents overview](/docs/agents) links to registration, invocation, and deployment details.
 
 ## Verify before deploy
 
@@ -68,6 +70,7 @@ pnpm build
 ## Next steps
 
 - Open [CLI](/docs/development/cli) for command-owned proof paths.
+- Open [Console](/docs/development/console) to inspect retained Agent Invocations in a browser.
 - Open [Agent Evals](/docs/agents/evals) for repeatable Agent behavior checks.
 - Open [Generated files](/docs/development/generated-files) when a Runtime Registry or Provider Output looks wrong.
 - Open [Errors and diagnostics](/docs/reference/errors-diagnostics) for failure families.

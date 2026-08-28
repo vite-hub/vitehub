@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuth } from "../src/server.ts"
+import { handleAuthRequest, requireAuth, requireAuthAccessRoutes } from "../src/server.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -120,5 +120,87 @@ describe("server authentication provider boundaries", () => {
     providerMocks.handler.mockRejectedValueOnce(providerError)
 
     await expect(handleAuthRequest(definition, request)).rejects.toBe(providerError)
+  })
+
+  it("runs route authorization with the authenticated request context", async () => {
+    let allowed = true
+    const authorize = vi.fn(({ request, session, user }) => {
+      expect(request.url).toBe("https://example.com/api/private")
+      expect(session).toEqual({ id: "session-1" })
+      expect(user).toEqual({ id: "user-1", isAdmin: true })
+      return allowed
+    })
+    const accessDefinition = defineAuth({
+      access: {
+        routes: [{ authorize, route: "/api/private" }],
+      },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1", isAdmin: true },
+    })
+
+    await expect(requireAuthAccessRoutes(request, [0], accessDefinition)).resolves.toBeUndefined()
+
+    allowed = false
+    const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition)
+    expect(forbidden?.status).toBe(403)
+    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+    expect(authorize).toHaveBeenCalledTimes(2)
+  })
+
+  it("fails closed when a required route authorization callback is absent at runtime", async () => {
+    const accessDefinition = defineAuth({
+      access: { routes: [{ authorize: undefined, route: "/api/private" }] },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1" },
+    })
+
+    const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition, [0])
+
+    expect(forbidden?.status).toBe(403)
+    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+  })
+
+  it("passes through custom route authorization responses", async () => {
+    const denied = new Response("Admin access required", { status: 403 })
+    const accessDefinition = defineAuth({
+      access: {
+        routes: [{ authorize: () => denied, route: "/api/private" }],
+      },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1" },
+    })
+
+    await expect(requireAuthAccessRoutes(request, [0], accessDefinition)).resolves.toBe(denied)
+  })
+
+  it("requires authorization from every matching access route", async () => {
+    const authorizeAdmin = vi.fn(() => false)
+    const accessDefinition = defineAuth({
+      access: {
+        routes: [
+          "/api/**",
+          { authorize: authorizeAdmin, route: "/api/private" },
+        ],
+      },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValue({
+      session: { id: "session-1" },
+      user: { id: "user-1", isAdmin: false },
+    })
+
+    const forbidden = await requireAuthAccessRoutes(request, [0, 1], accessDefinition)
+
+    expect(forbidden?.status).toBe(403)
+    expect(authorizeAdmin).toHaveBeenCalledOnce()
   })
 })

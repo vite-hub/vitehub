@@ -23,6 +23,8 @@ export default defineAgent({
 })
 ```
 
+The shorthand uses `permissions: 'ask'`. Provider actions request approval unless the Agent Definition opts into another policy.
+
 Use a tagged built-in value when the Driver needs options:
 
 ```ts [server/agents/review.ts]

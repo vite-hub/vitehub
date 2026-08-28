@@ -30,18 +30,3 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
-
-.vitehub-console {
-  height: 100dvh;
-  min-height: 32rem;
-  overflow: hidden;
-}
-
-.vitehub-console [data-slot="invocation"],
-.vitehub-console [data-slot="invocation-inspector"] {
-  height: 100%;
-}
-
-.vitehub-console [data-slot="invocation-inspector"] {
-  border-inline-start: 0;
-}

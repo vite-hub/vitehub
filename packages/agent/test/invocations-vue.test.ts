@@ -84,6 +84,20 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("does not report a successful detail request when no invocation is selected", async () => {
+    const onSuccess = vi.fn();
+    const request = vi.fn();
+    const scope = effectScope();
+    const resource = scope.run(() =>
+      useAgentInvocation(undefined, { immediate: false, onSuccess, request }),
+    )!;
+
+    await expect(resource.refresh()).resolves.toBeUndefined();
+    expect(request).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    scope.stop();
+  });
+
   it("uses the same-origin endpoint with an application requester", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invocations: [] }), {
       headers: { "content-type": "application/json" },
