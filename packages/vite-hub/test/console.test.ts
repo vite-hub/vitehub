@@ -651,7 +651,7 @@ describe("Agent invocation console", () => {
       }`)
       await writeFile(fixture, JSON.stringify(fixtureWithPrototypeData))
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: ["agents"] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -799,7 +799,7 @@ describe("Agent invocation console", () => {
       await writeFile(fixture, JSON.stringify(fixtureDocument("initial")))
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
       const state: ConsoleInvocationRootState = {}
-      const plugin = consoleVitePlugin({ invocationRootState: state })
+      const plugin = consoleVitePlugin({ invocationRootState: state, sections: ["agents"] })
       const config: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
       await callPluginHook(plugin.configResolved, {}, [{ root }])
@@ -1597,7 +1597,7 @@ describe("Agent invocation console", () => {
     const frameworkAgentEntry = createRequire(import.meta.url).resolve("vite-hub/agent")
     await writeFile(
       join(root, "agent-root.ts"),
-      [`import ${JSON.stringify(frameworkAgentEntry)}`, 'export const projectRoot = globalThis[Symbol.for("vitehub.console.project.root")]', ""].join("\n"),
+      [`import ${JSON.stringify(frameworkAgentEntry)}`, 'export const projectRoot = globalThis[Symbol.for("vitehub.console.invocations.root")]', ""].join("\n"),
     )
     let server: Awaited<ReturnType<typeof createServer>> | undefined
 

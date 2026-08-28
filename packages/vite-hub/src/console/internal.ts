@@ -57,6 +57,11 @@ export type ConsoleInvocationScope = {
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
 
+function defaultConsoleInvocationScope(): ConsoleInvocationScope {
+  // SAFETY: ConsoleInvocationScope adds only optional symbol-keyed state to the global object.
+  return globalThis as ConsoleInvocationScope
+}
+
 export function createConsoleInvocationsIdentity(
   projectRoot: string,
   fixture?: string,
@@ -111,7 +116,8 @@ function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
   const registry = value as Partial<ConsoleSectionsByRoot>
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
   return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
-    ? registry as ConsoleSectionsByRoot
+    ? // SAFETY: The preceding checks validate every ConsoleSectionsByRoot member.
+      registry as ConsoleSectionsByRoot
     : undefined
 }
 
@@ -207,7 +213,7 @@ export function releaseConsoleInvocationsBinding(
   if (scope[consoleInvocationsRootKey] === projectRoot) delete scope[consoleInvocationsRootKey]
 }
 
-export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {
+export function resolveConsoleInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
   const root = scope[consoleInvocationsRootKey]
   const registry = processRegistry(scope)
   // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
@@ -243,7 +249,7 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = global
 export function installConsoleInvocationFallback(
   invocations: AgentInvocations,
   projectRoot: string,
-  scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
   identity = projectRoot,
   revision?: string,
 ): void {
@@ -276,7 +282,7 @@ export function installConsoleInvocationFallback(
 export function installConsoleSectionScope(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
-  scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
 ): readonly ConsoleSectionId[] {
   const installed = [...new Set(sections)]
   scope[consoleSectionsRootKey] = projectRoot
@@ -291,7 +297,7 @@ export function installConsoleSectionScope(
   return installed
 }
 
-export function resolveConsoleSections(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): readonly ConsoleSectionId[] {
+export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): readonly ConsoleSectionId[] {
   const root = scope[consoleSectionsRootKey]
   const registry = processRegistry(scope)
   const registered = sectionsByRoot(registry?.[consoleSectionsRegistryKey])
@@ -301,15 +307,14 @@ export function resolveConsoleSections(scope: ConsoleInvocationScope = globalThi
   return (registry?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
 }
 
-export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {
+export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
   return scope[consoleInvocationsRootKey]
 }
 
-export function resolveConsoleInvocationsRoot(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {
+export function resolveConsoleInvocationsRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
   return scope[consoleInvocationsRootKey]
 }
 
-// doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default scope uses only the optional symbol properties declared by ConsoleInvocationScope.
-export function resolveConsoleInvocationsIdentity(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): string | undefined {
+export function resolveConsoleInvocationsIdentity(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
   return scope[consoleInvocationsIdentityKey] ?? scope[consoleInvocationsRootKey]
 }

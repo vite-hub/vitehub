@@ -467,7 +467,7 @@ describe("ViteHub Nuxt integration", () => {
     vi.stubEnv("VITEHUB_CONSOLE_FIXTURE", fixture)
     try {
       const development = createNuxt(true)
-      await viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt)
+      await viteHubNuxtModule({ agent: true, console: true, preset: "node" }, development.nuxt)
 
       const generatedPlugin = nitroPlugins(development.nuxt)[0] ?? ""
       const generated = await readFile(generatedPlugin, "utf8")
