@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
@@ -11,7 +11,7 @@ import { resolve } from 'pathe'
 import { discoverSandboxDefinitions } from '../discovery'
 import { createSandboxFeaturePlan, resolveSandboxFeatureConfig } from '../feature'
 import { getSandboxFeatureProvider } from '../module-types'
-import { pruneSandboxRuntimeGeneration, resolveSandboxRuntimeLinkType } from './runtime-generation'
+import { activateSandboxRuntimeFile, pruneSandboxRuntimeGeneration, resolveSandboxRuntimeLinkType } from './runtime-generation'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
 import type { AgentSandboxConfig } from '../module-types'
@@ -178,23 +178,32 @@ function readResolveOptions(config: unknown): { alias?: unknown } {
     : {}
 }
 
-function createSandboxRuntimeFacadeContents(file: string, runtimeConfig: AgentSandboxConfig | false, registryFile: string) {
+function createSandboxRuntimeFacadeContents(
+  file: string,
+  runtimeConfig: AgentSandboxConfig | false,
+  registryFile: string,
+  providerLoaderFile?: string,
+) {
   const stateFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
   const packageIndexFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js')
 
   return [
     `import sandboxRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    ...(providerLoaderFile
+      ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
+      : []),
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, stateFile))}`,
     '',
     `setSandboxRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
+    'export default sandboxRegistry',
     `export * from ${JSON.stringify(createImportPath(file, packageIndexFile))}`,
     '',
   ].join('\n')
 }
 
-function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): AliasMap {
+function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan, platform = process.platform): AliasMap {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
   const artifactPaths = new Map((plan.artifacts || []).map(artifact => [artifact.key, resolve(generatedDir, artifact.filename)]))
   const aliases: AliasMap = {
@@ -204,6 +213,11 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
   for (const alias of plan.aliases || []) {
     if (alias.value) {
       aliases[alias.key] = alias.value
+      continue
+    }
+    if (platform === 'win32' && alias.artifactKey) {
+      // One replaceable file keeps every runtime entry on the same immutable generation.
+      aliases[alias.key] = plan.manifest.aliasPath
       continue
     }
     if (alias.artifactKey && artifactPaths.has(alias.artifactKey))
@@ -216,7 +230,8 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
 async function writeSandboxArtifacts(
   rootDir: string,
   plan: FeatureRuntimePlan,
-  createFacadeContents: (file: string, registryFile: string) => string,
+  createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
+  platform = process.platform,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
   const generationsDir = resolve(generatedDir, '.runtime-generations')
@@ -235,7 +250,9 @@ async function writeSandboxArtifacts(
 
   try {
     for (const artifact of plan.artifacts || []) {
-      const dst = resolve(generatedDir, artifact.filename)
+      const stableDst = resolve(generatedDir, artifact.filename)
+      const relativePath = stableDst.slice(runtimeDir.length + 1)
+      const dst = platform === 'win32' ? resolve(generationDir, relativePath) : stableDst
       const contents = artifact.contents ?? await artifact.getContents?.(emitted)
       if (typeof contents !== 'string')
         throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
@@ -246,33 +263,45 @@ async function writeSandboxArtifacts(
     if (typeTemplate)
       await writeFileIfChanged(resolve(generationDir, typeTemplate.filename.replace(/^runtime\//, '')), typeTemplate.contents)
     for (const artifact of emitted.values()) {
-      const relativePath = artifact.dst.slice(runtimeDir.length + 1)
+      const relativePath = platform === 'win32'
+        ? artifact.dst.slice(generationDir.length + 1)
+        : artifact.dst.slice(runtimeDir.length + 1)
       await writeFileIfChanged(resolve(generationDir, relativePath), artifact.contents)
     }
     const generationFacadeFile = resolve(generationDir, 'sandbox.mjs')
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     if (!registryArtifact)
       throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
-    const generationRegistryFile = resolve(generationDir, registryArtifact.dst.slice(runtimeDir.length + 1))
-    await writeFileIfChanged(generationFacadeFile, createFacadeContents(generationFacadeFile, generationRegistryFile))
-    if (process.platform === 'win32') {
+    const generationRegistryFile = platform === 'win32'
+      ? registryArtifact.dst
+      : resolve(generationDir, registryArtifact.dst.slice(runtimeDir.length + 1))
+    const providerLoaderArtifact = emitted.get('sandbox-provider-loader')
+    const generationProviderLoaderFile = !providerLoaderArtifact
+      ? undefined
+      : platform === 'win32'
+        ? providerLoaderArtifact.dst
+        : resolve(generationDir, providerLoaderArtifact.dst.slice(runtimeDir.length + 1))
+    await writeFileIfChanged(
+      generationFacadeFile,
+      createFacadeContents(generationFacadeFile, generationRegistryFile, generationProviderLoaderFile),
+    )
+    if (platform === 'win32') {
       await mkdir(runtimeDir, { recursive: true })
       if (typeTemplate) {
         const relativePath = typeTemplate.filename.replace(/^runtime\//, '')
-        await copyFile(resolve(generationDir, relativePath), resolve(runtimeDir, relativePath))
-      }
-      for (const artifact of emitted.values()) {
-        const relativePath = artifact.dst.slice(runtimeDir.length + 1)
-        await mkdir(resolve(artifact.dst, '..'), { recursive: true })
-        await copyFile(resolve(generationDir, relativePath), artifact.dst)
+        const stagedType = resolve(generatedDir, `.runtime-types-${generationDir.slice(generationsDir.length + 1)}.d.ts`)
+        await activateSandboxRuntimeFile(
+          resolve(generationDir, relativePath),
+          resolve(runtimeDir, relativePath),
+          stagedType,
+        )
       }
       const stagedFacade = resolve(generatedDir, `.runtime-facade-${generationDir.slice(generationsDir.length + 1)}.mjs`)
-      await copyFile(generationFacadeFile, stagedFacade)
-      await rename(stagedFacade, resolve(runtimeDir, 'sandbox.mjs'))
+      await activateSandboxRuntimeFile(generationFacadeFile, resolve(runtimeDir, 'sandbox.mjs'), stagedFacade)
       activated = true
     }
     else {
-      await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(process.platform))
+      await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(platform))
 
       try {
         await rename(stagedLink, runtimeDir)
@@ -310,7 +339,7 @@ async function writeSandboxArtifacts(
       await rm(generationDir, { recursive: true, force: true })
   }
 
-  const previousWindowsGeneration = process.platform === 'win32' && existingGenerations.length
+  const previousWindowsGeneration = platform === 'win32' && existingGenerations.length
     ? resolve(generationsDir, existingGenerations.at(-1)!)
     : undefined
   const retained = new Set([
@@ -394,7 +423,12 @@ export async function prepareSandboxRuntime(options: {
   const emitted = await writeSandboxArtifacts(
     rootDir,
     plan,
-    (file, registryFile) => createSandboxRuntimeFacadeContents(file, context.runtimeConfig.sandbox, registryFile),
+    (file, registryFile, providerLoaderFile) => createSandboxRuntimeFacadeContents(
+      file,
+      context.runtimeConfig.sandbox,
+      registryFile,
+      providerLoaderFile,
+    ),
   )
   return {
     aliases,
