@@ -247,6 +247,29 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it("updates an escaped basic quoted credential-store key", async () => {
+    const profile = `provider-escaped-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = '"cli_auth_credentials_\\u0073tore" = "keyring"\nmodel = "gpt-5.6"\n'
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-escaped-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\nmodel = "gpt-5.6"\n')
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
   it("rejects a symlinked named-profile config without changing its target", async () => {
     const profile = `provider-config-symlink-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
@@ -2216,6 +2239,46 @@ cli_auth_credentials_store = "keyring"
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
     }
     finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("releases a named credential profile when only Capability cleanup stalls", async () => {
+    vi.useFakeTimers()
+    let client: McpClient | undefined
+    try {
+      const threadId = "thread-profile-tool-cleanup-timeout"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onSendTurn(mcp) {
+          client = new McpClient({ name: "provider-test", version: "1" })
+          const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+            requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+          })
+          await client.connect(transport)
+          void client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
+          await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+        },
+      })
+      const execute = vi.fn(() => new Promise(() => {}))
+      const options = {
+        credentialProfile: `tool-cleanup-timeout-${crypto.randomUUID()}`,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      const result = createProviderAgentAdapter(options).generate(context(threadId, {
+        tools: { stalled: { execute, name: "stalled" } },
+      }) as never)
+
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(result).resolves.toBeDefined()
+
+      runtime(`${threadId}-next`, [event("turn.completed", `${threadId}-next`, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).resolves.toBeDefined()
+    }
+    finally {
+      await client?.close().catch(() => undefined)
       vi.useRealTimers()
     }
   })

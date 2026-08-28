@@ -249,7 +249,18 @@ function codexFileCredentialStoreConfig(config: string): string {
   for (const [index, line] of lines.entries()) {
     if (!multiline) {
       if (/^\s*\[/.test(line)) break
-      if (/^\s*(?:cli_auth_credentials_store|"cli_auth_credentials_store"|'cli_auth_credentials_store')\s*=/.test(line)) {
+      const key = line.match(/^\s*(cli_auth_credentials_store|'cli_auth_credentials_store'|"(?:\\.|[^"\\])*")\s*=/)?.[1]
+      const decodedKey = key?.startsWith('"')
+        ? (() => {
+            try {
+              return JSON.parse(key) as unknown
+            }
+            catch {
+              return undefined
+            }
+          })()
+        : key?.startsWith("'") ? key.slice(1, -1) : key
+      if (decodedKey === "cli_auth_credentials_store") {
         const newline = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : ""
         lines[index] = `${assignment}${newline}`
         return lines.join("")
@@ -1578,9 +1589,13 @@ async function* runProvider<
     let cleanupTimedOut = false
     let invocationCleanupDeferred: Promise<void> | undefined
     let forcedRootCleanup: Promise<void> | undefined
+    let runtimeCleanupSettled = runtimeCleanupDeferred
     const cleanupTask = (async () => {
+      const runtimeCleanup = runtimeCleanupDeferred
+        ? Promise.resolve(undefined)
+        : Promise.resolve().then(() => runtime?.close()).finally(() => runtimeCleanupSettled = true)
       const runtimeAndToolCleanup = await Promise.allSettled([
-        runtimeCleanupDeferred ? undefined : runtime?.close(),
+        runtimeCleanup,
         toolServer?.close(),
       ])
       for (const result of runtimeAndToolCleanup) {
@@ -1645,7 +1660,7 @@ async function* runProvider<
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
         try {
-          await releaseCodexCredentialHome(error)
+          await releaseCodexCredentialHome(runtimeCleanupSettled ? undefined : error)
         }
         catch (releaseError) {
           cleanupErrors.push(releaseError)
