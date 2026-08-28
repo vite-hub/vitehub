@@ -40,6 +40,22 @@ it("keeps the activated registry when a retained generation evaluates later", as
   expect(loadRetained).not.toHaveBeenCalled()
 })
 
+it("does not load a removed definition through a retained registry", async () => {
+  const scope = join(tmpdir(), "vitehub-sandbox-removed-runtime", "sandbox.mjs")
+  const loadRetained = vi.fn(async () => ({ default: { bundle: { entry: "retained.mjs", modules: {} } } }))
+  const retainedRegistry = createGeneratedSandboxRuntimeRegistry(scope, {
+    removed: { load: loadRetained, stablePath: "retained.mjs" },
+  })
+  const activeRegistry = createGeneratedSandboxRuntimeRegistry(scope, {})
+  setSandboxRuntimeRegistry(activeRegistry)
+
+  const loadRemovedDefinition = retainedRegistry.removed
+  if (typeof loadRemovedDefinition !== "function")
+    throw new TypeError("Expected a retained Sandbox Definition loader.")
+  await expect(loadRemovedDefinition()).rejects.toThrow('Sandbox definition "removed" is no longer generated')
+  expect(loadRetained).not.toHaveBeenCalled()
+})
+
 it("resolves the active Windows generation when a retained registry generation was pruned", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-state-"))
   tempDirs.push(root)

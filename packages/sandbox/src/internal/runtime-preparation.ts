@@ -16,6 +16,7 @@ import {
   markSandboxRuntimeGeneration,
   pruneSandboxRuntimeGeneration,
   readSandboxRuntimeGeneration,
+  restoreSandboxRuntimeGeneration,
   resolveSandboxRuntimeFacadeImportBase,
   resolveSandboxRuntimeLinkType,
   type SandboxRuntimeGenerationLease,
@@ -366,7 +367,7 @@ async function writeSandboxArtifactsLocked(
         }
         catch (activationError) {
           try {
-            await rename(legacyRuntimeDir, runtimeDir)
+            await restoreSandboxRuntimeGeneration(legacyRuntimeDir, runtimeDir, lease)
           }
           catch (rollbackError) {
             throw new AggregateError(

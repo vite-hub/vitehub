@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { basename, resolve } from 'pathe'
@@ -236,6 +236,9 @@ async function retireSandboxRuntimeGenerationLock(
     if (!isSameSandboxRuntimeGenerationLock(observation, current))
       return
     await markReleased()
+    const released = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+    if (!isSameSandboxRuntimeGenerationLockDirectory(observation, released))
+      return
     const retiredDir = `${lockDir}.released-${randomUUID()}`
     retired = await retireLock(lockDir, retiredDir).then(() => true, (error) => {
       if (readNodeErrorCode(error) === 'ENOENT')
@@ -497,6 +500,27 @@ export async function activateSandboxRuntimeFile(
   finally {
     await operations.rm(staged, { force: true }).catch(() => {})
   }
+}
+
+export async function restoreSandboxRuntimeGeneration(
+  previousRuntime: string,
+  activeRuntime: string,
+  lease: SandboxRuntimeGenerationLease,
+  move: typeof rename = rename,
+): Promise<void> {
+  await lease.assertOwned()
+  const activeRuntimeExists = await lstat(activeRuntime).then(
+    () => true,
+    (error) => {
+      if (readNodeErrorCode(error) === 'ENOENT')
+        return false
+      throw error
+    },
+  )
+  if (activeRuntimeExists)
+    throw new Error(`[vitehub] Sandbox runtime changed during activation; the previous runtime is retained at ${previousRuntime}.`)
+  await lease.assertOwned()
+  await move(previousRuntime, activeRuntime)
 }
 
 export function resolveSandboxRuntimeLinkType(platform: NodeJS.Platform): 'dir' | 'junction' {

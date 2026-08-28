@@ -9,6 +9,7 @@ import {
   markSandboxRuntimeGeneration,
   pruneSandboxRuntimeGeneration,
   readSandboxRuntimeGeneration,
+  restoreSandboxRuntimeGeneration,
   resolveSandboxRuntimeFacadeImportBase,
   resolveSandboxRuntimeLinkType,
   withSandboxRuntimeGenerationLock,
@@ -76,6 +77,44 @@ describe("Sandbox runtime preparation", () => {
 
     await activateSandboxRuntimeFile(source, target, staged)
     await expect(readFile(target, "utf8")).resolves.toContain("next")
+  })
+
+  it("does not restore an older runtime after generation ownership is lost", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const previous = join(root, "previous")
+    const active = join(root, "runtime")
+    await writeFile(previous, "previous\n")
+    await writeFile(active, "successor\n")
+    const move = vi.fn(rename)
+    const lease = {
+      assertOwned: vi.fn(async () => {
+        throw new Error("Lost ownership")
+      }),
+    }
+
+    await expect(restoreSandboxRuntimeGeneration(previous, active, lease, move)).rejects.toThrow("Lost ownership")
+
+    expect(move).not.toHaveBeenCalled()
+    await expect(readFile(active, "utf8")).resolves.toBe("successor\n")
+    await expect(readFile(previous, "utf8")).resolves.toBe("previous\n")
+  })
+
+  it("does not replace a successor while restoring an older runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const previous = join(root, "previous")
+    const active = join(root, "runtime")
+    await writeFile(previous, "previous\n")
+    await writeFile(active, "successor\n")
+    const move = vi.fn(rename)
+    const lease = { assertOwned: vi.fn(async () => {}) }
+
+    await expect(restoreSandboxRuntimeGeneration(previous, active, lease, move)).rejects.toThrow("runtime changed during activation")
+
+    expect(move).not.toHaveBeenCalled()
+    await expect(readFile(active, "utf8")).resolves.toBe("successor\n")
+    await expect(readFile(previous, "utf8")).resolves.toBe("previous\n")
   })
 
   it("does not reject an activated refresh when generation pruning fails", async () => {
@@ -267,6 +306,50 @@ describe("Sandbox runtime preparation", () => {
     await successorStarted
 
     continueRemoval()
+    await expect(first).resolves.toBe("first")
+    await expect(readFile(join(lockDir, "owner.json"), "utf8")).resolves.toContain("token")
+    releaseSuccessor()
+    await expect(second).resolves.toBe("second")
+  })
+
+  it("does not retire a successor after the release claim expires", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    let continueRelease!: () => void
+    let markReleaseStarted!: () => void
+    let markSuccessorStarted!: () => void
+    let releaseSuccessor!: () => void
+    const releaseStarted = new Promise<void>((resolve) => { markReleaseStarted = resolve })
+    const releaseContinued = new Promise<void>((resolve) => { continueRelease = resolve })
+    const successorStarted = new Promise<void>((resolve) => { markSuccessorStarted = resolve })
+    const successorReleased = new Promise<void>((resolve) => { releaseSuccessor = resolve })
+    let releaseWrites = 0
+
+    const first = withSandboxRuntimeGenerationLock(root, async () => "first", {
+      host: "remote-host",
+      writeReleasedOwner: async (file, value) => {
+        releaseWrites += 1
+        if (releaseWrites === 1) {
+          markReleaseStarted()
+          await releaseContinued
+        }
+        await file.write(value, 0, "utf8")
+        await file.truncate(Buffer.byteLength(value))
+      },
+    })
+    await releaseStarted
+    await rm(join(lockDir, ".reclaim"), { force: true })
+
+    const second = withSandboxRuntimeGenerationLock(root, async (lease) => {
+      markSuccessorStarted()
+      await successorReleased
+      await expect(lease.assertOwned()).resolves.toBeUndefined()
+      return "second"
+    })
+    await successorStarted
+    continueRelease()
+
     await expect(first).resolves.toBe("first")
     await expect(readFile(join(lockDir, "owner.json"), "utf8")).resolves.toContain("token")
     releaseSuccessor()

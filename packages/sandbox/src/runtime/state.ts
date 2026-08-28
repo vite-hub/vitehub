@@ -47,7 +47,8 @@ export function createGeneratedSandboxRuntimeRegistry(
   registry: GeneratedSandboxRuntimeRegistry,
 ): SandboxRuntimeRegistry {
   const runtimeRegistry = Object.fromEntries(Object.keys(registry).map(name => [name, async () => {
-    const entry = generatedRegistries.get(scope)?.[name] ?? registry[name]
+    const activeRegistry = generatedRegistries.get(scope)
+    const entry = activeRegistry === undefined ? registry[name] : activeRegistry[name]
     if (!entry)
       throw new Error(`[vitehub] Sandbox definition "${name}" is no longer generated.`)
     try {
