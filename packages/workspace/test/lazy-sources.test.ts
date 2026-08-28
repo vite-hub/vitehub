@@ -1043,6 +1043,37 @@ describe("lazy sources", () => {
     expect(attempts).toBe(2)
   })
 
+  it("reprepares a persistent Source after prepared materialization fails", async () => {
+    const clients = new WeakMap<object, { keys: string[] }>()
+    let failMaterialization = true
+    const prepare = vi.fn(async (context: SourceContext) => {
+      clients.set(context, { keys: ["current.md"] })
+    })
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      prepare,
+      async getKeys(context: SourceContext) {
+        if (failMaterialization) {
+          failMaterialization = false
+          throw new Error("temporary materialization failure")
+        }
+        return clients.get(context)?.keys || []
+      },
+      async getItem(key: string) {
+        return { key, path: key, content: "# Current\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({ name: "prepared-materialization-retry", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ error: "temporary materialization failure", status: "error" }],
+    })
+    await expect(view.readFile("docs/current.md", { encoding: "utf8" })).resolves.toBe("# Current\n")
+    expect(prepare).toHaveBeenCalledTimes(2)
+    expect(prepare.mock.calls[1]?.[0]).not.toBe(prepare.mock.calls[0]?.[0])
+  })
+
   it("keeps full cache-hit aggregates after scoped materialization", async () => {
     const files = new Map([["a.md", "# A\n"]])
     const view = createWorkspaceSourceView({
