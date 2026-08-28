@@ -2,6 +2,7 @@ import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
 import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import { toTemplateSafeName } from './internal/shared/feature-definitions'
+import { createFileImportSpecifier } from './internal/shared/file-import-specifier'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import type { FeatureManifest, FeatureRuntimePlan, GeneratedArtifact } from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
@@ -125,14 +126,16 @@ function createSandboxRegistryContents(
   runtimeStatePath: string,
   scope: string,
 ) {
+  const runtimeStateSpecifier = createFileImportSpecifier(runtimeStatePath)
+  const scopeSpecifier = createFileImportSpecifier(scope)
   return [
-    `import { createGeneratedSandboxRuntimeRegistry } from ${JSON.stringify(runtimeStatePath)}`,
+    `import { createGeneratedSandboxRuntimeRegistry } from ${JSON.stringify(runtimeStateSpecifier)}`,
     '',
-    `const registry = createGeneratedSandboxRuntimeRegistry(${JSON.stringify(scope)}, {`,
+    `const registry = createGeneratedSandboxRuntimeRegistry(${JSON.stringify(scopeSpecifier)}, {`,
     ...definitions.map(definition => [
       `  ${JSON.stringify(definition.name)}: {`,
-      `    load: async () => import(${JSON.stringify(definition.definitionModulePath)}),`,
-      `    stablePath: ${JSON.stringify(definition.stableDefinitionModulePath)},`,
+      `    load: async () => import(${JSON.stringify(createFileImportSpecifier(definition.definitionModulePath))}),`,
+      `    stablePath: ${JSON.stringify(createFileImportSpecifier(definition.stableDefinitionModulePath))},`,
       '  },',
     ].join('\n')),
     '})',
@@ -152,7 +155,7 @@ export function createSandboxProviderLoaderContents(
     `runtime/providers/${provider}.js`,
   )
   return [
-    `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(providerLoaderPath)}`,
+    `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(createFileImportSpecifier(providerLoaderPath))}`,
     '',
     'export async function loadSandboxRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,

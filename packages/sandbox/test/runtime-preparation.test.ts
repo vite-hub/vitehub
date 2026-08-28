@@ -13,7 +13,7 @@ import {
   resolveSandboxRuntimeLinkType,
   withSandboxRuntimeGenerationLock,
 } from "../src/internal/runtime-generation.ts"
-import { createSandboxRuntimePackageImportSpecifier } from "../src/internal/runtime-preparation.ts"
+import { createFileImportSpecifier } from "../src/internal/shared/file-import-specifier.ts"
 
 const tempDirs: string[] = []
 
@@ -28,10 +28,10 @@ describe("Sandbox runtime preparation", () => {
     const moduleFile = join(root, "state.mjs")
     await writeFile(moduleFile, "export const ready = true\n")
 
-    const specifier = createSandboxRuntimePackageImportSpecifier(moduleFile, "win32")
+    const specifier = createFileImportSpecifier(moduleFile, "win32")
     expect(specifier).toMatch(/^file:\/\//)
     await expect(import(specifier)).resolves.toMatchObject({ ready: true })
-    expect(createSandboxRuntimePackageImportSpecifier(
+    expect(createFileImportSpecifier(
       String.raw`C:\repo\node_modules\@vite-hub\sandbox\dist\runtime\state.js`,
       "win32",
     )).toBe("file:///C:/repo/node_modules/@vite-hub/sandbox/dist/runtime/state.js")

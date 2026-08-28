@@ -1,6 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
-import { pathToFileURL } from 'node:url'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
@@ -22,6 +21,7 @@ import {
   type SandboxRuntimeGenerationLease,
   withSandboxRuntimeGenerationLock,
 } from './runtime-generation'
+import { createFileImportSpecifier } from './shared/file-import-specifier'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
 import type { AgentSandboxConfig } from '../module-types'
@@ -188,13 +188,6 @@ function readResolveOptions(config: unknown): { alias?: unknown } {
     : {}
 }
 
-export function createSandboxRuntimePackageImportSpecifier(
-  file: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  return pathToFileURL(file, { windows: platform === 'win32' }).href
-}
-
 function createSandboxRuntimeFacadeContents(
   file: string,
   runtimeConfig: AgentSandboxConfig | false,
@@ -210,13 +203,13 @@ function createSandboxRuntimeFacadeContents(
     ...(providerLoaderFile
       ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
       : []),
-    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createSandboxRuntimePackageImportSpecifier(stateFile, platform))}`,
+    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createFileImportSpecifier(stateFile, platform))}`,
     '',
     `setSandboxRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
     'export default sandboxRegistry',
-    `export * from ${JSON.stringify(createSandboxRuntimePackageImportSpecifier(packageIndexFile, platform))}`,
+    `export * from ${JSON.stringify(createFileImportSpecifier(packageIndexFile, platform))}`,
     '',
   ].join('\n')
 }

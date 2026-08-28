@@ -189,6 +189,11 @@ describe("hubSandbox", () => {
     expect(facade).toContain('from "./sandbox-provider-loader.mjs"')
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("resolveSandboxBox")
+    const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
+    if (!providerRuntimeSpecifier)
+      throw new Error("Expected the generated provider loader to import its runtime.")
+    expect(providerRuntimeSpecifier).toMatch(/^file:/)
+    await expect(realpath(fileURLToPath(providerRuntimeSpecifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)\/runtime\/providers\/vercel/)
     expect(providerLoader).not.toContain("createSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
@@ -1266,11 +1271,11 @@ describe("hubSandbox", () => {
     const previousResolvedSandbox = await realpath(sandboxAlias)
     const previousResolvedRegistry = await realpath(registryAlias)
     const previousResolvedDefinition = await realpath(definitionArtifact)
-    const previousRegistryModule: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(previousResolvedRegistry).href)
-    const loadPreviousDefinition = previousRegistryModule.default["tools/release-notes"]
+    const previousFacadeModule: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(previousResolvedSandbox).href)
+    const loadPreviousDefinition = previousFacadeModule.default["tools/release-notes"]
     if (!loadPreviousDefinition)
       throw new Error("Expected the previous sandbox registry to contain tools/release-notes.")
-    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(previousResolvedDefinition))
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(pathToFileURL(previousResolvedDefinition).href))
     const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
     const invalidated: string[] = []
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
@@ -1316,9 +1321,9 @@ describe("hubSandbox", () => {
       await realpath(registryAlias),
       currentResolvedDefinition,
     ]))
-    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(previousResolvedDefinition))
-    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.not.toContain(JSON.stringify(currentResolvedDefinition))
-    await expect(readFile(await realpath(registryAlias), "utf8")).resolves.toContain(JSON.stringify(currentResolvedDefinition))
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(pathToFileURL(previousResolvedDefinition).href))
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.not.toContain(JSON.stringify(pathToFileURL(currentResolvedDefinition).href))
+    await expect(readFile(await realpath(registryAlias), "utf8")).resolves.toContain(JSON.stringify(pathToFileURL(currentResolvedDefinition).href))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
 
     await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
@@ -1456,10 +1461,10 @@ describe("hubSandbox", () => {
     if (!previousGeneration)
       throw new Error("Expected the initial Windows runtime generation to exist.")
     const previousDefinition = join(generationsDir, previousGeneration, "sandbox-definitions/tools__release-notes.mjs")
-    const previousRegistryModule: { default: Record<string, () => Promise<unknown>> } = await import(
-      pathToFileURL(join(generationsDir, previousGeneration, "sandbox-registry.mjs")).href,
+    const previousFacadeModule: { default: Record<string, () => Promise<unknown>> } = await import(
+      pathToFileURL(join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs")).href,
     )
-    const loadPreviousDefinition = previousRegistryModule.default["tools/release-notes"]
+    const loadPreviousDefinition = previousFacadeModule.default["tools/release-notes"]
     if (!loadPreviousDefinition)
       throw new Error("Expected the previous Windows registry to contain tools/release-notes.")
     await expect(readFile(stableDefinition, "utf8")).resolves.toContain("release-notes")
@@ -1472,6 +1477,15 @@ describe("hubSandbox", () => {
 
     await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(stableDefinition, "utf8")).resolves.toContain("latest")
+    const activeFacade = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs"), "utf8")
+    const activeGeneration = activeFacade.match(/^\/\/ vitehub-sandbox-generation: (runtime-[^\n]+)/)?.[1]
+    if (!activeGeneration)
+      throw new Error("Expected the active Windows runtime facade to identify its generation.")
+    const activeRegistry = await readFile(join(generationsDir, activeGeneration, "sandbox-registry.mjs"), "utf8")
+    expect(activeRegistry).toMatch(/from "file:/)
+    expect(activeRegistry).toMatch(/load: async \(\) => import\("file:/)
+    expect(activeRegistry).toMatch(/stablePath: "file:/)
+    await rm(stableDefinition)
     await expect(loadPreviousDefinition()).resolves.toBeDefined()
   })
 
