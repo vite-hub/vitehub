@@ -22,6 +22,7 @@ import {
   isPropertyAssignment,
   isReturnStatement,
   isShorthandPropertyAssignment,
+  isSourceFile,
   isSpreadAssignment,
   isStringLiteralLike,
   isSatisfiesExpression,
@@ -111,26 +112,41 @@ function envCalls(source: string) {
 }
 
 function sectionObjects(sourceFile: Node) {
-  const bindings = new Map<string, Expression>();
+  const bindings = new Map<Node, Map<string, Expression>>();
   const configBindings = new Set(["defineConfig"]);
+  const configNamespaces = new Set<string>();
   const sections = new Map<Node, "define" | "public">();
+
+  function bindingScope(node: Node) {
+    for (let current = node.parent; current; current = current.parent) {
+      if (isBlock(current) || isSourceFile(current)) return current;
+    }
+    return sourceFile;
+  }
 
   function collectBindings(node: Node) {
     if (
       isImportDeclaration(node) &&
       isStringLiteralLike(node.moduleSpecifier) &&
       node.moduleSpecifier.text === "vite" &&
-      node.importClause?.namedBindings &&
-      isNamedImports(node.importClause.namedBindings)
+      node.importClause?.namedBindings
     ) {
-      for (const element of node.importClause.namedBindings.elements) {
-        if ((element.propertyName ?? element.name).text === "defineConfig") {
-          configBindings.add(element.name.text);
+      const namedBindings = node.importClause.namedBindings;
+      if (isNamespaceImport(namedBindings)) {
+        configNamespaces.add(namedBindings.name.text);
+      } else if (isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements) {
+          if ((element.propertyName ?? element.name).text === "defineConfig") {
+            configBindings.add(element.name.text);
+          }
         }
       }
     }
     if (isVariableDeclaration(node) && isIdentifier(node.name) && node.initializer) {
-      bindings.set(node.name.text, node.initializer);
+      const scope = bindingScope(node);
+      const scopeBindings = bindings.get(scope) ?? new Map<string, Expression>();
+      scopeBindings.set(node.name.text, node.initializer);
+      bindings.set(scope, scopeBindings);
     }
     forEachChild(node, collectBindings);
   }
@@ -173,7 +189,12 @@ function sectionObjects(sourceFile: Node) {
       return returned.flatMap((value) => resolveObjects(value, new Set(seen)));
     }
     if (!isIdentifier(expression) || seen.has(expression.text)) return [];
-    const initializer = bindings.get(expression.text);
+    let initializer: Expression | undefined;
+    for (let current: Node | undefined = expression; current; current = current.parent) {
+      if (!isBlock(current) && !isSourceFile(current)) continue;
+      initializer = bindings.get(current)?.get(expression.text);
+      if (initializer) break;
+    }
     return initializer ? resolveObjects(initializer, new Set(seen).add(expression.text)) : [];
   }
 
@@ -225,8 +246,11 @@ function sectionObjects(sourceFile: Node) {
   function collectSections(node: Node) {
     if (
       isCallExpression(node) &&
-      isIdentifier(node.expression) &&
-      configBindings.has(node.expression.text)
+      ((isIdentifier(node.expression) && configBindings.has(node.expression.text)) ||
+        (isPropertyAccessExpression(node.expression) &&
+          isIdentifier(node.expression.expression) &&
+          configNamespaces.has(node.expression.expression.text) &&
+          node.expression.name.text === "defineConfig"))
     ) {
       if (node.arguments[0]) collectConfig(node.arguments[0]);
     } else if (isExportAssignment(node)) {
@@ -409,6 +433,34 @@ defineConfig({ env: { ...shared } })
 \`\`\`ts
 import { defineConfig as viteConfig } from "vite"
 viteConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+  });
+
+  it("follows namespace-imported Vite config helpers", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import * as vite from "vite"
+vite.defineConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+  });
+
+  it("resolves configuration objects through lexical bindings", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const publicEnv = { appName: env({ mode: "runtime" }) }
+defineConfig({ env: { public: publicEnv } })
+function unrelated() {
+  const publicEnv = { appName: env({ mode: "build" }) }
+  return publicEnv
+}
 \`\`\`
     `);
 
