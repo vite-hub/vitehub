@@ -43,7 +43,7 @@ export default async function retry<T>(
       return result
     }
     catch (error) {
-      if (bailError !== undefined || (error && typeof error === "object" && Reflect.get(error, "bail")) || Number.isNaN(retries)) throw error
+      if (bailError !== undefined || Reflect.get(Object(error), "bail") || Number.isNaN(retries)) throw error
       errors.push(error)
       if (attempt > retries) throw mainError()
       options.onRetry?.(error, attempt)
