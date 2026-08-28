@@ -389,7 +389,7 @@ export type WorkspaceSourceResolver<
   TScopeName extends string = WorkspaceScopeName,
 > = (context: WorkspaceSourceResolutionContext<TContextMap, TScopeName>) => MaybePromise<WorkspaceSourceResolutionResult>
 
-export type WorkspaceMaterializeMode = "build" | "lazy" | "none"
+export type WorkspaceMaterializeMode = "build" | "startup" | "lazy" | "none"
 
 export type WorkspaceValidateMode = false | "request"
 
@@ -547,6 +547,7 @@ export interface WorkspaceLoaderSource extends WorkspaceSource {
 }
 
 export interface LoaderContext {
+  abortSignal?: AbortSignal
   workspace: string
   rootDir: string
   sourceRootDir?: string
@@ -565,6 +566,7 @@ export interface WorkspaceLoader {
 }
 
 export interface PublishContext {
+  abortSignal?: AbortSignal
   durable: boolean
   workspace: WorkspaceDefinition
   store: WorkspaceStore

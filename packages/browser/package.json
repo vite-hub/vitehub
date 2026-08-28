@@ -57,7 +57,6 @@
     "@vite-hub/runtime": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/playwright": "catalog:browser",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "playwright-core": "catalog:browser",
