@@ -420,7 +420,7 @@ function runtimePackageResolutionPlugin(
       build.onResolve({ filter: /.*/ }, async (args) => {
         const name = packageNameFromSpecifier(args.path)
         if (!name || aliases?.some((alias) => {
-          if (typeof alias.find === "string") return args.path === alias.find || args.path.startsWith(`${alias.find}/`)
+          if (!(alias.find instanceof RegExp)) return args.path === alias.find || args.path.startsWith(`${alias.find}/`)
           alias.find.lastIndex = 0
           const matches = alias.find.test(args.path)
           alias.find.lastIndex = 0
@@ -834,11 +834,15 @@ export async function finalizeDenoDeploymentOutput(
         rootDir: options.rootDir,
         workingDir: options.rootDir,
       })
+      const applicationBundle = await readFile(temporaryApplicationOutput, "utf8")
       assertSupportedRelocatedImports(
-        await readFile(temporaryApplicationOutput, "utf8"),
+        applicationBundle,
         "application entrypoint",
         ["./schedule/deno-cron.mjs", "./server/index.mjs"],
       )
+      if (!findLiteralDynamicImports(maskInertImportText(applicationBundle)).some(({ specifier }) => specifier === "./schedule/deno-cron.mjs")) {
+        throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./schedule/deno-cron.mjs".')
+      }
       await rename(temporaryApplicationOutput, applicationOutput)
     }
     finally {
@@ -847,6 +851,7 @@ export async function finalizeDenoDeploymentOutput(
     entrypoint = "main.ts"
   }
   catch (error) {
+    // SAFETY: filesystem access and cleanup failures expose Node's optional error code.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     if (hasSchedule) {
       throw new Error('Deno Schedule output requires a project-root "main.ts" application entrypoint.', { cause: error })

@@ -264,6 +264,20 @@ import "real"
     )
   })
 
+  it("rejects application entrypoints that do not load staged Deno Schedule output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-missing-schedule-import-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./server/index.mjs")\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+      'application entrypoint to import "./schedule/deno-cron.mjs"',
+    )
+    expect(existsSync(join(root, ".output/main.ts"))).toBe(false)
+  })
+
   it("rejects computed local imports in relocated Schedule bundles", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-schedule-"))
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -361,7 +375,7 @@ import "real"
     await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
 
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import "#server-only"\n', "utf8")
-    await writeFile(join(root, "main.ts"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
     await writeFile(join(root, "server.ts"), "void 0\n", "utf8")
     const alias = [
       { customResolver: true, find: "#client-only", replacement: join(root, "client.ts") },

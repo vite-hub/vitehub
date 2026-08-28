@@ -65,8 +65,9 @@ async function expectDenoLauncherToStart(appRoot: string) {
     server.once("error", reject)
     server.listen(0, "127.0.0.1", resolve)
   })
-  const address = server.address()
-  if (!address || typeof address === "string") throw new Error("Could not allocate a port for the Deno launcher.")
+  // SAFETY: this TCP server listens on an IP address, so Node returns AddressInfo rather than a pipe name.
+  const address = server.address() as import("node:net").AddressInfo | null
+  if (!address) throw new Error("Could not allocate a port for the Deno launcher.")
   await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
   const port = address.port
   const child = spawn("deno", [
