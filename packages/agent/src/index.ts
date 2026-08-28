@@ -3649,7 +3649,7 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const record = result as { usage?: unknown, usageRecord?: unknown }
       record.usageRecord ??= usageRecord
-      record.usage ??= usageRecord.usage
+      if (usageRecord.usage !== undefined) record.usage ??= usageRecord.usage
       return result
     }
     catch {
@@ -3973,8 +3973,20 @@ async function resultWithStreamedTextAndUsage(
 ): Promise<unknown> {
   if (result instanceof Response) return result
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
+  const hasDeferredUsage = hasRuntimeType(result, "object") && result !== null && ["usage", "totalUsage"].some((property) => {
+    try {
+      const value = Reflect.get(result, property)
+      if (!isRuntimeObject(value) || !hasRuntimeType(Reflect.get(value, "then"), "function")) return false
+      void Promise.resolve(value).catch(() => {})
+      return true
+    }
+    catch {
+      return false
+    }
+  })
   if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result)
-    || (streamedUsageRecord !== undefined && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))))) {
+    || hasTraceableStreamResult(result)
+    || ((streamedUsageRecord !== undefined || hasDeferredUsage) && isUIMessageStreamResult(result)))) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
     const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
     const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
@@ -4214,6 +4226,13 @@ async function finishStreamAgentInvocation<
     usage: finishUsage,
     ...(outcome.usageResolved ? { usageResolved: true } : {}),
   })
+  assignResolvedUsageRecord(result, finishUsage)
+  const rawDescriptor = result && hasRuntimeType(result, "object")
+    ? Object.getOwnPropertyDescriptor(result, "raw")
+    : undefined
+  if (rawDescriptor && "value" in rawDescriptor && rawDescriptor.value !== result) {
+    assignResolvedUsageRecord(rawDescriptor.value, finishUsage)
+  }
 }
 
 function traceUiMessageStream<
@@ -5242,7 +5261,7 @@ async function executeAgentInvocationWithCapacityLease<
     if (shouldRenderStream) {
       rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        ? cancellableAsyncIterableSource(result as AsyncIterable<unknown>)
+        ? nonBlockingPendingAsyncIterableSource(result as AsyncIterable<unknown>)
         : undefined
       result = await applyOutputRenderers(rendererSource?.stream ?? result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
       if (rendererSource && !isAsyncIterable(result) && !hasTraceableStreamResult(result) && !isUIMessageStreamResult(result)) {
@@ -5338,7 +5357,10 @@ async function executeAgentInvocationWithCapacityLease<
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
               }
-              assignResolvedUsageRecord(preserved, finishUsageRecord)
+              const finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+                ? toAgentRunResult(finishResult).usageRecord
+                : finishUsageRecord
+              assignResolvedUsageRecord(preserved, finalizedUsageRecord)
             })()
             return await finishTask
           }
@@ -5426,7 +5448,19 @@ async function executeAgentInvocationWithCapacityLease<
           throw error
         }
         if (options.holdCapacity === true) {
-          for (const stream of streamPropertyValues.values()) preservedSources.set(stream, undefined)
+          try {
+            for (const stream of new Set(streamPropertyValues.values())) {
+              preservedSources.set(stream, textStreamDescriptor || isUIMessageStreamResult(rendered)
+                ? undefined
+                : cancellableAsyncIterableSource(stream))
+            }
+          }
+          catch (error) {
+            await Promise.allSettled(
+              [...preservedSources.values()].flatMap(source => source ? [source.cancel(error)] : []),
+            )
+            throw error
+          }
         }
         const streamProperties = [...streamPropertyValues.keys()]
         let finishTask: Promise<void> | undefined
@@ -5449,7 +5483,7 @@ async function executeAgentInvocationWithCapacityLease<
           return rejected ? { error: rejected.reason, failed: true } : outcome
         }
         const onAbort = () => {
-          if ([...preservedSources.values()].some(Boolean)) return
+          if (preservedStreams.size) return
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
           finishing = true
           finishTask ||= (async () => {
@@ -5470,6 +5504,7 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             finishing = true
             const finalOutcome = await cancelPreservedSources(outcome)
+            const cancellationFailed = finalOutcome.failed && !outcome.failed
             if (finishTask) return await finishTask
             const finishResult = await streamed.finishResult(preserved, !finalOutcome.failed && finalOutcome.completed === true)
             finishTask = (async () => {
@@ -5488,6 +5523,7 @@ async function executeAgentInvocationWithCapacityLease<
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
               }
               assignResolvedUsageRecord(preserved, finishUsageRecord)
+              if (cancellationFailed) throw finalOutcome.error
             })()
             return await finishTask
           }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
@@ -5714,10 +5750,8 @@ async function executeAgentInvocationWithCapacityLease<
             value: preserved,
           }
         }
-        if (!streamProperties.length) {
-          if (invocation.input.abortSignal?.aborted) onAbort()
-          else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
-        }
+        if (invocation.input.abortSignal?.aborted) onAbort()
+        else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
         return {
           deferFinish: true,
           finishResult: preserved,
