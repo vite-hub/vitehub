@@ -139,7 +139,7 @@ describe("built-in Agent Driver selection", () => {
       credentials,
       kind: "codex",
       model: "gpt-5.6-sol",
-      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      providerSettings: { binaryPath: undefined, launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
       reasoningSummary: "detailed",
     } });

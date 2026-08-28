@@ -1106,8 +1106,7 @@ async function* runProvider<
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
-        await cleanupCredentialHome()
-        await cleanupRoot()
+        await Promise.all([cleanupCredentialHome(), cleanupRoot()])
       }
     }
   }
@@ -1197,8 +1196,7 @@ async function* runProvider<
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
-      await cleanupCredentialHome()
-      await cleanupRoot()
+      await Promise.all([cleanupCredentialHome(), cleanupRoot()])
     }
     const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {

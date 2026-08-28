@@ -746,12 +746,16 @@ function providerMetadata(driver: {
   reasoningEffort?: string
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
 }): AgentInspectionProviderMetadata {
+  const providerSettings = Object.entries(driver.providerSettings || {})
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key)
+    .sort()
   return {
     ...(driver.credentials !== undefined ? { credentials: true } : {}),
     ...(driver.model ? { model: driver.model } : {}),
     permissions: driver.permissions,
     provider: driver.provider,
-    ...(driver.providerSettings ? { providerSettings: Object.keys(driver.providerSettings).sort() } : {}),
+    ...(providerSettings.length ? { providerSettings } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
   }
