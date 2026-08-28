@@ -316,6 +316,32 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it("keeps renamed Codex credentials out of the shared home", async () => {
+    const threadId = "thread-renamed-codex-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "auth.json"), join(shadowHome, "auth.json.backup"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(join(sharedHome, "auth.json.backup"))).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
   it("persists deletion of an existing top-level Codex home entry", async () => {
     const threadId = "thread-delete-codex-state"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

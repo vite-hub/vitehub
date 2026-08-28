@@ -195,6 +195,7 @@ interface CodexCredentialOverlayEntry {
 
 interface CodexCredentialOverlay {
   entries: CodexCredentialOverlayEntry[]
+  privateEntries: Array<{ dev: number, ino: number }>
   sharedHomeCaseInsensitive: boolean
 }
 
@@ -320,6 +321,14 @@ async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> 
 async function materializeCodexCredentialOverlay(home: string, sharedHome: string, sharedHomeCaseInsensitive: boolean): Promise<CodexCredentialOverlay> {
   await mkdir(sharedHome, { recursive: true })
   const discoveredEntries = await readdir(sharedHome)
+  const privateEntries = await Promise.all([...codexPrivateHomeEntries].map(async (entry) => {
+    const privateEntry = await lstat(join(home, entry)).catch((error) => {
+      // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+      throw error
+    })
+    return privateEntry && { dev: privateEntry.dev, ino: privateEntry.ino }
+  }))
   await Promise.all([
     ...codexSharedHomeDirectories.map(async (directory) => {
       const path = join(sharedHome, directory)
@@ -391,7 +400,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
       if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !materializedEntries.has(comparableEntry)) throw error
     }
   }
-  return { entries: overlayEntries, sharedHomeCaseInsensitive }
+  return { entries: overlayEntries, privateEntries: privateEntries.filter(entry => entry !== undefined), sharedHomeCaseInsensitive }
 }
 
 async function codexCredentialOverlayOwnsTarget(entry: CodexCredentialOverlayEntry, targetEntry: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
@@ -413,6 +422,7 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string, o
     .map(async (entry) => {
       const source = join(home, entry)
       let sourceEntry = await lstat(source)
+      if (overlay?.privateEntries.some(privateEntry => privateEntry.dev === sourceEntry.dev && privateEntry.ino === sourceEntry.ino)) return
       let sourcePath = source
       if (sourceEntry.isSymbolicLink()) {
         const linkedTarget = resolve(dirname(source), await readlink(source))
