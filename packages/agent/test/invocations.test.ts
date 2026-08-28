@@ -167,6 +167,7 @@ describe("Agent Invocations", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    // SAFETY: This fixture supplies the custom Trace Event Log shape accepted by the runtime boundary.
     await expect(runAgent(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
   })
@@ -189,6 +190,7 @@ describe("Agent Invocations", () => {
     process.on("unhandledRejection", unhandled)
 
     try {
+      // SAFETY: This malformed event deliberately bypasses the Trace Event timestamp contract.
       const appended = journal.context.traceLog?.append({
         name: "malformed",
         timestamp: new Date(Number.NaN),

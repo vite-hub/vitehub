@@ -149,6 +149,8 @@ describe("Agent telemetry", () => {
           "vitehub.payload.value": {
             cyclic,
             date: new Date("2026-01-01T00:00:00.000Z"),
+            domException: new DOMException("stopped", "AbortError"),
+            error: new Error("outer", { cause: { code: "inner" } }),
             invalidDate: new Date(Number.NaN),
             map: new Map<unknown, string>([[1, "number"], ["1", "string"]]),
             negativeZero: -0,
@@ -173,6 +175,22 @@ describe("Agent telemetry", () => {
         values: [
           { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
           { key: "date", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
+          {
+            key: "domException",
+            value: { kvlistValue: { values: [
+              { key: "name", value: { stringValue: "AbortError" } },
+              { key: "message", value: { stringValue: "stopped" } },
+              { key: "code", value: { intValue: "20" } },
+            ] } },
+          },
+          {
+            key: "error",
+            value: { kvlistValue: { values: [
+              { key: "name", value: { stringValue: "Error" } },
+              { key: "message", value: { stringValue: "outer" } },
+              { key: "cause", value: { kvlistValue: { values: [{ key: "code", value: { stringValue: "inner" } }] } } },
+            ] } },
+          },
           { key: "invalidDate", value: { stringValue: "Invalid Date" } },
           {
             key: "map",

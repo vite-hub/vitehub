@@ -450,6 +450,33 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   if (seen.has(source)) return seen.get(source) === snapshot
   seen.set(source, snapshot)
 
+  if (source instanceof Date && (!(snapshot instanceof Date) || !Object.is(source.getTime(), snapshot.getTime()))) return false
+  if (source instanceof RegExp) {
+    if (!(snapshot instanceof RegExp)
+      || source.source !== snapshot.source
+      || source.flags !== snapshot.flags
+      || source.lastIndex !== snapshot.lastIndex) return false
+  }
+  if (source instanceof AggregateError) {
+    if (!(snapshot instanceof AggregateError)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || !preservesEnumerableFields(source.errors, snapshot.errors, seen)
+      || !preservesEnumerableFields(source.cause, snapshot.cause, seen)) return false
+  }
+  else if (source instanceof DOMException) {
+    if (!(snapshot instanceof DOMException)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || source.code !== snapshot.code) return false
+  }
+  else if (source instanceof Error) {
+    if (!(snapshot instanceof Error)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || !preservesEnumerableFields(source.cause, snapshot.cause, seen)) return false
+  }
+
   for (const key of Reflect.ownKeys(source)) {
     const sourceDescriptor = Object.getOwnPropertyDescriptor(source, key)
     if (!sourceDescriptor?.enumerable) continue
@@ -509,9 +536,10 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
 function traceEventAttributes(
   event: Pick<TraceEvent, "activity" | "attributes" | "payload">,
   content: TraceEventContentPolicy,
+  normalized = false,
 ): Record<string, unknown> | undefined {
-  const activity = normalizedTraceActivity(event.activity)
-  const payload = normalizedTracePayload(event.payload)
+  const activity = normalized ? event.activity : normalizedTraceActivity(event.activity)
+  const payload = normalized ? event.payload : normalizedTracePayload(event.payload)
   const source = { ...event.attributes }
   delete source["vitehub.activity.owner"]
   delete source["vitehub.activity.phase"]
@@ -566,7 +594,7 @@ function normalizeTraceEvent(event: TraceEvent, sequence: number, content: Trace
   const { activity: rawActivity, attributes: _attributes, payload: rawPayload, ...rest } = event
   const activity = normalizedTraceActivity(rawActivity)
   const payload = normalizedTracePayload(rawPayload)
-  const attributes = traceEventAttributes({ activity, attributes: event.attributes, payload }, content)
+  const attributes = traceEventAttributes({ activity, attributes: event.attributes, payload }, content, true)
   return {
     ...rest,
     ...(activity ? { activity } : {}),
@@ -592,18 +620,22 @@ export function createTraceEventLog(options: TraceEventLogOptions = {}): TraceEv
   const entries: TraceEventLogEntry[] = []
   const cloneAttributes = (attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
     if (!attributes) return undefined
-    const cloned = { ...attributes }
-    if ("vitehub.payload.value" in cloned) {
-      cloned["vitehub.payload.value"] = structuredClone(cloned["vitehub.payload.value"])
-    }
-    return cloned
+    return { ...attributes }
   }
-  const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => ({
-    ...entry,
-    ...(entry.activity ? { activity: structuredClone(entry.activity) } : {}),
-    ...(entry.attributes ? { attributes: cloneAttributes(entry.attributes) } : {}),
-    ...(entry.payload ? { payload: structuredClone(entry.payload) } : {}),
-  })
+  const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => {
+    const publicValue = entry.attributes?.["vitehub.payload.value"]
+    const cloneable = structuredClone({ activity: entry.activity, payload: entry.payload, publicValue })
+    const attributes = cloneAttributes(entry.attributes)
+    if (attributes && "vitehub.payload.value" in attributes) {
+      attributes["vitehub.payload.value"] = cloneable.publicValue
+    }
+    return {
+      ...entry,
+      ...(cloneable.activity ? { activity: cloneable.activity } : {}),
+      ...(attributes ? { attributes } : {}),
+      ...(cloneable.payload ? { payload: cloneable.payload } : {}),
+    }
+  }
   return {
     async append(event) {
       const entry = normalizeTraceEvent(event, entries.length + 1, content)

@@ -440,13 +440,16 @@ describe("@vite-hub/runtime", () => {
     })
 
     returned.payload = { value: { files: ["returned-secret.txt"] }, visibility: "public" }
+    // SAFETY: The public payload fixture above establishes this canonical attribute shape.
     const returnedValue = returned.attributes!["vitehub.payload.value"] as { files: string[] }
     returnedValue.files.push("returned-secret.txt")
     observed!.payload = { value: { files: ["observed-secret.txt"] }, visibility: "public" }
+    // SAFETY: The onEntry callback receives the public payload fixture's canonical attribute shape.
     const observedValue = observed!.attributes!["vitehub.payload.value"] as { files: string[] }
     observedValue.files.push("observed-secret.txt")
     const listed = log.entries()
     listed[0]!.payload = { value: { files: ["listed-secret.txt"] }, visibility: "public" }
+    // SAFETY: entries() returns the public payload fixture's canonical attribute shape.
     const listedValue = listed[0]!.attributes!["vitehub.payload.value"] as { files: string[] }
     listedValue.files.push("listed-secret.txt")
 
@@ -501,6 +504,36 @@ describe("@vite-hub/runtime", () => {
       payload: { visibility: "private" },
     })
     expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+  })
+
+  it("falls back to private when cloning resets RegExp state", async () => {
+    const pattern = /trace/gu
+    pattern.lastIndex = 3
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: pattern, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("falls back to private when cloning drops AggregateError children", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: new AggregateError([new Error("nested")], "failed"), visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
   })
 
   it("accepts unsupported values in ordinary trace attributes", async () => {

@@ -77,14 +77,33 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
     if (value instanceof Set) {
       return { arrayValue: { values: [...value].map(child => otlpAnyValue(child, nextAncestors)) } }
     }
-    if (value instanceof Error) {
+    if (value instanceof DOMException) {
       return {
         kvlistValue: {
           values: [
             { key: "name", value: { stringValue: value.name } },
             { key: "message", value: { stringValue: value.message } },
+            { key: "code", value: { intValue: String(value.code) } },
           ],
         },
+      }
+    }
+    if (value instanceof Error) {
+      const values: Array<{ key: string, value: OtlpAnyValue }> = [
+        { key: "name", value: { stringValue: value.name } },
+        { key: "message", value: { stringValue: value.message } },
+      ]
+      if (value instanceof AggregateError) {
+        values.push({ key: "errors", value: otlpAnyValue(value.errors, nextAncestors) })
+      }
+      if (Object.hasOwn(value, "cause")) {
+        values.push({ key: "cause", value: otlpAnyValue(value.cause, nextAncestors) })
+      }
+      for (const [key, child] of Object.entries(value)) {
+        if (key !== "cause" && key !== "errors") values.push({ key, value: otlpAnyValue(child, nextAncestors) })
+      }
+      return {
+        kvlistValue: { values },
       }
     }
     const prototype = Object.getPrototypeOf(value)
