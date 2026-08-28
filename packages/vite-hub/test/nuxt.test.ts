@@ -8,15 +8,33 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 
-import type { Plugin, PluginOption } from "vite"
+import type { Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
+function fixtureDocument(id?: string) {
+  return {
+    invocations: id
+      ? [{
+          agentName: "support",
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id,
+          observations: [],
+          status: "completed" as const,
+          traceId: `${id}-trace`,
+          updatedAt: "2026-08-27T10:00:00.000Z",
+        }]
+      : [],
+    version: 1 as const,
+  }
+}
+
 function isTestRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
+  return value !== null && Object(value) === value && Object.getPrototypeOf(value) === Object.prototype
 }
 
 const mocks = vi.hoisted(() => ({
@@ -86,14 +104,20 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
 vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 
+import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
+import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
+  const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
+  const closeHooks: Array<() => Promise<void>> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
   const nuxt = {
-    hook(name: "nitro:config" | "pages:extend", callback: ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
+    hook(name: "builder:watch" | "close" | "nitro:config" | "pages:extend", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
       if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
+      else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
+      else if (name === "close") closeHooks.push(callback as () => Promise<void>)
       else pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
     },
     options: {
@@ -111,13 +135,21 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
       srcDir: "/tmp/vitehub-nuxt/app",
-      vite: { plugins },
+      vite: { plugins } as UserConfig,
+      vitehubCliDiscovery: undefined as true | undefined,
+      watch: undefined as string[] | undefined,
     },
   }
   return {
     nitroConfigHooks,
     pageHooks,
     nuxt,
+    async runBuilderWatchHook(path = "/tmp/vitehub-nuxt/console.fixture.json", event = "change") {
+      for (const hook of builderWatchHooks) await hook(event, path)
+    },
+    async runCloseHook() {
+      for (const hook of closeHooks) await hook()
+    },
     async runNitroConfigHook(config: Record<string, unknown>) {
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
       for (const hook of nitroConfigHooks) await hook(config)
@@ -133,8 +165,18 @@ function nitroOptions(nuxt: ReturnType<typeof createNuxt>["nuxt"]): Record<strin
   return (nuxt.options as typeof nuxt.options & { nitro: Record<string, unknown> }).nitro
 }
 
+function nitroPlugins(nuxt: ReturnType<typeof createNuxt>["nuxt"]): string[] {
+  const plugins = nitroOptions(nuxt).plugins
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro's plugin boundary accepts mixed values; this helper narrows the test fixture to generated paths.
+  if (!Array.isArray(plugins) || !plugins.every(plugin => typeof plugin === "string")) {
+    throw new TypeError("Expected string-valued Nitro plugins.")
+  }
+  return plugins
+}
+
 describe("ViteHub Nuxt integration", () => {
   beforeEach(async () => {
+    vi.unstubAllEnvs()
     await mkdir("/tmp/vitehub-nuxt", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/package.json", `${JSON.stringify({ name: "vitehub-nuxt" })}\n`)
     await rm("/tmp/vitehub-nuxt/app/package.json", { force: true })
@@ -253,6 +295,16 @@ describe("ViteHub Nuxt integration", () => {
     ])
   })
 
+  it("keeps ViteHub discovery rooted at the Nuxt project", async () => {
+    const { nuxt } = createNuxt()
+    delete nuxt.options.vite.root
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(nuxt.options.vite.root).toBe(nuxt.options.rootDir)
+    expect(Reflect.get(nuxt.options.vite, "__vitehubProjectRoot")).toBe(nuxt.options.rootDir)
+  })
+
   it("loads colocated Markdown templates through Nitro Rollup", async () => {
     const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
     const standaloneLoad = vi.fn()
@@ -314,6 +366,129 @@ describe("ViteHub Nuxt integration", () => {
     expect(nestedResolve).toHaveBeenCalledWith("./name.md", "/app/server/api/reply.template.md")
   })
 
+  it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
+    let resolvedKv: unknown
+    let resolvedBlob: unknown
+    const kvResolveId = vi.fn((id: string) => id === "#vitehub/kv/config" ? "\0#vitehub/kv/config" : undefined)
+    const kvLoad = vi.fn((id: string) => id === "\0#vitehub/kv/config" ? `export const kv = ${JSON.stringify(resolvedKv)}` : undefined)
+    const blobResolveId = vi.fn((id: string) => id === "#vitehub/blob/config" ? "\0#vitehub/blob/config" : undefined)
+    const blobLoad = vi.fn((id: string) => id === "\0#vitehub/blob/config" ? `export const blob = ${JSON.stringify(resolvedBlob)}` : undefined)
+    mocks.vitehub.mockReturnValue([
+      {
+        configResolved(config: { kv?: unknown }) {
+          resolvedKv = config.kv
+        },
+        load: kvLoad,
+        name: "@vite-hub/kv/vite",
+        resolveId: kvResolveId,
+      },
+      {
+        configResolved(config: { blob?: unknown }) {
+          resolvedBlob = config.blob
+        },
+        load: blobLoad,
+        name: "@vite-hub/blob/vite",
+        resolveId: blobResolveId,
+      },
+    ])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options.vite, {
+      blob: { driver: "r2" },
+      kv: { driver: "cloudflare-kv" },
+    })
+    const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
+    const nitroConfig: { rollupConfig: { plugins: Plugin } } = {
+      rollupConfig: { plugins: existingPlugin },
+    }
+
+    await viteHubNuxtModule({ blob: true, kv: true, preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
+    expect(plugins.map(plugin => plugin.name)).toEqual([
+      "existing-nitro-plugin",
+      "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
+      "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
+    ])
+    const kvResolver = plugins[1]!
+    const blobResolver = plugins[2]!
+    const context = { marker: "nitro-context" }
+    expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
+    expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
+      'export const kv = {"driver":"cloudflare-kv"}',
+    )
+    expect(Reflect.apply(blobResolver.resolveId as Function, context, ["#vitehub/blob/config"])).toBe("\0#vitehub/blob/config")
+    expect(Reflect.apply(blobResolver.load as Function, context, ["\0#vitehub/blob/config"])).toBe(
+      'export const blob = {"driver":"r2"}',
+    )
+    expect(kvResolveId.mock.contexts[0]).toBe(context)
+    expect(kvLoad.mock.contexts[0]).toBe(context)
+    expect(blobResolveId.mock.contexts[0]).toBe(context)
+    expect(blobLoad.mock.contexts[0]).toBe(context)
+  })
+
+  it("installs Nitro modules owned by replayed ViteHub plugins", async () => {
+    const setup = vi.fn()
+    const nitroModule = { name: "@vite-hub/sandbox/provider-runtime", setup }
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/sandbox/vite",
+      nitro: nitroModule,
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const existingModule = { name: "existing-module", setup: vi.fn() }
+    const nitroConfig: Record<string, unknown> = { modules: existingModule }
+
+    await viteHubNuxtModule({ preset: "cloudflare", sandbox: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.modules).toEqual([existingModule, nitroModule])
+  })
+
+  it("finalizes Sandbox Wrangler config after every Nuxt replay contributor", async () => {
+    const configResolved = vi.fn((config: { nitro?: Record<string, unknown> }) => {
+      const migrations = ((config.nitro!.cloudflare as Record<string, unknown>).wrangler as Record<string, unknown>).migrations as Array<Record<string, unknown>>
+      migrations.splice(0, migrations.length, {
+        tag: "shared-v1",
+        new_sqlite_classes: migrations.flatMap(migration => migration.new_sqlite_classes as string[] || []),
+      })
+    })
+    mocks.vitehub.mockReturnValue([
+      {
+        name: "@vite-hub/sandbox/vite",
+        config: mocks.sandboxHook,
+        configResolved,
+      },
+      {
+        name: "vite-hub/later-cloudflare",
+        config(config: { nitro?: Record<string, unknown> }) {
+          const cloudflare = config.nitro?.cloudflare as Record<string, unknown>
+          const wrangler = cloudflare.wrangler as Record<string, unknown>
+          ;(wrangler.migrations as Array<Record<string, unknown>>).push({
+            tag: "shared-v1",
+            new_sqlite_classes: ["LaterObject"],
+          })
+        },
+      },
+    ])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig = {
+      cloudflare: {
+        wrangler: {
+          migrations: [{ tag: "shared-v1", new_sqlite_classes: ["Sandbox"] }],
+        },
+      },
+    }
+
+    await viteHubNuxtModule({ preset: "cloudflare", sandbox: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(configResolved).toHaveBeenCalledOnce()
+    expect(nitroConfig.cloudflare.wrangler.migrations).toEqual([{
+      tag: "shared-v1",
+      new_sqlite_classes: ["Sandbox", "LaterObject"],
+    }])
+  })
+
   it("installs the read-only console in Nuxt development and production", async () => {
     const development = createNuxt(true)
     const existingConsoleHandler = vi.fn()
@@ -347,6 +522,9 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleSections("/tmp/vitehub-nuxt", ["agents","kv"])`,
+    )
+    expect(development.nuxt.options.vite.plugins).toContainEqual(
+      expect.objectContaining({ name: "vite-hub/console-cli" }),
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `const vitehubConsoleInvocations = installConsoleInvocations("/tmp/vitehub-nuxt")`,
@@ -413,6 +591,210 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).not.toContain(`from "vite-hub/console/server"`)
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["kv"])`)
     expect(generated).not.toContain("installConsoleInvocations")
+  })
+
+  it("loads Console fixtures in Nuxt development and rejects them in production", async () => {
+    const fixture = "/tmp/vitehub-nuxt/console.fixture.json"
+    await mkdir("/tmp/vitehub-nuxt", { recursive: true })
+    await writeFile("/tmp/vitehub-nuxt/package.json", "{}\n")
+    await writeFile(fixture, JSON.stringify(fixtureDocument()))
+    vi.stubEnv("VITEHUB_CONSOLE_FIXTURE", fixture)
+    try {
+      const development = createNuxt(true)
+      await viteHubNuxtModule({ agent: true, console: true, preset: "node" }, development.nuxt)
+
+      const generatedPlugin = nitroPlugins(development.nuxt)[0] ?? ""
+      const generated = await readFile(generatedPlugin, "utf8")
+      expect(generated).toContain(`installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `)
+      expect(generated).toContain("JSON.parse(")
+      expect(development.nuxt.options.watch).toContain(fixture)
+
+      await writeFile(fixture, JSON.stringify(fixtureDocument("vite-startup")))
+      // SAFETY: Nuxt stores Vite plugin options in the nested array shape flattened and guarded below.
+      const invocationRootPlugin = (development.nuxt.options.vite.plugins as unknown[])
+        .flat(Infinity)
+        .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")
+      if (!isTestRecord(invocationRootPlugin)) throw new TypeError("Expected the Console invocation root plugin.")
+      const configResolved = invocationRootPlugin.configResolved
+      const configResolvedHandler = isTestRecord(configResolved) ? configResolved.handler : configResolved
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
+      if (typeof configResolvedHandler !== "function") throw new TypeError("Expected a Console configResolved hook.")
+      await Reflect.apply(configResolvedHandler, {}, [{ root: "/tmp/vitehub-nuxt" }])
+      const startupRefreshed = await readFile(generatedPlugin, "utf8")
+      expect(startupRefreshed).toContain("vite-startup")
+
+      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
+
+      const concurrent = createNuxt(true)
+      await viteHubNuxtModule({ agent: true, console: true, preset: "node" }, concurrent.nuxt)
+      const concurrentGeneratedPlugin = nitroPlugins(concurrent.nuxt)[0] ?? ""
+      expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(startupRefreshed)
+      await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
+
+      await development.runBuilderWatchHook()
+      const refreshed = await readFile(generatedPlugin, "utf8")
+      expect(refreshed).not.toBe(generated)
+
+      const agent = "/tmp/vitehub-nuxt/custom-server/agents/fixture-refresh.ts"
+      await mkdir(resolve(agent, ".."), { recursive: true })
+      await writeFile(agent, "export default { name: 'Fixture refresh' }\n")
+      await development.runBuilderWatchHook(agent)
+      const refreshedWithAgent = await readFile(generatedPlugin, "utf8")
+      expect(refreshedWithAgent).toContain("fixture-refresh.ts")
+
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+      await writeFile(fixture, "not json")
+      await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
+      await expect(development.runBuilderWatchHook(agent)).resolves.toBeUndefined()
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshedWithAgent)
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
+      await rm(agent)
+
+      await rm(fixture)
+      await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshedWithAgent)
+
+      await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
+      await development.runBuilderWatchHook()
+      await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
+
+      const closeBundle = invocationRootPlugin.closeBundle
+      const closeBundleHandler = isTestRecord(closeBundle) ? closeBundle.handler : closeBundle
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
+      if (typeof closeBundleHandler !== "function") throw new TypeError("Expected a Console closeBundle hook.")
+      await Reflect.apply(closeBundleHandler, {}, [])
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
+
+      await development.runBuilderWatchHook()
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
+      const production = createNuxt(false)
+      await expect(viteHubNuxtModule({ console: { exposure: "host-managed" }, preset: "node" }, production.nuxt))
+        .rejects.toThrow("Console fixture mode is development-only")
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(fixture, { force: true })
+      await rm("/tmp/vitehub-nuxt/package.json", { force: true })
+    }
+  })
+
+  it("defers Console fixture installation until later Nuxt setup succeeds", async () => {
+    const root = "/tmp/vitehub-nuxt-fixture-failure"
+    const fixture = resolve(root, "console.fixture.json")
+    await rm(root, { force: true, recursive: true })
+    await mkdir(root, { recursive: true })
+    await writeFile(resolve(root, "package.json"), "{}\n")
+    await writeFile(fixture, JSON.stringify(fixtureDocument("failed-startup")))
+    vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+    const installed = mocks.vitehub()
+    const envPlugin = installed.flat(Infinity).find(
+      (candidate: unknown) => isTestRecord(candidate) && candidate.name === "@vite-hub/env/vite",
+    )
+    if (!isTestRecord(envPlugin) || !isTestRecord(envPlugin.api)) throw new TypeError("Expected the Env plugin fixture.")
+    envPlugin.api.prepareTypes = vi.fn().mockRejectedValue(new Error("type preparation failed"))
+    mocks.vitehub.mockReturnValue(installed)
+    const development = createNuxt(true)
+    development.nuxt.options.rootDir = root
+    development.nuxt.options.buildDir = resolve(root, ".nuxt")
+    development.nuxt.options.serverDir = resolve(root, "server")
+
+    try {
+      await expect(viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt))
+        .rejects.toThrow("type preparation failed")
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
+      expect(nitroOptions(development.nuxt).plugins).toBeUndefined()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("releases Console fixture state when Nuxt closes before Vite buildStart", async () => {
+    const root = "/tmp/vitehub-nuxt-fixture-vite-startup-failure"
+    const fixture = resolve(root, "console.fixture.json")
+    await rm(root, { force: true, recursive: true })
+    await mkdir(root, { recursive: true })
+    await writeFile(resolve(root, "package.json"), "{}\n")
+    await writeFile(fixture, JSON.stringify(fixtureDocument("failed-vite-startup")))
+    vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+    const development = createNuxt(true)
+    development.nuxt.options.rootDir = root
+    development.nuxt.options.buildDir = resolve(root, ".nuxt")
+    development.nuxt.options.serverDir = resolve(root, "server")
+
+    try {
+      await viteHubNuxtModule({ agent: true, console: true, preset: "node" }, development.nuxt)
+      const generatedPlugin = nitroPlugins(development.nuxt)[0] ?? ""
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("failed-vite-startup")
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(true)
+
+      await development.runCloseHook()
+
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not retain Console fixture storage when plugin generation fails", async () => {
+    const root = "/tmp/vitehub-nuxt-fixture-generation-failure"
+    const fixture = resolve(root, "console.fixture.json")
+    await rm(root, { force: true, recursive: true })
+    await mkdir(resolve(root, ".vitehub/nitro"), { recursive: true })
+    await writeFile(resolve(root, "package.json"), "{}\n")
+    await writeFile(fixture, JSON.stringify(fixtureDocument("failed-generation")))
+    await writeFile(resolve(root, ".vitehub/nitro/console"), "not a directory\n")
+    vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+    const development = createNuxt(true)
+    development.nuxt.options.rootDir = root
+    development.nuxt.options.buildDir = resolve(root, ".nuxt")
+    development.nuxt.options.serverDir = resolve(root, "server")
+
+    try {
+      await expect(viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt))
+        .rejects.toThrow()
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
+      expect(nitroOptions(development.nuxt).plugins).toEqual([])
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not open Console storage during CLI discovery", async () => {
+    const root = "/tmp/vitehub-nuxt-cli-discovery"
+    await rm(root, { force: true, recursive: true })
+    const generatedPlugin = resolve(root, ".vitehub/nitro/console/plugin.mjs")
+    const activeFixturePlugin = "// active fixture plugin\n"
+    await mkdir(resolve(generatedPlugin, ".."), { recursive: true })
+    await writeFile(generatedPlugin, activeFixturePlugin)
+    const discovery = createNuxt(false)
+    discovery.nuxt.options.rootDir = root
+    discovery.nuxt.options.buildDir = resolve(root, ".nuxt")
+    discovery.nuxt.options.vitehubCliDiscovery = true
+    vi.stubEnv(consoleFixtureEnvironmentVariable, resolve(root, "missing.fixture.json"))
+
+    try {
+      await viteHubNuxtModule({ console: true, preset: "node" }, discovery.nuxt)
+      await expect(readFile(resolve(root, ".vitehub/data/console.sqlite")))
+        .rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(activeFixturePlugin)
+      expect(discovery.nuxt.options.vite.plugins).toContainEqual(
+        expect.objectContaining({ name: "vite-hub/console-cli" }),
+      )
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("rejects non-Node production console storage while preserving development", async () => {
@@ -719,6 +1101,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.sandboxHook).toHaveBeenCalledWith(
       expect.objectContaining({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        [VITEHUB_PROJECT_ROOT]: "/tmp/vitehub-nuxt",
       }),
       expect.anything(),
     )
@@ -807,6 +1190,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
+        [VITEHUB_PROJECT_ROOT]: "/tmp/vitehub-nuxt",
         root: "/tmp/vitehub-nuxt/custom-vite-root",
         workspace: false,
       }),
@@ -1344,7 +1728,7 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
-  it("resolves generated type roots from the effective Vite root", async () => {
+  it("resolves generated type roots from the Nuxt project root", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options.vite, { root: "app" })
     await mkdir("/tmp/vitehub-nuxt/app", { recursive: true })
@@ -1356,7 +1740,7 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
         exclude: ["../app/packages/config/.vitehub/data/**/*.d.ts"],
-        include: ["../app/.vitehub/types.d.ts", "../app/packages/config/.vitehub/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../app/packages/config/.vitehub/**/*.d.ts"],
       },
     })
   })
@@ -1373,7 +1757,7 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
         exclude: ["../packages/db/.vitehub/data/**/*.d.ts"],
-        include: ["../app/.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
       },
     })
   })

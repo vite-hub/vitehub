@@ -87,6 +87,9 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
   })),
 );
+const invocationPaginationKey = computed(() =>
+  `${paginationRetryRevision.value}:${list.cursor.value ?? ""}`,
+);
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentLabel = computed(() =>
   selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
@@ -489,11 +492,13 @@ onBeforeUnmount(() => {
             (!errorMessage(list.error.value) || invocationItems.length)
           "
           class="min-h-0 flex-1 px-1 pb-3"
+          :continuation-key="list.cursor.value"
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoadingMore.value"
+          :remaining-statuses="list.remainingStatuses.value"
           :now="nowMs"
-          :retry-key="paginationRetryRevision"
+          :retry-key="invocationPaginationKey"
           :selected-id="selectedInvocationId"
           @end-reached="list.loadMore()"
           @select="selectInvocation($event)"

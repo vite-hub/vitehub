@@ -727,6 +727,9 @@ async function writeMaterializedFile(
         metadata: file.metadata,
       })
       const written = control ? await control.mutate(write) : await write()
+      if (!written.digest) {
+        throw workspaceError("[vitehub] Workspace Store writeFileStream() must return a content digest.")
+      }
       return { digest: written.digest, size }
     }
     const content = await contentStreamToBytes(file.contentStream)

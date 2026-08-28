@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { WorkspaceStore } from "../src/index.ts"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
@@ -1335,6 +1336,32 @@ describe("lazy sources", () => {
       }],
     })
     expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("rejects streaming Stores that omit the required digest", async () => {
+    const store = createLocalWorkspaceStore(await createRoot())
+    const writeFileStream = store.writeFileStream!.bind(store)
+    store.writeFileStream = async (path, file) => {
+      const { digest: _, ...result } = await writeFileStream(path, file)
+      return result as Awaited<ReturnType<NonNullable<WorkspaceStore["writeFileStream"]>>>
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-digest",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() { return ["asset.bin"] },
+          async getItem(key) {
+            return { key, contentStream: new Blob(["content"]).stream() }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ error: "[vitehub] Workspace Store writeFileStream() must return a content digest.", status: "error" }],
+    })
   })
 
   it("keeps scoped bytes aligned with the persisted snapshot after Store drift", async () => {

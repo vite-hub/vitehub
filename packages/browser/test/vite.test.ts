@@ -86,6 +86,7 @@ describe("hubBrowser", () => {
     expect(registry).toContain("server/browsers/code-image.ts")
     expect(runtime).toContain('"binding": "CODE_BROWSER"')
     expect(runtime).toContain('"engine": "kitesurf"')
+    expect(runtime).toContain("export const loadCloudflarePlaywright = undefined")
     expect(types).toContain("interface ViteHubBrowserDefinitionModules")
     expect(types).toContain('"code-image": typeof import(')
     expect(types).toContain("server/browsers/code-image.ts")
@@ -105,6 +106,19 @@ describe("hubBrowser", () => {
     await expect(readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")).resolves.toContain(
       "server/browsers/jsx-browser.jsx",
     )
+  })
+
+  it("generates a bundleable Playwright loader for configured Chromium runtimes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-chromium-runtime-"))
+    roots.push(root)
+    const plugin = hubBrowser({ engine: "chromium" })
+    const config = { nitro: {}, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+
+    const runtimeId = (plugin.resolveId as (id: string) => string)("#vitehub/browser/runtime")
+    const runtime = await (plugin.load as (id: string) => string | Promise<string>)(runtimeId)
+
+    expect(runtime).toContain('import("@cloudflare/playwright")')
   })
 
   it("discovers Browser Definitions from the project root when Vite runs from app", async () => {

@@ -316,7 +316,7 @@ export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
-  writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat>
+  writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat | undefined>

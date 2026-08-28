@@ -287,7 +287,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return result;
   }
 
-  async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
+  async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
     const content = await contentStreamToBytes(file.content);
     await this.writeFile(path, {
       path: file.path,
