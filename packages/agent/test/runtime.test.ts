@@ -864,7 +864,7 @@ describe("agent message protocol", () => {
     await expect(response.text()).rejects.toThrow("upstream failed")
   })
 
-  it("records a failed invocation when failure cleanup also fails", async () => {
+  it("records execution and error hook failures", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
@@ -888,6 +888,17 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.invocation.error",
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "run failed" },
+      },
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "error hook failed" },
+      },
     ])
     expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
       { status: "failed" },
@@ -947,6 +958,43 @@ describe("agent message protocol", () => {
       activity: { owner: "agent", phase: "delivery" },
       attributes: { "error.message": "delivery failed" },
     })
+  })
+
+  it("traces execution and delivery stages when they throw the same value", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    for (const sharedFailure of [new Error("shared failure"), "shared failure"]) {
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "shared-delivery-failure",
+          prepare(context) {
+            context.delivery.finishEffect(() => { throw sharedFailure })
+          },
+        })],
+        driver: { run: async () => { throw sharedFailure } },
+      })
+
+      let runFailure: unknown
+      try {
+        await runAgent(agent, {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        }, {})
+      }
+      catch (failure) {
+        runFailure = failure
+      }
+      expect(runFailure).toBeInstanceOf(AggregateError)
+      if (!(runFailure instanceof AggregateError)) throw runFailure
+      expect(runFailure.errors).toEqual([sharedFailure, sharedFailure])
+
+      expect(traceLog.entries().filter(event => event.name === "agent.invocation.error").map(event => event.activity)).toEqual([
+        { owner: "agent", phase: "execution" },
+        { owner: "agent", phase: "delivery" },
+      ])
+    }
   })
 
   it("traces execution and later Capability cleanup failures once each", async () => {
@@ -5928,6 +5976,44 @@ describe("agent message protocol", () => {
     }, {})).resolves.toMatchObject({ text: "ok" })
 
     await expect(useWorkspace(workspaceName, { mode: "write" }).diff()).resolves.toMatchObject({ entries: [] })
+  })
+
+  it("classifies Workspace auto-commit failures as ViteHub teardown", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineWorkspace } = await import("@vite-hub/workspace")
+    const { registerWorkspace } = await import("@vite-hub/workspace/test")
+    const commitFailure = new Error("commit failed")
+    const traceLog = createTraceEventLog()
+    const workspaceName = `failed-auto-commit-${Math.random().toString(36).slice(2)}`
+    registerWorkspace(workspaceName, defineWorkspace({
+      commit: true,
+      store: { provider: "memory" },
+    }))
+    const agent = defineAgent({
+      driver: { async run({ workspace }) {
+          // SAFETY: This test fixture intentionally constructs the exact writable Workspace contract.
+          const writableWorkspace = workspace as WritableWorkspaceFacade
+          await writableWorkspace.fs.writeFile("notes.md", "uncommitted")
+          vi.spyOn(writableWorkspace, "snapshot").mockRejectedValue(commitFailure)
+          return { text: "ok" }
+        } },
+      workspace: {
+        mode: "write",
+        name: workspaceName,
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(commitFailure)
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "vitehub", phase: "teardown" },
+      attributes: { "error.message": "commit failed" },
+    }])
   })
 
   it("does not rerun finish lifecycle when a finish hook fails", async () => {

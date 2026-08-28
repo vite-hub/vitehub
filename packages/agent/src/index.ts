@@ -4436,7 +4436,9 @@ async function finishAgentInvocation<
         }
       }
     }
-    if (!failed) await commitWorkspaceChanges(context)
+    if (!failed) {
+      await runFinishActivity(teardownActivity, async () => await commitWorkspaceChanges(context))
+    }
     if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
