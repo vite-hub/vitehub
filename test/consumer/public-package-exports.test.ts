@@ -188,7 +188,7 @@ async function importPackagesWithoutRootFallback(
         .filter(contract => !cloudflareContracts.includes(contract))
         .map(contract => contract.specifier))
       await importSpecifiers(runnerDir, cloudflareContracts.map(contract => contract.specifier), true)
-      await typecheckPackageExports(info.packageName, packageRoot, runnerDir, includeOptionalPeers)
+      await typecheckPackageExports(info.packageName, runnerDir, includeOptionalPeers)
     })
   }
 }
@@ -301,7 +301,7 @@ async function addOptionalPeers(appDir: string) {
   return Object.keys(peers)
 }
 
-async function typecheckPackageExports(packageName: string, packageRoot: string, runnerDir: string, includeOptionalPeers: boolean) {
+async function typecheckPackageExports(packageName: string, runnerDir: string, includeOptionalPeers: boolean) {
   const modules = publicPackageExportContracts.filter(contract =>
     contract.packageName === packageName
     && isJavaScriptModule(contract.target)
@@ -310,7 +310,6 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
   for (const [index, contract] of modules.entries()) {
     await typecheckPackageModule(
       packageName,
-      packageRoot,
       runnerDir,
       contract,
       index,
@@ -321,7 +320,6 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
 
 async function typecheckPackageModule(
   packageName: string,
-  packageRoot: string,
   runnerDir: string,
   contract: (typeof publicPackageExportContracts)[number],
   index: number,
@@ -376,13 +374,7 @@ async function typecheckPackageModule(
     types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
   }
   const program = ts.createProgram(rootNames, options)
-  const diagnostics = ts.getPreEmitDiagnostics(program).filter((diagnostic) => {
-    if (!diagnostic.file) return true
-    const filePath = resolve(diagnostic.file.fileName)
-    return filePath === sourcePath
-      || filePath.startsWith(`${resolve(packageRoot)}${sep}`)
-      || (hostTypesPath ? filePath === hostTypesPath : false)
-  })
+  const diagnostics = declarationDiagnostics(program)
   expect(
     ts.formatDiagnosticsWithColorAndContext(diagnostics, {
       getCanonicalFileName: file => file,
@@ -391,6 +383,10 @@ async function typecheckPackageModule(
     }),
     `${packageName} should expose valid declarations with its own dependency closure`,
   ).toBe("")
+}
+
+function declarationDiagnostics(program: ts.Program) {
+  return ts.getPreEmitDiagnostics(program)
 }
 
 describe("published declaration diagnostics", () => {
@@ -433,7 +429,7 @@ describe("published declaration diagnostics", () => {
         noEmit: true,
         skipLibCheck: false,
       })
-      const diagnosticFiles = ts.getPreEmitDiagnostics(program)
+      const diagnosticFiles = declarationDiagnostics(program)
         .filter(diagnostic => diagnostic.code === 2304)
         .map(diagnostic => diagnostic.file?.fileName)
 
