@@ -173,11 +173,12 @@ function renderConsoleNitroPlugin(
 ): string {
   const fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
+  const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
     `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     fixture
-      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${JSON.stringify(fixtureSnapshot)}, ${JSON.stringify(revision)})`
+      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)})`
       : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
     `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
@@ -569,7 +570,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !options.console || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
-  const consoleFixture = process.env[consoleFixtureEnvironmentVariable]
+  const consoleFixture = nuxt.options.vitehubCliDiscovery
+    ? undefined
+    : process.env[consoleFixtureEnvironmentVariable]
+  const resolvedConsoleFixture = consoleFixture ? resolve(projectRoot, consoleFixture) : undefined
+  const consoleFixtureSnapshot = resolvedConsoleFixture ? readConsoleFixture(resolvedConsoleFixture) : undefined
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
     ...(options.console
@@ -580,9 +585,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       : []),
     ...(options.console ? [consoleInvocationRootPlugin(
       projectRoot,
-      createConsoleInvocationsIdentity(projectRoot, consoleFixture
-        ? resolve(projectRoot, consoleFixture)
-        : undefined),
+      createConsoleInvocationsIdentity(
+        projectRoot,
+        resolvedConsoleFixture,
+        consoleFixtureSnapshot ? consoleFixtureRevision(consoleFixtureSnapshot) : undefined,
+      ),
     )] : []),
   ]
   const existing = withoutDeploymentOutput(

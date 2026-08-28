@@ -90,11 +90,12 @@ export function assertConsoleProductionAccess(
 function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[], fixture?: string): string {
   const fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
+  const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
     `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     fixture
-      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${JSON.stringify(fixtureSnapshot)}, ${JSON.stringify(revision)})`
+      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)})`
       : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
     `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
@@ -268,10 +269,15 @@ export function consoleInvocationRootPlugin(configuredProjectRoot?: string, conf
     },
     configResolved(config) {
       projectRoot ||= resolveViteHubProjectRoot(config.root)
-      const configuredFixture = process.env[consoleFixtureEnvironmentVariable]
+      const configuredFixture = (config as typeof config & { vitehubCliDiscovery?: true }).vitehubCliDiscovery
+        ? undefined
+        : process.env[consoleFixtureEnvironmentVariable]
+      const fixture = configuredFixture ? resolve(projectRoot, configuredFixture) : undefined
+      const revision = fixture ? consoleFixtureRevision(readConsoleFixture(fixture)) : undefined
       identity ||= createConsoleInvocationsIdentity(
         projectRoot,
-        configuredFixture ? resolve(projectRoot, configuredFixture) : undefined,
+        fixture,
+        revision,
       )
     },
     async buildStart() {

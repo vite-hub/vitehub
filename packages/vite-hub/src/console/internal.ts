@@ -32,9 +32,10 @@ export type ConsoleInvocationScope = {
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
 }
 
-export function createConsoleInvocationsIdentity(projectRoot: string, fixture?: string): string {
+export function createConsoleInvocationsIdentity(projectRoot: string, fixture?: string, revision?: string): string {
   if (!fixture) return `sqlite:${projectRoot}`
-  return `fixture:${projectRoot}:${fixture}`
+  const identity = `fixture:${projectRoot}:${fixture}`
+  return revision ? `${identity}:${revision}` : identity
 }
 
 export function resolveConsoleInvocationsRevision(

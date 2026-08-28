@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, createConsoleInvocationsIdentity, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
@@ -178,11 +178,13 @@ describe("Agent invocation console", () => {
     })
     try {
       const file = join(root, "fixture.json")
-      await writeFile(file, JSON.stringify(fixture("first")))
+      const firstFixture = parseConsoleFixture(fixture("first"))
+      const firstRevision = consoleFixtureRevision(firstFixture)
+      await writeFile(file, JSON.stringify(firstFixture))
       const first = installConsoleFixtureInvocations(root, file)
       const existingRealm = {
         process,
-        [consoleInvocationsIdentityKey]: `fixture:${root}:${file}`,
+        [consoleInvocationsIdentityKey]: createConsoleInvocationsIdentity(root, file, firstRevision),
         [consoleInvocationsIdentityRootKey]: root,
         [consoleInvocationsRootKey]: root,
       }
@@ -191,8 +193,9 @@ describe("Agent invocation console", () => {
       const second = installConsoleFixtureInvocations(root, file)
 
       expect(second).not.toBe(first)
-      expect(resolveConsoleInvocations(existingRealm)).toBe(second)
-      expect(Reflect.get(process, consoleInvocationsRegistryKey).size).toBe(1)
+      expect(resolveConsoleInvocations(existingRealm)).toBe(first)
+      expect(resolveConsoleInvocations()).toBe(second)
+      expect(Reflect.get(process, consoleInvocationsRegistryKey).size).toBe(2)
       await expect(second.list()).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "second" })],
       })
@@ -222,6 +225,17 @@ describe("Agent invocation console", () => {
   })
 
   it("rejects malformed and duplicate fixture records", () => {
+    expect(parseConsoleFixture({
+      invocations: [{
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id: "anonymous",
+        observations: [],
+        status: "completed",
+        traceId: "anonymous-trace",
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      }],
+      version: 1,
+    }).invocations[0]).not.toHaveProperty("agentName")
     expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
     expect(() => parseConsoleFixture({
       invocations: [0, 1].map(() => ({
@@ -436,7 +450,24 @@ describe("Agent invocation console", () => {
     try {
       const fixture = join(fixtureRoot, "console.fixture.json")
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(fixture, JSON.stringify(fixtureDocument()))
+      const fixtureWithPrototypeData = JSON.parse(`{
+        "version": 1,
+        "invocations": [{
+          "createdAt": "2026-08-27T10:00:00.000Z",
+          "id": "prototype-data",
+          "observations": [{
+            "attributes": { "__proto__": { "preserved": true } },
+            "name": "agent.message",
+            "sequence": 0,
+            "timestamp": "2026-08-27T10:00:00.000Z",
+            "type": "run"
+          }],
+          "status": "completed",
+          "traceId": "prototype-data-trace",
+          "updatedAt": "2026-08-27T10:00:00.000Z"
+        }]
+      }`)
+      await writeFile(fixture, JSON.stringify(fixtureWithPrototypeData))
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
       const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
       const configHook = plugin.config
@@ -448,6 +479,20 @@ describe("Agent invocation console", () => {
 
       const generated = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
       expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)}, `)
+      expect(generated).toContain("JSON.parse(")
+      const generatedInstallation = generated.split("\n").find(line => line.startsWith("const vitehubConsoleInvocations"))
+      if (!generatedInstallation) throw new TypeError("Expected a generated fixture installation.")
+      let generatedSnapshot: unknown
+      runInNewContext(generatedInstallation, {
+        installConsoleFixtureInvocations: (_root: string, _file: string, snapshot: unknown) => {
+          generatedSnapshot = snapshot
+        },
+      })
+      // SAFETY: The generated installation was produced from the fully validated fixture above.
+      const generatedAttributes = (generatedSnapshot as { invocations: Array<{ observations: Array<{ attributes: object }> }> })
+        .invocations[0]!.observations[0]!.attributes
+      expect(Object.hasOwn(generatedAttributes, "__proto__")).toBe(true)
+      expect(Reflect.get(generatedAttributes, "__proto__")).toEqual({ preserved: true })
 
       const listeners = new Map<string, () => Promise<void>>()
       const logger = { error: vi.fn() }
@@ -888,13 +933,29 @@ describe("Agent invocation console", () => {
     const second = fakeInvocations("second")
     const firstScope = { process }
     const secondScope = { process }
-    const identity = "fixture:/project:/fixture.json"
+    const firstIdentity = createConsoleInvocationsIdentity("/project", "/fixture.json", "first-revision")
+    const secondIdentity = createConsoleInvocationsIdentity("/project", "/fixture.json", "second-revision")
 
-    installConsoleInvocationFallback(first, "/project", firstScope, identity, "first-revision")
-    installConsoleInvocationFallback(second, "/project", secondScope, identity, "second-revision")
+    installConsoleInvocationFallback(first, "/project", firstScope, firstIdentity, "first-revision")
+    installConsoleInvocationFallback(second, "/project", secondScope, secondIdentity, "second-revision")
+
+    const firstAgentRealm = {
+      process,
+      [consoleInvocationsIdentityKey]: firstIdentity,
+      [consoleInvocationsIdentityRootKey]: "/project",
+      [consoleInvocationsRootKey]: "/project",
+    }
+    const secondAgentRealm = {
+      process,
+      [consoleInvocationsIdentityKey]: secondIdentity,
+      [consoleInvocationsIdentityRootKey]: "/project",
+      [consoleInvocationsRootKey]: "/project",
+    }
 
     expect(resolveConsoleInvocations(firstScope)).toBe(first)
     expect(resolveConsoleInvocations(secondScope)).toBe(second)
+    expect(resolveConsoleInvocations(firstAgentRealm)).toBe(first)
+    expect(resolveConsoleInvocations(secondAgentRealm)).toBe(second)
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
   })
 

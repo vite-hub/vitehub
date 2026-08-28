@@ -216,10 +216,13 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
     observationSequences.add(parsed.sequence)
     return parsed
   })
+  const resolvedAgentName = input.agentName === undefined
+    ? undefined
+    : agentName(input.agentName, `${path}.agentName`)
   // SAFETY: The parser validates every required AgentInvocationRecord field and preserves optional fixture metadata.
   return {
     ...input,
-    agentName: agentName(input.agentName, `${path}.agentName`),
+    ...(resolvedAgentName ? { agentName: resolvedAgentName } : {}),
     cancelledAt: optionalTimestamp(input.cancelledAt, `${path}.cancelledAt`),
     channelId: optionalString(input.channelId, `${path}.channelId`),
     completedAt: optionalTimestamp(input.completedAt, `${path}.completedAt`),

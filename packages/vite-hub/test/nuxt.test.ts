@@ -416,6 +416,7 @@ describe("ViteHub Nuxt integration", () => {
 
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `)
+      expect(generated).toContain("JSON.parse(")
       expect(development.nuxt.options.watch).toContain(fixture)
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
       await development.runBuilderWatchHook()
