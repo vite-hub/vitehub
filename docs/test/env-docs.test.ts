@@ -136,6 +136,8 @@ function envCalls(source: string) {
 function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
   const bindings = new Map<Node, Map<string, Expression | FunctionDeclaration>>();
   const reassignedBindings = new Map<Node, Set<string>>();
+  const mutatedObjectBindings = new Map<Node, Set<string>>();
+  const resolvedObjectBindings = new Map<ObjectLiteralExpression, Map<string, Expression>>();
   const configBindings = new Set(["defineConfig"]);
   const configCombinators = new Set(["mergeConfig"]);
   const configNamespaces = new Set<string>();
@@ -199,6 +201,23 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
       scopeReassignments.add(node.left.text);
       reassignedBindings.set(scope, scopeReassignments);
     }
+    if (
+      isBinaryExpression(node) &&
+      isPropertyAccessExpression(node.left) &&
+      isIdentifier(node.left.expression) &&
+      node.operatorToken.kind >= SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= SyntaxKind.LastAssignment
+    ) {
+      const name = node.left.expression.text;
+      for (let current: Node | undefined = node; current; current = current.parent) {
+        if (!isBlock(current) && !isSourceFile(current)) continue;
+        if (!bindings.get(current)?.has(name)) continue;
+        const mutations = mutatedObjectBindings.get(current) ?? new Set<string>();
+        mutations.add(name);
+        mutatedObjectBindings.set(current, mutations);
+        break;
+      }
+    }
     forEachChild(node, collectBindings);
   }
 
@@ -256,9 +275,41 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
         factory = bindings.get(current)?.get(expression.expression.text);
         if (factory) break;
       }
-      return factory
-        ? resolveObjectsDetailed(factory, new Set(seen).add(expression.expression.text))
-        : { complete: false, objects: [] };
+      if (!factory) return { complete: false, objects: [] };
+      if (
+        isArrowFunction(factory) ||
+        isFunctionExpression(factory) ||
+        isFunctionDeclaration(factory)
+      ) {
+        const parameterScope =
+          factory.body && isBlock(factory.body) ? factory.body : bindingScope(factory);
+        const scopeBindings =
+          bindings.get(parameterScope) ?? new Map<string, Expression | FunctionDeclaration>();
+        const previous = new Map<string, Expression | FunctionDeclaration | undefined>();
+        const invocationBindings = new Map<string, Expression>();
+        factory.parameters.forEach((parameter, index) => {
+          if (!isIdentifier(parameter.name)) return;
+          const value = expression.arguments[index] ?? parameter.initializer;
+          if (!value) return;
+          previous.set(parameter.name.text, scopeBindings.get(parameter.name.text));
+          scopeBindings.set(parameter.name.text, value);
+          invocationBindings.set(parameter.name.text, value);
+        });
+        bindings.set(parameterScope, scopeBindings);
+        const result = resolveObjectsDetailed(
+          factory,
+          new Set(seen).add(expression.expression.text),
+        );
+        for (const object of result.objects) {
+          resolvedObjectBindings.set(object, invocationBindings);
+        }
+        for (const [name, value] of previous) {
+          if (value) scopeBindings.set(name, value);
+          else scopeBindings.delete(name);
+        }
+        return result;
+      }
+      return resolveObjectsDetailed(factory, new Set(seen).add(expression.expression.text));
     }
     if (
       isArrowFunction(expression) ||
@@ -325,9 +376,16 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
       initializer = bindings.get(current)?.get(expression.text);
       if (initializer) break;
     }
-    return initializer
-      ? resolveObjectsDetailed(initializer, new Set(seen).add(expression.text))
-      : { complete: false, objects: [] };
+    if (!initializer) return { complete: false, objects: [] };
+    const resolved = resolveObjectsDetailed(initializer, new Set(seen).add(expression.text));
+    for (let current: Node | undefined = expression; current; current = current.parent) {
+      if (!isBlock(current) && !isSourceFile(current)) continue;
+      if (!bindings.get(current)?.has(expression.text)) continue;
+      return mutatedObjectBindings.get(current)?.has(expression.text)
+        ? { ...resolved, complete: false }
+        : resolved;
+    }
+    return resolved;
   }
 
   function resolveObjects(expression: Expression | FunctionDeclaration) {
@@ -538,7 +596,32 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
       for (let current: Node | undefined = expression; current; current = current.parent) {
         if (!isBlock(current) && !isSourceFile(current)) continue;
         const factory = bindings.get(current)?.get(expression.expression.text);
-        if (factory) return configAlternativesFromResolved(factory, expression.arguments);
+        if (factory) {
+          if (
+            isArrowFunction(factory) ||
+            isFunctionExpression(factory) ||
+            isFunctionDeclaration(factory)
+          ) {
+            const argumentAlternatives = factory.parameters.reduce<Expression[][]>(
+              (alternatives, parameter, index) => {
+                const argument = expression.arguments[index];
+                if (!argument || !isObjectBindingPattern(parameter.name)) return alternatives;
+                const objects = resolveObjectsDetailed(argument).objects;
+                if (objects.length < 2) return alternatives;
+                return alternatives.flatMap((values) =>
+                  objects.map((object) =>
+                    values.map((value, valueIndex) => (valueIndex === index ? object : value)),
+                  ),
+                );
+              },
+              [Array.from(expression.arguments)],
+            );
+            return argumentAlternatives.flatMap((arguments_) =>
+              configAlternativesFromResolved(factory, arguments_),
+            );
+          }
+          return configAlternativesFromResolved(factory, expression.arguments);
+        }
       }
     }
     if (isIdentifier(expression)) {
@@ -757,6 +840,13 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
     }
     if (isStringLiteralLike(expression)) return expression.text;
     if (!isIdentifier(expression) || seen.has(expression.text)) return undefined;
+    for (let current: Node | undefined = expression; current; current = current.parent) {
+      if (!isObjectLiteralExpression(current)) continue;
+      const invocationValue = resolvedObjectBindings.get(current)?.get(expression.text);
+      if (invocationValue) {
+        return resolveString(invocationValue, new Set(seen).add(expression.text));
+      }
+    }
     let initializer: Expression | FunctionDeclaration | undefined;
     for (let current: Node | undefined = expression; current; current = current.parent) {
       if (!isBlock(current) && !isSourceFile(current)) continue;
@@ -1451,6 +1541,21 @@ defineConfig(arrayConfig([{ __TARGET__: env({ mode: "runtime" }) }]))
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([false, false]);
   });
 
+  it("preserves destructured configuration factory argument alternatives", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+function config({ publicEnv }) {
+  return { env: { public: publicEnv } }
+}
+defineConfig(config(flag
+  ? { publicEnv: { appName: env({ mode: "build" }) } }
+  : { publicEnv: { appName: env({ mode: "runtime" }) } }))
+\`\`\`
+    `);
+
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, false]);
+  });
+
   it("resolves computed Env section names", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -1551,6 +1656,29 @@ defineConfig({
     `);
 
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, false]);
+  });
+
+  it("rejects mutated declaration option objects", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const options = { mode: "build" }
+options.mode = "runtime"
+defineConfig({ env: { public: { appName: env(options) } } })
+\`\`\`
+    `);
+
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("binds invoked declaration option factory parameters", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const options = mode => ({ mode })
+defineConfig({ env: { public: { appName: env(options("build")) } } })
+\`\`\`
+    `);
+
+    expect(hasBuildMode(calls[0]!.options)).toBe(true);
   });
 
   it("resolves shorthand mode bindings", () => {
