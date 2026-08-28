@@ -8,7 +8,10 @@
     "completeness": "complete"
   },
   "unused_files": [],
-  "unused_exports": [],
+  "unused_exports": [
+    "packages/blob/src/internal/vercel-fetch.ts:fetch",
+    "packages/blob/src/internal/vercel-oidc.ts:getVercelOidcToken"
+  ],
   "unused_types": [],
   "private_type_leaks": [],
   "unused_dependencies": [],
@@ -43,6 +46,7 @@
     "packages/auth/test/published-runtime.test.ts:../dist/agent.js",
     "packages/blob/test/optional-peer.test.ts:../dist/drivers/vercel.js",
     "packages/blob/test/optional-peer.test.ts:../dist/drivers/vercel-bundled.js",
+    "packages/blob/test/optional-peer.test.ts:../dist/drivers/files.js",
     "packages/blob/test/optional-peer.test.ts:../dist/drivers/cloudflare-native.js",
     "packages/env/test/published-runtime.test.ts:../dist/index.js",
     "packages/env/test/vite.test.ts:../dist/server.js",

@@ -13,9 +13,11 @@ describe("docs build warning budget", () => {
   })
 
   it("accepts timeouts for explicitly allowed icons", () => {
-    expect(() => assertBuildWarningBudget(
+    expect(() => assertBuildWarningBudget([
       "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms",
-    )).not.toThrow()
+      "[warn] [Icon] failed to load icon `vscode-icons:file-type-vue` (repeated 12 times)",
+      "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms (repeated 5 times)",
+    ].join("\n"))).not.toThrow()
   })
 
   it("rejects non-timeout loading warnings for allowed icons", () => {

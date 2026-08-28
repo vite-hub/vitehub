@@ -325,9 +325,9 @@ function hasBuildMode(options: readonly ObjectLiteralExpression[]): boolean {
 }
 
 function buildEnvCalls(source: string) {
-  const codeBlocks = [...source.matchAll(/^```(?:ts|typescript)[^\n]*\n([\s\S]*?)^```$/gm)].map(
-    (match) => match[1] || "",
-  );
+  const codeBlocks = [
+    ...source.matchAll(/^[\t ]*```(?:ts|typescript)[^\n]*\n([\s\S]*?)^[\t ]*```$/gm),
+  ].map((match) => match[1] || "");
 
   return codeBlocks.flatMap((code) => {
     const { calls, sourceFile } = envCalls(code);
@@ -400,6 +400,21 @@ defineConfig({
     `);
 
     expect(calls).toEqual([]);
+  });
+
+  it("parses TypeScript fences nested in Markdown containers", () => {
+    const calls = buildEnvCalls(`
+::tabs
+  :::tabs-item{label="Vite"}
+    \`\`\`ts [vite.config.ts]
+    defineConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
+    \`\`\`
+  :::
+::
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("follows configs returned by callbacks", () => {

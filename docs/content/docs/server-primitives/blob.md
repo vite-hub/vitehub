@@ -451,7 +451,7 @@ export default defineConfig({
 })
 ```
 
-When no runtime binding exists, ViteHub falls back to R2 HTTP access through `files-sdk/r2`. Set `accessKeyId` and `secretAccessKey` with runtime env, not `vite.config.ts`; non-secret values such as `bucketName` can stay in config.
+When no runtime binding exists, ViteHub falls back to R2 HTTP access through its bundled Files SDK adapter. Set `accessKeyId` and `secretAccessKey` with runtime env, not `vite.config.ts`; non-secret values such as `bucketName` can stay in config.
 
 ```env [.env]
 R2_ACCOUNT_ID=account-id
@@ -470,7 +470,7 @@ R2_BUCKET_NAME=assets
 Install the optional R2 HTTP dependencies only when you rely on fallback access.
 
 ```bash [Terminal]
-pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 ## S3-compatible object storage
@@ -478,7 +478,7 @@ pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned
 Use `driver: 's3'` for production S3-compatible object storage that is not one of ViteHub's provider-specific drivers.
 
 ```bash [Terminal]
-pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 ```ts [vite.config.ts]
@@ -502,7 +502,7 @@ Use Cloudflare R2 when the app runs with an R2 binding or R2 HTTP credentials. U
 Use MinIO when you want Docker Compose or local staging to exercise object-storage semantics instead of a mounted filesystem.
 
 ```bash
-pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 ```ts [vite.config.ts]

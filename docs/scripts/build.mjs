@@ -64,7 +64,7 @@ export function assertBuildWarningBudget(output) {
     )
       continue;
     const iconMatch =
-      /\[Icon] (?:failed to load icon [`'"]?([^`'"\s]+)[`'"]?|loading icon [`'"]?([^`'"\s]+)[`'"]? timed out after 1500ms)$/i.exec(
+      /\[Icon] (?:failed to load icon [`'"]?([^`'"\s]+)[`'"]?|loading icon [`'"]?([^`'"\s]+)[`'"]? timed out after 1500ms)(?: \(repeated \d+ times\))?$/i.exec(
         line,
       );
     if (iconMatch) {
