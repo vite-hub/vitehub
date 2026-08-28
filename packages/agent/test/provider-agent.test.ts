@@ -267,6 +267,7 @@ cli_auth_credentials_store = "keyring"
         credentialProfile: profile,
         credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
         provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       }).generate(context(threadId) as never)
 
       await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(`cli_auth_credentials_store = "file"
@@ -2354,7 +2355,9 @@ cli_auth_credentials_store = "keyring"
       provider: "codex" as const,
     }
 
-    await expect(createProviderAgentAdapter(options).generate(context(threadId) as never)).resolves.toBeDefined()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(threadId) as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
   })
 

@@ -1345,6 +1345,7 @@ async function* runProvider<
   let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
+  let deferredRuntimeFailure: unknown
   let releaseDeferredRuntimeStopped: (() => void) | undefined
   const deferredRuntimeStopped = new Promise<void>((resolve) => {
     releaseDeferredRuntimeStopped = resolve
@@ -1392,6 +1393,10 @@ async function* runProvider<
     finally {
       try {
         await runtime!.close()
+      }
+      catch (error) {
+        deferredRuntimeFailure = error
+        throw error
       }
       finally {
         releaseDeferredRuntimeStopped?.()
@@ -1636,10 +1641,18 @@ async function* runProvider<
     let forcedRootCleanup: Promise<void> | undefined
     let runtimeCleanupSettled = false
     if (runtimeCleanupDeferred) {
-      observeLateCleanup(deferredRuntimeStopped.then(async () => {
-        runtimeCleanupSettled = true
-        await releaseCodexCredentialHome()
-      }))
+      observeLateCleanup((async () => {
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const stopped = await Promise.race([
+          deferredRuntimeStopped.then(() => true),
+          new Promise<false>(resolve => timeout = setTimeout(() => resolve(false), providerCleanupTimeoutMs)),
+        ])
+        if (timeout) clearTimeout(timeout)
+        if (stopped) runtimeCleanupSettled = true
+        await releaseCodexCredentialHome(stopped
+          ? deferredRuntimeFailure
+          : new Error("[vitehub] Provider Agent Driver deferred runtime cleanup timed out."))
+      })())
     }
     const cleanupTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
