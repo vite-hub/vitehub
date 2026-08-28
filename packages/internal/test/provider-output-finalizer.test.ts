@@ -606,6 +606,36 @@ describe("Provider Output finalizer", () => {
     expect(laterWrite).not.toHaveBeenCalled()
   })
 
+  it("rolls back root output when reset interrupts contribution cleanup", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const outputFile = join(outputRoot, "index.js")
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(outputFile, "previous\n")
+    let cleanupStarted!: () => void
+    let releaseCleanup!: () => void
+    const started = new Promise<void>(resolve => cleanupStarted = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: async () => {
+        cleanupStarted()
+        await new Promise<void>(resolve => releaseCleanup = resolve)
+      },
+      owner: "agent",
+      rootDir,
+      write: async () => await writeFile(outputFile, "replacement\n"),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    const reset = resetProviderDeploymentOutputs(catalog)
+    releaseCleanup()
+
+    await reset
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
+  })
+
   it("finalizes newer contributions registered while reset unwinds", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

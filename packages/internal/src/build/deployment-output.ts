@@ -931,6 +931,7 @@ export async function finalizeProviderDeploymentOutputs(
                   ready()
                   const rollback = await rootDecision
                   if (rollback !== undefined) throw rollback
+                  throwIfProviderOutputAborted(controller.signal)
                 }
                 catch (error) {
                   controller.abort(error)
@@ -950,6 +951,7 @@ export async function finalizeProviderDeploymentOutputs(
           }
           try {
             await catalog.completeDeploymentContributions(contributions)
+            throwIfProviderOutputAborted(controller.signal)
           }
           catch (error) {
             decideRoots(error)
