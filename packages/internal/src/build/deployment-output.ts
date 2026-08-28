@@ -902,12 +902,22 @@ export async function finalizeProviderDeploymentOutputs(
           grouped.set(rootDir, rootContributions)
         }
         try {
-          await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
-            await withProviderDeploymentOutputRootLock(rootDir, async () => {
+          let decideRoots!: (error: unknown | undefined) => void
+          const rootDecision = new Promise<unknown | undefined>((resolve) => {
+            decideRoots = resolve
+          })
+          const roots = [...grouped.entries()].map(([rootDir, rootContributions]) => {
+            let ready!: () => void
+            let rejectReady!: (error: unknown) => void
+            const readiness = new Promise<void>((resolve, reject) => {
+              ready = resolve
+              rejectReady = reject
+            })
+            const write = withProviderDeploymentOutputRootLock(rootDir, async () => {
               await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
-                for (const contribution of rootContributions) {
-                  throwIfProviderOutputAborted(controller.signal)
-                  try {
+                try {
+                  for (const contribution of rootContributions) {
+                    throwIfProviderOutputAborted(controller.signal)
                     await contribution.write({
                       signal: controller.signal,
                       write: async (writeOptions) => {
@@ -915,16 +925,26 @@ export async function finalizeProviderDeploymentOutputs(
                         await writeProviderDeploymentOutputsNow(writeOptions, controller.signal, transaction)
                       },
                     })
+                    throwIfProviderOutputAborted(controller.signal)
                   }
-                  catch (error) {
-                    controller.abort(error)
-                    throw error
-                  }
-                  throwIfProviderOutputAborted(controller.signal)
+                  ready()
+                  const rollback = await rootDecision
+                  if (rollback !== undefined) throw rollback
+                }
+                catch (error) {
+                  controller.abort(error)
+                  rejectReady(error)
+                  throw error
                 }
               })
             })
-          }))
+            void write.catch(rejectReady)
+            return { readiness, write }
+          })
+          const readiness = await Promise.allSettled(roots.map(root => root.readiness))
+          const failedRoot = readiness.find((result): result is PromiseRejectedResult => result.status === "rejected")
+          decideRoots(failedRoot?.reason)
+          await settleWrites(roots.map(root => root.write))
           catalog.completeDeploymentContributions(contributions)
         }
         catch (error) {

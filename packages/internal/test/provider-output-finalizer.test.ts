@@ -241,6 +241,53 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
   })
 
+  it("rolls back completed roots when a peer root fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const firstRoot = await createTempProject()
+    const secondRoot = await createTempProject()
+    const firstOutput = createDefaultCloudflareOutputRoot(firstRoot)
+    const secondOutput = createDefaultCloudflareOutputRoot(secondRoot)
+    await Promise.all([
+      mkdir(firstOutput, { recursive: true }),
+      mkdir(secondOutput, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(firstOutput, "index.js"), "first previous\n"),
+      writeFile(join(secondOutput, "index.js"), "second previous\n"),
+    ])
+    let firstReady!: () => void
+    const firstCompleted = new Promise<void>(resolve => firstReady = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir: firstRoot,
+      write: async ({ write }) => {
+        await write({
+          clientOutDir: "dist/client",
+          cloudflare: { files: { "index.js": "first replacement\n" }, outputRoot: firstOutput, wranglerConfig: {} },
+          rootDir: firstRoot,
+        })
+        firstReady()
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir: secondRoot,
+      write: async ({ write }) => {
+        await firstCompleted
+        await write({
+          clientOutDir: "dist/client",
+          cloudflare: { files: { "index.js": "second replacement\n" }, outputRoot: secondOutput, wranglerConfig: {} },
+          rootDir: secondRoot,
+        })
+        throw new Error("second root failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("second root failed")
+    await expect(readFile(join(firstOutput, "index.js"), "utf8")).resolves.toBe("first previous\n")
+    await expect(readFile(join(secondOutput, "index.js"), "utf8")).resolves.toBe("second previous\n")
+  })
+
   it("preserves newer generated inputs when rolling back output ownership", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

@@ -367,8 +367,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   ].join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
-  const generatedDir = ensureGeneratedDir(rootDir, productName)
+async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, generatedDir = ensureGeneratedDir(rootDir, productName)) {
   await mkdir(generatedDir, { recursive: true })
 
   const userAppEntry = resolveBlobUserAppEntry(rootDir)
@@ -700,8 +699,8 @@ export async function generateProviderOutputs(
   return artifacts
 }
 
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "cloudflareOwnedByNitro" | "providerOutput" | "rootDir">): Promise<GeneratedBlobArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.blob)
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "cloudflareOwnedByNitro" | "providerOutput" | "rootDir"> & { generatedDir?: string }): Promise<GeneratedBlobArtifacts> {
+  const artifacts = await writeProviderEntries(options.rootDir, options.blob, options.generatedDir)
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob, options.cloudflareOwnedByNitro)
   return artifacts
 }

@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto"
+import { rm } from "node:fs/promises"
+
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -245,12 +248,15 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
   let cloudflareOwnedByNitro = false
-  let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   let resolved: ResolvedConfig | undefined
+  const stagedArtifactDirs = new WeakMap<object, string>()
+  const fallbackEnvironment = {}
+  const buildEnvironment = (context: { environment?: object } | undefined): object =>
+    context?.environment ?? context ?? fallbackEnvironment
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
   return {
@@ -328,37 +334,61 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
       }
+      const generation = providerOutputGenerations.get(this)
+      const environment = generation ?? buildEnvironment(this)
+      const artifactDir = resolve(rootDir, ".vitehub/blob-generations", randomUUID())
       try {
-        providerArtifacts = await prepareProviderOutputs({
-          blob,
-          cloudflareOwnedByNitro,
+        const blobOptions = blob
+        const blobCloudflareOwnedByNitro = cloudflareOwnedByNitro
+        const blobClientOutDir = clientOutDir
+        const blobRootDir = rootDir
+        const blobServerFunctionName = resolveNitroVercelFunctionName(resolved ?? {}, "blob")
+        const providerArtifacts = await prepareProviderOutputs({
+          blob: blobOptions,
+          cloudflareOwnedByNitro: blobCloudflareOwnedByNitro,
+          generatedDir: artifactDir,
           providerOutput,
-          rootDir,
+          rootDir: blobRootDir,
         })
+        stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           owner: "blob",
-          rootDir,
+          rootDir: blobRootDir,
           write: async ({ signal, write }) => {
-            await generateProviderOutputs({
-              blob,
-              clientOutDir,
-              cloudflareOwnedByNitro,
-              artifacts: providerArtifacts,
-              providerOutput,
-              rootDir,
-              serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
-              signal,
-            }, write)
+            try {
+              await generateProviderOutputs({
+                blob: blobOptions,
+                clientOutDir: blobClientOutDir,
+                cloudflareOwnedByNitro: blobCloudflareOwnedByNitro,
+                artifacts: providerArtifacts,
+                providerOutput,
+                rootDir: blobRootDir,
+                serverFunctionName: blobServerFunctionName,
+                signal,
+              }, write)
+            }
+            finally {
+              await rm(artifactDir, { force: true, recursive: true })
+              if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+            }
           },
-        }, providerOutputGenerations.get(this))
+        }, generation)
       }
       catch (error) {
+        await rm(artifactDir, { force: true, recursive: true })
+        if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }
     },
     async renderError(error) {
+      const environment = providerOutputGenerations.get(this) ?? buildEnvironment(this)
       await providerOutputGenerations.reset(this, providerOutput, error)
+      const artifactDir = stagedArtifactDirs.get(environment)
+      if (artifactDir) {
+        await rm(artifactDir, { force: true, recursive: true })
+        if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+      }
     },
     closeBundle: {
       order: "post",

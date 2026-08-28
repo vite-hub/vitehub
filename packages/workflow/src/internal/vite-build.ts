@@ -575,6 +575,7 @@ interface GeneratedWorkflowArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  artifacts?: GeneratedWorkflowArtifacts
   agentImportBase?: string
   clientOutDir: string
   hosting?: string
@@ -1033,8 +1034,8 @@ export async function writeProviderEntries(
   includeUserAppEntry = true,
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
+  generatedDir = ensureGeneratedDir(rootDir, productName),
 ) {
-  const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -1348,7 +1349,7 @@ async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
 ): Promise<GeneratedWorkflowArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
+  const artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
@@ -1404,7 +1405,7 @@ async function generateProviderOutputsWithinLock(
       }, artifacts.vercelNativeFiles)) {
         assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
       }
-      await writeProviderDeploymentOutputs({
+      const deploymentOutput: ProviderDeploymentOutputOptions = {
         clientOutDir: options.clientOutDir,
         cloudflare: cloudflareOutput,
         cleanup: {
@@ -1426,8 +1427,9 @@ async function generateProviderOutputsWithinLock(
           signal?.throwIfAborted()
         },
         rootDir: options.rootDir,
-        ...(vercelOutput ? { vercel: vercelOutput } : {}),
-      })
+      }
+      if (vercelOutput) deploymentOutput.vercel = vercelOutput
+      await writeProviderDeploymentOutputs(deploymentOutput)
       publicationSucceeded = true
     }
     catch (error) {

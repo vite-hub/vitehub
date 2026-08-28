@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+import { rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
@@ -81,6 +83,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     ? false
     : options
   let serverDirs: string[] | undefined
+  const stagedArtifactDirs = new WeakMap<object, string>()
+  const fallbackEnvironment = {}
+  const buildEnvironment = (context: { environment?: object } | undefined): object =>
+    context?.environment ?? context ?? fallbackEnvironment
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel"): Record<string, string> {
     const database = getProviderRuntimeModule(providerOutput, "database", provider)
@@ -191,37 +197,73 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       const rootDir = resolveViteHubProjectRoot(config.root)
       // SAFETY: Vite plugin objects may expose ViteHub's optional agent extension, which the predicate reads defensively.
       const plugins = config.plugins as AgentWorkflowRegistryPlugin[]
-      contributeProviderDeploymentOutput(providerOutput, {
-        owner: "workflow",
-        rootDir,
-        write: async ({ write }) => {
-          await generateWorkflowProviderOutputs({
-            agentImportBase: internalOptions?.agentImportBase,
-            clientOutDir: resolve(config.root, config.build.outDir),
-            hosting: internalOptions?.hosting,
-            importBase: internalOptions?.importBase,
-            providerImportAliases: await providerImportAliases(),
-            providerRuntimeImportAliases: {
-              cloudflare: providerRuntimeImportAliases("cloudflare"),
-              vercel: providerRuntimeImportAliases("vercel"),
-            },
-            rootDir,
-            definitionRootDir: config.root,
-            serverDirs,
-            serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
-            includeUserAppEntry: internalOptions?.includeUserAppEntry,
-            workflow,
-            workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-            workspaceImportBase: internalOptions?.workspaceImportBase,
-            transformRegistry: plugins
-              .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-              ?.vitehub?.agent?.transformWorkflowRegistry,
-          }, write)
-        },
-      }, providerOutputGenerations.get(this))
+      const generation = providerOutputGenerations.get(this)
+      const environment = generation ?? buildEnvironment(this)
+      const artifactDir = resolve(rootDir, ".vitehub/workflow-generations", randomUUID())
+      const workflowOptions = workflow
+      const workflowServerDirs = serverDirs
+      const transformRegistry = plugins
+        .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
+        ?.vitehub?.agent?.transformWorkflowRegistry
+      try {
+        const importAliases = await providerImportAliases()
+        const runtimeImportAliases = {
+          cloudflare: providerRuntimeImportAliases("cloudflare"),
+          vercel: providerRuntimeImportAliases("vercel"),
+        }
+        const artifacts = await writeProviderEntries(rootDir, workflowOptions, {
+          agent: internalOptions?.agentImportBase,
+          workflow: internalOptions?.importBase,
+          workspace: internalOptions?.workspaceImportBase,
+          workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
+        }, workflowServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, config.root, artifactDir)
+        stagedArtifactDirs.set(environment, artifactDir)
+        contributeProviderDeploymentOutput(providerOutput, {
+          owner: "workflow",
+          rootDir,
+          write: async ({ write }) => {
+            try {
+              await generateWorkflowProviderOutputs({
+                agentImportBase: internalOptions?.agentImportBase,
+                artifacts,
+                clientOutDir: resolve(config.root, config.build.outDir),
+                hosting: internalOptions?.hosting,
+                importBase: internalOptions?.importBase,
+                providerImportAliases: importAliases,
+                providerRuntimeImportAliases: runtimeImportAliases,
+                rootDir,
+                definitionRootDir: config.root,
+                serverDirs: workflowServerDirs,
+                serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
+                includeUserAppEntry: internalOptions?.includeUserAppEntry,
+                workflow: workflowOptions,
+                workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
+                workspaceImportBase: internalOptions?.workspaceImportBase,
+                transformRegistry,
+              }, write)
+            }
+            finally {
+              await rm(artifactDir, { force: true, recursive: true })
+              if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+            }
+          },
+        }, generation)
+      }
+      catch (error) {
+        await rm(artifactDir, { force: true, recursive: true })
+        if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        throw error
+      }
     },
     async renderError(error) {
+      const environment = providerOutputGenerations.get(this) ?? buildEnvironment(this)
       await providerOutputGenerations.reset(this, providerOutput, error)
+      const artifactDir = stagedArtifactDirs.get(environment)
+      if (artifactDir) {
+        await rm(artifactDir, { force: true, recursive: true })
+        if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+      }
     },
     closeBundle: {
       order: "post",
