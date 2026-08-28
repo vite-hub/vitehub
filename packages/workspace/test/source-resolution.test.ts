@@ -83,10 +83,12 @@ function customerSource() {
 function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspaceFacade {
   return {
     fs: {
+      // SAFETY: the facade accepts the workspace reader's full option union.
       readFile: async (path, options) => await workspace.readFile(path, options as never),
       stat: async path => await workspace.stat(path),
       exists: async path => await workspace.exists(path),
       list: async (path, options) => await workspace.list(path, options),
+      // SAFETY: the facade glob pattern has already passed workspace API validation.
       glob: async (pattern, options) => await workspace.glob(pattern as never, options),
       search: async query => await workspace.search(query),
       materializeSources: async options => await workspace.materializeSources?.(options) ?? {
@@ -98,6 +100,7 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
         sources: [],
       },
     },
+    // SAFETY: readonly facade tests do not exercise optional workspace tools.
     tools: {
       inspect: () => ({}),
       none: () => ({}),
@@ -118,6 +121,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
         await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
       },
       exists: async path => await workspace.exists(path),
+      // SAFETY: the facade glob pattern has already passed workspace API validation.
       glob: async (pattern, options) => await workspace.glob(pattern as never, options),
       list: async (path, options) => await workspace.list(path || "", options),
       mkdir: async (path, options) => await workspace.mkdir(path, options),
@@ -125,6 +129,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
         await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
         await workspace.rm(from, { force: true, recursive: true })
       },
+      // SAFETY: the facade accepts the workspace reader's full option union.
       readFile: async (path, options) => await workspace.readFile(path, options as never),
       rm: async (path, options) => await workspace.rm(path, options),
       search: async query => await workspace.search(query),
@@ -149,6 +154,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     snapshot: async options => await workspace.snapshot(options),
     startSession: async options => await workspace.startSession(options),
     sync: async options => await workspace.sync(options),
+    // SAFETY: writable facade tests do not exercise the tool implementations.
     tools: {
       inspect: () => ({}),
       none: () => ({}),
@@ -158,8 +164,10 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
 }
 
 async function runShell(workspace: ReadonlyWorkspaceFacade, command: string): Promise<WorkspaceShellResult> {
+  // SAFETY: this test fixture supplies the complete tool context used by the shell implementation.
   return await workspace.tools.shell.execute!(
     { command },
+    // SAFETY: the shell implementation only reads these tool-context fields in this test.
     { toolCallId: "test", messages: [] } as never,
   ) as WorkspaceShellResult
 }
@@ -196,6 +204,7 @@ describe("Workspace Source Resolution", () => {
       invocation: {
         context: {
           entries: () => values.entries(),
+          // SAFETY: the test map contains the invocation context values requested by this fixture.
           get: (id: string) => values.get(id) as never,
           has: id => values.has(id),
           toJSON: () => Object.fromEntries(values),
@@ -572,6 +581,7 @@ describe("Workspace Source Resolution", () => {
       "~standard": {
         jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
         validate(input: unknown) {
+          // SAFETY: this schema fixture accepts arbitrary object-shaped query input.
           return { value: input as Record<string, unknown> }
         },
       },
@@ -603,14 +613,18 @@ describe("Workspace Source Resolution", () => {
       definition,
       scope("support", [workspaceSourceRequestDescriptorPath("inventoryHealthSummary")]),
     )
+    // SAFETY: this test fixture supplies the complete tool context used by the shell implementation.
     const result = await workspace.tools.shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      // SAFETY: the shell implementation only reads these tool-context fields in this test.
       { toolCallId: "test", messages: [] } as never,
     ) as WorkspaceShellResult
 
     expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }, null, 2) })
+    // SAFETY: this test fixture supplies the complete tool context used by the shell implementation.
     const hiddenResult = await workspace.tools.shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/hidden-inventory'" },
+      // SAFETY: the shell implementation only reads these tool-context fields in this test.
       { toolCallId: "test", messages: [] } as never,
     ) as WorkspaceShellResult
 
@@ -618,8 +632,11 @@ describe("Workspace Source Resolution", () => {
       exitCode: 126,
       stderr: expect.stringContaining("not visible in the selected workspace scope"),
     })
+    // SAFETY: the mocked fetch call above always records a RequestInit argument.
     const init = request.mock.calls[0]?.[1] as RequestInit
+    // SAFETY: the mocked request initializes headers with a Headers-compatible value.
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
+    // SAFETY: the mocked request initializes headers with a Headers-compatible value.
     expect((init.headers as Headers).get("x-scope")).toBe("support")
     expect(request).toHaveBeenCalledOnce()
     expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
@@ -1044,6 +1061,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: writableFacade created this resolved facade with writable operations.
     const writable = workspace as WritableWorkspaceFacade
 
     await expect(writable.fs.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
@@ -1085,6 +1103,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
+    // SAFETY: writableFacade created this resolved facade with writable operations.
     const writable = workspace as WritableWorkspaceFacade
     await writable.materializeSources({ path: "docs" })
     await writable.publish({ name: "publish resolved view" })
@@ -1112,6 +1131,7 @@ describe("Workspace Source Resolution", () => {
         token: "token",
       })],
     }
+    // SAFETY: writableFacade preserves the backing Store target used by this publish fixture.
     const facade = writableFacade(base) as WritableWorkspaceFacade & { [workspaceStoreTarget]: () => unknown }
     facade[workspaceStoreTarget] = () => ({ provider: "github", branch: "main", repository: "onmax/repo" })
     const { workspace } = await createWorkspaceSourceResolutionFacade(facade, definition, {
@@ -1119,6 +1139,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
+    // SAFETY: the custom facade above retains writable publish operations.
     await expect((workspace as WritableWorkspaceFacade).publish()).rejects.toThrow(
       "GitHub publisher cannot publish to onmax/repo@main while it backs the active GitHub Workspace Store",
     )
@@ -1147,6 +1168,7 @@ describe("Workspace Source Resolution", () => {
       overlay: true,
     })
 
+    // SAFETY: writableFacade created this resolved facade with writable operations.
     await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
@@ -1177,6 +1199,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: writableFacade created this resolved facade with writable operations.
     await expect((first.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
     })
@@ -1187,6 +1210,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: writableFacade created this resolved facade with writable operations.
     await expect((second.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
       status: "ready",
       sources: [expect.objectContaining({
@@ -1268,6 +1292,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: the source-resolution facade installs startSession on its fs facade.
     const startSession = vi.spyOn(workspace.fs as typeof workspace.fs & {
       startSession(options?: { paths?: string[] }): Promise<unknown>
     }, "startSession")
@@ -1330,6 +1355,7 @@ describe("Workspace Source Resolution", () => {
     })
 
     expect(workspace).toHaveProperty("startSession")
+    // SAFETY: the property assertion above verifies the resolved facade exposes startSession.
     await (workspace as ReadonlyWorkspaceFacade & { startSession(options?: { paths?: string[] }): Promise<unknown> }).startSession({
       paths: ["public"],
     })
@@ -1361,6 +1387,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: writableFacade created this resolved facade with writable operations.
     const session = await (workspace as WritableWorkspaceFacade).startSession()
 
     await expect(session.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
@@ -1383,6 +1410,7 @@ describe("Workspace Source Resolution", () => {
       invocation,
       overlay: true,
     })
+    // SAFETY: writableFacade created this resolved facade with writable operations.
     const session = await (workspace as WritableWorkspaceFacade).startSession({ paths: ["artifacts"] })
 
     try {
