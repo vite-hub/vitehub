@@ -347,6 +347,18 @@ describe("Agent invocation console", () => {
     expect(() => parseConsoleFixture({
       invocations: [{
         agentName: "support",
+        createdAt: "2026-08-27T10:00:00",
+        id: "timezone-less-timestamp",
+        observations: [],
+        status: "completed",
+        traceId: "trace",
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      }],
+      version: 1,
+    })).toThrow("createdAt must be a valid timezone-qualified timestamp")
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        agentName: "support",
         createdAt: "2026-08-27T10:00:00.000Z",
         id: "invalid-extension",
         metadata: { score: Number.POSITIVE_INFINITY },
@@ -747,6 +759,8 @@ describe("Agent invocation console", () => {
       await refresh
 
       expect(state.closed).toBe(true)
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await listeners.get("change")?.()
       await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).toBe(false)
       expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(false)

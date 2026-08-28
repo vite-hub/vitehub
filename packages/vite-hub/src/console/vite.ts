@@ -179,20 +179,22 @@ async function writeConsoleNitroPlugin(
   active: () => boolean = () => true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
-  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot, runtimeBinding)
-  if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
-    await mkdir(resolve(file, ".."), { recursive: true })
-    await writeFile(file, contents, "utf8")
-  }
-  if (fixture && snapshot && active()) {
-    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
-  }
-  return createConsoleInvocationsIdentity(
+  const identity = createConsoleInvocationsIdentity(
     projectRoot,
     fixture,
     snapshot ? consoleFixtureRevision(snapshot) : undefined,
     runtimeBinding,
   )
+  if (!active()) return identity
+  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot, runtimeBinding)
+  if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
+    await mkdir(resolve(file, ".."), { recursive: true })
+    await writeFile(file, contents, "utf8")
+  }
+  if (fixture && snapshot) {
+    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
+  }
+  return identity
 }
 
 export function discoverConsoleAgentNames(

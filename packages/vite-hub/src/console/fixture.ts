@@ -83,8 +83,8 @@ function optionalString(value: unknown, path: string): string | undefined {
 
 function timestamp(value: unknown, path: string): string {
   const resolved = requiredString(value, path)
-  if (!Number.isFinite(Date.parse(resolved))) {
-    throw new TypeError(`[vitehub] Console fixture ${path} must be a valid timestamp.`)
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(resolved) || !Number.isFinite(Date.parse(resolved))) {
+    throw new TypeError(`[vitehub] Console fixture ${path} must be a valid timezone-qualified timestamp.`)
   }
   return resolved
 }
