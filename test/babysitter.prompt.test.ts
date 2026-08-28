@@ -60,12 +60,20 @@ test('does not let unavailable optional check failures create merge blockers', a
   assert.match(prompt, /Optional pending, stuck, or externally failed checks do not block this gate when they expose no repository defect/)
 })
 
-test('requires exact-head Pullfrog review evidence when Pullfrog is present', async () => {
+test('uses Pullfrog exact-head evidence without blocking on terminal service failure', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
   assert.match(prompt, /Pullfrog is review evidence, not an optional check/)
-  assert.match(prompt, /latest linked workflow run must complete successfully/)
-  assert.match(prompt, /review for another head, blocks the merge/)
+  assert.match(prompt, /successful Pullfrog run must submit a review for the expected head/)
+  assert.match(prompt, /review for another head blocks the merge/)
+  assert.match(prompt, /terminal Pullfrog quota, error, or unavailable result is non-blocking/)
+  assert.match(prompt, /Existing actionable Pullfrog findings remain feedback and must be repaired/)
+})
+
+test('does not request duplicate reviews for the same head', async () => {
+  const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
+
+  assert.match(prompt, /Do not request another review when that exact head already has a review request/)
 })
 
 test('keeps OTLP observability terminal-only so live exporter failure cannot delay provider cleanup', async () => {

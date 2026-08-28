@@ -57,7 +57,7 @@ export default defineEventHandler(async () => {
       value: `Adaptive · ${capacity?.active ?? 0} active · ${capacity?.effectiveConcurrency ?? ownerLimit} admitted`,
       detail: `${capacity?.pending ?? 0} queued · hard max ${ownerLimit}${capacity?.reason ? ` · ${capacity.reason}` : ''}`,
     },
-    { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 30s repair scan' },
+    { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup and 30s repair scan' },
     { label: 'Console delivery', status: consoleClient ? 'ok' : 'neutral', value: consoleClient ? 'Connected' : 'Optional · not configured' },
     { label: 'State', status: 'ok', value: 'SQLite', detail: `${snapshots.count} immutable workspace snapshot${snapshots.count === 1 ? '' : 's'}` },
   ]

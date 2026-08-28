@@ -44,11 +44,6 @@ const githubLifecycleGroup = 'github-lifecycle'
 const pullRequestFields = 'baseRefName,body,headRefName,headRefOid,headRepository,isDraft,labels,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
 const runningJobs = new Set<string>()
 const runningBatches = new Set<Promise<void>>()
-let wakeReconciler = () => {}
-
-export function setBabysitterReconcilerWake(wake: () => void) {
-  wakeReconciler = wake
-}
 
 export function babysitterWorkload() {
   return { running: runningJobs.size }
@@ -319,7 +314,6 @@ export async function reconcileBabysitterWork(reason: string) {
         outcome,
         ...owner,
       })
-      wakeReconciler()
     }
   })).then(() => {}).finally(() => {
     logOperationalEvent('babysitter.batch.finished', {

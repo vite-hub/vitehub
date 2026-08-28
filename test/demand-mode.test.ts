@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-test('uses demand reconciliation instead of a fixed schedule', async () => {
+test('uses demand reconciliation without scanning after every owner completion', async () => {
   const [config, plugin, runner] = await Promise.all([
     readFile(new URL('../vite.config.ts', import.meta.url), 'utf8'),
     readFile(new URL('../server/plugins/babysitter-demand.ts', import.meta.url), 'utf8'),
@@ -12,7 +12,8 @@ test('uses demand reconciliation instead of a fixed schedule', async () => {
   assert.match(config, /schedule: false/)
   assert.doesNotMatch(runner, /defineSchedule|runPullRequestJobs/)
   assert.match(plugin, /wake\('startup'\)/)
-  assert.match(plugin, /wake\('owner-completed'\)/)
+  assert.doesNotMatch(plugin, /wake\('owner-completed'\)/)
+  assert.doesNotMatch(runner, /wakeReconciler/)
   assert.match(plugin, /repairIntervalMs = 30_000/)
   assert.match(plugin, /listenForBabysitterDrainSignal\(/)
   assert.match(plugin, /process,\s+reconciler\.drain/)

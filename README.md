@@ -1,12 +1,12 @@
 # Babysitter
 
-Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. It discovers work on startup, after an owner finishes, and through a 30-second repair scan. A shared adaptive capacity gate starts only the work that the host can support and keeps the rest as pending Agent Invocations.
+Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. It discovers work on startup and through a 30-second repair scan. A shared adaptive capacity gate starts only the work that the host can support and keeps the rest as pending Agent Invocations.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    wake["Startup, owner completion, or repair scan"] --> discover["Read open pull requests from GitHub"]
+    wake["Startup or repair scan"] --> discover["Read open pull requests from GitHub"]
     discover --> unchanged{"Observed state unchanged?"}
     unchanged -- Yes --> wait["Wait for the next wake"]
     unchanged -- No --> checkout["Create a disposable exact-head checkout"]
