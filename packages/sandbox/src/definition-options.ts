@@ -59,15 +59,35 @@ function readStaticValue(node: ts.Expression): unknown {
   throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options must use static JSON-serializable values.`)
 }
 
+function readSandboxDefinitionFactoryNames(sourceFile: ts.SourceFile): Set<string> {
+  const ts = getTypeScript()
+  const names = new Set(['defineSandbox'])
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !== '@vite-hub/sandbox'
+      || !statement.importClause?.namedBindings
+      || !ts.isNamedImports(statement.importClause.namedBindings)) {
+      continue
+    }
+    for (const element of statement.importClause.namedBindings.elements) {
+      if ((element.propertyName ?? element.name).text === 'defineSandbox')
+        names.add(element.name.text)
+    }
+  }
+  return names
+}
+
 function readDefinitionObject(sourceFile: ts.SourceFile): ts.ObjectLiteralExpression | undefined {
   const ts = getTypeScript()
+  const factoryNames = readSandboxDefinitionFactoryNames(sourceFile)
   for (const statement of sourceFile.statements) {
     if (!ts.isExportAssignment(statement))
       continue
     const expression = statement.expression
     if (!ts.isCallExpression(expression)
       || !ts.isIdentifier(expression.expression)
-      || expression.expression.text !== 'defineSandbox') {
+      || !factoryNames.has(expression.expression.text)) {
       continue
     }
     if (expression.arguments.length !== 1 || !ts.isObjectLiteralExpression(expression.arguments[0])) {

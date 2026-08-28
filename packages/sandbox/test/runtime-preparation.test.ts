@@ -422,6 +422,23 @@ describe("Sandbox runtime preparation", () => {
     await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
   })
 
+  it("reclaims an aged local generation lock after its PID is reused", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    await mkdir(lockDir)
+    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+      host: hostname(),
+      pid: process.pid,
+      token: "stale-reused-pid",
+    }))
+    await writeFile(join(lockDir, "lease"), "stale-reused-pid")
+    const stale = new Date(Date.now() - 301_000)
+    await utimes(join(lockDir, "lease"), stale, stale)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
+  })
+
   it("keeps a long-running remote writer leased past the stale threshold", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)

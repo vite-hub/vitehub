@@ -131,8 +131,12 @@ function isSandboxRuntimeGenerationLockStale(
   const owner = parseSandboxRuntimeGenerationLockOwner(observation.ownerValue)
   if (owner?.released === true || (owner && releasedSandboxRuntimeGenerationLocks.has(owner.token)))
     return true
-  if (owner?.host === hostname())
-    return !isLocalProcessAlive(owner.pid)
+  if (owner?.host === hostname()) {
+    if (!isLocalProcessAlive(owner.pid))
+      return true
+    return Date.now() - observation.leaseMtimeMs
+      > Math.max(staleMs, generationLockPublicationStaleMs)
+  }
   if (owner && observation.publicationValue === owner.token) {
     return Date.now() - observation.leaseMtimeMs
       > Math.max(staleMs, generationLockPublicationStaleMs)

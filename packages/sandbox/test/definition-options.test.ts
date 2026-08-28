@@ -51,6 +51,15 @@ describe("extractSandboxDefinitionMetadata", () => {
     })
   })
 
+  it("reads project policy through an aliased factory import", async () => {
+    const file = await writeDefinition([
+      `import { defineSandbox as sandbox } from "@vite-hub/sandbox"`,
+      `export default sandbox({ project: false, run: async () => null })`,
+    ].join("\n"))
+
+    await expect(extractSandboxDefinitionMetadata(file)).resolves.toEqual({ project: false })
+  })
+
   it("supports a property-assigned run handler", async () => {
     const file = await writeDefinition([
       `import { defineSandbox } from "@vite-hub/sandbox"`,
