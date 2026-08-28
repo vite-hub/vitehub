@@ -1213,10 +1213,19 @@ async function* runProvider<
   let credentialHome: string | undefined
   let credentialSharedHome: string | undefined
   let releaseCredentialHomeLock: (() => void) | undefined
+  let credentialOverlayLockReleaseDeferred = false
   const releaseCredentialOverlayLock = () => {
     const release = releaseCredentialHomeLock
     releaseCredentialHomeLock = undefined
     release?.()
+  }
+  const releaseCredentialOverlayLockAfterRemoval = () => {
+    if (!credentialOverlayLockReleaseDeferred) releaseCredentialOverlayLock()
+  }
+  const deferCredentialOverlayLockRelease = (cleanup: Promise<void>) => {
+    if (credentialOverlayLockReleaseDeferred) return
+    credentialOverlayLockReleaseDeferred = true
+    void cleanup.then(releaseCredentialOverlayLock, releaseCredentialOverlayLock)
   }
   const credentialCleanup = createAgentProviderCredentialCleanup(
     async () => {
@@ -1225,7 +1234,7 @@ async function* runProvider<
     async () => {
       if (credentialHome) await rm(credentialHome, { force: true, recursive: true })
     },
-    releaseCredentialOverlayLock,
+    releaseCredentialOverlayLockAfterRemoval,
   )
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
@@ -1258,7 +1267,10 @@ async function* runProvider<
       }, providerCleanupTimeoutMs)),
     ]).finally(async () => {
       if (timeout) clearTimeout(timeout)
-      if (timedOut) await credentialCleanup.forceRemove()
+      if (timedOut) {
+        if (runtime) deferCredentialOverlayLockRelease(cleanup)
+        await credentialCleanup.forceRemove()
+      }
     })
     observeLateCleanup(boundedCredentialCleanup)
   }
@@ -1600,6 +1612,7 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
+        if (runtime) deferCredentialOverlayLockRelease(cleanupTask)
         forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), credentialCleanup.forceRemove()])
         observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)

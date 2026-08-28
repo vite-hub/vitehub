@@ -2247,7 +2247,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
-  it("releases the shared-home lock after forced credential removal", async () => {
+  it("retains the shared-home lock after forced credential removal until runtime shutdown", async () => {
     vi.useFakeTimers()
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     let finishClose: (() => void) | undefined
@@ -2279,10 +2279,14 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const nextThreadId = "thread-cleanup-timeout-second"
       const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await expect(adapter.generate(context(nextThreadId) as never)).resolves.toBeDefined()
-      expect(nextProvider.startSession).toHaveBeenCalledOnce()
+      const nextResult = adapter.generate(context(nextThreadId) as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(nextProvider.startSession).not.toHaveBeenCalled()
+
       finishClose?.()
       await vi.advanceTimersByTimeAsync(0)
+      await expect(nextResult).resolves.toBeDefined()
+      expect(nextProvider.startSession).toHaveBeenCalledOnce()
     }
     finally {
       finishClose?.()
