@@ -9,6 +9,7 @@ import {
   isBlock,
   isCallExpression,
   isConditionalExpression,
+  isComputedPropertyName,
   isExportAssignment,
   isFunctionDeclaration,
   isFunctionExpression,
@@ -293,7 +294,10 @@ function hasBuildMode(call: CallExpression): boolean {
 
   let isBuildMode = false;
   for (const property of options.properties) {
-    if (isSpreadAssignment(property)) {
+    if (
+      isSpreadAssignment(property) ||
+      (isPropertyAssignment(property) && isComputedPropertyName(property.name))
+    ) {
       isBuildMode = false;
     } else if (isPropertyAssignment(property) && propertyName(property.name) === "mode") {
       isBuildMode =
@@ -527,6 +531,8 @@ defineConfig(({ env: {
     expect(fixtureHasBuildMode("{ mode: 'build', mode: 'runtime' }")).toBe(false);
     expect(fixtureHasBuildMode("{ mode: 'build', ...defaults }")).toBe(false);
     expect(fixtureHasBuildMode("{ ...defaults, mode: 'build' }")).toBe(true);
+    expect(fixtureHasBuildMode("{ mode: 'build', [key]: 'runtime' }")).toBe(false);
+    expect(fixtureHasBuildMode("{ [key]: 'runtime', mode: 'build' }")).toBe(true);
   });
 
   it("marks every documented build-backed Env declaration as build-time", async () => {
