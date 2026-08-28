@@ -857,7 +857,60 @@ describe("Agent Invocations", () => {
         attributes: expect.objectContaining({ "channel.effect.content": "Reply before finalization" }),
         name: "agent.channel.delivery.effect",
       }))
-      expect(deliveryAttempts).toBe(3)
+      expect(deliveryAttempts).toBe(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not duplicate a delivery committed before a terminal update returns", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      let deliveryUpdates = 0
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const recoveryTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            const record = await memory.update(id, input, claimId)
+            if (input.observation?.name === "agent.channel.delivery.effect" && deliveryUpdates++ === 0) {
+              await new Promise<void>((resolve) => setTimeout(resolve, 1_500))
+            }
+            return record
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("terminal-delivery-ambiguous-success"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Committed reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+      await Promise.all(recoveryTasks)
+
+      const record = await invocations.getByRunId("terminal-delivery-ambiguous-success")
+      expect(record?.observations.filter(observation => observation.name === "agent.channel.delivery.effect")).toHaveLength(1)
+      expect(deliveryUpdates).toBe(1)
     }
     finally {
       vi.useRealTimers()

@@ -93,6 +93,7 @@ export interface AgentInvocationStore {
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   release(id: string, claimId: string): MaybePromise<void>
+  /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
 }
 
@@ -740,6 +741,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
       const terminalRetryObservations: TraceEventLogEntry[] = []
+      const terminalObservationRecoveries: Array<Promise<void>> = []
+      const ambiguouslyPersistingObservations = new Set<string | number>()
       const persistedObservations = new Set<string | number>()
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
@@ -830,8 +833,23 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         let updated = false
         await write(async () => {
           if (!await renew(force)) return
-          const result = await boundedStoreOperation(() => store.update(recordId, input, claimId))
+          const operation = Promise.resolve().then(() => store.update(recordId, input, claimId))
+          const result = await boundedStoreOperation(() => operation)
           updated = result !== undefined && result !== storeOperationTimedOut
+          if (result === storeOperationTimedOut && input.observation && deliveryOutcomeObservation(input.observation)) {
+            const observation = input.observation
+            const key = observationPersistenceKey(observation)
+            ambiguouslyPersistingObservations.add(key)
+            terminalObservationRecoveries.push((async () => {
+              const record = await boundedStoreOperation(() => store.get(recordId))
+              if (record && record !== storeOperationTimedOut
+                && record.observations.some(candidate => sameObservation(candidate, observation))) {
+                persistedObservations.add(key)
+                return
+              }
+              await persistLateObservation(observation)
+            })())
+          }
         })
         return updated
       }
@@ -1001,7 +1019,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const failure = errorDetails(error)
           for (const observation of pendingOutcomes.slice(0, -1)) {
             const persisted = await update({ observation, timestamp: observation.timestamp })
-            if (!persisted && deliveryOutcomeObservation(observation)) {
+            if (!persisted && deliveryOutcomeObservation(observation)
+              && !ambiguouslyPersistingObservations.has(observationPersistenceKey(observation))) {
               terminalRetryObservations.push(observation)
             }
           }
@@ -1025,7 +1044,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               terminalOutcomePersisted = false
             }
             if (!updated) return false
-            if (!terminalOutcomePersisted && terminalOutcome && deliveryOutcomeObservation(terminalOutcome)) {
+            if (!terminalOutcomePersisted && terminalOutcome && deliveryOutcomeObservation(terminalOutcome)
+              && !ambiguouslyPersistingObservations.has(observationPersistenceKey(terminalOutcome))) {
               terminalRetryObservations.push(terminalOutcome)
             }
             if (discardedObservationKeys.some(key => !persistedObservations.has(key))) {
@@ -1035,9 +1055,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
             ownsRecord = false
+            const recoveries = terminalObservationRecoveries.splice(0)
             const observations = terminalRetryObservations.splice(0)
-            if (observations.length > 0) {
-              registerAgentInvocationRecovery(context, Promise.all(observations.map(persistLateObservation)).then(() => undefined))
+            if (recoveries.length > 0 || observations.length > 0) {
+              registerAgentInvocationRecovery(context, Promise.all([
+                ...recoveries,
+                ...observations.map(persistLateObservation),
+              ]).then(() => undefined))
             }
             return true
           }

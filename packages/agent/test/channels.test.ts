@@ -285,7 +285,6 @@ describe("agent channels", () => {
     try {
       const { telegram } = await import("../src/channels.ts")
       const channel = telegram()
-      vi.stubGlobal("process", undefined)
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const context = {
         cloudflare: {
@@ -308,6 +307,7 @@ describe("agent channels", () => {
         throw new Error("Expected Telegram webhook registration.")
       }
       if (!hasRuntimeType(webhooks.secretToken, "function")) throw new Error("Expected webhook secret resolver.")
+      vi.stubGlobal("process", undefined)
       await expect(Promise.resolve(webhooks.secretToken(context))).resolves.toBe("webhook-secret")
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(Promise.resolve(webhooks.secretToken({ cloudflare: { env: {} } } as never))).resolves.toBeUndefined()
