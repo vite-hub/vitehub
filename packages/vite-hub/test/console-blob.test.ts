@@ -54,11 +54,12 @@ function memoryBlob(stores: Record<string, BlobObject[]>): {
     const limit = options.limit ?? matching.length
     const blobs = matching.slice(start, start + limit)
     const next = start + blobs.length
-    return success({
+    const page: { blobs: BlobObject[]; cursor?: string; hasMore: boolean } = {
       blobs,
-      ...(next < matching.length ? { cursor: String(next) } : {}),
       hasMore: next < matching.length,
-    })
+    }
+    if (next < matching.length) page.cursor = String(next)
+    return success(page)
   })
   const reads = vi.fn()
   const writes = vi.fn()

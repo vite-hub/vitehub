@@ -169,6 +169,45 @@ describe("ViteHub Console", () => {
     }
   })
 
+  it("registers Blob inspection without loading the Agent server graph", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-host-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        blobStores: ["default", "archive"],
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["blob"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/api/_vitehub/console/blob",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/blob"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(
+        `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
+      )
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("registers only the section manifest and pages for a KV-only console", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-kv-host-"))
     try {
@@ -192,6 +231,8 @@ describe("ViteHub Console", () => {
 
       expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/sections", "/api/_vitehub/console/kv", "/_vitehub", "/_vitehub/**"])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).toContain(`installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default"])`)
@@ -233,6 +274,9 @@ describe("ViteHub Console", () => {
         "/_vitehub/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workflows"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workflows":[{"fields":[{"label":"Steps","value":"server/workflows/release/01.prepare.ts, server/workflows/release/02.publish.ts"}],"file":"server/workflows/release","name":"release","source":"server-workflows"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -265,6 +309,9 @@ describe("ViteHub Console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}]})`)
       expect(generated).not.toContain("The Console must not initialize")
@@ -306,6 +353,9 @@ describe("ViteHub Console", () => {
         "/_vitehub/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/config.ts","name":"default","source":"server-database-default"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -347,6 +397,9 @@ describe("ViteHub Console", () => {
         "/_vitehub/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -393,6 +446,9 @@ describe("ViteHub Console", () => {
         "/_vitehub/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -438,6 +494,9 @@ describe("ViteHub Console", () => {
         "/_vitehub/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":[{"fields":[{"label":"Kind","value":"Runtime target"},{"label":"Runtime schedules","value":"Allowed"}],"file":"server/schedules/adhoc.ts","name":"adhoc","source":"server-schedules"},{"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 9 * * *"},{"label":"Time zone","value":"UTC"},{"label":"Runtime schedules","value":"Allowed"}],"file":"server/schedules/daily.ts","name":"daily","source":"server-schedules"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -1269,7 +1328,7 @@ describe("ViteHub Console", () => {
         attributes: expect.objectContaining({ "tool.error": "Lookup failed" }),
         name: "agent.tool.error",
       }))
-      expect(observation?.attributes["content.omitted"] ?? []).not.toContain("tool.error")
+      expect(observation?.attributes?.["content.omitted"] ?? []).not.toContain("tool.error")
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
