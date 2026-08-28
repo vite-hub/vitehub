@@ -136,6 +136,16 @@ import "real"
 `)).toEqual(["real"])
   })
 
+  it("collects literal import.meta.resolve calls without matching inert or member text", () => {
+    expect(collectDenoRuntimePackageNames(`
+const resolveText = 'import.meta.resolve("missing-string")'
+// import.meta.resolve("missing-comment")
+loader.import.meta.resolve("missing-member")
+loader . import . meta . resolve("missing-spaced-member")
+import.meta.resolve("resolved-package")
+`)).toEqual(["resolved-package"])
+  })
+
   it("ignores import-shaped regular expression literals", () => {
     expect(collectDenoRuntimePackageNames(String.raw`
 const matcher = /import\("healthcheck"\)/
@@ -211,6 +221,18 @@ import "real"
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8"))
       .resolves.toContain('import "./schedule/deno-cron.mjs"')
+  })
+
+  it("rejects Deno Schedule entrypoints that do not start the staged server", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-missing-server-import-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'import "./schedule/deno-cron.mjs"\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+      .rejects.toThrow('application entrypoint to import "./server/index.mjs"')
   })
 
   it("bundles package import mappings into relocated entrypoints", async () => {
@@ -506,6 +528,24 @@ import "real"
     expect(existsSync(join(root, ".output/node_modules/schedule-data-package/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/application-template-package/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/schedule-template-package/package.json"))).toBe(true)
+  })
+
+  it("stages packages referenced through literal import.meta.resolve calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-meta-resolve-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeRuntimePackage(root, "application-resolve-package")
+    await writeRuntimePackage(root, "schedule-resolve-package")
+    await writeRuntimePackage(root, "server-resolve-package")
+    await writeFile(join(root, ".output/server/index.mjs"), 'globalThis.serverPackage = import.meta.resolve("server-resolve-package")\n', "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'globalThis.schedulePackage = import.meta.resolve("schedule-resolve-package")\n', "utf8")
+    await writeFile(join(root, "main.ts"), 'globalThis.applicationPackage = import.meta.resolve("application-resolve-package")\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    for (const name of ["application-resolve-package", "schedule-resolve-package", "server-resolve-package"]) {
+      expect(existsSync(join(root, ".output/node_modules", name, "package.json"))).toBe(true)
+    }
   })
 
   it("stages escaped literal imports from generated server output", async () => {

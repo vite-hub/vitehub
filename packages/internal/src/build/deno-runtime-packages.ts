@@ -60,7 +60,7 @@ function collectBundledPackages(source: string): Map<string, string> {
   return packages
 }
 
-function isStandaloneRequireCall(source: string, start: number) {
+function isStandaloneCall(source: string, start: number) {
   const immediatePrefix = source[start - 1]
   if (immediatePrefix && /[$_\p{ID_Continue}]/u.test(immediatePrefix))
     return false
@@ -87,13 +87,21 @@ function collectImportedPackageNames(source: string): Set<string> {
   for (const match of executableSource.matchAll(
     /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*\)/g,
   )) {
-    if (!isStandaloneRequireCall(executableSource, match.index))
+    if (!isStandaloneCall(executableSource, match.index))
       continue
     const name = packageNameFromSpecifier(match[1]!)
     if (name) names.add(name)
   }
   for (const { specifier } of findLiteralDynamicImports(executableSource)) {
     const name = packageNameFromSpecifier(specifier)
+    if (name) names.add(name)
+  }
+  for (const match of executableSource.matchAll(
+    /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*(["'])((?:\\.|[^"'\\])*)\1\s*(?:,|\))/g,
+  )) {
+    if (!isStandaloneCall(executableSource, match.index))
+      continue
+    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
     if (name) names.add(name)
   }
   return names
@@ -310,7 +318,7 @@ function maskInertImportText(source: string): string {
       }
       if (character === '"' || character === "'") {
         const prefix = output.slice(Math.max(0, output.length - 120))
-        const keep = /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(|\bimport\s*\(|\bnew\s+URL\s*\()\s*$/.test(prefix)
+        const keep = /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
         let end = index + 1
         while (end < source.length) {
           if (source[end] === "\\") end += 2
@@ -901,6 +909,10 @@ export async function finalizeDenoDeploymentOutput(
       if (!hasRelocatableDynamicImport(applicationBundle, "./schedule/deno-cron.mjs")
         && !hasRelocatableStaticImport(applicationBundle, "./schedule/deno-cron.mjs")) {
         throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./schedule/deno-cron.mjs".')
+      }
+      if (!hasRelocatableDynamicImport(applicationBundle, "./server/index.mjs")
+        && !hasRelocatableStaticImport(applicationBundle, "./server/index.mjs")) {
+        throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./server/index.mjs".')
       }
       await rename(temporaryApplicationOutput, applicationOutput)
     }
