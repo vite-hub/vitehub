@@ -1276,7 +1276,7 @@ async function* runProvider<
     ]).finally(async () => {
       if (timeout) clearTimeout(timeout)
       if (timedOut) {
-        if (runtime) deferCredentialOverlayLockRelease(cleanup)
+        if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanup)
         await credentialCleanup.forceRemove()
       }
     })
@@ -1638,13 +1638,13 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
-        if (runtime) deferCredentialOverlayLockRelease(cleanupTask)
+        if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanupTask)
         forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), credentialCleanup.forceRemove()])
         observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)
       }
       else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
-        if (runtime) deferCredentialOverlayLockRelease(cleanupTask)
+        if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanupTask)
         let timeout: ReturnType<typeof setTimeout> | undefined
         invocationCleanupDeferred = Promise.race([
           cleanupTask,

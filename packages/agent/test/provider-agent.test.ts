@@ -2429,10 +2429,12 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
   it("removes Codex credentials when aborted provider startup never settles", async () => {
     vi.useFakeTimers()
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let finishStartup: (() => void) | undefined
     try {
       const threadId = "thread-cancel-provider-startup"
       const runtimeCalls = createProviderRuntime.mock.calls.length
-      createProviderRuntime.mockImplementationOnce(() => new Promise(() => {}))
+      const lateProvider = runtime(threadId, [])
+      createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => finishStartup = () => resolve(lateProvider)))
       const controller = new AbortController()
       const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
@@ -2457,10 +2459,17 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const nextThreadId = "thread-after-cancelled-provider-startup"
       const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await expect(adapter.generate(context(nextThreadId) as never)).resolves.toBeDefined()
+      const nextResult = adapter.generate(context(nextThreadId) as never)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      finishStartup?.()
+      await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2))
+      await expect(nextResult).resolves.toBeDefined()
       expect(nextProvider.startSession).toHaveBeenCalledOnce()
     }
     finally {
+      finishStartup?.()
       vi.useRealTimers()
       await rm(sharedHome, { force: true, recursive: true })
     }
