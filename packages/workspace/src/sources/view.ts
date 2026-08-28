@@ -122,7 +122,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         preparedSources.add(sourceKey)
       }
     }
-    const pending = materializationQueue.then(async () => {
+    const queuedMaterializations = materializationQueue
+    const calledFromProgress = materializationProgressSources.getStore() !== undefined
+    const pending = (calledFromProgress ? Promise.resolve() : queuedMaterializations).then(async () => {
       started = true
       options?.abortSignal?.throwIfAborted()
       await Promise.all([...concurrentPreparations.values()].map(async preparation => await preparation.catch(() => undefined)))
@@ -155,7 +157,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         promotePreparedContexts()
       }
     })
-    materializationQueue = pending.then(() => undefined, () => undefined)
+    materializationQueue = (calledFromProgress
+      ? Promise.all([
+          queuedMaterializations.catch(() => undefined),
+          pending.catch(() => undefined),
+        ]).then(() => undefined)
+      : pending.then(() => undefined, () => undefined))
     for (const source of selectedSources) {
       const previous = materializationPreparationBySource.get(source.key)
       const barrier = Promise.all([

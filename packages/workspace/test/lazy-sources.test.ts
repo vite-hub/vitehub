@@ -467,6 +467,45 @@ describe("lazy sources", () => {
     expect(observed).toEqual(["# B\n"])
   })
 
+  it("allows progress observers to materialize an unselected Source", async () => {
+    let view: ReturnType<typeof createWorkspaceSourceView>
+    const observed: string[] = []
+    view = createWorkspaceSourceView({
+      name: "lazy-progress-unselected-source-read",
+      sources: {
+        reference: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["b.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# B\n" }
+          },
+        }),
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# A\n" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({
+      async onProgress(event) {
+        if (event.source === "docs" && event.status === "updating") {
+          observed.push(await view.readFile("reference/b.md", { encoding: "utf8" }))
+        }
+      },
+      sources: ["docs"],
+    })
+
+    expect(observed).toEqual(["# B\n"])
+  })
+
   it("reports failures during source fingerprinting", async () => {
     const progress: unknown[] = []
     const view = createWorkspaceSourceView({
@@ -2259,6 +2298,41 @@ describe("lazy sources", () => {
     expect(writeFile).not.toHaveBeenCalled()
     expect(writeFileStream).toHaveBeenCalledTimes(1)
     await expect(view.readFile("docs/asset.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+  })
+
+  it("does not read existing streamed files to classify refresh deltas", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const readFile = vi.spyOn(store, "readFile")
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-refresh",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["asset.bin"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new Uint8Array([0, 1, 2]))
+                  controller.close()
+                },
+              }),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    readFile.mockClear()
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ counts: { added: 0, removed: 0, unchanged: 0, updated: 1 }, paths: [{ path: "docs/asset.bin", status: "updated" }] }],
+    })
+    expect(readFile).not.toHaveBeenCalledWith("docs/asset.bin")
   })
 
   it("counts streamed bytes when the Store omits stat size", async () => {

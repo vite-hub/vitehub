@@ -2,7 +2,7 @@ import { posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 
 import { workspaceError } from "../core/errors.ts"
-import { contentStreamChunks, contentStreamToBytes, contentToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
@@ -159,28 +159,6 @@ function fileAttributesEqual(
   return previous.mediaType === undefined || previous.mediaType === mediaType
     ? previous.metadata === undefined || isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata))
     : false
-}
-
-function compareContentStream(
-  stream: WorkspaceContentStream,
-  previous: string | Uint8Array,
-): { contentStream: WorkspaceContentStream, unchanged: () => boolean } {
-  const previousBytes = contentToBytes(previous)
-  let matches = true
-  let offset = 0
-  return {
-    contentStream: (async function* () {
-      for await (const chunk of contentStreamChunks(stream)) {
-        if (matches && (offset + chunk.byteLength > previousBytes.byteLength
-          || !chunk.every((byte, index) => byte === previousBytes[offset + index]))) {
-          matches = false
-        }
-        offset += chunk.byteLength
-        yield chunk
-      }
-    })(),
-    unchanged: () => matches && offset === previousBytes.byteLength,
-  }
 }
 
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
@@ -556,20 +534,19 @@ export async function materializeWorkspaceSources(
         }
         const item = entry.item!
         const metadata = item.metadata || {}
-        const previousFile = await store.readFile(path)
+        const previousStat = await store.stat(path)
+        const previousFile = entry.contentStream ? undefined : await store.readFile(path)
+        const previousExists = previousStat?.type === "file" || Boolean(previousFile)
         const fileMetadata = {
           ...metadata,
           ...entry.metadata,
           source: source.key,
         }
-        const comparedStream = previousFile && entry.contentStream
-          ? compareContentStream(entry.contentStream, previousFile.content)
-          : undefined
         storeMutationStarted = true
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
-          contentStream: comparedStream?.contentStream || entry.contentStream,
+          contentStream: entry.contentStream,
           mediaType: item.mediaType,
           metadata: fileMetadata,
         })
@@ -583,14 +560,12 @@ export async function materializeWorkspaceSources(
         }
         sourceFiles++
         sourceBytes += written.size || 0
-        persistedBytesDelta += (written.size || 0) - (previousFile && tracked ? contentSize(previousFile.content) : 0)
-        const unchanged = previousFile && (comparedStream
-          ? comparedStream.unchanged()
-          : contentEquals(previousFile.content, entry.content ?? ""))
+        persistedBytesDelta += (written.size || 0) - (previousExists && tracked ? previousStat?.size || (previousFile ? contentSize(previousFile.content) : 0) : 0)
+        const unchanged = previousFile && contentEquals(previousFile.content, entry.content ?? "")
           && fileAttributesEqual(previousFile, previousItemMetadata, item.mediaType, fileMetadata)
         const status = unchanged
           ? "unchanged" as const
-          : previousFile ? "updated" as const : "added" as const
+          : previousExists ? "updated" as const : "added" as const
         counts[status]++
         paths.push({ path, status })
         if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
