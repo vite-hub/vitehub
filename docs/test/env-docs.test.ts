@@ -103,6 +103,22 @@ function envOptionTokens(source: string): EnvOptionToken[] {
       index = end + 1;
       continue;
     }
+    const previousToken = tokens.at(-1);
+    if (character === "/" && (!previousToken || (
+      previousToken.kind === "punctuation" &&
+      ["(", "[", "{", ",", ":", "=", "!", "?", ";"].includes(previousToken.value)
+    ))) {
+      let characterClass = false;
+      for (index += 1; index < source.length; index++) {
+        const patternCharacter = source[index] || "";
+        if (patternCharacter === "\\") index += 1;
+        else if (patternCharacter === "[") characterClass = true;
+        else if (patternCharacter === "]") characterClass = false;
+        else if (patternCharacter === "/" && !characterClass) break;
+      }
+      while (/[A-Za-z]/.test(source[index + 1] || "")) index += 1;
+      continue;
+    }
     if (character === '"' || character === "'" || character === "`") {
       let value = "";
       for (index += 1; index < source.length; index++) {
@@ -220,6 +236,8 @@ describe("Env documentation", () => {
     expect(hasBuildMode("{ source: env.source('APP_NAME'), mode: 'build' }")).toBe(true);
     expect(hasBuildMode("{ default: \"mode: 'build'\" }")).toBe(false);
     expect(hasBuildMode("{ default: 'preview' /* mode: 'build' */ }")).toBe(false);
+    expect(hasBuildMode("{ default: /mode: 'build'/ }")).toBe(false);
+    expect(hasBuildMode("{ default: /mode: 'build'/, mode: 'build' }")).toBe(true);
     expect(hasBuildMode("{ defaults: { mode: 'build' } }")).toBe(false);
     expect(hasBuildMode("{ mode: 'build', mode: 'runtime' }")).toBe(false);
     expect(hasBuildMode("{ mode: 'build', ...defaults }")).toBe(false);
