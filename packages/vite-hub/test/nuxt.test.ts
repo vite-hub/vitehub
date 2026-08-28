@@ -1378,18 +1378,19 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(concurrentNitroConfig)
     expect(concurrentNitroConfig.handlers).toEqual([third])
 
-    let finishPendingRestart: (() => void) | undefined
-    nuxt.callHook.mockImplementationOnce(() => new Promise<void>((resolve) => {
-      finishPendingRestart = resolve
+    let finishPendingPreparation: (() => void) | undefined
+    prepareTypes.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishPendingPreparation = resolve
     }))
     const callsBeforeClose = nuxt.callHook.mock.calls.length
+    const preparationsBeforeClose = prepareTypes.mock.calls.length
     const pendingUpdate = listener?.([first])
     const queuedUpdate = listener?.([second])
-    await vi.waitFor(() => expect(nuxt.callHook).toHaveBeenCalledTimes(callsBeforeClose + 1))
+    await vi.waitFor(() => expect(prepareTypes).toHaveBeenCalledTimes(preparationsBeforeClose + 1))
     closeHooks.forEach(hook => hook())
-    finishPendingRestart?.()
+    finishPendingPreparation?.()
     await Promise.all([pendingUpdate, queuedUpdate])
-    expect(nuxt.callHook).toHaveBeenCalledTimes(callsBeforeClose + 1)
+    expect(nuxt.callHook).toHaveBeenCalledTimes(callsBeforeClose)
     expect(removeListener).toHaveBeenCalledOnce()
   })
 

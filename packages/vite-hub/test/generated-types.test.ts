@@ -1446,6 +1446,58 @@ describe("framework generated types", () => {
     expect(oldRestart).toHaveBeenCalledOnce()
   })
 
+  it("reschedules a topology retry after replacement config validation fails", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const drinks = join(root, "server/collections/drinks.ts")
+      const generatedHandler = join(root, ".vitehub/source/routes/drinks.mjs")
+      await mkdir(dirname(drinks), { recursive: true })
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restartOwner = vi.fn()
+        .mockRejectedValueOnce(new Error("host restart failed"))
+        .mockResolvedValue(undefined)
+      plugin.api.onGeneratedHandlersChanged(restartOwner, { handlesHostRestart: true })
+      configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart: vi.fn(async () => {}),
+        watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+      })
+
+      await writeFile(drinks, collectionModule("drinks"))
+      await oldListeners.get("add")?.(drinks)
+      expect(restartOwner).toHaveBeenCalledOnce()
+
+      let releaseHandlerRead: (() => void) | undefined
+      let handlerReadStarted: (() => void) | undefined
+      const handlerRead = new Promise<void>((resolve) => {
+        handlerReadStarted = resolve
+      })
+      generatedHandlerReadGate.path = generatedHandler
+      generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+        releaseHandlerRead = resolve
+      })
+      generatedHandlerReadGate.started = handlerReadStarted
+      const replacement = config(plugin)({
+        nitro: { handlers: [{ handler: "server/api/drinks.ts", method: "get", route: "/api/drinks" }] },
+        root,
+      })
+      await handlerRead
+      await vi.advanceTimersByTimeAsync(25)
+      releaseHandlerRead?.()
+      await expect(replacement).rejects.toThrow(
+        'Generated Collection route "/api/drinks" conflicts with an existing GET handler',
+      )
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(restartOwner).toHaveBeenCalledTimes(2))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("watches custom Source directories and recovers after refresh errors", async () => {
     const { root, viteRoot } = await createNestedProject()
     const serverDir = join(root, "api")

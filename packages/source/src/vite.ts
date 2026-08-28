@@ -10,6 +10,7 @@ import {
 import { findExportNames } from "mlly"
 
 import type { Plugin } from "vite"
+import { encodeCollectionRouteSegment } from "./internal/collection-route.ts"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
@@ -253,7 +254,7 @@ async function writeCollectionArtifacts(
     return {
       handler,
       method: "get" as const,
-      route: `/api/${name.split("/").map(segment => encodeURIComponent(segment).replaceAll("*", "%2A")).join("/")}`,
+      route: `/api/${name.split("/").map(encodeCollectionRouteSegment).join("/")}`,
     }
   }))
 }
@@ -511,6 +512,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         : root ? lifecycleServerDirs.map(directory => resolve(root, directory)) : []
       server.watcher.add(effectiveServerDirs)
       let hostRefreshRetry: ReturnType<typeof setTimeout> | undefined
+      let pausedHostRefreshRetryFile: string | undefined
       let hostRefreshRetryDelay = initialHostRefreshRetryDelay
       let refreshQueue = Promise.resolve()
       let serverClosed = false
@@ -531,7 +533,14 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         hostRefreshLifecycleByRoot.set(root, {
           close: closeHostRefresh,
           pause: () => { serverPaused = true },
-          resume: () => { serverPaused = false },
+          resume: () => {
+            serverPaused = false
+            if (pausedHostRefreshRetryFile) {
+              const file = pausedHostRefreshRetryFile
+              pausedHostRefreshRetryFile = undefined
+              scheduleHostRefreshRetry(file)
+            }
+          },
         })
       }
       for (const environment of Object.values(server.environments)) {
@@ -541,7 +550,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         if (hostRefreshRetry) return
         hostRefreshRetry = setTimeout(() => {
           hostRefreshRetry = undefined
-          if (!serverClosed && !serverPaused) void queueHostRefresh(file)
+          if (serverClosed) return
+          if (serverPaused) {
+            pausedHostRefreshRetryFile = file
+            return
+          }
+          void queueHostRefresh(file)
         }, hostRefreshRetryDelay)
         hostRefreshRetry.unref?.()
         hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)

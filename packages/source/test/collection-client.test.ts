@@ -17,6 +17,7 @@ const definition = defineCollection(async () => [] as Array<{ id: number }>, {
 
 declare global {
   interface ViteHubCollectionMap {
+    "*/specials": typeof definition
     items: typeof definition
   }
 }
@@ -99,6 +100,21 @@ describe("useCollection", () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it("escapes literal wildcard Collection route segments", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("*/specials", { immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    expect(calls[0]!.endpoint).toBe("/api/%2A/specials")
+    calls[0]!.resolve(page([], null))
+    await refresh
+    scope.stop()
   })
 
   it.each(["", "./", "../", "https://cdn.example.com/", "//cdn.example.com/"])(

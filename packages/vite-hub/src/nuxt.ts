@@ -823,6 +823,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       generatedSourceHandlers = handlers
       try {
         await typesPlugin?.api?.prepareTypes?.({ projectRoot })
+        if (generatedSourceRestartClosed) return
         await nuxt.callHook?.("restart")
       }
       catch (error) {
