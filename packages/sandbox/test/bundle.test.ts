@@ -104,6 +104,10 @@ describe("bundleSandboxDefinition assets", () => {
       "import { execSync } from 'node:child_process'\nexport default { run: async () => execSync('./scripts/task.sh --flag') }\n",
     ],
     [
+      "aliased filesystem namespace",
+      "import * as fs from 'node:fs'\nconst io = fs\nexport default { run: async () => io.readFileSync('./data/app.db') }\n",
+    ],
+    [
       "SQLite database",
       "import { DatabaseSync } from 'node:sqlite'\nexport default { run: async () => new DatabaseSync('./data/app.db').close() }\n",
     ],

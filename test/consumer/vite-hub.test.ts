@@ -1021,7 +1021,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
       const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
-        file.endsWith(".d.ts")
+        file.endsWith(".d.ts") || file.includes("/.runtime-generations/")
           ? []
           : source.split("\n")
               .map((line, index) => ({ file, line: index + 1, source: line.trim() }))

@@ -434,7 +434,7 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
 
   function visit(node: ts.Node) {
     if (typescript.isIdentifier(node)
-      && directBindings.has(node.text)
+      && (directBindings.has(node.text) || namespaceBindings.has(node.text))
       && !isTrackedFilesystemBindingUse(node)) {
       // Once a filesystem function escapes into an object, array, callback,
       // or another value we do not model, its eventual path is unknown.
