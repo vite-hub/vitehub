@@ -256,6 +256,36 @@ mutableTarget = dynamicTarget
     ]);
   });
 
+  it("follows link data imported through both Nuxt source aliases", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": `<script setup>
+import { links as tildeLinks } from "~/data/tilde-links"
+import { links as atLinks } from "@/data/at-links"
+</script>
+<template>
+  <NuxtLink v-for="link in tildeLinks" :to="link.to" />
+  <NuxtLink v-for="link in atLinks" :to="link.to" />
+</template>`,
+      "docs/app/data/tilde-links.ts": 'export const links = [{ to: "/missing-tilde-import" }]',
+      "docs/app/data/at-links.ts": 'export const links = [{ to: "/missing-at-import" }]',
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/missing-tilde-import" does not exist'),
+      expect.stringContaining('route "/missing-at-import" does not exist'),
+    ]);
+  });
+
+  it("resolves SFC resources through both Nuxt source aliases", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": '<template><img src="~/assets/tilde.svg" /><img src="@/assets/at.svg" /></template>',
+      "docs/app/assets/tilde.svg": "<svg />",
+      "docs/app/assets/at.svg": "<svg />",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
   it("validates rendered aliased link fields without scanning unused exports", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><LandingPaths /></template>",

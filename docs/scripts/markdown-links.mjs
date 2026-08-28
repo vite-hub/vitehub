@@ -610,6 +610,11 @@ function isStaticApplicationRoute(route) {
   return !route.split("/").some((segment) => segment.includes("[") || segment.includes("]"));
 }
 
+function resolveApplicationSourcePath(appRoot, sourcePath, path) {
+  const aliased = path.startsWith("~/") || path.startsWith("@/");
+  return resolve(aliased ? appRoot : dirname(sourcePath), aliased ? path.slice(2) : path);
+}
+
 function applicationInventory(docsRoot, contentRoutes) {
   const appRoot = join(docsRoot, "app");
   const pagesRoot = join(docsRoot, "app/pages");
@@ -632,10 +637,8 @@ function applicationInventory(docsRoot, contentRoutes) {
     .filter(isStaticApplicationRoute)
     .map(route => normalizeRoute(`/${route}`)));
   function resolveImport(sourcePath, specifier) {
-    if (!specifier.startsWith(".") && !specifier.startsWith("~/")) return undefined;
-    const unresolved = specifier.startsWith("~/")
-      ? resolve(appRoot, specifier.slice(2))
-      : resolve(dirname(sourcePath), specifier);
+    if (!specifier.startsWith(".") && !specifier.startsWith("~/") && !specifier.startsWith("@/")) return undefined;
+    const unresolved = resolveApplicationSourcePath(appRoot, sourcePath, specifier);
     const candidates = [
       unresolved,
       `${unresolved}.ts`,
@@ -863,8 +866,8 @@ export function validateDocumentationLinks({ docsRoutes = [], repoRoot }) {
       checked += 1;
       const { fragment, path } = splitDestination(local);
       if (resource && path && !path.startsWith("/") && !isSiteLink) {
-        const assetFile = resolve(dirname(sourcePath), decodeFragment(path));
         const appRoot = join(docsRoot, "app");
+        const assetFile = resolveApplicationSourcePath(appRoot, sourcePath, decodeFragment(path));
         if (!assetFile.startsWith(`${appRoot}${sep}`) || !existsSync(assetFile) || !statSync(assetFile).isFile()) {
           errors.push(`${relative(repoRoot, sourcePath)}: resource ${JSON.stringify(path)} does not exist`);
         }
