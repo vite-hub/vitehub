@@ -549,6 +549,72 @@ describe("AI SDK recovery", () => {
     }
   })
 
+  it.each(["events", "ui-message-stream"] as const)("aborts structured output corrections when the %s consumer cancels", async (output) => {
+    let markRepairStarted!: () => void
+    const repairStarted = new Promise<void>((resolve) => { markRepairStarted = resolve })
+    let repairAbortReason: unknown
+    const fakeModel = model([async ({ abortSignal }) => {
+      markRepairStarted()
+      if (!abortSignal) throw new Error("Expected correction to inherit stream cancellation")
+      return await new Promise<string>((_resolve, reject) => {
+        const abort = () => {
+          repairAbortReason = abortSignal.reason
+          reject(abortSignal.reason)
+        }
+        if (abortSignal.aborted) abort()
+        else abortSignal.addEventListener("abort", abort, { once: true })
+      })
+    }])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: "{\"text\":1}", id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" }, output === "events" ? undefined : { output })
+    if (output === "ui-message-stream") {
+      // SAFETY: UI-message output is a ReadableStream under the selected output contract.
+      const reader = (result as ReadableStream<unknown>).getReader()
+      const consumption = (async () => {
+        while (!(await reader.read()).done) {}
+      })().catch(() => undefined)
+      await repairStarted
+      await reader.cancel()
+      await consumption
+    }
+    else {
+      // SAFETY: events output implements the documented async iterable result contract.
+      const iterator = (result as AsyncIterable<unknown>)[Symbol.asyncIterator]()
+      const consumption = (async () => {
+        while (!(await iterator.next()).done) {}
+      })().catch(() => undefined)
+      await repairStarted
+      await iterator.return?.()
+      await consumption
+    }
+
+    expect(repairAbortReason).toMatchObject({ name: "AbortError" })
+  })
+
   it("emits all completed usage when streamed structured-output repair fails", async () => {
     const fakeModel = model(["{\"text\":2}", "{\"text\":3}"])
     const doGenerate = fakeModel.doGenerate.bind(fakeModel)

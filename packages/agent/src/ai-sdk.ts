@@ -2052,17 +2052,6 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
       const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
-      const repairCallInput = () => {
-        const repairUsageCapture = createUsageCapture()
-        repairUsageCaptures.push(repairUsageCapture)
-        return {
-          ...withRemainingInvocationTimeout(callInput, invocationDeadline),
-          onEnd: repairUsageCapture.onEnd,
-          onLanguageModelCallEnd: repairUsageCapture.onLanguageModelCallEnd,
-          onStepEnd: repairUsageCapture.onStepEnd,
-        }
-      }
-      const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
       let resolveUsageReady!: () => void
       const usageReady = new Promise<void>((resolve) => { resolveUsageReady = resolve })
       if (!context.output) resolveUsageReady()
@@ -2072,6 +2061,18 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const providerAbortSignal = abortSignal
         ? AbortSignal.any([abortSignal, streamCancellation.signal])
         : streamCancellation.signal
+      const repairCallInput = () => {
+        const repairUsageCapture = createUsageCapture()
+        repairUsageCaptures.push(repairUsageCapture)
+        return {
+          ...withRemainingInvocationTimeout(callInput, invocationDeadline),
+          abortSignal: providerAbortSignal,
+          onEnd: repairUsageCapture.onEnd,
+          onLanguageModelCallEnd: repairUsageCapture.onLanguageModelCallEnd,
+          onStepEnd: repairUsageCapture.onStepEnd,
+        }
+      }
+      const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures]
       const cancelProvider = (reason?: unknown) => {
         if (!streamCancellation.signal.aborted) streamCancellation.abort(reason)
       }
