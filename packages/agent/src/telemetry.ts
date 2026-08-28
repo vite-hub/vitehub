@@ -23,6 +23,17 @@ type OtlpAnyValue =
 const retryableStatuses = new Set([429, 502, 503, 504])
 const maxOtlpBinaryBytes = 3 * 1024 * 1024 - 1024
 
+interface OtlpEncodingBudget {
+  binaryBytesRemaining: number
+}
+
+function consumeOtlpBinaryBudget(budget: OtlpEncodingBudget, byteLength: number): void {
+  if (byteLength > budget.binaryBytesRemaining) {
+    throw new Error("OTLP/HTTP JSON telemetry batch exceeds the bounded binary budget.")
+  }
+  budget.binaryBytesRemaining -= byteLength
+}
+
 function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean | number | string } | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
   for (const [type, unwrap] of [
@@ -40,7 +51,7 @@ function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean
   }
 }
 
-async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Promise<OtlpAnyValue> {
+async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestors = new Set<object>()): Promise<OtlpAnyValue> {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
@@ -54,6 +65,7 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
   }
   if (hasRuntimeType(value, "string")) return { stringValue: value }
   if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    consumeOtlpBinaryBudget(budget, value.byteLength)
     const bytes = value instanceof ArrayBuffer
       ? new Uint8Array(value)
       : new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
@@ -69,7 +81,14 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
     }
   }
   if (value instanceof Date) {
-    return { stringValue: Number.isFinite(value.getTime()) ? value.toISOString() : String(value) }
+    return {
+      kvlistValue: {
+        values: [
+          { key: "type", value: { stringValue: "Date" } },
+          { key: "value", value: { stringValue: Number.isFinite(value.getTime()) ? value.toISOString() : String(value) } },
+        ],
+      },
+    }
   }
   if (value instanceof RegExp) {
     return {
@@ -77,29 +96,37 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
         values: [
           { key: "source", value: { stringValue: value.source } },
           { key: "flags", value: { stringValue: value.flags } },
-          { key: "lastIndex", value: await otlpAnyValue(value.lastIndex) },
+          { key: "lastIndex", value: await otlpAnyValue(value.lastIndex, budget) },
         ],
       },
     }
   }
   if (value instanceof Blob) {
-    if (value.size > maxOtlpBinaryBytes) {
-      throw new Error("OTLP/HTTP JSON Blob payload exceeds the bounded binary budget.")
+    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get?.call(value)
+    const mediaType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get?.call(value)
+    if (!hasRuntimeType(size, "number") || !hasRuntimeType(mediaType, "string")) {
+      throw new Error("OTLP/HTTP JSON Blob payload is invalid.")
     }
+    consumeOtlpBinaryBudget(budget, size)
     const FileConstructor = globalThis.File
     const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
-    const bytes = new Uint8Array(await value.arrayBuffer())
+    const bytes = new Uint8Array(await Blob.prototype.arrayBuffer.call(value))
     let binary = ""
     for (const byte of bytes) binary += String.fromCharCode(byte)
     if (file) {
+      const name = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "name")?.get?.call(file)
+      const lastModified = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "lastModified")?.get?.call(file)
+      if (!hasRuntimeType(name, "string") || !hasRuntimeType(lastModified, "number")) {
+        throw new Error("OTLP/HTTP JSON File payload is invalid.")
+      }
       return {
         kvlistValue: {
           values: [
             { key: "type", value: { stringValue: "File" } },
-            { key: "name", value: { stringValue: file.name } },
-            { key: "lastModified", value: await otlpAnyValue(file.lastModified) },
-            { key: "mediaType", value: { stringValue: file.type } },
-            { key: "size", value: { intValue: String(file.size) } },
+            { key: "name", value: { stringValue: name } },
+            { key: "lastModified", value: await otlpAnyValue(lastModified, budget) },
+            { key: "mediaType", value: { stringValue: mediaType } },
+            { key: "size", value: { intValue: String(size) } },
             { key: "bytes", value: { bytesValue: btoa(binary) } },
           ],
         },
@@ -108,8 +135,8 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
     return {
       kvlistValue: {
         values: [
-          { key: "type", value: { stringValue: value.type } },
-          { key: "size", value: { intValue: String(value.size) } },
+          { key: "type", value: { stringValue: mediaType } },
+          { key: "size", value: { intValue: String(size) } },
           { key: "bytes", value: { bytesValue: btoa(binary) } },
         ],
       },
@@ -121,7 +148,7 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
       kvlistValue: {
         values: [
           { key: "type", value: { stringValue: primitiveWrapper.type } },
-          { key: "value", value: await otlpAnyValue(primitiveWrapper.value) },
+          { key: "value", value: await otlpAnyValue(primitiveWrapper.value, budget) },
         ],
       },
     }
@@ -134,7 +161,7 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
       return {
         arrayValue: {
           values: await Promise.all(Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index)
-            ? otlpAnyValue(value[index], nextAncestors)
+            ? otlpAnyValue(value[index], budget, nextAncestors)
             : Promise.resolve<OtlpAnyValue>({ stringValue: "[Array hole]" }))),
         },
       }
@@ -145,8 +172,8 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
           values: await Promise.all([...value].map(async ([key, child]) => ({
             kvlistValue: {
               values: [
-                { key: "key", value: await otlpAnyValue(key, nextAncestors) },
-                { key: "value", value: await otlpAnyValue(child, nextAncestors) },
+                { key: "key", value: await otlpAnyValue(key, budget, nextAncestors) },
+                { key: "value", value: await otlpAnyValue(child, budget, nextAncestors) },
               ],
             },
           }))),
@@ -154,7 +181,14 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
       }
     }
     if (value instanceof Set) {
-      return { arrayValue: { values: await Promise.all([...value].map(child => otlpAnyValue(child, nextAncestors))) } }
+      return {
+        kvlistValue: {
+          values: [
+            { key: "type", value: { stringValue: "Set" } },
+            { key: "values", value: { arrayValue: { values: await Promise.all([...value].map(child => otlpAnyValue(child, budget, nextAncestors))) } } },
+          ],
+        },
+      }
     }
     if (value instanceof DOMException) {
       return {
@@ -173,13 +207,13 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
         { key: "message", value: { stringValue: value.message } },
       ]
       if (value instanceof AggregateError) {
-        values.push({ key: "errors", value: await otlpAnyValue(value.errors, nextAncestors) })
+        values.push({ key: "errors", value: await otlpAnyValue(value.errors, budget, nextAncestors) })
       }
       if (Object.hasOwn(value, "cause")) {
-        values.push({ key: "cause", value: await otlpAnyValue(value.cause, nextAncestors) })
+        values.push({ key: "cause", value: await otlpAnyValue(value.cause, budget, nextAncestors) })
       }
       for (const [key, child] of Object.entries(value)) {
-        if (key !== "cause" && key !== "errors") values.push({ key, value: await otlpAnyValue(child, nextAncestors) })
+        if (key !== "cause" && key !== "errors") values.push({ key, value: await otlpAnyValue(child, budget, nextAncestors) })
       }
       return {
         kvlistValue: { values },
@@ -191,17 +225,17 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
     }
     return {
       kvlistValue: {
-        values: await Promise.all(Object.entries(value).map(async ([key, child]) => ({ key, value: await otlpAnyValue(child, nextAncestors) }))),
+        values: await Promise.all(Object.entries(value).map(async ([key, child]) => ({ key, value: await otlpAnyValue(child, budget, nextAncestors) }))),
       },
     }
   }
   return { stringValue: String(value) }
 }
 
-async function otlpAttributes(attributes: Record<string, unknown> | undefined) {
+async function otlpAttributes(attributes: Record<string, unknown> | undefined, budget: OtlpEncodingBudget) {
   return Promise.all(Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined && key !== "vitehub.payload.value"
     ? []
-    : [{ key, value }]).map(async ({ key, value }) => ({ key, value: await otlpAnyValue(value) })))
+    : [{ key, value }]).map(async ({ key, value }) => ({ key, value: await otlpAnyValue(value, budget) })))
 }
 
 function unixNanos(value: string | undefined, fallback: string): string {
@@ -209,14 +243,14 @@ function unixNanos(value: string | undefined, fallback: string): string {
   return String(BigInt(Number.isFinite(millis) ? millis : Date.parse(fallback)) * 1_000_000n)
 }
 
-async function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
+async function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string, budget: OtlpEncodingBudget) {
   return {
-    attributes: await otlpAttributes(span.attributes),
+    attributes: await otlpAttributes(span.attributes, budget),
     ...(span.endTime ? { endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime) } : {}),
     ...(span.events?.length
       ? {
           events: await Promise.all(span.events.map(async event => ({
-            attributes: await otlpAttributes(event.attributes),
+            attributes: await otlpAttributes(event.attributes, budget),
             name: event.name,
             timeUnixNano: unixNanos(event.time, fallbackEndTime),
           }))),
@@ -232,9 +266,9 @@ async function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
   }
 }
 
-async function otlpLogRecord(record: OpenTelemetryLogRecordView) {
+async function otlpLogRecord(record: OpenTelemetryLogRecordView, budget: OtlpEncodingBudget) {
   return {
-    attributes: await otlpAttributes(record.attributes),
+    attributes: await otlpAttributes(record.attributes, budget),
     eventName: record.eventName,
     ...(record.severityNumber ? { severityNumber: record.severityNumber } : {}),
     ...(record.severityText ? { severityText: record.severityText } : {}),
@@ -343,10 +377,11 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
       "vitehub.runtime.name": context.runtime.runtime,
       ...configuredResource,
     }
+    const budget: OtlpEncodingBudget = { binaryBytesRemaining: maxOtlpBinaryBytes }
     if (context.signal === "logs") {
       const [resourceAttributes, logRecords] = await Promise.all([
-        otlpAttributes(resource),
-        Promise.all(context.records.map(otlpLogRecord)),
+        otlpAttributes(resource, budget),
+        Promise.all(context.records.map(record => otlpLogRecord(record, budget))),
       ])
       await postOtlp(otlpSignalEndpoint(options.endpoint, "logs"), headers, JSON.stringify({
         resourceLogs: [{
@@ -361,8 +396,8 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
     }
     const fallbackEndTime = context.spans[0]?.endTime || new Date().toISOString()
     const [resourceAttributes, spans] = await Promise.all([
-      otlpAttributes(resource),
-      Promise.all(context.spans.map(span => otlpSpan(span, fallbackEndTime))),
+      otlpAttributes(resource, budget),
+      Promise.all(context.spans.map(span => otlpSpan(span, fallbackEndTime, budget))),
     ])
     await postOtlp(otlpSignalEndpoint(options.endpoint, "traces"), headers, JSON.stringify({
       resourceSpans: [{

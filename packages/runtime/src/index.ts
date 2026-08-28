@@ -501,16 +501,22 @@ function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
     const FileConstructor = globalThis.File
     const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
     const intrinsic = file ? new FileConstructor([], "") : new BlobConstructor([])
+    const size = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "size")?.get?.call(value)
+    const type = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "type")?.get?.call(value)
+    if (!hasRuntimeType(size, "number") || !hasRuntimeType(type, "string")) return
     const state: ReflectedBlobState = {
       intrinsicSymbols: new Set(Reflect.ownKeys(intrinsic).filter((key): key is symbol =>
         hasRuntimeType(key, "symbol") && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
       )),
-      size: value.size,
-      type: value.type,
+      size,
+      type,
     }
     if (file) {
-      state.lastModified = file.lastModified
-      state.name = file.name
+      const lastModified = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "lastModified")?.get?.call(file)
+      const name = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "name")?.get?.call(file)
+      if (!hasRuntimeType(lastModified, "number") || !hasRuntimeType(name, "string")) return
+      state.lastModified = lastModified
+      state.name = name
     }
     return state
   }

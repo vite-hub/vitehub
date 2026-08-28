@@ -213,7 +213,10 @@ describe("Agent telemetry", () => {
             { key: "bytes", value: { bytesValue: "AQI=" } },
           ] } } },
           { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
-          { key: "date", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
+          { key: "date", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Date" } },
+            { key: "value", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
+          ] } } },
           {
             key: "domException",
             value: { kvlistValue: { values: [
@@ -246,7 +249,10 @@ describe("Agent telemetry", () => {
             { key: "size", value: { intValue: "0" } },
             { key: "bytes", value: { bytesValue: "" } },
           ] } } },
-          { key: "invalidDate", value: { stringValue: "Invalid Date" } },
+          { key: "invalidDate", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Date" } },
+            { key: "value", value: { stringValue: "Invalid Date" } },
+          ] } } },
           {
             key: "map",
             value: {
@@ -272,7 +278,10 @@ describe("Agent telemetry", () => {
             { key: "flags", value: { stringValue: "gi" } },
             { key: "lastIndex", value: { intValue: "4" } },
           ] } } },
-          { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
+          { key: "set", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Set" } },
+            { key: "values", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
+          ] } } },
           { key: "spoofedBigInt", value: { kvlistValue: { values: [{ key: "label", value: { stringValue: "spoofed" } }] } } },
           { key: "uint8Array", value: { kvlistValue: { values: [
             { key: "type", value: { stringValue: "Uint8Array" } },
@@ -328,6 +337,24 @@ describe("Agent telemetry", () => {
       signal: "logs",
     })).rejects.toThrow("bounded binary budget")
     expect(arrayBuffer).not.toHaveBeenCalled()
+  })
+
+  it("bounds Blob bytes across the complete OTLP batch", async () => {
+    const first = new Blob([new Uint8Array(2 * 1024 * 1024)])
+    const second = new Blob([new Uint8Array(2 * 1024 * 1024)])
+
+    await expect(otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [first, second].map((value, index) => ({
+        attributes: { "vitehub.payload.value": value },
+        eventName: `workspace.materialized.${index}`,
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      })),
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })).rejects.toThrow("batch exceeds the bounded binary budget")
   })
 
   it("does not encode inherited sparse-array values as public OTLP data", async () => {
