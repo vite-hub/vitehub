@@ -17,12 +17,12 @@ type MockMcpClient = MCPClient & {
 }
 
 function createClient(tools: Record<string, unknown>): MockMcpClient {
-  // SAFETY: The tests exercise only this MCPClient subset.
-  return Object.assign({} as MCPClient, {
+  // SAFETY: This deliberately partial external SDK fixture implements every member exercised by the MCP Capability.
+  return {
     close: vi.fn(async () => undefined),
     serverInfo: { name: "test", version: "1.0.0" },
     tools: vi.fn(async () => tools),
-  }) as MockMcpClient
+  } as MockMcpClient
 }
 
 async function createTools(descriptions: Record<string, string>) {
@@ -175,6 +175,132 @@ describe("mcp capability", () => {
     finally {
       vi.doUnmock("@ai-sdk/mcp")
     }
+  })
+
+  it("skips absent servers without blocking configured servers", async () => {
+    const configuredClient = createClient({ lookup: { execute: vi.fn() } })
+    const createMCPClient = vi.fn(async () => configuredClient)
+    vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient }))
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [mcp({
+          servers: {
+            disabled: false,
+            missing: undefined,
+            nullable: null,
+            resolverDisabled: () => false,
+            resolverNullable: () => null,
+            ready: () => ({ transport: { type: "http", url: "https://example.com/mcp" } }),
+          },
+        })],
+      }, runtime(), {})
+
+      expect(Object.keys(resolved.tools || {})).toEqual(["mcp_ready_lookup"])
+      expect(createMCPClient).toHaveBeenCalledTimes(1)
+      await resolved.close()
+      expect(configuredClient.close).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
+  it("does not load the MCP runtime when every server is absent", async () => {
+    vi.doMock("@ai-sdk/mcp", () => {
+      throw new Error("MCP runtime should not load")
+    })
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [mcp({
+          servers: {
+            disabled: false,
+            missing: async () => undefined,
+          },
+        })],
+      }, runtime(), {})
+
+      expect(resolved.tools).toEqual({})
+      await expect(resolved.close()).resolves.toBeUndefined()
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
+  it("re-evaluates optional servers for every invocation", async () => {
+    const configuredClient = createClient({ lookup: { execute: vi.fn() } })
+    const createMCPClient = vi.fn(async () => configuredClient)
+    vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient }))
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+      let enabled = false
+      const capability = mcp({
+        servers: {
+          analytics: async () => enabled
+            ? { transport: { type: "http", url: "https://example.com/mcp" } }
+            : undefined,
+        },
+      })
+
+      const first = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {})
+      expect(first.tools).toEqual({})
+      await first.close()
+
+      enabled = true
+      const second = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {})
+      expect(second.tools).toHaveProperty("mcp_analytics_lookup")
+      await second.close()
+
+      enabled = false
+      const third = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {})
+      expect(third.tools).toEqual({})
+      await third.close()
+
+      expect(createMCPClient).toHaveBeenCalledTimes(1)
+      expect(configuredClient.close).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
+  it("does not treat resolver failures as absent configuration", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          broken: () => { throw new Error("credential lookup failed") },
+          optional: undefined,
+        },
+      })],
+    }, runtime(), {})).rejects.toThrow("credential lookup failed")
+  })
+
+  it("does not treat malformed configured servers as absent configuration", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          // SAFETY: This deliberately bypasses the public type to prove runtime validation.
+          broken: (() => ({ url: "https://example.com/mcp" })) as never,
+          optional: null,
+        },
+      })],
+    }, runtime(), {})).rejects.toThrow("entries must resolve to an MCP client or MCP client config")
   })
 
   it("throws on duplicate normalized tool names and closes initialized clients", async () => {

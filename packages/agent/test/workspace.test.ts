@@ -2299,14 +2299,14 @@ describe("defineAgent workspace option", () => {
       },
     } as never)
 
-    expect(instrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
-      input: expect.objectContaining({ messages: [] }),
-      model: expect.objectContaining({ modelId: "base" }),
-      run: expect.objectContaining({ origin: "teams", runId: "run_123" }),
-      callSettings: expect.objectContaining({ temperature: 0.2 }),
-      tools: expect.objectContaining({ shell: expect.any(Object) }),
-    }))
-    expect(instrumentCallSettings.mock.calls[0]?.[0].callSettings).not.toHaveProperty("stepLimit")
+    expect(instrumentCallSettings).toHaveBeenCalledOnce()
+    const instrumentContext = instrumentCallSettings.mock.calls[0]![0]
+    expect(instrumentContext.input).toMatchObject({ messages: [] })
+    expect(instrumentContext.model).toMatchObject({ modelId: "base" })
+    expect(instrumentContext.run).toMatchObject({ origin: "teams", runId: "run_123" })
+    expect(instrumentContext.callSettings).toMatchObject({ temperature: 0.2 })
+    expect(instrumentContext.tools).toHaveProperty("shell")
+    expect(instrumentContext.callSettings).not.toHaveProperty("stepLimit")
     expect(agentSettings.at(-1)).toMatchObject({
       stopWhen: { count: 7 },
       temperature: 0.2,
