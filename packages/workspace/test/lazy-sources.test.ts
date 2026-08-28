@@ -1325,6 +1325,7 @@ describe("lazy sources", () => {
       bytes: 5,
       sources: [{ bytes: 5, status: "ready" }],
     })
+    const readFile = vi.spyOn(store, "readFile")
     await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
       bytes: 5,
       sources: [{
@@ -1333,6 +1334,7 @@ describe("lazy sources", () => {
         paths: [{ path: "docs/asset.bin", status: "unchanged" }],
       }],
     })
+    expect(readFile).not.toHaveBeenCalled()
   })
 
   it("keeps scoped bytes aligned with the persisted snapshot after Store drift", async () => {

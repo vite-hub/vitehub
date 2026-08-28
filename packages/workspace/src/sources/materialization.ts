@@ -529,7 +529,7 @@ export async function materializeWorkspaceSources(
         const item = entry.item!
         const metadata = item.metadata || {}
         const previousStat = await store.stat(path)
-        const previous = await store.readFile(path)
+        const previous = entry.contentStream && store.writeFileStream ? undefined : await store.readFile(path)
         const previousExists = previousStat?.type === "file" || Boolean(previous)
         const fileMetadata = {
           ...metadata,
@@ -557,8 +557,13 @@ export async function materializeWorkspaceSources(
         persistedBytesDelta += (written.size || 0) - (tracked
           ? previousItemMetadata?.materializedBytes ?? previousStat?.size ?? (previous ? contentSize(previous.content) : 0)
           : 0)
-        const status = previous && (entry.contentStream ? written.contentEqual : contentEquals(previous.content, entry.content ?? ""))
-          && fileAttributesEqual(previous, previousItemMetadata, item.mediaType, fileMetadata)
+        const contentEqual = entry.contentStream
+          ? store.writeFileStream
+            ? previousStat?.type === "file" && previousStat.digest !== undefined && previousStat.digest === written.digest
+            : written.contentEqual === true
+          : previous !== undefined && contentEquals(previous.content, entry.content ?? "")
+        const status = contentEqual
+          && fileAttributesEqual(previous ?? previousStat ?? {}, previousItemMetadata, item.mediaType, fileMetadata)
           ? "unchanged" as const
           : previousExists ? "updated" as const : "added" as const
         counts[status]++
@@ -705,30 +710,13 @@ async function writeMaterializedFile(
   },
   control?: MaterializationControl,
   previousContent?: string | Uint8Array,
-): Promise<{ contentEqual?: boolean, size?: number }> {
+): Promise<{ contentEqual?: boolean, digest?: string, size?: number }> {
   if (file.contentStream) {
     if (store.writeFileStream) {
       let size = 0
-      const previousBytes = previousContent === undefined
-        ? undefined
-        : previousContent instanceof Uint8Array ? previousContent : new TextEncoder().encode(previousContent)
-      let comparedBytes = 0
-      let contentEqual = previousBytes !== undefined
       const content = (async function* () {
         for await (const chunk of contentStreamChunks(file.contentStream!)) {
           size += chunk.byteLength
-          if (previousBytes) {
-            if (comparedBytes + chunk.byteLength > previousBytes.byteLength) contentEqual = false
-            else {
-              for (let index = 0; index < chunk.byteLength; index++) {
-                if (chunk[index] !== previousBytes[comparedBytes + index]) {
-                  contentEqual = false
-                  break
-                }
-              }
-            }
-            comparedBytes += chunk.byteLength
-          }
           yield chunk
         }
       })()
@@ -738,9 +726,8 @@ async function writeMaterializedFile(
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
-      if (control) await control.mutate(write)
-      else await write()
-      return { contentEqual: contentEqual && comparedBytes === previousBytes?.byteLength, size }
+      const written = control ? await control.mutate(write) : await write()
+      return { digest: written.digest, size }
     }
     const content = await contentStreamToBytes(file.contentStream)
     if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))
