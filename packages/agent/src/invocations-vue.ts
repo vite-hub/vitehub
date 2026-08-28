@@ -38,6 +38,7 @@ export interface UseAgentInvocationsReturn {
   isLoading: ShallowRef<boolean>;
   isLoadingMore: ShallowRef<boolean>;
   loadMoreError: ShallowRef<unknown>;
+  remainingStatuses: ShallowRef<readonly AgentInvocationRecordStatus[]>;
   loadMore: () => Promise<AgentInvocationListResult | undefined>;
   refresh: () => Promise<AgentInvocationListResult | undefined>;
   stop: () => void;
@@ -67,6 +68,7 @@ export interface UseAgentInvocationReturn {
 }
 
 const defaultBaseURL = "/api/invocations";
+const maximumPaginationRequestsPerLoad = 2;
 const retainedReconciliationLimit = 20;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -111,9 +113,14 @@ function parseInvocationListResult(value: unknown): AgentInvocationListResult {
   if (value.cursor !== undefined && typeof value.cursor !== "string") {
     throw new TypeError("Invalid Agent Invocation list cursor.");
   }
+  if (value.remainingStatuses !== undefined && (!Array.isArray(value.remainingStatuses)
+    || !value.remainingStatuses.every(isInvocationStatus))) {
+    throw new TypeError("Invalid Agent Invocation remaining statuses.");
+  }
   return {
     ...(typeof value.cursor === "string" ? { cursor: value.cursor } : {}),
     invocations: value.invocations.map(parseInvocationSummary),
+    ...(Array.isArray(value.remainingStatuses) ? { remainingStatuses: value.remainingStatuses.filter(isInvocationStatus) } : {}),
   };
 }
 
@@ -172,6 +179,7 @@ function detailPath(baseURL: string, id: string): string {
 interface InvocationResourceOptions<T> {
   apply: (value: T) => void;
   beforeLoad?: () => void;
+  canPoll?: () => boolean;
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
@@ -200,6 +208,10 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
     if (interval === false || interval === undefined || !Number.isFinite(interval) || interval <= 0)
       return;
     timer = setTimeout(() => {
+      if (options.canPoll && !options.canPoll()) {
+        schedule();
+        return;
+      }
       void refresh();
     }, interval);
   }
@@ -278,9 +290,14 @@ export function useAgentInvocations(
   const cursor = shallowRef<string | undefined>();
   const isLoadingMore = shallowRef(false);
   const loadMoreError = shallowRef<unknown>(null);
+  const remainingStatuses = shallowRef<readonly AgentInvocationRecordStatus[]>([]);
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
+  let firstPageCursor: string | undefined;
+  let paginationCursor: string | undefined;
+  let paginationRemainingStatuses: readonly AgentInvocationRecordStatus[] = [];
+  let paginationStarted = false;
   let revision = 0;
   let reconciliationOffset = 0;
   let resetFirstPage = true;
@@ -300,6 +317,11 @@ export function useAgentInvocations(
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
         cursor.value = result.cursor;
+        firstPageCursor = result.cursor;
+        paginationCursor = result.cursor;
+        paginationRemainingStatuses = result.remainingStatuses ?? [];
+        paginationStarted = false;
+        remainingStatuses.value = paginationRemainingStatuses;
         resetFirstPage = false;
         return;
       }
@@ -311,11 +333,21 @@ export function useAgentInvocations(
         .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
       pendingDepartureIds = new Set(result.pendingDepartureIds ?? pendingDepartureIds);
       invocations.value = [...result.invocations, ...retained];
-      if (retained.length === 0) cursor.value = result.cursor;
+      if (result.cursor !== firstPageCursor) {
+        firstPageCursor = result.cursor;
+        paginationCursor = result.cursor;
+        paginationRemainingStatuses = result.remainingStatuses ?? [];
+        paginationStarted = false;
+      }
+      cursor.value = paginationStarted ? paginationCursor : result.cursor;
+      remainingStatuses.value = paginationStarted
+        ? paginationRemainingStatuses
+        : result.remainingStatuses ?? [];
     },
     clear() {
       invocations.value = [];
       cursor.value = undefined;
+      remainingStatuses.value = [];
       pendingDepartureIds = new Set();
     },
     beforeLoad() {
@@ -325,6 +357,10 @@ export function useAgentInvocations(
       if (resetFirstPage) {
         invocations.value = [];
         cursor.value = undefined;
+        firstPageCursor = undefined;
+        paginationCursor = undefined;
+        paginationRemainingStatuses = [];
+        paginationStarted = false;
         reconciliationOffset = 0;
         loadMoreError.value = null;
       }
@@ -336,6 +372,7 @@ export function useAgentInvocations(
       loadMoreController = undefined;
       isLoadingMore.value = false;
     },
+    canPoll: () => !isLoadingMore.value,
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
     load: async (signal) => {
@@ -418,7 +455,7 @@ export function useAgentInvocations(
 
   async function loadMore(): Promise<AgentInvocationListResult | undefined> {
     if (stopped || resource.isLoading.value) return;
-    const nextCursor = cursor.value;
+    let nextCursor = paginationCursor;
     if (!nextCursor) return;
     loadMoreController?.abort();
     const controller = new AbortController();
@@ -428,21 +465,34 @@ export function useAgentInvocations(
     resource.error.value = null;
     try {
       const query = options.query ? toValue(options.query) : undefined;
-      const result = parseInvocationListResult(
-        await request(
-          appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
-          { signal: controller.signal },
-        ),
-      );
-      if (loadMoreController !== controller || revision !== currentRevision) return;
-      const ids = new Set(invocations.value.map(invocation => invocation.id));
-      invocations.value = [
-        ...invocations.value,
-        ...result.invocations.filter(invocation => !ids.has(invocation.id)),
-      ];
-      cursor.value = result.cursor;
-      loadMoreError.value = null;
-      return result;
+      const visited = new Set<string>();
+      while (nextCursor && !visited.has(nextCursor)) {
+        visited.add(nextCursor);
+        const result = parseInvocationListResult(
+          await request(
+            appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
+            { signal: controller.signal },
+          ),
+        );
+        if (loadMoreController !== controller || revision !== currentRevision) return;
+        const updates = new Map(result.invocations.map(invocation => [invocation.id, invocation]));
+        const retainedIds = new Set(invocations.value.map(invocation => invocation.id));
+        const additions = [...updates.values()].filter(invocation => !retainedIds.has(invocation.id));
+        if (updates.size > 0) {
+          invocations.value = [
+            ...invocations.value.map(invocation => updates.get(invocation.id) ?? invocation),
+            ...additions,
+          ];
+        }
+        paginationStarted = true;
+        paginationCursor = result.cursor;
+        paginationRemainingStatuses = result.remainingStatuses ?? [];
+        cursor.value = paginationCursor;
+        remainingStatuses.value = paginationRemainingStatuses;
+        loadMoreError.value = null;
+        if (additions.length > 0 || !result.cursor || visited.size >= maximumPaginationRequestsPerLoad) return result;
+        nextCursor = result.cursor;
+      }
     } catch (cause) {
       if (loadMoreController !== controller || isAbortError(cause)) return;
       loadMoreError.value = cause;
@@ -465,7 +515,7 @@ export function useAgentInvocations(
   }
 
   onScopeDispose(() => loadMoreController?.abort(), true);
-  return { cursor, invocations, isLoadingMore, loadMore, loadMoreError, ...resource, stop };
+  return { cursor, invocations, isLoadingMore, loadMore, loadMoreError, remainingStatuses, ...resource, stop };
 }
 
 export function useAgentInvocation(

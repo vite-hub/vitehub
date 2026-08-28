@@ -1,6 +1,6 @@
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
-import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
+import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -11,6 +11,7 @@ import type {
   AgentModelExecutionOptions,
   AgentModelResolver,
   AgentOutputDefinition,
+  AgentProviderCredentialResolver,
   AgentProviderPermissions,
   AgentRunHandler,
   AgentRuntimeConfig,
@@ -30,6 +31,7 @@ export type NormalizedAgentDriver<
     output?: AgentOutputDefinition<TOutput>
   }
   | {
+    credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
     env?: Record<string, string | undefined>
     execution?: { attachments?: AgentAttachmentExecutionOptions }
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
@@ -38,6 +40,9 @@ export type NormalizedAgentDriver<
     output?: AgentOutputDefinition<TOutput>
     permissions: AgentProviderPermissions
     provider: "claude-code" | "codex"
+    providerSettings?: Record<string, unknown>
+    reasoningEffort?: string
+    reasoningSummary?: "auto" | "concise" | "detailed" | "none"
   }
   | {
     kind: "run"
@@ -122,7 +127,7 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "env", "execution", "instructions", "kind", "model", "output", "permissions"])
+const providerDriverKeys = new Set(["capacity", "credentials", "env", "execution", "instructions", "kind", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 
 function normalizeProviderEnvironment(value: unknown): Record<string, string | undefined> | undefined {
@@ -175,9 +180,43 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.model !== undefined && (!isRuntimeString(value.model) || !value.model.trim())) {
     throw new TypeError("[vitehub] defineAgent({ driver.model }) must be a non-empty string.")
   }
+  if (value.providerSettings !== undefined && !isConfigurationObject(value.providerSettings)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.providerSettings }) must be an object.")
+  }
+  const codexOptions = ["credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
+  if (provider !== "codex" && codexOptions.length) {
+    throw new TypeError(`[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.`)
+  }
+  const credentials = value.credentials
+  const credentialObject = isRuntimeObject(credentials)
+    // SAFETY: This narrows only the two callable credential members read below.
+    ? credentials as { resolve?: unknown, unseal?: unknown }
+    : undefined
+  if (credentials !== undefined
+    && !isRuntimeString(credentials)
+    && !isRuntimeFunction(credentials)
+    && !isRuntimeFunction(credentialObject?.unseal)
+    && !isRuntimeFunction(credentialObject?.resolve)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a string, sealed Server Env value, or resolver.")
+  }
+  if (value.reasoningEffort !== undefined && (!isRuntimeString(value.reasoningEffort) || !value.reasoningEffort.trim())) {
+    throw new TypeError("[vitehub] defineAgent({ driver.reasoningEffort }) must be a non-empty string.")
+  }
+  if (value.reasoningSummary !== undefined
+    && (!isRuntimeString(value.reasoningSummary) || !["auto", "concise", "detailed", "none"].includes(value.reasoningSummary))) {
+    throw new TypeError('[vitehub] defineAgent({ driver.reasoningSummary }) must be "auto", "concise", "detailed", or "none".')
+  }
+  if ((value.reasoningEffort !== undefined || value.reasoningSummary !== undefined) && value.model === undefined) {
+    throw new TypeError("[vitehub] defineAgent({ driver.reasoningEffort, driver.reasoningSummary }) requires driver.model.")
+  }
+  if (credentials !== undefined && value.providerSettings && value.providerSettings.shadowHomePath !== undefined) {
+    throw new TypeError("[vitehub] defineAgent({ driver.credentials }) owns the Codex shadow home and cannot be combined with providerSettings.shadowHomePath.")
+  }
   const execution = normalizeProviderExecution(value.execution)
   return {
     capacity: normalizeAgentDriverCapacity(value.capacity),
+    // SAFETY: The typed AgentSettings boundary establishes the credential resolver after its runtime shape is validated above.
+    credentials: credentials as AgentProviderCredentialResolver | undefined,
     env: normalizeProviderEnvironment(value.env),
     execution,
     // SAFETY: normalizeProviderDriver receives the typed AgentSettings driver after validating its provider-owned fields.
@@ -188,6 +227,11 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     output: value.output as AgentOutputDefinition | undefined,
     permissions: normalizeProviderPermissions(value.permissions),
     provider,
+    providerSettings: value.providerSettings ? Object.fromEntries(Object.entries(value.providerSettings)) : undefined,
+    // SAFETY: reasoningEffort is undefined or a non-empty string after validation above.
+    reasoningEffort: value.reasoningEffort as string | undefined,
+    // SAFETY: reasoningSummary is undefined or one of the four accepted values after validation above.
+    reasoningSummary: value.reasoningSummary as "auto" | "concise" | "detailed" | "none" | undefined,
   }
 }
 
