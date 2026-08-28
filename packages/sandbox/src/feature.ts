@@ -127,6 +127,7 @@ function createSandboxRegistryContents(
     'const registry = {',
     ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(definition.definitionModulePath)}),`),
     '}',
+    'await Promise.all(Object.values(registry).map(load => load()))',
     'export default registry',
     '',
   ].join('\n')

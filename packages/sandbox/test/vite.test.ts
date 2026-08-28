@@ -1,6 +1,7 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { build, type AliasOptions } from "vite"
@@ -1163,6 +1164,10 @@ describe("hubSandbox", () => {
     const previousResolvedSandbox = await realpath(sandboxAlias)
     const previousResolvedRegistry = await realpath(registryAlias)
     const previousResolvedDefinition = await realpath(definitionArtifact)
+    const previousRegistryModule: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(previousResolvedRegistry).href)
+    const loadPreviousDefinition = previousRegistryModule.default["tools/release-notes"]
+    if (!loadPreviousDefinition)
+      throw new Error("Expected the previous sandbox registry to contain tools/release-notes.")
     await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(previousResolvedDefinition))
     const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
     const invalidated: string[] = []
@@ -1226,6 +1231,7 @@ describe("hubSandbox", () => {
     })
     const generations = await readdir(join(rootDir, ".vitehub/sandbox/.runtime-generations"))
     expect(generations).toHaveLength(2)
+    await expect(loadPreviousDefinition()).resolves.toBeDefined()
   })
 
   it("invalidates each generated runtime before starting the next hot refresh", async () => {
