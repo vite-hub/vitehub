@@ -934,6 +934,13 @@ describe("agent channels", () => {
       if (href.endsWith("/app/installations/123/access_tokens")) {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
+      if (href.endsWith("/pulls/42")) {
+        return Response.json({
+          base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+          head: { ref: "feature", repo: { full_name: "acme/app" }, sha: "head-sha" },
+        })
+      }
+      if (href.includes("/issues/42/comments") || href.includes("/pulls/42/files")) return Response.json([])
       if (href.endsWith("/pulls/42/reviews")) return Response.json({ ok: true }, { status: 201 })
       if (href.endsWith("/issues/comments/99")) return Response.json({ message: "update rejected" }, { status: 500 })
       throw new Error(`Unexpected GitHub API call: ${href}`)
@@ -947,6 +954,7 @@ describe("agent channels", () => {
         installationId: 123,
         privateKey: privateKeyPem,
       },
+      pullRequest: { reply: false, workspace: false },
     })
     const reviewBody = "Review body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)"
     const updateBody = "Updated body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)"
