@@ -458,18 +458,33 @@ function reflectedRegExpState(value: unknown): { flags: string, lastIndex: numbe
   }
 }
 
-function reflectedBlobState(value: unknown): { intrinsicSymbols: ReadonlySet<symbol>, size: number, type: string } | undefined {
+interface ReflectedBlobState {
+  intrinsicSymbols: ReadonlySet<symbol>
+  lastModified?: number
+  name?: string
+  size: number
+  type: string
+}
+
+function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
   const BlobConstructor = globalThis.Blob
   if (!hasRuntimeType(BlobConstructor, "function") || !(value instanceof BlobConstructor)) return
   try {
-    const intrinsic = new BlobConstructor([])
-    return {
+    const FileConstructor = globalThis.File
+    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
+    const intrinsic = file ? new FileConstructor([], "") : new BlobConstructor([])
+    const state: ReflectedBlobState = {
       intrinsicSymbols: new Set(Reflect.ownKeys(intrinsic).filter((key): key is symbol =>
         hasRuntimeType(key, "symbol") && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
       )),
       size: value.size,
       type: value.type,
     }
+    if (file) {
+      state.lastModified = file.lastModified
+      state.name = file.name
+    }
+    return state
   }
   catch {
     return
@@ -515,7 +530,11 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   const sourceBlob = reflectedBlobState(source)
   if (sourceBlob) {
     const snapshotBlob = reflectedBlobState(snapshot)
-    if (!snapshotBlob || sourceBlob.size !== snapshotBlob.size || sourceBlob.type !== snapshotBlob.type) return false
+    if (!snapshotBlob
+      || sourceBlob.size !== snapshotBlob.size
+      || sourceBlob.type !== snapshotBlob.type
+      || sourceBlob.name !== snapshotBlob.name
+      || sourceBlob.lastModified !== snapshotBlob.lastModified) return false
   }
   const sourceAggregateErrors = Object.getOwnPropertyDescriptor(source, "errors")
   if (sourceAggregateErrors && "value" in sourceAggregateErrors) {

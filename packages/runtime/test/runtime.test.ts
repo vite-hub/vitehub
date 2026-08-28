@@ -455,6 +455,32 @@ describe("@vite-hub/runtime", () => {
     await expect(snapshot.text()).resolves.toBe("public bytes")
   })
 
+  it("preserves public File payload snapshots", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: {
+        value: new File(["public bytes"], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" }),
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (entry?.payload?.visibility !== "public") throw new Error("Expected a public File payload.")
+    expect(entry.payload.value).toBeInstanceOf(File)
+    // SAFETY: The runtime constructor assertion above establishes the public File snapshot.
+    const snapshot = entry.payload.value as File
+    expect(snapshot).toMatchObject({
+      lastModified: 1_768_435_200_000,
+      name: "report.txt",
+      size: 12,
+      type: "text/plain",
+    })
+    await expect(snapshot.text()).resolves.toBe("public bytes")
+  })
+
   it("rejects custom symbol fields on Blob payloads", async () => {
     const hidden = Symbol("hidden")
     const value = new Blob(["public bytes"])

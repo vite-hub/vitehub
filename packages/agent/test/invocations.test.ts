@@ -393,6 +393,53 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("remaining-structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          blob: new Blob([new Uint8Array([1, 2])], { type: "application/octet-stream" }),
+          boxedBigInt: Object(9n),
+          boxedBoolean: new Boolean(false),
+          boxedNumber: new Number(5),
+          boxedString: new String("one"),
+          file: new File([new Uint8Array([3, 4])], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" }),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("remaining-structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        blob: { bytes: [1, 2], mediaType: "application/octet-stream", size: 2, type: "Blob" },
+        boxedBigInt: { type: "BigInt", value: "9" },
+        boxedBoolean: { type: "Boolean", value: false },
+        boxedNumber: { type: "Number", value: 5 },
+        boxedString: { type: "String", value: "one" },
+        file: {
+          bytes: [3, 4],
+          lastModified: 1_768_435_200_000,
+          mediaType: "text/plain",
+          name: "report.txt",
+          size: 2,
+          type: "File",
+        },
+      },
+      visibility: "public",
+    })
+    expect(observation?.attributes?.["vitehub.payload.value"]).toEqual(observation?.payload?.visibility === "public"
+      ? observation.payload.value
+      : undefined)
+  })
+
   it("marks undefined public payload values as truncated and preserves their positions", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("undefined-public-payload"))
