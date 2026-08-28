@@ -93,6 +93,8 @@ describe("GitHub CI input policy", () => {
         "      - run: command npx tool@1.2.3",
         "      - run: command -v npx",
         "      - run: command -V pnpm",
+        "      - run: command -pv npx unpinned",
+        "      - run: command -pV pnpm unpinned",
         "      - run: nohup npx tool@1.2.3",
         "      - run: nohup -- npx tool@1.2.3",
         "      - run: nohup --help npx unpinned",
@@ -405,6 +407,7 @@ jobs:
     "corepack pnpx tool --help",
     "corepack yarn dlx tool --help",
     "corepack yarnpkg@4.10.3 dlx tool --help",
+    "corepack pnpm@latest dlx tool@1.2.3 --help",
     "npm exec -- tool --help",
     "vp dlx tool@latest --help",
     "npx pinned@1.2.3 && npx unpinned",
@@ -473,6 +476,9 @@ jobs:
     "echo -ne 'npx unpinned\\n' | bash",
     "printf '%c%s\\n' n 'px unpinned' | bash",
     String.raw`n\px unpinned`,
+    "$'npx' unpinned",
+    String.raw`$'n\x70x' unpinned`,
+    '$"npx" unpinned',
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -591,6 +597,44 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
     ])
+  })
+
+  it("does not trust an assignment from a conditional scope", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          if true; then",
+        "            VERSION=latest",
+        "          fi",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
+  it("keeps subshell exports out of the parent environment", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          (export VERSION=latest)",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("tracks exact package versions in braced package words", async () => {

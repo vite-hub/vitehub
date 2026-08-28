@@ -41,7 +41,11 @@ function shellTokens(line) {
     previousEnd = token.index + token[0].length
     if (token[5]?.startsWith("#")
       && (token.index === 0 || /[\s;&|()`]/.test(line[token.index - 1]))) break
-    const value = token[1] ?? token[2] ?? token[3] ?? token[4] ?? token[5]?.replace(/\\(.)/g, "$1")
+    const dollarQuoted = wordIndex !== undefined && tokens[wordIndex] === "$"
+      && token.index > 0 && line[token.index - 1] === "$" && (token[1] !== undefined || token[2] !== undefined)
+    if (dollarQuoted) tokens[wordIndex] = ""
+    const value = token[1] ?? (dollarQuoted && token[2] !== undefined ? expandAnsiCQuoting(token[2]) : token[2])
+      ?? token[3] ?? token[4] ?? token[5]?.replace(/\\(.)/g, "$1")
     if (token[4] !== undefined) {
       tokens.push(value)
       wordIndex = undefined
@@ -64,6 +68,14 @@ function shellTokens(line) {
     }
   }
   return tokens
+}
+
+function expandAnsiCQuoting(value) {
+  return value.replace(/\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|\\|a|b|e|E|f|n|r|t|v|'|")/g, (_match, escape) => {
+    if (escape.startsWith("x")) return String.fromCharCode(Number.parseInt(escape.slice(1), 16))
+    if (/^[0-7]/.test(escape)) return String.fromCharCode(Number.parseInt(escape, 8))
+    return { "\\": "\\", a: "\u0007", b: "\b", e: "\u001B", E: "\u001B", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "'": "'", '"': '"' }[escape]
+  })
 }
 
 function commandSubstitutionSources(value) {
@@ -169,7 +181,7 @@ function commandIndexes(tokens) {
               executableIndex++
               break
             }
-            if (wrapper === "command" && commandQueryOptions.has(argument)) {
+            if (wrapper === "command" && (commandQueryOptions.has(argument) || /^-[pVv]+$/.test(argument) && /[Vv]/.test(argument))) {
               queriesOnly = true
               executableIndex++
               continue
@@ -246,8 +258,7 @@ function commandIndexes(tokens) {
           : undefined
         if (corepackDelegate) {
           executableIndex++
-          tokens[executableIndex] = corepackDelegate
-          continue
+          break
         }
         if (wrapper !== "env") break
         executableIndex++
@@ -291,6 +302,15 @@ function corepackDelegateName(token) {
   const separator = descriptor.indexOf("@")
   const name = separator === -1 ? descriptor : descriptor.slice(0, separator)
   return corepackDelegates.has(name) ? name : undefined
+}
+
+function runsInChildShell(tokens, commandIndex) {
+  const groups = []
+  for (const token of tokens.slice(0, commandIndex)) {
+    if (token === "$(" || token === "(") groups.push(token)
+    else if (token === ")") groups.pop()
+  }
+  return groups.length > 0
 }
 
 function isSudoQueryOption(argument) {
@@ -389,6 +409,26 @@ function applyLeadingPersistentAssignments(tokens, environment) {
   applyCommand()
 }
 
+function invalidateConditionalAssignments(tokens, environment) {
+  let command = []
+  const invalidateCommand = () => {
+    const assignments = command.map(candidate => assignmentPattern.exec(candidate))
+    if (assignments.length > 0 && assignments.every(Boolean)) {
+      for (const assignment of assignments) environment.delete(assignment[1])
+    }
+  }
+  for (const token of tokens) {
+    if (token === ";" || token === "&&" || token === "||") {
+      invalidateCommand()
+      command = []
+      continue
+    }
+    if (shellOperatorPattern.test(token)) return
+    command.push(token)
+  }
+  invalidateCommand()
+}
+
 function commandRunsUnconditionally(tokens, commandIndex) {
   const conditionalScopes = [false]
   for (const token of tokens.slice(0, commandIndex)) {
@@ -473,6 +513,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   const environment = new Map(inheritedEnvironment)
   let dataHereDocument
   let conditionalDepth = 0
+  const conditionalExecutions = []
   let functionDepth = 0
   let pendingFunctionDeclaration = false
   for (const line of command.replaceAll(/\\\r?\n/g, "").split("\n")) {
@@ -492,11 +533,20 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const { closes: closesConditional, opens: opensConditional } = conditionalCounts(tokens)
     const { closes: closesFunction, opens: opensFunction, pendingDeclaration }
       = functionScopeCounts(tokens, pendingFunctionDeclaration)
+    for (let close = 0; close < closesConditional; close++) conditionalExecutions.pop()
+    if ((tokens.includes("else") || tokens.includes("elif")) && conditionalExecutions.at(-1) === "never") {
+      conditionalExecutions[conditionalExecutions.length - 1] = "maybe"
+    }
     const activeConditionalDepth = Math.max(0, conditionalDepth - closesConditional)
     const activeFunctionDepth = Math.max(0, functionDepth - closesFunction)
     if (activeConditionalDepth === 0 && opensConditional === 0
       && activeFunctionDepth === 0 && opensFunction === 0) {
       applyLeadingPersistentAssignments(tokens, environment)
+    }
+    else if ((activeConditionalDepth > 0 || opensConditional > 0)
+      && !conditionalExecutions.includes("never")
+      && activeFunctionDepth === 0 && opensFunction === 0) {
+      invalidateConditionalAssignments(tokens, environment)
     }
     if (executableIndexes.length === 0 && activeConditionalDepth === 0 && opensConditional === 0
       && activeFunctionDepth === 0 && opensFunction === 0
@@ -518,10 +568,11 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       let acceptsPackageOptions = false
       let inspectsTerminatedCommand = false
       const token = tokens[index]
-      const executable = executableName(token)
+      const corepackDelegate = corepackDelegateName(token)
+      const executable = corepackDelegate ?? executableName(token)
 
       if (executable === "export") {
-        if (activeFunctionDepth > 0 || opensFunction > 0) continue
+        if (activeFunctionDepth > 0 || opensFunction > 0 || runsInChildShell(tokens, index)) continue
         const execution = activeConditionalDepth === 0 && opensConditional === 0
           ? conditionalCommandExecution(tokens, index)
           : "maybe"
@@ -585,6 +636,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         inspectsTerminatedCommand = true
       }
       else if (executable === "vp" || executable === "pnpm" || executable === "yarn" || executable === "yarnpkg") {
+        if (corepackDelegate && executableName(token).includes("@")) specs.push(executableName(token))
         let subcommand = index + 1
         while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
           const option = tokens[subcommand++]
@@ -640,7 +692,13 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         specs.push(...findExecutablePackageSpecs(terminatedCommand, environment))
       }
     }
-    conditionalDepth = Math.max(0, conditionalDepth + opensConditional - closesConditional)
+    const opensKnownUntakenConditional = (tokens[0] === "if" || tokens[0] === "while" || tokens[0] === "until")
+      && tokens[1] === "false"
+      || tokens[0] === "for" && tokens[2] === "in" && (tokens[3] === undefined || tokens[3] === ";")
+    for (let open = 0; open < opensConditional; open++) {
+      conditionalExecutions.push(opensKnownUntakenConditional ? "never" : "maybe")
+    }
+    conditionalDepth = conditionalExecutions.length
     functionDepth = Math.max(0, functionDepth + opensFunction - closesFunction)
     pendingFunctionDeclaration = pendingDeclaration
   }
