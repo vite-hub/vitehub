@@ -348,7 +348,12 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
             for (const effective of alternatives) effective.set(property, property);
           }
         } else if (isPropertyAssignment(property) || isShorthandPropertyAssignment(property)) {
-          const name = propertyName(property.name) ?? property.name;
+          const name =
+            propertyName(property.name) ??
+            (isComputedPropertyName(property.name)
+              ? resolveString(property.name.expression)
+              : undefined) ??
+            property.name;
           for (const effective of alternatives) {
             effective.set(name, property);
           }
@@ -401,6 +406,28 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
     if (isShorthandPropertyAssignment(property)) return property.name;
   }
 
+  function resolvesToDeclaration(expression: Expression, seen = new Set<string>()): boolean {
+    if (declarations.has(expression)) return true;
+    if (
+      isParenthesizedExpression(expression) ||
+      isAsExpression(expression) ||
+      isSatisfiesExpression(expression) ||
+      isTypeAssertionExpression(expression) ||
+      isNonNullExpression(expression)
+    ) {
+      return resolvesToDeclaration(expression.expression, seen);
+    }
+    if (!isIdentifier(expression) || seen.has(expression.text)) return false;
+    for (let current: Node | undefined = expression; current; current = current.parent) {
+      if (!isBlock(current) && !isSourceFile(current)) continue;
+      const value = bindings.get(current)?.get(expression.text);
+      if (value && !isFunctionDeclaration(value)) {
+        return resolvesToDeclaration(value, new Set(seen).add(expression.text));
+      }
+    }
+    return false;
+  }
+
   type ConfigSections = Map<"define" | "public", DeepProperties>;
 
   function mergeProperties(
@@ -423,7 +450,7 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
             if (
               earlierPath.length < laterPath.length &&
               earlierValue &&
-              declarations.has(earlierValue)
+              resolvesToDeclaration(earlierValue)
             ) {
               continue;
             }
@@ -542,9 +569,10 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
         bindings.get(parameterScope) ?? new Map<string, Expression | FunctionDeclaration>();
       const previousBindings = new Map<string, Expression | FunctionDeclaration | undefined>();
       expression.parameters.forEach((parameter, index) => {
-        if (!isIdentifier(parameter.name) || !arguments_[index]) return;
+        const value = arguments_[index] ?? parameter.initializer;
+        if (!isIdentifier(parameter.name) || !value) return;
         previousBindings.set(parameter.name.text, scopeBindings.get(parameter.name.text));
-        scopeBindings.set(parameter.name.text, arguments_[index]);
+        scopeBindings.set(parameter.name.text, value);
       });
       bindings.set(parameterScope, scopeBindings);
       if (!isBlock(body)) {
@@ -1180,6 +1208,22 @@ defineConfig(mergeConfig(
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
+  it("preserves referenced Env declarations recursively merged with plain objects", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig, mergeConfig } from "vite"
+const target = (env({ mode: "runtime" }) as EnvDeclaration)!
+defineConfig(mergeConfig(
+  { env: { define: { target } } },
+  { env: { define: { target: { label: "x" } } } },
+))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
   it("keeps dotted and nested Define Env paths distinct", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -1268,6 +1312,33 @@ function config(publicEnv) {
   return { env: { public: publicEnv } }
 }
 defineConfig(config({ appName: env({ mode: "runtime" }) }))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("binds defaulted configuration factory parameters", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+function config(publicEnv = { appName: env({ mode: "runtime" }) }) {
+  return { env: { public: publicEnv } }
+}
+defineConfig(config())
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("resolves computed Env section names", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const envKey = "env"
+const section = "public"
+defineConfig({ [envKey]: { [section]: { appName: env({ mode: "runtime" }) } } })
 \`\`\`
     `);
 
