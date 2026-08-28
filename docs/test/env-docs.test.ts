@@ -446,6 +446,7 @@ function sectionObjects(sourceFile: Node) {
             const sectionValue = sectionProperty && propertyValue(sectionProperty);
             if (!sectionValue) continue;
             const sectionAlternatives = effectiveProperties(sectionValue);
+            if (sectionAlternatives.length === 0) continue;
             alternatives = alternatives.flatMap((configSections) =>
               sectionAlternatives.map((properties) => {
                 const next = new Map(configSections);
@@ -921,6 +922,22 @@ defineConfig({
 
     expect(calls.map(({ section }) => section)).toEqual(["public", "public"]);
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, false]);
+  });
+
+  it("preserves resolved Env sections beside unresolved siblings", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+defineConfig({
+  env: {
+    public: getPublicEnv(),
+    define: { __TARGET__: env({ mode: "runtime" }) },
+  },
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("checks computed section entries", () => {
