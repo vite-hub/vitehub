@@ -146,7 +146,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       for (const [laterKey, laterStatuses] of groups.slice(groupIndex + 1)) {
         if (laterKey === "history" || !pendingKeys.has(laterKey)) continue
         const laterPage = pages[laterKey]
-        const recheckLimit = Math.min(pageLimit, budget)
+        const recheckLimit = Math.min(pageLimit, laterPage.invocations.length + budget)
         if (recheckLimit === 0) continue
         const refreshed = await listLifecyclePage(
           laterStatuses,
@@ -157,11 +157,26 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
         const previousIds = new Set(laterPage.invocations.map(invocation => invocation.id))
         const added = refreshed.invocations.filter(invocation => !previousIds.has(invocation.id))
         if (added.length === 0) continue
-        const newIds = added.filter(invocation => !currentIds.has(invocation.id))
+        const allowedNewIds = new Set(added
+          .filter(invocation => !currentIds.has(invocation.id))
+          .slice(0, budget)
+          .map(invocation => invocation.id))
+        const keptInvocations = refreshed.invocations.filter(invocation =>
+          previousIds.has(invocation.id)
+          || currentIds.has(invocation.id)
+          || allowedNewIds.has(invocation.id),
+        )
+        const trimmed = keptInvocations.length < refreshed.invocations.length
+        const newIds = keptInvocations.filter(invocation => allowedNewIds.has(invocation.id))
         rollback ||= newIds.length > 0
         budget = Math.max(0, budget - newIds.length)
-        for (const invocation of refreshed.invocations) currentIds.add(invocation.id)
-        pages[laterKey] = refreshed
+        for (const invocation of keptInvocations) currentIds.add(invocation.id)
+        pages[laterKey] = {
+          ...refreshed,
+          ...trimmed ? { cursor: undefined } : {},
+          invocations: keptInvocations,
+        }
+        if (trimmed) deferredGroups.add(laterKey)
       }
       return rollback
     }

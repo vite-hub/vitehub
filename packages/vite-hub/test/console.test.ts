@@ -740,7 +740,7 @@ describe("Agent invocation console", () => {
     const result = await invocationsHandler(requestEvent)
 
     expect(result.invocations).toHaveLength(6)
-    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: null })
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "5" })
     expect(result.remainingStatuses).toContain("pending")
   })
 
