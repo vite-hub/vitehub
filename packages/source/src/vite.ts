@@ -31,6 +31,8 @@ export interface SourceVitePluginOptions {
   importBase?: string
 }
 
+export type GeneratedSourceHandlersListener = (handlers: GeneratedSourceHandler[]) => Promise<void> | void
+
 interface DiscoveredCollection {
   exportName: string
   file: string
@@ -304,21 +306,29 @@ function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: str
 }
 
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
-  api: { prepareSources: (options: Omit<SourceGenerationOptions, "importBase">) => Promise<GeneratedSourceHandler[]> }
+  api: {
+    onGeneratedHandlersChanged: (listener: GeneratedSourceHandlersListener) => () => void
+    prepareSources: (options: Omit<SourceGenerationOptions, "importBase">) => Promise<GeneratedSourceHandler[]>
+  }
 } {
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let configuredHandlerKey = generatedHandlerKey([])
   let refreshQueue = Promise.resolve()
+  const generatedHandlersListeners = new Set<GeneratedSourceHandlersListener>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
     prepareSourceGeneration({ ...input, importBase: options.importBase })
   const refresh = async () => {
     if (projectRoot) await prepareSources({ projectRoot, serverDirs })
   }
+  const onGeneratedHandlersChanged = (listener: GeneratedSourceHandlersListener) => {
+    generatedHandlersListeners.add(listener)
+    return () => generatedHandlersListeners.delete(listener)
+  }
   return {
     name: "@vite-hub/source/vite",
     enforce: "post",
-    api: { prepareSources },
+    api: { onGeneratedHandlersChanged, prepareSources },
     async config(config) {
       // SAFETY: Vite passes the mutable user config object, which this plugin augments through ViteHub's shared symbols.
       const viteConfig = config as SourcePluginConfig
@@ -345,15 +355,23 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       }
     },
     configureServer(server) {
-      const refreshHost = async (file: string) => {
-        const root = projectRoot
+      const root = projectRoot
+      const effectiveServerDirs = serverDirs === undefined
+        ? root ? [resolve(root, "server")] : []
+        : root ? serverDirs.map(directory => resolve(root, directory)) : []
+      server.watcher.add(effectiveServerDirs)
+      const refreshHost = (file: string) => {
         if (!root || !sourceDefinitionPath(file, root, serverDirs)) return
         const result = refreshQueue.then(async () => {
           const handlers = await prepareSources({ projectRoot: root, serverDirs })
-          if (generatedHandlerKey(handlers) !== configuredHandlerKey) await server.restart()
+          const handlerKey = generatedHandlerKey(handlers)
+          if (handlerKey === configuredHandlerKey) return
+          if (generatedHandlersListeners.size === 0) await server.restart()
+          else await Promise.all([...generatedHandlersListeners].map(listener => listener(handlers)))
+          configuredHandlerKey = handlerKey
         })
         refreshQueue = result.catch(() => {})
-        await result
+        void result.catch(error => server.config.logger.error(String(error)))
       }
       server.watcher.on("add", refreshHost)
       server.watcher.on("change", refreshHost)

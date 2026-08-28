@@ -89,11 +89,14 @@ vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 import viteHubNuxtModule from "../src/nuxt.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
+  const closeHooks: Array<() => void> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
   const nuxt = {
-    hook(name: "nitro:config" | "pages:extend", callback: ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
+    callHook: vi.fn(async (_name: "restart") => {}),
+    hook(name: "close" | "nitro:config" | "pages:extend", callback: (() => void) | ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
       if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
+      else if (name === "close") closeHooks.push(callback as () => void)
       else pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
     },
     options: {
@@ -115,6 +118,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     },
   }
   return {
+    closeHooks,
     nitroConfigHooks,
     pageHooks,
     nuxt,
@@ -1111,6 +1115,43 @@ describe("ViteHub Nuxt integration", () => {
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
     expect(nitroConfig.handlers).toEqual([existing, generated])
+  })
+
+  it("restarts Nuxt with the current generated Source handlers", async () => {
+    const first = {
+      handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/meals.mjs",
+      method: "get" as const,
+      route: "/api/meals",
+    }
+    const second = {
+      handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/drinks.mjs",
+      method: "get" as const,
+      route: "/api/drinks",
+    }
+    let listener: ((handlers: Array<{ handler: string; method: "get"; route: string }>) => Promise<void> | void) | undefined
+    const removeListener = vi.fn()
+    mocks.vitehub.mockReturnValue([{
+      api: {
+        onGeneratedHandlersChanged: vi.fn((value) => {
+          listener = value
+          return removeListener
+        }),
+        prepareSources: vi.fn(async () => [first]),
+      },
+      name: "@vite-hub/source/vite",
+    }])
+    const { closeHooks, nuxt, runNitroConfigHook } = createNuxt(true)
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await listener?.([second])
+    expect(nuxt.callHook).toHaveBeenCalledWith("restart")
+
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+    expect(nitroConfig.handlers).toEqual([second])
+
+    closeHooks.forEach(hook => hook())
+    expect(removeListener).toHaveBeenCalledOnce()
   })
 
   it("binds type preparation to the selected Source plugin", async () => {

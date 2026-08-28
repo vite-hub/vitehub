@@ -105,8 +105,12 @@ function buildEnd(plugin: Plugin) {
 function configureServer(plugin: Plugin) {
   // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
   return plugin.configureServer as (server: {
+    config: { logger: { error: (message: string) => void } }
     restart: () => Promise<void>
-    watcher: { on: (event: string, callback: (file: string) => Promise<void>) => void }
+    watcher: {
+      add: (paths: string[]) => void
+      on: (event: string, callback: (file: string) => void) => void
+    }
   }) => void
 }
 
@@ -511,26 +515,59 @@ describe("framework generated types", () => {
     await writeFile(collection, collectionModule("meals"))
     const plugin = sourcePlugin()
     await config(plugin)({ root })
-    const listeners = new Map<string, (file: string) => Promise<void>>()
+    const listeners = new Map<string, (file: string) => void>()
     const restart = vi.fn(async () => {})
+    const watcherAdd = vi.fn()
 
     configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
       restart,
-      watcher: { on: (event, callback) => listeners.set(event, callback) },
+      watcher: { add: watcherAdd, on: (event, callback) => listeners.set(event, callback) },
     })
+    expect(watcherAdd).toHaveBeenCalledWith([join(root, "server")])
 
     await writeFile(collection, `${collectionModule("meals")}\n`)
-    await listeners.get("change")?.(collection)
+    listeners.get("change")?.(collection)
+    await vi.waitFor(() => expect(restart).not.toHaveBeenCalled())
     expect(restart).not.toHaveBeenCalled()
 
     await rm(collection)
-    await listeners.get("unlink")?.(collection)
-    expect(restart).toHaveBeenCalledOnce()
+    listeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(restart).toHaveBeenCalledOnce())
 
     await config(plugin)({ root })
     await writeFile(collection, collectionModule("meals"))
-    await listeners.get("add")?.(collection)
-    expect(restart).toHaveBeenCalledTimes(2)
+    listeners.get("add")?.(collection)
+    await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(2))
+  })
+
+  it("watches custom Source directories and recovers after refresh errors", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const serverDir = join(root, "api")
+    const collection = join(serverDir, "collections/meals.ts")
+    await mkdir(join(serverDir, "collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root: viteRoot, [VITEHUB_SERVER_DIRS]: [serverDir] })
+    const listeners = new Map<string, (file: string) => void>()
+    const loggerError = vi.fn()
+    const restart = vi.fn(async () => {})
+    const watcherAdd = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: loggerError } },
+      restart,
+      watcher: { add: watcherAdd, on: (event, callback) => listeners.set(event, callback) },
+    })
+    expect(watcherAdd).toHaveBeenCalledWith([serverDir])
+
+    await writeFile(collection, "export const other = {}\n")
+    listeners.get("change")?.(collection)
+    await vi.waitFor(() => expect(loggerError).toHaveBeenCalledOnce())
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(restart).toHaveBeenCalledOnce())
   })
 
   it("rejects a conflicting plain Vite Nitro handler", async () => {

@@ -32,7 +32,11 @@ type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"
 }
 
 type NuxtLike = {
-  hook?: (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) => void
+  callHook?: (name: "restart") => Promise<void>
+  hook?: {
+    (name: "close", callback: () => void): void
+    (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>): void
+  }
   options: {
     alias?: Record<string, string>
     app?: {
@@ -600,16 +604,22 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   // SAFETY: The plugin name identifies the ViteHub Source plugin and its public preparation API.
   const sourcePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/source/vite") as Plugin & {
     api?: {
+      onGeneratedHandlersChanged?: (listener: (handlers: GeneratedSourceHandler[]) => Promise<void> | void) => () => void
       prepareSources?: (options: {
         projectRoot: string
         serverDirs?: string[]
       }) => Promise<GeneratedSourceHandler[]>
     }
   } | undefined
-  const generatedSourceHandlers = await sourcePlugin?.api?.prepareSources?.({
+  let generatedSourceHandlers = await sourcePlugin?.api?.prepareSources?.({
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
+  const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.(async (handlers) => {
+    generatedSourceHandlers = handlers
+    await nuxt.callHook?.("restart")
+  })
+  if (removeGeneratedHandlersListener) nuxt.hook?.("close", removeGeneratedHandlersListener)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
     api?: {
       prepareTypes?: (options: { projectRoot: string }) => Promise<void>
