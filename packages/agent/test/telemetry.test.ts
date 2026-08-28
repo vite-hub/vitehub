@@ -228,6 +228,7 @@ describe("Agent telemetry", () => {
           {
             key: "error",
             value: { kvlistValue: { values: [
+              { key: "type", value: { stringValue: "Error" } },
               { key: "name", value: { stringValue: "Error" } },
               { key: "message", value: { stringValue: "outer" } },
               { key: "cause", value: { kvlistValue: { values: [{ key: "code", value: { stringValue: "inner" } }] } } },

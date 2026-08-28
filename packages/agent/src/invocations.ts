@@ -400,7 +400,16 @@ function boundedObservationValue(
   }
   if (value instanceof Date) {
     budget.truncated = true
-    return Number.isFinite(value.getTime()) ? value.toISOString() : null
+    return {
+      type: "Date",
+      value: boundedObservationValue(
+        Number.isFinite(value.getTime()) ? value.toISOString() : String(value),
+        budget,
+        depth + 1,
+        maxStringLength,
+        builtIns,
+      ),
+    }
   }
   if (value instanceof Map) {
     budget.truncated = true

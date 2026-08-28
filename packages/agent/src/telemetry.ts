@@ -209,6 +209,7 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
     }
     if (value instanceof Error) {
       const values: Array<{ key: string, value: OtlpAnyValue }> = [
+        { key: "type", value: { stringValue: value instanceof AggregateError ? "AggregateError" : "Error" } },
         { key: "name", value: { stringValue: value.name } },
         { key: "message", value: { stringValue: value.message } },
       ]

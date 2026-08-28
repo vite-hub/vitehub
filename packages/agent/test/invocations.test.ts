@@ -369,6 +369,7 @@ describe("Agent Invocations", () => {
           createdAt: new Date("2026-08-27T00:00:00.000Z"),
           data: new Uint8Array([1, 2, 3]),
           files: new Map([["README.md", 42]]),
+          invalidDate: new Date(Number.NaN),
           paths: new Set(["README.md", "package.json"]),
           pattern: /vitehub/gi,
         },
@@ -383,9 +384,10 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
     expect(observation?.payload).toEqual({
       value: {
-        createdAt: "2026-08-27T00:00:00.000Z",
+        createdAt: { type: "Date", value: "2026-08-27T00:00:00.000Z" },
         data: { bytes: [1, 2, 3], type: "Uint8Array" },
         files: [["README.md", 42]],
+        invalidDate: { type: "Date", value: "Invalid Date" },
         paths: ["README.md", "package.json"],
         pattern: { flags: "gi", lastIndex: 0, source: "vitehub" },
       },
