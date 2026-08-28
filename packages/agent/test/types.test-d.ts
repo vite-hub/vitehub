@@ -1068,7 +1068,12 @@ describe("agent public types", () => {
         },
       },
     })
-    const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
+    const supportAccess: AccessWorkspaceOptionsFor<
+      typeof workspace,
+      SupportInputContext,
+      AgentRuntimeConfig,
+      "support"
+    > = {
       resolve({ actor, input, invoker, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
@@ -1093,6 +1098,15 @@ describe("agent public types", () => {
       },
     }
 
+    const supportAccessCapability = access({
+      workspace: supportAccess,
+    })
+    type SupportAccessContract = NonNullable<typeof supportAccessCapability["__vitehubTypeContract"]>
+    expectTypeOf<SupportAccessContract["inputContext"]>().toMatchTypeOf<SupportInputContext>()
+    expectTypeOf<SupportInputContext>().toMatchTypeOf<SupportAccessContract["inputContext"]>()
+    expectTypeOf(supportAccessCapability)
+      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
+
     defineAgent({
       workspace,
       driver: {
@@ -1115,9 +1129,7 @@ describe("agent public types", () => {
         },
       }),
       capabilities: [
-        access({
-          workspace: supportAccess,
-        }),
+        supportAccessCapability,
         supportChat,
       ],
     })

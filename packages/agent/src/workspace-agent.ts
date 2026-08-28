@@ -888,6 +888,10 @@ function sourceMaterialize(source: WorkspaceSourceMetadata): AgentInspectionFile
   return source.materialize === "none" ? undefined : source.materialize
 }
 
+function isPendingMaterialization(materialize: AgentInspectionFileTreeItem["materialize"]): boolean {
+  return materialize === "lazy" || materialize === "startup"
+}
+
 function workspaceMetadataFiles<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -919,7 +923,7 @@ function workspaceMetadataFiles<
       path: mountPath,
       source: source.key,
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-      status: materialize === "lazy" ? "lazy" as const : "ready" as const,
+      status: isPendingMaterialization(materialize) ? "lazy" as const : "ready" as const,
     }
   })
 }
@@ -1091,7 +1095,7 @@ function markSourceTreeMetadata(
         item.materialize = materialize
         item.materialized = item.materialized || materialize === "build" || Boolean(item.children?.length)
         item.source = source.key
-        item.status = item.materialized ? "ready" : materialize === "lazy" ? "lazy" : "ready"
+        item.status = item.materialized ? "ready" : isPendingMaterialization(materialize) ? "lazy" : "ready"
       }
       else if (item.path.startsWith(`${mountedRoot}/`)) {
         item.materialize = materialize
