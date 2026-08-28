@@ -8,7 +8,7 @@ import { defineAgentInvocations } from "@vite-hub/agent/server"
 import {
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
-  resolveConsoleInvocationsRoot,
+  resolveConsoleProjectRoot,
 } from "../../internal.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
@@ -76,7 +76,7 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
 export function installConsoleInvocations(projectRoot: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsRoot() === resolvedRoot) return installed
+  if (installed && resolveConsoleProjectRoot() === resolvedRoot) return installed
   const invocations = createConsoleInvocations(resolvedRoot)
   installConsoleInvocationFallback(invocations, resolvedRoot)
   return invocations

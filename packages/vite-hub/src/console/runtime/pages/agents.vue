@@ -16,6 +16,7 @@ useHead({ title: "Agents · ViteHub Console" });
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
         :api-base="`${appBaseURL}/api/_vitehub/console/invocations`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
+        :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
       />
     </ConsoleProvider>
     <template #fallback>
