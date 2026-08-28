@@ -92,6 +92,17 @@ describe("optional peer imports", () => {
     expect(attempts).toBe(1)
   })
 
+  it("does not retry when Vercel supplies an invalid retry count", async () => {
+    const error = new Error("invalid retries")
+    let attempts = 0
+    await expect(retry(() => {
+      attempts++
+      if (attempts === 1) throw error
+      return "unexpected retry"
+    }, { minTimeout: 0, retries: Number.NaN })).rejects.toBe(error)
+    expect(attempts).toBe(1)
+  })
+
   it("ships the patched Vercel Blob runtime through the public driver", async () => {
     const built = await readFile(new URL("../dist/drivers/vercel.js", import.meta.url), "utf8")
 

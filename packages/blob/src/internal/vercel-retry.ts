@@ -26,7 +26,7 @@ export default async function retry<T>(
       return result
     }
     catch (error) {
-      if (bailError !== undefined || (error && typeof error === "object" && Reflect.get(error, "bail")) || attempt > retries) throw error
+      if (bailError !== undefined || (error && typeof error === "object" && Reflect.get(error, "bail")) || Number.isNaN(retries) || attempt > retries) throw error
       options.onRetry?.(error, attempt)
       const random = options.randomize === false ? 1 : Math.random() + 1
       const timeout = Math.min(Math.round(random * Math.max(minTimeout, 1) * factor ** (attempt - 1)), maxTimeout)
