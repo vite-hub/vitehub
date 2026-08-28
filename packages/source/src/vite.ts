@@ -561,9 +561,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)
       }
       function queueHostRefresh(file: string) {
-        if (serverClosed || serverPaused || !root || !sourceDefinitionPath(file, root, lifecycleServerDirs)) return
+        if (serverClosed || !root || !sourceDefinitionPath(file, root, lifecycleServerDirs)) return
+        if (serverPaused) {
+          pausedHostRefreshRetryFile = file
+          return
+        }
         const result = refreshQueue.then(async () => {
-          if (serverClosed || serverPaused) return
+          if (serverClosed) return
+          if (serverPaused) {
+            pausedHostRefreshRetryFile = file
+            return
+          }
           const handlers = await prepareSources({ projectRoot: root, serverDirs: lifecycleServerDirs })
           if (serverClosed || serverPaused) return
           const handlerKey = await generatedHandlerKey(handlers)

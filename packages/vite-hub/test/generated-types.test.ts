@@ -1446,7 +1446,7 @@ describe("framework generated types", () => {
     expect(oldRestart).toHaveBeenCalledOnce()
   })
 
-  it("reschedules a topology retry after replacement config validation fails", async () => {
+  it("reschedules a topology retry when a watcher event arrives during failed replacement config", async () => {
     vi.useFakeTimers()
     try {
       const { root } = await createNestedProject()
@@ -1485,7 +1485,7 @@ describe("framework generated types", () => {
         root,
       })
       await handlerRead
-      await vi.advanceTimersByTimeAsync(25)
+      await oldListeners.get("change")?.(drinks)
       releaseHandlerRead?.()
       await expect(replacement).rejects.toThrow(
         'Generated Collection route "/api/drinks" conflicts with an existing GET handler',
