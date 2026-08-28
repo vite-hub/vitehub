@@ -642,9 +642,6 @@ importers:
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41(ioredis@5.11.1)
-      '@types/json-schema':
-        specifier: catalog:ai
-        version: 7.0.15
       '@vercel/connect':
         specifier: 0.6.1
         version: 0.6.1(24f06906a1f47542ba41892f629e51e7)
