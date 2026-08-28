@@ -2,6 +2,7 @@
 title: Workspace
 description: Build persistent file-tree state with rules, Source Bindings, snapshots, diffs, and sessions.
 navigation.order: 7
+navigation.group: Files and execution
 icon: i-lucide-folder-git-2
 ---
 

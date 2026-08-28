@@ -2,6 +2,7 @@
 title: Source
 description: Retrieve read-only files, records, and external resources through typed source loaders.
 navigation.order: 8
+navigation.group: Files and execution
 icon: i-lucide-folder-input
 ---
 

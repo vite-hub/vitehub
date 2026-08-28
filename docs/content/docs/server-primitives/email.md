@@ -2,6 +2,7 @@
 title: Email
 description: Send outbound transactional email through a provider-neutral driver contract, with dynamic Markdown composition and safe test capture.
 navigation.order: 14
+navigation.group: Delivery
 icon: i-lucide-mail
 ---
 

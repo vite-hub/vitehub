@@ -2,6 +2,7 @@
 title: Import paths
 description: Distinguish stable ViteHub imports from generated files, provider modules, and internal package paths.
 navigation.order: 51
+navigation.group: Setup
 icon: i-lucide-route
 ---
 

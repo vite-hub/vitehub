@@ -2,6 +2,7 @@
 title: Cloudflare
 description: Configure Cloudflare Provider Output while keeping ViteHub Definitions and Runtime Helpers host-neutral.
 navigation.order: 43
+navigation.group: Deployment hosts
 icon: i-simple-icons-cloudflare
 ---
 

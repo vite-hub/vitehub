@@ -2,6 +2,7 @@
 title: Workflows
 description: Start provider-tracked long-running work with run ids, durable state, and optional steps.
 navigation.order: 10
+navigation.group: Background work
 icon: i-lucide-workflow
 ---
 

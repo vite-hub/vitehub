@@ -2,6 +2,7 @@
 title: Schedule
 description: Declare static cron schedules and manage recurring Runtime Schedules for eligible targets.
 navigation.order: 11
+navigation.group: Background work
 icon: i-lucide-calendar-clock
 ---
 

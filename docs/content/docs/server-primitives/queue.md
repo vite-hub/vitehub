@@ -2,6 +2,7 @@
 title: Queue
 description: Define Queue Definitions, enqueue Queue Jobs, and choose Cloudflare or Vercel Queue Providers.
 navigation.order: 9
+navigation.group: Background work
 icon: i-lucide-list-ordered
 ---
 

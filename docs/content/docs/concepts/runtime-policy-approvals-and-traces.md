@@ -2,6 +2,7 @@
 title: Runtime policy, approvals, and traces
 description: Understand the records that explain whether runtime work ran, waited, or failed.
 navigation.order: 22
+navigation.group: Runtime
 icon: i-lucide-shield-alert
 ---
 

@@ -2,6 +2,7 @@
 title: Vite integrations and Provider Output
 description: Understand how ViteHub prepares a package for development and deployment.
 navigation.order: 30
+navigation.group: Build and hosts
 icon: i-lucide-plug
 ---
 

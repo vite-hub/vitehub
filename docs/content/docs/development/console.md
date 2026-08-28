@@ -2,6 +2,7 @@
 title: Console
 description: Enable the Agent invocation console, protect its routes, and understand its storage limits.
 navigation.order: 32
+navigation.group: Local tools
 icon: i-lucide-monitor-dot
 ---
 

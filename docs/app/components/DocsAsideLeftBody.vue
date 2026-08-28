@@ -139,7 +139,7 @@ function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
 }
 
-function isSectionOpen(section: ManifestSection) {
+function isCurrentSection(section: ManifestSection) {
   return currentPath.value === "/docs"
     ? section.id === "getting-started"
     : section.pages.some(page => isActive(page.path));
@@ -147,24 +147,22 @@ function isSectionOpen(section: ManifestSection) {
 
 function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, index: number) {
   return group.pages.some(page => isActive(page.path))
-    || (index === 0 && isSectionOpen(section));
+    || (index === 0 && isCurrentSection(section));
 }
 
 </script>
 
 <template>
   <nav class="vh-docs-sidebar-nav" aria-label="Docs">
-    <details
+    <section
       v-for="section in sections"
       :key="section.id"
-      class="vh-docs-sidebar-section group"
-      :open="isSectionOpen(section)"
+      class="vh-docs-sidebar-section"
     >
-      <summary class="vh-docs-sidebar-summary">
+      <h2 class="vh-docs-sidebar-heading">
         <UIcon :name="sidebarSectionIcon(section)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ section.title }}</span>
-        <UIcon name="i-ph-caret-down-light" class="ml-auto size-3.5 shrink-0 text-muted group-open:rotate-180" />
-      </summary>
+      </h2>
 
       <div class="vh-docs-sidebar-panel">
         <template v-for="(pageGroup, groupIndex) in section.pageGroups" :key="pageGroup.label || 'pages'">
@@ -205,7 +203,7 @@ function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, inde
           </template>
         </template>
       </div>
-    </details>
+    </section>
   </nav>
 </template>
 
@@ -223,25 +221,16 @@ function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, inde
   border-bottom: 1px solid var(--ui-border);
 }
 
-.vh-docs-sidebar-summary {
+.vh-docs-sidebar-heading {
   display: flex;
-  cursor: pointer;
-  list-style: none;
   align-items: center;
   gap: 0.625rem;
-  padding: 0.625rem 1.25rem;
+  margin: 0;
+  padding: 0.75rem 1.25rem 0.5rem;
   color: var(--ui-text-muted);
-  font-size: 0.875rem;
-  font-weight: 400;
-}
-
-.vh-docs-sidebar-summary::-webkit-details-marker {
-  display: none;
-}
-
-.vh-docs-sidebar-summary:hover,
-.vh-docs-sidebar-summary:focus-visible {
-  color: var(--ui-text-highlighted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.025em;
 }
 
 .vh-docs-sidebar-panel {

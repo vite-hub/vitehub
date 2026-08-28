@@ -2,6 +2,7 @@
 title: Provider output
 description: Reference generated deployment and runtime artifacts owned by ViteHub package integrations.
 navigation.order: 56
+navigation.group: Runtime and output
 icon: i-lucide-cloud-upload
 ---
 

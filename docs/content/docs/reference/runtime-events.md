@@ -2,6 +2,7 @@
 title: Runtime events
 description: Reference runtime event, policy, approval, stream, and usage records across ViteHub packages.
 navigation.order: 57
+navigation.group: Runtime and output
 icon: i-lucide-activity
 ---
 

@@ -2,6 +2,7 @@
 title: Database
 description: Define relational data with Drizzle and query it through generated ViteHub imports.
 navigation.order: 5
+navigation.group: Data
 icon: i-lucide-database
 ---
 

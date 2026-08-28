@@ -3,6 +3,7 @@ title: Server primitives
 description: Add storage, queues, schedules, email, and other server APIs to a Vite app on any supported host.
 navigation.title: Overview
 navigation.order: 1
+navigation.group: Start here
 icon: i-lucide-server-cog
 ---
 

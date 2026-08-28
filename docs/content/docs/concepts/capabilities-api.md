@@ -2,6 +2,7 @@
 title: Capabilities
 description: Understand how an Agent receives a selected ability.
 navigation.order: 12
+navigation.group: Application model
 navigation.lanes: [agents]
 icon: i-lucide-blocks
 ---

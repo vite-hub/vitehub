@@ -2,6 +2,7 @@
 title: Config options
 description: Reference the main ViteHub Integration Options and where provider choices belong.
 navigation.order: 55
+navigation.group: Setup
 icon: i-lucide-sliders-horizontal
 ---
 

@@ -2,6 +2,7 @@
 title: Shell
 description: Run Unix-like commands with configured filesystem, process, network, timeout, and policy access.
 navigation.order: 13
+navigation.group: Files and execution
 icon: i-lucide-terminal
 ---
 

@@ -2,6 +2,7 @@
 title: Env
 description: Declare public, build-time, server runtime, and secret values behind typed ViteHub accessors.
 navigation.order: 2
+navigation.group: Application
 icon: i-lucide-key-round
 ---
 

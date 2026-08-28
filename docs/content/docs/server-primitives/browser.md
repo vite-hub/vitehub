@@ -2,6 +2,7 @@
 title: Browser
 description: Define provider-backed browser operations without exposing provider setup to application code.
 navigation.order: 12.5
+navigation.group: Files and execution
 icon: i-lucide-monitor
 ---
 
