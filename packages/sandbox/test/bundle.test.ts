@@ -106,6 +106,62 @@ describe("bundleSandboxDefinition assets", () => {
     expect(bundle.modules[bundle.entry]).toContain('from "node:fs/promises"')
   })
 
+  it("keeps project assets used through computed filesystem paths", async () => {
+    const project: SandboxProject = {
+      digest: "computed-path-fixture",
+      files: {
+        "prompts/system.md": {
+          contents: Buffer.from("System prompt\n").toString("base64"),
+          encoding: "base64",
+        },
+      },
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+    const source = [
+      "import { readFile } from 'node:fs/promises'",
+      "import { join } from 'node:path'",
+      "const prompt = join('prompts', 'system.md')",
+      "export default { run: async () => await readFile(prompt, 'utf8') }",
+      "",
+    ].join("\n")
+
+    const bundle = await bundleSandboxDefinition(source, "/fixture/run.sandbox.ts", {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project?.files).toHaveProperty("prompts/system.md")
+    expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
+  it("keeps project assets used through named filesystem object imports", async () => {
+    const project: SandboxProject = {
+      digest: "named-object-fixture",
+      files: {
+        "prompt.md": {
+          contents: Buffer.from("Project prompt\n").toString("base64"),
+          encoding: "base64",
+        },
+      },
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+    const source = [
+      "import { promises as fs } from 'node:fs'",
+      "export default { run: async () => await fs.readFile('./prompt.md', 'utf8') }",
+      "",
+    ].join("\n")
+
+    const bundle = await bundleSandboxDefinition(source, "/fixture/run.sandbox.ts", {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project?.files).toHaveProperty("prompt.md")
+    expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
   it.each([
     [
       "CommonJS require",

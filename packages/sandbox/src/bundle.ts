@@ -46,6 +46,10 @@ function hasProjectAssetReference(
   const definitionPath = findDefinitionProjectPath(file, project)
   return [[file, source], ...Object.entries(modules)].some(([modulePath, contents]) => {
     return findFilesystemPathReferences(contents, modulePath).some((reference) => {
+      // A recognized filesystem operation with a computed target may still
+      // read a project asset, so preserve the project unless proven otherwise.
+      if (reference.path === undefined)
+        return true
       if (!isRelativeFilesystemPath(reference.path))
         return false
       const relativePath = normalize(reference.path.replaceAll('\\', '/'))

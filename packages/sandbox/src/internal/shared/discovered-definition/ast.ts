@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 
+import { join as joinPath } from 'pathe'
 import type { Import } from 'unimport'
 import type ts from 'typescript'
 
@@ -14,9 +15,10 @@ const filesystemModuleSpecifiers = new Set([
   'node:fs/promises',
   'node:sqlite',
 ])
+const pathModuleSpecifiers = new Set(['node:path', 'node:path/posix', 'path', 'path/posix'])
 
 export interface FilesystemPathReference {
-  path: string
+  path?: string
   relativeTo: 'module' | 'working-directory'
 }
 
@@ -134,33 +136,15 @@ export function hasNonLiteralDynamicImport(source: string, id: string) {
   return collectRuntimeModuleSpecifiers(source, id).hasNonLiteralDynamicImport
 }
 
-function readFilesystemPathReference(argument: ts.Expression | undefined): FilesystemPathReference | undefined {
-  if (!argument)
-    return undefined
-  if (typescript.isStringLiteralLike(argument))
-    return { path: argument.text, relativeTo: 'working-directory' }
-  if (!typescript.isNewExpression(argument)
-    || !typescript.isIdentifier(argument.expression)
-    || argument.expression.text !== 'URL') {
-    return undefined
-  }
-  const [path, base] = argument.arguments || []
-  if (!path
-    || !typescript.isStringLiteralLike(path)
-    || !base
-    || !typescript.isPropertyAccessExpression(base)
-    || base.name.text !== 'url'
-    || !typescript.isMetaProperty(base.expression)
-    || base.expression.keywordToken !== typescript.SyntaxKind.ImportKeyword) {
-    return undefined
-  }
-  return { path: path.text, relativeTo: 'module' }
-}
-
 export function findFilesystemPathReferences(source: string, id: string): FilesystemPathReference[] {
   const sourceFile = createSourceFile(id, source)
   const directBindings = new Set<string>()
+  const directBindingOperations = new Map<string, string>()
   const namespaceBindings = new Set<string>()
+  const pathFunctionBindings = new Set<string>()
+  const pathNamespaceBindings = new Set<string>()
+  const variableInitializers = new Map<string, ts.Expression>()
+  const ambiguousVariables = new Set<string>()
   const references: FilesystemPathReference[] = []
 
   function filesystemRequireSpecifier(expression: ts.Expression | undefined): string | undefined {
@@ -215,32 +199,158 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
       namespaceBindings.add(bindings.name.text)
     else if (bindings && typescript.isNamedImports(bindings)) {
       for (const binding of bindings.elements) {
-        if (!binding.isTypeOnly)
+        if (!binding.isTypeOnly) {
           directBindings.add(binding.name.text)
+          directBindingOperations.set(binding.name.text, binding.propertyName?.text ?? binding.name.text)
+          // Named imports can themselves expose an object API, for example
+          // `import { promises as fs } from "node:fs"`.
+          namespaceBindings.add(binding.name.text)
+        }
+      }
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (!typescript.isImportDeclaration(statement)
+      || !typescript.isStringLiteralLike(statement.moduleSpecifier)
+      || !pathModuleSpecifiers.has(statement.moduleSpecifier.text)
+      || statement.importClause?.isTypeOnly) {
+      continue
+    }
+    const clause = statement.importClause
+    if (clause?.name)
+      pathNamespaceBindings.add(clause.name.text)
+    const bindings = clause?.namedBindings
+    if (bindings && typescript.isNamespaceImport(bindings))
+      pathNamespaceBindings.add(bindings.name.text)
+    else if (bindings && typescript.isNamedImports(bindings)) {
+      for (const binding of bindings.elements) {
+        const importedName = binding.propertyName?.text ?? binding.name.text
+        if (!binding.isTypeOnly && (importedName === 'join' || importedName === 'resolve'))
+          pathFunctionBindings.add(binding.name.text)
       }
     }
   }
 
   function collectCommonJSBindings(node: ts.Node) {
-    if (typescript.isVariableDeclaration(node) && filesystemRequireSpecifier(node.initializer))
-      addCommonJSBinding(node.name)
+    if (typescript.isVariableDeclaration(node)) {
+      if (node.initializer
+        && typescript.isIdentifier(node.name)
+        && typescript.isVariableDeclarationList(node.parent)
+        && (node.parent.flags & typescript.NodeFlags.Const)) {
+        if (variableInitializers.has(node.name.text)) {
+          variableInitializers.delete(node.name.text)
+          ambiguousVariables.add(node.name.text)
+        }
+        else if (!ambiguousVariables.has(node.name.text)) {
+          variableInitializers.set(node.name.text, node.initializer)
+        }
+      }
+      if (filesystemRequireSpecifier(node.initializer))
+        addCommonJSBinding(node.name)
+    }
     typescript.forEachChild(node, collectCommonJSBindings)
   }
 
   collectCommonJSBindings(sourceFile)
 
+  function filesystemOperation(expression: ts.Expression): string | undefined {
+    if (typescript.isIdentifier(expression))
+      return directBindingOperations.get(expression.text) ?? (directBindings.has(expression.text) ? expression.text : undefined)
+    const root = propertyAccessRoot(expression)
+    if (typescript.isIdentifier(root.current) && namespaceBindings.has(root.current.text))
+      return root.properties.at(-1)
+    if (filesystemRequireSpecifier(expression))
+      return root.properties.at(-1)
+  }
+
+  function isPathFunction(expression: ts.Expression) {
+    if (typescript.isIdentifier(expression))
+      return pathFunctionBindings.has(expression.text)
+    const root = propertyAccessRoot(expression)
+    return typescript.isIdentifier(root.current)
+      && pathNamespaceBindings.has(root.current.text)
+      && ['join', 'resolve'].includes(root.properties.at(-1) || '')
+  }
+
+  function unwrapExpression(expression: ts.Expression): ts.Expression {
+    if (typescript.isAwaitExpression(expression)
+      || typescript.isParenthesizedExpression(expression)
+      || typescript.isAsExpression(expression)
+      || typescript.isTypeAssertionExpression(expression)
+      || typescript.isNonNullExpression(expression)
+      || typescript.isSatisfiesExpression(expression)) {
+      return unwrapExpression(expression.expression)
+    }
+    return expression
+  }
+
+  type ResolvedPath = FilesystemPathReference | 'runtime' | undefined
+
+  function resolveFilesystemPath(argument: ts.Expression | undefined, seen = new Set<string>()): ResolvedPath {
+    if (!argument)
+      return
+    const expression = unwrapExpression(argument)
+    if (typescript.isStringLiteralLike(expression))
+      return { path: expression.text, relativeTo: 'working-directory' }
+    if (typescript.isIdentifier(expression)) {
+      if (seen.has(expression.text))
+        return
+      const initializer = variableInitializers.get(expression.text)
+      if (!initializer)
+        return
+      return resolveFilesystemPath(initializer, new Set(seen).add(expression.text))
+    }
+    if (typescript.isNewExpression(expression)
+      && typescript.isIdentifier(expression.expression)
+      && expression.expression.text === 'URL') {
+      const [path, base] = expression.arguments || []
+      if (path
+        && typescript.isStringLiteralLike(path)
+        && base
+        && typescript.isPropertyAccessExpression(base)
+        && base.name.text === 'url'
+        && typescript.isMetaProperty(base.expression)
+        && base.expression.keywordToken === typescript.SyntaxKind.ImportKeyword) {
+        return { path: path.text, relativeTo: 'module' }
+      }
+      return
+    }
+    if (!typescript.isCallExpression(expression))
+      return
+    if (filesystemOperation(expression.expression) === 'mkdtemp')
+      return 'runtime'
+    if (!isPathFunction(expression.expression))
+      return
+    const paths = expression.arguments.map(value => resolveFilesystemPath(value, seen))
+    if (!paths.length)
+      return
+    const resolvedPaths: FilesystemPathReference[] = []
+    for (const path of paths) {
+      if (path === 'runtime')
+        return 'runtime'
+      if (!path || path.relativeTo !== 'working-directory' || path.path === undefined)
+        return
+      resolvedPaths.push(path)
+    }
+    return {
+      path: joinPath(...resolvedPaths.map(path => path.path!)),
+      relativeTo: 'working-directory',
+    }
+  }
+
   function visit(node: ts.Node) {
     if (typescript.isCallExpression(node) || typescript.isNewExpression(node)) {
-      const direct = typescript.isIdentifier(node.expression) && directBindings.has(node.expression.text)
-      const root = propertyAccessRoot(node.expression).current
-      const namespaced = typescript.isIdentifier(root) && namespaceBindings.has(root.text)
-      const inlineRequire = (typescript.isPropertyAccessExpression(node.expression)
-        || typescript.isElementAccessExpression(node.expression))
-        && Boolean(filesystemRequireSpecifier(node.expression))
-      if (direct || namespaced || inlineRequire) {
-        const reference = readFilesystemPathReference(node.arguments?.[0])
-        if (reference)
-          references.push(reference)
+      const operation = filesystemOperation(node.expression)
+      if (operation) {
+        const reference = resolveFilesystemPath(node.arguments?.[0])
+        // mkdtemp creates a new runtime directory; its prefix cannot identify
+        // an existing project asset that needs to be retained.
+        if (operation !== 'mkdtemp' && reference !== 'runtime') {
+          references.push(reference ?? {
+            relativeTo: 'working-directory',
+          })
+        }
       }
     }
     typescript.forEachChild(node, visit)
