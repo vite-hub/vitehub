@@ -827,7 +827,7 @@ describe("lazy sources", () => {
     await expect(listing).resolves.toEqual([
       expect.objectContaining({ path: "docs/guide.md", type: "file" }),
     ])
-    expect(prepare).toHaveBeenCalledOnce()
+    expect(prepare).toHaveBeenCalledTimes(2)
   })
 
   it("does not expose later materialization cancellation to active Source preparation", async () => {
@@ -1635,8 +1635,9 @@ describe("lazy sources", () => {
 
     await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md v1\n")
     await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md v2\n")
-    expect(prepare).toHaveBeenCalledTimes(2)
-    expect(getItem).toHaveBeenCalledTimes(2)
+    await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md v3\n")
+    expect(prepare).toHaveBeenCalledTimes(3)
+    expect(getItem).toHaveBeenCalledTimes(3)
   })
 
   it("refreshes a revision before materializing an uncovered sibling", async () => {

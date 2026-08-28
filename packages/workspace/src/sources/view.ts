@@ -50,7 +50,10 @@ export interface WorkspaceSourceView {
 }
 
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
-  const materializationProgressSources = new AsyncLocalStorage<ReadonlySet<string>>()
+  const materializationProgressSources = new AsyncLocalStorage<{
+    barrierSafe: ReadonlySet<string>
+    materializing: ReadonlySet<string>
+  }>()
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
   const sources = allSources.filter(source => !source.requestOnly && source.materialize === "lazy")
@@ -80,7 +83,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   function recordMaterializedPath(sourceKey: string, path: string, revision?: { id: string, immutable: boolean }) {
     const previousRevision = materializedRevisionBySource.get(sourceKey)
-    if (previousRevision && (!revision || !previousRevision.immutable || !revision.immutable || revision.id !== previousRevision.id)) {
+    const revisionChanged = previousRevision
+      ? !revision || !previousRevision.immutable || !revision.immutable || revision.id !== previousRevision.id
+      : !revision && sources.find(source => source.key === sourceKey)?.cache === false && materializedPathsBySource.has(sourceKey)
+    if (revisionChanged) {
       materializedPathsBySource.delete(sourceKey)
     }
     if (path) invalidateMaterializedPath(sourceKey, path)
@@ -140,7 +146,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           ? {
               ...options,
               onProgress: async (event: WorkspaceMaterializeSourcesProgressEvent) => await materializationProgressSources.run(
-                new Set([...operationCompleted, event.source]),
+                {
+                  barrierSafe: new Set(selectedSources.map(source => source.key)),
+                  materializing: new Set([...operationCompleted, event.source]),
+                },
                 async () => await options.onProgress!(event),
               ),
             }
@@ -329,7 +338,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensurePrepared(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
-    if (!materializationProgressSources.getStore()?.has(sourceKey)) {
+    if (!materializationProgressSources.getStore()?.barrierSafe.has(sourceKey)) {
       await materializationPreparationBySource.get(sourceKey)
     }
     if (preparedSources.has(sourceKey)) return
@@ -360,7 +369,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if ([...materializedPaths || []].some(materializedPath =>
       !materializedPath || normalized === materializedPath || normalized.startsWith(`${materializedPath}/`)
     )) return
-    if (materializationProgressSources.getStore()?.has(sourceKey)) return
+    if (materializationProgressSources.getStore()?.materializing.has(sourceKey)) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
       const reusePreparedContext = !materializedPathsBySource.has(sourceKey)
@@ -576,9 +585,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const item = await useSourceContext(resolution.source, async context => await resolution.source.source.getItem(resolution.sourcePath, context))
           return decodeFile(await sourceItemContent(item), options)
         }
+        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
-        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       await materializeRootSourceForPath(resolution.workspacePath)
