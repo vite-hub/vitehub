@@ -315,6 +315,25 @@ describe("sources, loaders, and publishers", () => {
     expect(Buffer.from(updatedReadme?.content || "").toString("utf8")).toBe("# Updated docs\n")
   })
 
+  it("removes unowned stale files from a complete mounted Source refresh", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/stale.md", { content: "# Stale\n", path: "docs/stale.md" })
+
+    await materializeWorkspaceSources({
+      name: "unowned-stale-source-files",
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Current\n", key } },
+          async getKeys() { return ["current.md"] },
+          materialize: "startup",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "# Current\n" })
+  })
+
   it("resolves GitHub auth lazily from runtime env", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",

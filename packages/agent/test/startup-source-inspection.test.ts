@@ -138,6 +138,35 @@ describe("startup Source inspection", () => {
     expect(metadata.files[0]).not.toHaveProperty("materialize")
   })
 
+  it("represents every root-mounted startup Source", async () => {
+    const workspaceName = `startup-inspection-multiple-roots-${crypto.randomUUID()}`
+    const workspace = {
+      sources: {
+        instructions: custom({
+          async getItem(key) { return { content: "# Instructions", key } },
+          async getKeys() { return ["AGENTS.md"] },
+          materialize: "startup" as const,
+          mount: "",
+        }),
+        readme: custom({
+          async getItem(key) { return { content: "# Readme", key } },
+          async getKeys() { return ["README.md"] },
+          materialize: "startup" as const,
+          mount: "",
+        }),
+      },
+    }
+    registerWorkspace(workspaceName, workspace)
+    const agent = defineAgent({ name: workspaceName, workspace, driver: { run: () => "ok" } })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(metadata.files).toEqual([
+      expect.objectContaining({ path: "", source: "instructions", status: "lazy" }),
+      expect.objectContaining({ path: "", source: "readme", status: "lazy" }),
+    ])
+  })
+
   it("reports a partially materialized startup Source as failed", async () => {
     const workspaceName = `startup-inspection-${crypto.randomUUID()}`
     const workspace = {

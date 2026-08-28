@@ -1159,19 +1159,24 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   markSourceTreeMetadata(root, asUnknownBoundary(options) as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>, sourceSnapshots)
   propagateMaterializedDirectories(root)
-  const rootSource = sources.find(source => !sourceMountPath(source))
-  if (rootSource) {
+  const rootSources = sources.filter(source => !sourceMountPath(source))
+  const roots = rootSources.map((rootSource) => {
     const snapshot = sourceSnapshots.get(rootSource.key)
-    root.label = rootSource.key
-    root.materialize = sourceMaterialize(rootSource)
-    root.materialized = snapshot?.status === "ready"
-    root.materializedAt = snapshot?.materializedAt
-    root.source = rootSource.key
-    root.status = snapshot?.status ?? "lazy"
-  }
+    const sourceRoot = rootSources.length === 1 ? root : structuredClone(root)
+    sourceRoot.label = rootSource.key
+    sourceRoot.materialize = sourceMaterialize(rootSource)
+    sourceRoot.materialized = snapshot?.status === "ready"
+    sourceRoot.materializedAt = snapshot?.materializedAt
+    sourceRoot.source = rootSource.key
+    sourceRoot.status = snapshot?.status ?? "lazy"
+    clearReadyMaterializationHints(sourceRoot)
+    sortFileTree(sourceRoot)
+    return sourceRoot
+  })
+  if (roots.length) return roots
   clearReadyMaterializationHints(root)
   sortFileTree(root)
-  return rootSource ? [root] : root.children || []
+  return root.children || []
 }
 
 function workspaceMetadataTools<
