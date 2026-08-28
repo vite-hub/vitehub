@@ -541,17 +541,23 @@ function createReadonlyFs<Name extends WorkspaceName>(
       return await createHostedWorkspaceSession(overlay, { ...options, host: options.host })
     },
   }, getWorkspaceSourceRequestExecution(workspace))
+  // SAFETY: Workspace metadata forwarding probes only the private symbol member owned by the Workspace package.
   const resolveMetadata = (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]
   if (resolveMetadata) {
+    // SAFETY: This attaches the private metadata resolver to the newly created read-only facade.
     ;(readonlyFs as ReadonlyWorkspaceFs<Name> & WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget] = async () => {
       const metadata = await ignoreMissingWorkspace(async () => await resolveMetadata.call(workspace))
       if (!metadata && !assets) return
       return {
         getMeta: metadata?.getMeta?.bind(metadata),
-        list: async (path, options) => mergeEntries(
-          assets ? await assets.list(path as WorkspaceAssetPath<Name>, options) : [],
-          await metadata?.list?.(path, options) ?? [],
-        ),
+        list: async (path, options) => {
+          // SAFETY: The read-only facade's path belongs to this named Workspace's asset path contract.
+          const assetPath = path as WorkspaceAssetPath<Name>
+          return mergeEntries(
+            assets ? await assets.list(assetPath, options) : [],
+            await metadata?.list?.(path, options) ?? [],
+          )
+        },
       }
     }
   }

@@ -24,14 +24,12 @@ export async function readWorkspaceSourceMaterializationStatus(
   if (!metadata) return
   const snapshot = await readCurrentSourceSnapshot(metadata, source)
   if (!hasRuntimeType(snapshot, "object") || snapshot === null) return
-  // SAFETY: The runtime object check above establishes a string-keyed metadata record.
-  const record = snapshot as unknown as Record<string, unknown>
-  const status = record.status
+  const status = snapshot.status
   if (status !== "lazy" && status !== "updating" && status !== "ready" && status !== "error") return
   return {
-    materializedAt: hasRuntimeType(record.materializedAt, "string") ? record.materializedAt : undefined,
-    mountPath: hasRuntimeType(record.mountPath, "string") ? record.mountPath : "",
-    source: hasRuntimeType(record.source, "string") ? record.source : source.key,
+    materializedAt: hasRuntimeType(snapshot.materializedAt, "string") ? snapshot.materializedAt : undefined,
+    mountPath: hasRuntimeType(snapshot.mountPath, "string") ? snapshot.mountPath : "",
+    source: hasRuntimeType(snapshot.source, "string") ? snapshot.source : source.key,
     status,
   }
 }
