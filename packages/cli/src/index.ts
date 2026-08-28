@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
 import { existsSync, realpathSync } from "node:fs"
+import { constants } from "node:os"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
@@ -119,14 +120,16 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
         options.stderr || "inherit",
       ],
     })
-    const forwardedSignals = ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const
+    const forwardedSignals = process.platform === "win32"
+      ? []
+      : ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const
     const handlers = new Map<NodeJS.Signals, () => void>()
     const cleanup = () => {
       for (const [signal, handler] of handlers) process.off(signal, handler)
     }
     for (const signal of forwardedSignals) {
       const handler = () => {
-        if (process.platform === "win32" || !child.pid) child.kill(signal)
+        if (!child.pid) child.kill(signal)
         else {
           try {
             process.kill(-child.pid, signal)
@@ -145,7 +148,10 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
     })
     child.on("close", (exitCode, signal) => {
       cleanup()
-      resolveResult({ exitCode, signal })
+      resolveResult({
+        exitCode: exitCode ?? (signal ? 128 + constants.signals[signal] : null),
+        signal,
+      })
     })
   })
 }

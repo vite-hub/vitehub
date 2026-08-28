@@ -506,6 +506,7 @@ export default {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, "node_modules"))
     await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
+    await writeFile(join(rootDir, "package.json"), "{}\n")
     await writeFile(join(rootDir, "nuxt.config.ts"), `
 export default {
   modules: ["./discovery-module.ts"],

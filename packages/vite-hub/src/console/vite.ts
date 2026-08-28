@@ -15,6 +15,7 @@ import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity } from "./internal.ts"
+import { installConsoleFixtureInvocations } from "./runtime/server/invocations.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -132,6 +133,9 @@ async function writeConsoleNitroPlugin(
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
+  }
+  if (fixture && snapshot) {
+    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot))
   }
   return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
 }

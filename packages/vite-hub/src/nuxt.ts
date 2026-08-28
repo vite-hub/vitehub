@@ -198,6 +198,9 @@ async function writeConsoleNitroPlugin(
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
+  if (fixture && snapshot) {
+    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot))
+  }
   return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
 }
 

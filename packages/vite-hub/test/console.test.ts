@@ -276,6 +276,19 @@ describe("Agent invocation console", () => {
       }],
       version: 1,
     })).toThrow("observations[0].timestamp must be a non-empty string")
+    expect(() => parseConsoleFixture({
+      invocations: [{
+        agentName: "support",
+        createdAt: "2026-08-27T10:00:00.000Z",
+        id: "invalid-extension",
+        metadata: { score: Number.POSITIVE_INFINITY },
+        observations: [],
+        status: "completed",
+        traceId: "trace",
+        updatedAt: "2026-08-27T10:00:00.000Z",
+      }],
+      version: 1,
+    })).toThrow('invocations[0]["metadata"]["score"] must be a finite number')
   })
 
   it("serializes generated Agent registry refreshes", async () => {

@@ -40,6 +40,11 @@ const annotationValueSchema = v.union([
   v.string(),
   v.null(),
 ])
+const invocationFields = new Set([
+  "agentName", "annotations", "cancelledAt", "channelId", "completedAt", "createdAt", "cursor",
+  "error", "failedAt", "id", "observations", "observationsTruncated", "origin", "startedAt",
+  "status", "threadId", "traceId", "updatedAt",
+])
 
 function record(value: unknown): Record<string, unknown> | undefined {
   if (Array.isArray(value)) return
@@ -245,6 +250,9 @@ function invocation(value: unknown, index: number): AgentInvocationRecord {
   const resolvedAgentName = input.agentName === undefined
     ? consoleFixtureFallbackAgentName
     : agentName(input.agentName, `${path}.agentName`)
+  for (const [key, value] of Object.entries(input)) {
+    if (!invocationFields.has(key)) assertJsonValue(value, `${path}[${JSON.stringify(key)}]`)
+  }
   // SAFETY: The parser validates every required AgentInvocationRecord field and preserves optional fixture metadata.
   return {
     ...input,
