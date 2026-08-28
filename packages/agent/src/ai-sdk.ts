@@ -2479,7 +2479,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         return stream
       }
       const streamedResult = await start()
-      // Preserve the complete provider result surface while overriding only the streams and lazy usage accessors.
+      // SAFETY: Cloning preserves the provider result contract while overriding only its stream and usage accessors.
       const result = cloneStreamTextResult(streamedResult, {
         fullStream: lazyStream("fullStream"),
         stream: lazyStream("stream"),
