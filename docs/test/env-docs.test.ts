@@ -187,6 +187,7 @@ function sectionObjects(sourceFile: Node) {
       isParenthesizedExpression(expression) ||
       isAsExpression(expression) ||
       isSatisfiesExpression(expression) ||
+      isTypeAssertionExpression(expression) ||
       isNonNullExpression(expression)
     ) {
       return resolveObjectsDetailed(expression.expression, seen);
@@ -381,6 +382,12 @@ function sectionObjects(sourceFile: Node) {
     ) {
       return configSectionAlternatives(expression.expression);
     }
+    if (isConditionalExpression(expression)) {
+      return [
+        ...configSectionAlternatives(expression.whenTrue),
+        ...configSectionAlternatives(expression.whenFalse),
+      ];
+    }
     if (isConfigCombinatorCall(expression)) {
       return expression.arguments.reduce<ConfigSections[]>(
         (configs, argument) => {
@@ -398,6 +405,23 @@ function sectionObjects(sourceFile: Node) {
         },
         [new Map()],
       );
+    }
+    if (isCallExpression(expression) && isIdentifier(expression.expression)) {
+      for (let current: Node | undefined = expression; current; current = current.parent) {
+        if (!isBlock(current) && !isSourceFile(current)) continue;
+        const factory = bindings.get(current)?.get(expression.expression.text);
+        if (factory) return configAlternativesFromResolved(factory);
+      }
+    }
+    if (isIdentifier(expression)) {
+      for (let current: Node | undefined = expression; current; current = current.parent) {
+        if (!isBlock(current) && !isSourceFile(current)) continue;
+        const value = bindings.get(current)?.get(expression.text);
+        if (value) return configAlternativesFromResolved(value);
+      }
+    }
+    if (isArrowFunction(expression) || isFunctionExpression(expression)) {
+      return configAlternativesFromResolved(expression);
     }
 
     return resolveObjects(expression).flatMap((config) =>
@@ -426,24 +450,58 @@ function sectionObjects(sourceFile: Node) {
     );
   }
 
-  function namedValues(expression: Expression, name: string) {
-    return effectiveProperties(expression).flatMap((properties) => {
-      const property = properties.get(name);
-      const value = property && propertyValue(property);
-      return value ? [value] : [];
-    });
+  function configAlternativesFromResolved(
+    expression: Expression | FunctionDeclaration,
+  ): ConfigSections[] {
+    if (
+      isArrowFunction(expression) ||
+      isFunctionExpression(expression) ||
+      isFunctionDeclaration(expression)
+    ) {
+      if (!expression.body) return [];
+      if (!isBlock(expression.body)) return configSectionAlternatives(expression.body);
+      const alternatives: ConfigSections[] = [];
+      function collectReturns(node: Node) {
+        if (
+          node !== expression.body &&
+          (isArrowFunction(node) || isFunctionExpression(node) || isFunctionDeclaration(node))
+        ) {
+          return;
+        }
+        if (isReturnStatement(node)) {
+          if (node.expression) alternatives.push(...configSectionAlternatives(node.expression));
+          return;
+        }
+        forEachChild(node, collectReturns);
+      }
+      collectReturns(expression.body);
+      return alternatives;
+    }
+    return configSectionAlternatives(expression);
   }
 
-  function collectEffectiveSectionProperties(expression: Expression, section: "define" | "public") {
-    for (const effective of effectiveProperties(expression)) {
-      for (const property of effective.values()) sections.set(property, section);
+  function markDefineValue(expression: Expression, seen = new Set<ObjectLiteralExpression>()) {
+    for (const object of resolveObjects(expression)) {
+      if (seen.has(object)) continue;
+      const nextSeen = new Set(seen).add(object);
+      for (const properties of effectiveProperties(object, seen)) {
+        for (const property of properties.values()) {
+          sections.set(property, "define");
+          const value = propertyValue(property);
+          if (value) markDefineValue(value, nextSeen);
+        }
+      }
     }
   }
 
   function collectConfig(expression: Expression) {
     for (const configSections of configSectionAlternatives(expression)) {
       for (const [section, properties] of configSections) {
-        for (const property of properties.values()) sections.set(property, section);
+        for (const property of properties.values()) {
+          sections.set(property, section);
+          const value = propertyValue(property);
+          if (section === "define" && value) markDefineValue(value);
+        }
       }
     }
   }
@@ -470,6 +528,7 @@ function sectionObjects(sourceFile: Node) {
       isParenthesizedExpression(expression) ||
       isAsExpression(expression) ||
       isSatisfiesExpression(expression) ||
+      isTypeAssertionExpression(expression) ||
       isNonNullExpression(expression)
     ) {
       return resolveString(expression.expression, seen);
@@ -943,6 +1002,21 @@ defineConfig(mergeConfig(
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, true, false]);
   });
 
+  it("applies Vite config combinator overrides through callbacks and bindings", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig, mergeConfig } from "vite"
+const combined = mergeConfig(
+  { env: { public: { replaced: env({ mode: "runtime" }) } } },
+  { env: { public: { replaced: env({ mode: "build" }) } } },
+)
+defineConfig(() => combined)
+\`\`\`
+    `);
+
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true]);
+  });
+
   it("resolves configuration objects through lexical bindings", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -981,8 +1055,21 @@ defineConfig(<UserConfig>{
     expect(calls.every(({ options }) => !hasBuildMode(options))).toBe(true);
   });
 
+  it("follows referenced nested Define Env registries", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const group = { target: env({ mode: "runtime" }) }
+defineConfig({ env: { define: { group } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
   it("requires the last effective top-level mode to be build", () => {
     expect(fixtureHasBuildMode("{ source: env.source('APP_NAME'), mode: 'build' }")).toBe(true);
+    expect(fixtureHasBuildMode('<EnvOptions>{ mode: "build" }')).toBe(true);
     expect(fixtureHasBuildMode("{ default: \"mode: 'build'\" }")).toBe(false);
     expect(fixtureHasBuildMode("{ default: 'preview' /* mode: 'build' */ }")).toBe(false);
     expect(fixtureHasBuildMode("{ default: /\\(/ }")).toBe(false);
