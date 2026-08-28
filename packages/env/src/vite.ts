@@ -444,7 +444,7 @@ function createServerEnvModule(
   return [
     `import { inspectServerEnv as inspectRegistry, loadServerEnv as loadRegistry, resolveServerEnv } from ${JSON.stringify(runtimeImports.server)};`,
     ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(providerImportSpecifier(specifier, outputPath))};`),
-    `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
+    `const registry = JSON.parse(${JSON.stringify(JSON.stringify(serverRegistry))});`,
     `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
     "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
     "export async function loadServerEnv(event, options) { return await loadRegistry(registry, event, { ...options, providers }); }",

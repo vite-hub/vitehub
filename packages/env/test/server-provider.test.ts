@@ -159,6 +159,32 @@ describe("Server Env providers", () => {
     await expect(loading).rejects.toBe(duringReason)
   })
 
+  it("does not start provider work after immediate cancellation", async () => {
+    const providerRegistry = createRuntimeRegistry({
+      token: env({ source: env.provider("secrets", "token") }),
+    })
+    const localRegistry = createRuntimeRegistry({
+      token: env({ default: "local", source: env.source("LOCAL_TOKEN") }),
+    })
+    const providerFailure = new Error("private provider failure")
+    const provider = defineEnvProvider({
+      read: vi.fn(async () => Promise.reject(providerFailure)),
+    })
+
+    for (const registry of [providerRegistry, localRegistry]) {
+      const controller = new AbortController()
+      const reason = new Error("cancelled immediately")
+      const loading = loadServerEnv(registry, undefined, {
+        providers: { secrets: provider },
+        signal: controller.signal,
+      })
+      controller.abort(reason)
+      await expect(loading).rejects.toBe(reason)
+    }
+
+    expect(provider.read).not.toHaveBeenCalled()
+  })
+
   it("redacts provider AbortError and ViteHubError failures", async () => {
     const registry = createRuntimeRegistry({ token: env({ source: env.provider("secrets", "token") }) })
     const failures = [

@@ -155,13 +155,17 @@ function abortReason(signal: AbortSignal): unknown {
     : signal.reason
 }
 
-async function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return await promise
+async function withAbort<T>(operation: () => Promise<T> | T, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return await operation()
   if (signal.aborted) throw abortReason(signal)
   return await new Promise<T>((resolve, reject) => {
     const abort = () => reject(abortReason(signal))
     signal.addEventListener("abort", abort, { once: true })
-    void promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort))
+    const pending = Promise.resolve().then(() => {
+      if (signal.aborted) throw abortReason(signal)
+      return operation()
+    })
+    void pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort))
   })
 }
 
@@ -175,7 +179,7 @@ async function readProvider(
   signal: AbortSignal | undefined,
 ): Promise<unknown> {
   try {
-    return await withAbort(Promise.resolve().then(() => provider.read(input)), signal)
+    return await withAbort(() => provider.read(input), signal)
   }
   catch (cause) {
     if (isCancellation(cause, signal)) throw cause
@@ -399,7 +403,9 @@ export async function loadServerEnv<TServerEnv extends Record<string, unknown> =
   const localEnv = createLocalEnv(registry, env, false)
   const loads = createProviderLoads(registry, localEnv, options)
   await Promise.all(loads.values())
+  if (options.signal?.aborted) throw abortReason(options.signal)
   const value = await loadRegistryValue(registry, env, loads)
+  if (options.signal?.aborted) throw abortReason(options.signal)
   return value as DeepReadonly<TServerEnv>
 }
 
@@ -413,7 +419,9 @@ export async function inspectServerEnv(
   const localEnv = createLocalEnv(registry, env, true)
   const loads = createProviderLoads(registry, localEnv, options)
   await Promise.allSettled(loads.values())
+  if (options.signal?.aborted) throw abortReason(options.signal)
   const entries: ServerEnvInspectionEntry[] = []
   await inspectRegistryValue(registry, env, options, loads, "env.server", entries)
+  if (options.signal?.aborted) throw abortReason(options.signal)
   return Object.freeze({ entries: Object.freeze(entries.map(entry => Object.freeze(entry))) })
 }

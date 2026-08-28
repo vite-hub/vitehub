@@ -364,19 +364,21 @@ describe("Vite plugin", () => {
       runtimeImports: { server: pathToFileURL(runtimeFacadePath).href },
     })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const userConfig = {
       env: {
         server: {
+          ["__proto__"]: { nested: env({ source: env.source("NESTED") }) },
           gatewayKey: env({ secret: true, source: env.source("GATEWAY_KEY") }),
           codexAuth: env({ secret: true, source: env.provider("secrets", "shared/token") }),
           githubToken: env({ secret: true, source: env.provider("secrets", "shared/token") }),
         },
       },
       root,
-    }, { command: "build", mode: "production" })
+    }
+    const configResult = await configHook(userConfig, { command: "build", mode: "production" })
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
-    await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
+    await configResolvedHook({ ...userConfig, ...configResult as object, logger: { info: vi.fn() } } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
     expect(serverModule).toContain(`import envProvider0 from "../../server/env%23blue%3F%25/secrets.mjs"`)
@@ -396,20 +398,32 @@ describe("Vite plugin", () => {
     expect(serverTypes).toContain("inspectServerEnv(event?: unknown")
     expect(serverTypes).toContain('"codexAuth": SecretEnv<string>')
 
-    const generated = await import(`${pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href}?test=${Date.now()}`) as {
+    // SAFETY: Native import is required to exercise the persisted module with Node's URL decoding instead of Vitest's module runner.
+    const nativeImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>
+    const generatedModule = await nativeImport(`${pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href}?test=${Date.now()}`)
+    // SAFETY: The generated module contract is asserted below through every exported operation used by applications.
+    const generated = generatedModule as {
       inspectServerEnv(event?: unknown): Promise<{ entries: Array<{ source: string, status: string }> }>
       loadServerEnv(event?: unknown): Promise<{
+        ["__proto__"]: { nested: string }
         codexAuth: { unseal(): string }
         githubToken: { unseal(): string }
       }>
+      useServerEnv(event?: unknown): { ["__proto__"]: { nested: string } }
       runWithServerEnv<T>(event: unknown, callback: (env: {
         codexAuth: { unseal(): string }
         githubToken: { unseal(): string }
       }) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>
     }
-    const provider = await import(pathToFileURL(providerPath).href) as { stats: { reads: number } }
-    const event = { env: { GATEWAY_KEY: "gateway-secret" } }
+    // SAFETY: The fixture provider exports the stats record authored immediately above.
+    const provider = await nativeImport(pathToFileURL(providerPath).href) as { stats: { reads: number } }
+    const event = { env: { GATEWAY_KEY: "gateway-secret", NESTED: "local" } }
+    const local = generated.useServerEnv(event)
+    expect(Object.hasOwn(local, "__proto__")).toBe(true)
+    expect(local["__proto__"]).toEqual({ nested: "local" })
     const first = await generated.loadServerEnv(event)
+    expect(Object.hasOwn(first, "__proto__")).toBe(true)
+    expect(first["__proto__"]).toEqual({ nested: "local" })
     expect(first.codexAuth.unseal()).toBe("gateway-secret:1")
     expect(first.githubToken.unseal()).toBe("gateway-secret:1")
     expect(provider.stats.reads).toBe(1)
@@ -489,7 +503,7 @@ describe("Vite plugin", () => {
       },
     })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const userConfig = {
       env: {
         server: {
           crossVolumeToken: env({ source: env.provider("crossVolume", "token") }),
@@ -498,10 +512,11 @@ describe("Vite plugin", () => {
         },
       },
       root,
-    }, { command: "build", mode: "production" })
+    }
+    const configResult = await configHook(userConfig, { command: "build", mode: "production" })
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
-    await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
+    await configResolvedHook({ ...userConfig, ...configResult as object, logger: { info: vi.fn() } } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
     expect(serverModule).toContain(`from "/D:/shared/provider.mjs"`)
