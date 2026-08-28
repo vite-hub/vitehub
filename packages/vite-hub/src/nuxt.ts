@@ -580,7 +580,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.options.vite ??= {}
   nuxt.options.vite.root ??= rootDir
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
-  const projectRoot = resolveViteHubProjectRoot(viteRoot)
+  const projectRoot = resolveViteHubProjectRoot(rootDir)
   if (options.console) {
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
