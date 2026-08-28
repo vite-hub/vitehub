@@ -26,6 +26,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
+| `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/agent/runtime/process` | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
