@@ -4,7 +4,7 @@ packages:
   - "packages/*/examples/*"
 catalog:
   '@cloudflare/vitest-plugin': ^1.1.0
-  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ace4e6c2730220e4557a85720377436ff38a1bda
+  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@1248f5ddb9319be23980bb04d5a51ab297c69eaa
   vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
 
 catalogMode: prefer
