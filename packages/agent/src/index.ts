@@ -5920,9 +5920,10 @@ async function executeAgentInvocationWithCapacityLease<
         const reason = outcome.failed ? outcome.error : undefined
         const uiSources = [...uiMessageSources.values()]
         await Promise.allSettled(uiSources.map(source => source.cancel(reason)))
+        const settleUiSources = outcome.failed || outcome.completed
         const cancellations = await Promise.allSettled([
           ...(rendererSource ? [rendererSource.settleCancellation(reason)] : []),
-          ...uiSources.map(source => source.settleCancellation(reason)),
+          ...(settleUiSources ? uiSources.map(source => source.settleCancellation(reason)) : []),
         ])
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
