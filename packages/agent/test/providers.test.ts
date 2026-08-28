@@ -12074,6 +12074,46 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledTimes(3)
   })
 
+  it("traces queued finish replies skipped when the primary response fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("primary post failed"))
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      invocations,
+      hooks: {
+        "agent:finish": event => event.reply("Queued reply"),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await expect(handler(chatWebhookRequest(91_037), "telegram")).rejects.toThrow("primary post failed")
+
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "Queued reply",
+          "channel.effect.skipped": "Skipped before queued reply delivery: primary post failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+    })
+  })
+
   it("defers static queued finish reply traces until delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")

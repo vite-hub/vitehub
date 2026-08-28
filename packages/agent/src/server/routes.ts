@@ -4531,6 +4531,16 @@ async function flushChatFinishExtensionMessages(
   }
 }
 
+async function skipChatFinishExtensionMessages(chat: AgentChatQueuedFinishExtension | undefined, error: unknown): Promise<void> {
+  if (!chat) return
+  const skipped = `Skipped before queued reply delivery: ${channelDeliveryError(error)}`
+  for (const queued of chat[chatFinishMessagesKey].splice(0)) {
+    const capture: ChatFinishDeliveryCapture = { content: "", skipped, truncated: false }
+    captureStaticChatFinishMessage(queued.message, capture)
+    for (const callback of queued.callbacks) await callback(capture)
+  }
+}
+
 function withChatFinishExtension<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>, chat: AgentChatFinishExtension): AgentRunInput<CALL_OPTIONS> {
   return {
     ...input,
@@ -4658,6 +4668,7 @@ async function handleChatSdkMessage(
   let invocationStarted = false
   let invocationFailed = false
   let durableHandoff = false
+  let chatFinish: AgentChatQueuedFinishExtension | undefined
   try {
     input = createChatTriggerInput(
       chatRegistrationOrigin(registration),
@@ -5334,7 +5345,7 @@ async function handleChatSdkMessage(
         invocationDeadlineAbort,
       )
     }
-    const chatFinish = createChatFinishExtension(input, registration)
+    chatFinish = createChatFinishExtension(input, registration)
     progress = manualDelivery ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal) : undefined
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now())
     const invocationInput = withChatFinishExtension(
@@ -5482,6 +5493,7 @@ async function handleChatSdkMessage(
       )
     }
   } catch (error) {
+    await skipChatFinishExtensionMessages(chatFinish, error)
     if (durableHandoff) throw error
     invocationFailed = true
     if (invocationStarted)

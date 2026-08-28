@@ -417,14 +417,16 @@ function retainedPriorityOutcomes(
 ): TraceEventLogEntry[] {
   if (limit <= 0) return []
   const identified = new Map<string, TraceEventLogEntry>()
-  const unidentified: TraceEventLogEntry[] = []
   for (const observation of observations) {
     if (outcomeObservationPriority(observation) === undefined) continue
     const identity = observationIdentity(observation)
-    if (identity === undefined) unidentified.push(observation)
-    else identified.set(identity, observation)
+    if (identity !== undefined) identified.set(identity, observation)
   }
-  const candidates = [...identified.values(), ...unidentified]
+  const candidates = observations.filter((observation) => {
+    if (outcomeObservationPriority(observation) === undefined) return false
+    const identity = observationIdentity(observation)
+    return identity === undefined || identified.get(identity) === observation
+  })
   const hasLifecycleTerminal = candidates.some(observation => outcomeObservationPriority(observation) === 1)
   const retained: TraceEventLogEntry[] = []
   for (const priority of [0, 1, 2]) {
@@ -492,7 +494,7 @@ export function applyAgentInvocationStoreUpdate(
           return [
             ...retained.slice(0, MAX_OBSERVATIONS - outcomes.length),
             ...outcomes.map(observation => cloneObservation(boundedObservation(truncatedObservation(observation)))),
-          ]
+          ].sort((left, right) => left.sequence - right.sequence)
         })()
     : record.observations
   return {

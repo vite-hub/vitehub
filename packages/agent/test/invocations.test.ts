@@ -268,6 +268,74 @@ describe("Agent Invocations", () => {
       .toEqual(["journal:earliest", "journal:later", "journal:terminal"])
   })
 
+  it("keeps a reconstructed full journal in trace order", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const observations = Array.from({ length: 256 }, (_, sequence) => ({
+      ...(sequence === 2 ? { attributes: { "vitehub.observation.id": "journal:early-delivery" } } : {}),
+      name: sequence === 2 ? "agent.channel.delivery.effect" : `ordinary-${sequence}`,
+      sequence,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "full-journal-order",
+      observations,
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:late-delivery" },
+        name: "agent.channel.delivery.effect",
+        sequence: 256,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.sequence))
+      .toEqual(Array.from({ length: 256 }, (_, index) => index === 255 ? 256 : index))
+  })
+
+  it("selects mixed-identity outcomes in trace order", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const observations = [{
+      name: "agent.channel.delivery.effect",
+      sequence: 0,
+      timestamp: createdAt,
+      type: "run" as const,
+    }, ...Array.from({ length: 255 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:delivery:${index + 1}` },
+      name: "agent.channel.delivery.effect",
+      sequence: index + 1,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))]
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "mixed-identity-order",
+      observations,
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:delivery:256" },
+        name: "agent.channel.delivery.effect",
+        sequence: 256,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.sequence)).toEqual(Array.from({ length: 256 }, (_, index) => index + 1))
+  })
+
   it("keeps synchronous delivery before a later finish observation below capacity", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const record = applyAgentInvocationStoreUpdate({
