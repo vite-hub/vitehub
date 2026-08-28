@@ -51,6 +51,16 @@ test('diagnoses failed checks without retrying unchanged-head workflows', async 
   assert.match(prompt, /record the concrete external blocker and stop unchanged/)
 })
 
+test('parks CI failures inherited unchanged from the exact base head', async () => {
+  const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
+
+  assert.match(prompt, /appears unrelated to the pull request diff/)
+  assert.match(prompt, /latest completed CI run for the exact current head of the pull request's base branch/)
+  assert.match(prompt, /do not copy a base-branch fix into this pull request or push a repair/)
+  assert.match(prompt, /Report the base regression, park unchanged, and resume after the base branch advances/)
+  assert.match(prompt, /exact-base CI passes the matching check or shows a different failure, continue diagnosing and repair it as branch-introduced/)
+})
+
 test('does not let unavailable optional check failures create merge blockers', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
