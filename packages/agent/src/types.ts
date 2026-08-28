@@ -1224,7 +1224,8 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   credentials?: AgentProviderCredentialResolver
   /**
    * Advanced Codex runtime settings. A durable `homePath` used with `credentials`
-   * must be owned by one ViteHub provider host process; replicas must use distinct homes.
+   * must resolve to storage exclusively owned by one ViteHub provider host process.
+   * Isolated replicas may use the same path value, but must not share the underlying storage.
    */
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
