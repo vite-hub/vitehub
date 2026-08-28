@@ -12066,7 +12066,7 @@ describe("server helpers", () => {
       expect(record?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
           "channel.effect.content": "",
-          "error.message": "Skipped after an earlier queued reply failed: stream edit failed",
+          "channel.effect.skipped": "Skipped after an earlier queued reply failed: stream edit failed",
         }),
         name: "agent.channel.delivery.effect",
       }))

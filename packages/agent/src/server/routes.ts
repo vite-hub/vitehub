@@ -4519,7 +4519,7 @@ async function flushChatFinishExtensionMessages(
       for (const callback of queued.callbacks) await callback(capture)
       const skippedCapture: ChatFinishDeliveryCapture = {
         content: "",
-        error: `Skipped after an earlier queued reply failed: ${capture.error}`,
+        skipped: `Skipped after an earlier queued reply failed: ${capture.error}`,
         truncated: false,
       }
       for (const skipped of messages.slice(index + 1)) {

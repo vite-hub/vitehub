@@ -1245,6 +1245,7 @@ async function applyChannelDeliveryEffectIntents<
               ...metadata,
               "channel.effect.content": capture.content,
               ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
               ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
             })
           })
