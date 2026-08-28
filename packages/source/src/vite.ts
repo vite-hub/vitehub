@@ -364,13 +364,19 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let serverDirs: string[] | undefined
   let configuredHandlerKey = "[]"
   const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
-  const closeHostRefreshByRoot = new Map<string, () => void>()
+  const hostRefreshLifecycleByRoot = new Map<string, {
+    close: () => void
+    pause: () => void
+    resume: () => void
+  }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
     const preparation = previousPreparation.then(() =>
+      prepareSourceGeneration({ ...input, importBase: options.importBase }),
+    () =>
       prepareSourceGeneration({ ...input, importBase: options.importBase }),
     )
     sourcePreparationByRoot.set(root, preparation)
@@ -398,9 +404,18 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
-      closeHostRefreshByRoot.get(projectRoot)?.()
+      const previousLifecycle = hostRefreshLifecycleByRoot.get(projectRoot)
+      previousLifecycle?.pause()
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
-      const handlers = await prepareSources({ projectRoot, serverDirs })
+      let handlers: GeneratedSourceHandler[]
+      try {
+        handlers = await prepareSources({ projectRoot, serverDirs })
+      }
+      catch (error) {
+        previousLifecycle?.resume()
+        throw error
+      }
+      previousLifecycle?.close()
       configuredHandlerKey = await generatedHandlerKey(handlers)
       const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
       const contribution: SourcePluginConfig = {
@@ -432,6 +447,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       let hostRefreshRetryDelay = initialHostRefreshRetryDelay
       let refreshQueue = Promise.resolve()
       let serverClosed = false
+      let serverPaused = false
       const clearHostRefreshRetry = () => {
         if (hostRefreshRetry) clearTimeout(hostRefreshRetry)
         hostRefreshRetry = undefined
@@ -439,13 +455,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const closeHostRefresh = () => {
         serverClosed = true
         clearHostRefreshRetry()
-        if (root && closeHostRefreshByRoot.get(root) === closeHostRefresh) {
-          closeHostRefreshByRoot.delete(root)
+        if (root && hostRefreshLifecycleByRoot.get(root)?.close === closeHostRefresh) {
+          hostRefreshLifecycleByRoot.delete(root)
         }
       }
       if (root) {
-        closeHostRefreshByRoot.get(root)?.()
-        closeHostRefreshByRoot.set(root, closeHostRefresh)
+        hostRefreshLifecycleByRoot.get(root)?.close()
+        hostRefreshLifecycleByRoot.set(root, {
+          close: closeHostRefresh,
+          pause: () => { serverPaused = true },
+          resume: () => { serverPaused = false },
+        })
       }
       for (const environment of Object.values(server.environments)) {
         closeHostRefreshByEnvironment.set(environment, closeHostRefresh)
@@ -454,19 +474,19 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         if (hostRefreshRetry) return
         hostRefreshRetry = setTimeout(() => {
           hostRefreshRetry = undefined
-          if (!serverClosed) void queueHostRefresh(file)
+          if (!serverClosed && !serverPaused) void queueHostRefresh(file)
         }, hostRefreshRetryDelay)
         hostRefreshRetry.unref?.()
         hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)
       }
       function queueHostRefresh(file: string) {
-        if (serverClosed || !root || !sourceDefinitionPath(file, root, lifecycleServerDirs)) return
+        if (serverClosed || serverPaused || !root || !sourceDefinitionPath(file, root, lifecycleServerDirs)) return
         const result = refreshQueue.then(async () => {
-          if (serverClosed) return
+          if (serverClosed || serverPaused) return
           const handlers = await prepareSources({ projectRoot: root, serverDirs: lifecycleServerDirs })
-          if (serverClosed) return
+          if (serverClosed || serverPaused) return
           const handlerKey = await generatedHandlerKey(handlers)
-          if (serverClosed) return
+          if (serverClosed || serverPaused) return
           if (handlerKey === activeHandlerKey) return
           const listeners = [...generatedHandlersListeners]
           const passiveListeners = listeners.filter(([, listenerOptions]) =>
