@@ -339,8 +339,8 @@ describe("Vite plugin", () => {
   it("executes generated provider-backed Server Env modules as coherent rotating snapshots", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
-    await mkdir(join(root, "server", "env"), { recursive: true })
-    const providerPath = join(root, "server", "env", "secrets.mjs")
+    await mkdir(join(root, "server", "env#blue?%"), { recursive: true })
+    const providerPath = join(root, "server", "env#blue?%", "secrets.mjs")
     await writeFile(providerPath, [
       `export const stats = { reads: 0 }`,
       `export default { async read({ env, keys }) {`,
@@ -358,7 +358,7 @@ describe("Vite plugin", () => {
 
     const plugin = hubEnv({
       providers: {
-        secrets: "./server/env/secrets.mjs",
+        secrets: "./server/env#blue?%/secrets.mjs",
         unused: "./server/env/unused.mjs",
       },
       runtimeImports: { server: pathToFileURL(runtimeFacadePath).href },
@@ -379,7 +379,7 @@ describe("Vite plugin", () => {
     await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
-    expect(serverModule).toContain(`import envProvider0 from "../../server/env/secrets.mjs"`)
+    expect(serverModule).toContain(`import envProvider0 from "../../server/env%23blue%3F%25/secrets.mjs"`)
     expect(serverModule).not.toContain("unused.mjs")
     expect(serverModule).toContain("export async function loadServerEnv")
     expect(serverModule).toContain("export async function inspectServerEnv")
@@ -445,8 +445,10 @@ describe("Vite plugin", () => {
   it("emits portable provider module specifiers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-package-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
+    const crossVolumeProvider = "D:\\shared\\provider.mjs"
     const plugin = hubEnv({
       providers: {
+        crossVolume: crossVolumeProvider,
         local: "./server/env/provider.mjs",
         packaged: "@example/env-provider",
       },
@@ -455,6 +457,7 @@ describe("Vite plugin", () => {
     await configHook({
       env: {
         server: {
+          crossVolumeToken: env({ source: env.provider("crossVolume", "token") }),
           localToken: env({ source: env.provider("local", "token") }),
           packagedToken: env({ source: env.provider("packaged", "token") }),
         },
@@ -466,10 +469,12 @@ describe("Vite plugin", () => {
     await configResolvedHook({ logger: { info: vi.fn() }, root } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    expect(serverModule).toContain(`from "/D:/shared/provider.mjs"`)
     expect(serverModule).toContain(`from "../../server/env/provider.mjs"`)
     expect(serverModule).toContain(`from "@example/env-provider"`)
 
     const virtualModule = await (plugin.load as (id: string) => string)("\0#vitehub/env/server")
+    expect(virtualModule).toContain(`from "D:/shared/provider.mjs"`)
     expect(virtualModule).toContain(`from ${JSON.stringify(join(root, "server", "env", "provider.mjs").replace(/\\/g, "/"))}`)
   })
 

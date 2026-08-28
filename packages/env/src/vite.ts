@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import {
@@ -375,10 +375,27 @@ function createServerEnvModule(
 }
 
 function providerImportSpecifier(specifier: string, outputPath: string | undefined): string {
-  if (!isAbsolute(specifier)) return specifier
+  const windowsAbsolute = win32.isAbsolute(specifier)
+  if (!isAbsolute(specifier) && !windowsAbsolute) return specifier
   if (!outputPath) return specifier.replace(/\\/g, "/")
-  const target = relative(dirname(outputPath), specifier).replace(/\\/g, "/")
-  return target.startsWith(".") ? target : `./${target}`
+  const outputIsWindows = win32.isAbsolute(outputPath)
+  if (windowsAbsolute !== outputIsWindows) return absoluteProviderImportSpecifier(specifier)
+  const target = windowsAbsolute
+    ? win32.relative(win32.dirname(outputPath), specifier)
+    : relative(dirname(outputPath), specifier)
+  if (isAbsolute(target) || win32.isAbsolute(target)) return absoluteProviderImportSpecifier(target)
+  const encodedTarget = encodeModulePath(target.replace(/\\/g, "/"))
+  return encodedTarget.startsWith(".") ? encodedTarget : `./${encodedTarget}`
+}
+
+function absoluteProviderImportSpecifier(path: string): string {
+  const normalized = path.replace(/\\/g, "/")
+  const encoded = encodeModulePath(normalized)
+  return /^[A-Za-z]:\//.test(normalized) ? `/${encoded}` : encoded
+}
+
+function encodeModulePath(path: string): string {
+  return path.split("/").map(segment => /^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment)).join("/")
 }
 
 function referencedProviderNames(registry: EnvRuntimeRegistry): Set<string> {
