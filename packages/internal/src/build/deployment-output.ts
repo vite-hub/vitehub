@@ -157,6 +157,7 @@ interface ProviderDeploymentOutputReset {
 const providerDeploymentOutputRegistry: typeof globalThis & {
   __vitehubProviderDeploymentOutputCompletedResets?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>
   __vitehubProviderDeploymentOutputEnvironmentGenerations?: WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>
+  __vitehubProviderDeploymentOutputFallbackEnvironment?: object
   __vitehubProviderDeploymentOutputFinalizations?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>
   __vitehubProviderDeploymentOutputRootStates?: Map<string, ProviderDeploymentOutputRootState>
   __vitehubProviderDeploymentOutputWrites?: Map<string, Promise<unknown>>
@@ -848,6 +849,8 @@ interface ProviderDeploymentOutputPluginContext {
 
 const providerDeploymentOutputEnvironmentGenerations = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputEnvironmentGenerations
   ??= new WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>()
+const providerDeploymentOutputFallbackEnvironment = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputFallbackEnvironment
+  ??= {}
 
 export function createProviderDeploymentOutputGenerationState(): {
   capture: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined) => void
@@ -855,17 +858,16 @@ export function createProviderDeploymentOutputGenerationState(): {
   reset: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined, failure?: unknown) => Promise<void>
 } {
   const generations = new WeakMap<object, ProviderDeploymentOutputGeneration | undefined>()
-  const fallback = {}
-  const environment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context
-    ? context.environment ?? context
-    : fallback
+  const localEnvironment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context?.environment ?? context ?? providerDeploymentOutputFallbackEnvironment
+  const sharedEnvironment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context?.environment ?? providerDeploymentOutputFallbackEnvironment
   return {
     capture(context, catalog) {
-      const environmentKey = environment(context)
+      const localEnvironmentKey = localEnvironment(context)
       if (!catalog) {
-        generations.set(environmentKey, undefined)
+        generations.set(localEnvironmentKey, undefined)
         return
       }
+      const environmentKey = sharedEnvironment(context)
       let catalogGenerations = providerDeploymentOutputEnvironmentGenerations.get(catalog)
       if (!catalogGenerations) {
         catalogGenerations = new WeakMap()
@@ -873,16 +875,16 @@ export function createProviderDeploymentOutputGenerationState(): {
       }
       const generation = catalogGenerations.get(environmentKey) ?? catalog.createDeploymentGeneration()
       catalogGenerations.set(environmentKey, generation)
-      generations.set(environmentKey, generation)
+      generations.set(localEnvironmentKey, generation)
       queueMicrotask(() => {
         if (catalogGenerations.get(environmentKey) === generation) catalogGenerations.delete(environmentKey)
       })
     },
     get(context) {
-      return generations.get(environment(context))
+      return generations.get(localEnvironment(context))
     },
     async reset(context, catalog, failure) {
-      await resetProviderDeploymentOutputs(catalog, failure, generations.get(environment(context)))
+      await resetProviderDeploymentOutputs(catalog, failure, generations.get(localEnvironment(context)))
     },
   }
 }

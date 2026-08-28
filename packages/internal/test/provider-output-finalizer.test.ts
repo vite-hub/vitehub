@@ -46,6 +46,24 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("shares one build generation across plain Vite plugin contexts", async () => {
+    const catalog = createProviderOutputCatalog()
+    const first = createProviderDeploymentOutputGenerationState()
+    const second = createProviderDeploymentOutputGenerationState()
+    const firstContext = {}
+    const secondContext = {}
+    const rootDir = await createTempProject()
+    const write = vi.fn(async () => undefined)
+    first.capture(firstContext, catalog)
+    second.capture(secondContext, catalog)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write }, first.get(firstContext))
+
+    await second.reset(secondContext, catalog, new Error("peer build failed"))
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("shares one build generation across independently loaded Internal copies", async () => {
     const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-copy")
     const catalog = createProviderOutputCatalog()

@@ -14,7 +14,7 @@ import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const dbPackageName = "@vite-hub/database"
 const productName = "database"
@@ -39,6 +39,7 @@ interface GenerateProviderOutputsOptions {
   appRootDir?: string
   artifacts?: GeneratedDBArtifacts
   clientOutDir: string
+  generation?: ProviderDeploymentOutputGeneration
   providerOutput?: ProviderOutputCatalog
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
@@ -306,11 +307,12 @@ function registerSupportedProviderRuntimeModules(
   artifacts: GeneratedDBArtifacts,
   runtimeConfig: ResolvedDBViteConfig,
   provisionState: ProvisionState,
+  generation?: ProviderDeploymentOutputGeneration,
 ): void {
   contributeProviderRuntime(providerOutput, {
     owner: "database",
     runtimeModules: getSupportedProviderRuntimeModules(artifacts, runtimeConfig, provisionState),
-  })
+  }, generation)
 }
 
 export async function generateProviderOutputs(
@@ -319,14 +321,14 @@ export async function generateProviderOutputs(
 ): Promise<GeneratedDBArtifacts> {
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
   const provisionState = readProvisionStateSync(options.rootDir)
-  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, provisionState)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, provisionState, options.generation)
   const writeOptions: ProviderWriteOptions = { artifacts, provisionState, ...options }
   await write({
     clientOutDir: options.clientOutDir,
     cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? createCloudflareOutput(writeOptions) : undefined,
     cleanup: {
       cloudflare: () => {
-        const hasOtherCloudflareOutput = hasProviderRuntimeModule(options.providerOutput, "cloudflare", { except: "database" })
+        const hasOtherCloudflareOutput = hasProviderRuntimeModule(options.providerOutput, "cloudflare", { except: "database", generation: options.generation })
         return {
           ...(!hasOtherCloudflareOutput ? { fileNames: ["index.js"] } : {}),
           wranglerConfigOwnership: { keys: ["d1_databases"] },
@@ -339,14 +341,14 @@ export async function generateProviderOutputs(
   return artifacts
 }
 
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "appRootDir" | "providerOutput" | "rootDir" | "runtimeConfig"> & { artifactDir?: string }): Promise<GeneratedDBArtifacts> {
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "appRootDir" | "generation" | "providerOutput" | "rootDir" | "runtimeConfig"> & { artifactDir?: string }): Promise<GeneratedDBArtifacts> {
   const artifacts = {
     ...await writeProviderEntries(options.rootDir, options.runtimeConfig, options.appRootDir, options.artifactDir),
     blobRuntimeModules: {
-      cloudflare: getProviderRuntimeModule(options.providerOutput, "blob", "cloudflare"),
-      vercel: getProviderRuntimeModule(options.providerOutput, "blob", "vercel"),
+      cloudflare: getProviderRuntimeModule(options.providerOutput, "blob", "cloudflare", options.generation),
+      vercel: getProviderRuntimeModule(options.providerOutput, "blob", "vercel", options.generation),
     },
   }
-  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir))
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir), options.generation)
   return artifacts
 }

@@ -196,6 +196,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const contributionResolved = resolved
         const contributionRuntimeConfig = runtimeConfig
         const contributionProviderOutput = providerOutput
+        const generation = providerOutputGenerations.get(this)
         await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
         artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
         const contributionArtifactDir = artifactDir
@@ -219,6 +220,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const contributionArtifacts = await prepareProviderOutputs({
           appRootDir: retainedSources.resolve(contributionResolved.root),
           artifactDir: resolve(contributionArtifactDir, "output"),
+          generation,
           providerOutput: contributionProviderOutput,
           rootDir: databaseRoot(),
           runtimeConfig: retainedRuntimeConfig,
@@ -231,13 +233,14 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
             await generateProviderOutputs({
               artifacts: contributionArtifacts,
               clientOutDir: contributionResolved.build.outDir,
+              generation,
               providerOutput: contributionProviderOutput,
               rootDir: contributionResolved.root,
               runtimeConfig: retainedRuntimeConfig,
               serverFunctionName: resolveNitroVercelFunctionName(contributionResolved, "database"),
             }, write)
           },
-        }, providerOutputGenerations.get(this))
+        }, generation)
       }
       catch (error) {
         if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
