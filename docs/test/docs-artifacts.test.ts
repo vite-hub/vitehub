@@ -357,13 +357,15 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
-  it("preserves invalid bare link destinations containing angle brackets", () => {
+  it("preserves invalid bare link destinations", () => {
     expect(toRawMarkdown([
       "[literal](/docs/<x>)",
       "[escaped](/docs/\\<x\\>)",
+      "[spaced](/docs/a(b c))",
     ].join("\n"))).toBe([
       "[literal](/docs/<x>)",
       "[escaped](https://vitehub.dev/docs/\\<x\\>)",
+      "[spaced](/docs/a(b c))",
       "",
     ].join("\n"));
   });
@@ -443,11 +445,17 @@ describe("writeDocsArtifacts", () => {
       "-\titem",
       "",
       "      [list paragraph](/docs/list-paragraph)",
+      "- - item",
+      "",
+      "      [nested list paragraph](/docs/nested-list-paragraph)",
     ].join("\n"))).toContain([
       "[rendered](https://vitehub.dev/docs/ten-digit-marker)",
       "-\titem",
       "",
       "      [list paragraph](https://vitehub.dev/docs/list-paragraph)",
+      "- - item",
+      "",
+      "      [nested list paragraph](https://vitehub.dev/docs/nested-list-paragraph)",
     ].join("\n"));
   });
 

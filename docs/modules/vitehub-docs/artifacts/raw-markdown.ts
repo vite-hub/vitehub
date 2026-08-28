@@ -134,7 +134,10 @@ function rewriteInlineMarkdownLinks(line: string, protectedHtmlMarker?: string) 
         else if (character === ")" && !isEscaped(line, targetEnd)) {
           if (parentheses === 0) break;
           parentheses -= 1;
-        } else if (/\s/.test(character) && parentheses === 0) break;
+        } else if (/\s/.test(character)) {
+          if (parentheses > 0) invalidDestination = true;
+          break;
+        }
         else if (
           ((character === "<" || character === ">") && !isEscaped(line, targetEnd))
           || (protectedHtmlMarker && line.startsWith(protectedHtmlMarker, targetEnd))
@@ -408,9 +411,16 @@ type MarkdownListState = {
 function updateMarkdownListState(line: string, state: MarkdownListState) {
   const quotePrefix = line.match(/^(?:[ \t]*>[ \t]?)+/)?.[0] || "";
   const content = line.slice(quotePrefix.length);
-  const listItem = content.match(/^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+/);
-  if (listItem) {
-    state.indent = indentationColumns(listItem[0].replace(/[^ \t]/g, " "));
+  let listPrefix = "";
+  let remainder = content;
+  while (true) {
+    const listItem = remainder.match(/^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+/);
+    if (!listItem) break;
+    listPrefix += listItem[0];
+    remainder = remainder.slice(listItem[0].length);
+  }
+  if (listPrefix) {
+    state.indent = indentationColumns(listPrefix.replace(/[^ \t]/g, " "));
     state.quotePrefix = quotePrefix;
   } else if (
     content.trim()
