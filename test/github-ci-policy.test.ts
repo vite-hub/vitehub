@@ -806,6 +806,16 @@ jobs:
     ])
   })
 
+  it("invalidates variables removed by unset", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: unset VERSION; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
   it("does not persist assignments from non-final pipeline commands", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "env:\n  VERSION: latest\njobs:\n  test:\n    steps:\n      - run: export VERSION=1.2.3 | cat; npx tool@$VERSION\n",
@@ -824,6 +834,14 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
     ])
+  })
+
+  it("persists assignments after a background pipeline", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: latest\njobs:\n  test:\n    steps:\n      - run: printf x | cat & export VERSION=1.2.3; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("inspects commands delegated through xargs", async () => {
@@ -1105,6 +1123,18 @@ jobs:
         "          npx unpinned",
       ].join("\n"),
     })
+    const escapedDelimiterRoot = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          cat <<\\EOF",
+        "          npx is-just-data",
+        "          EOF",
+        "          npx unpinned",
+      ].join("\n"),
+    })
 
     await expect(checkGitHubCIInputs(dataRoot)).resolves.toEqual([])
     await expect(checkGitHubCIInputs(shellRoot)).resolves.toEqual([
@@ -1120,6 +1150,9 @@ jobs:
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
     await expect(checkGitHubCIInputs(punctuatedDelimiterRoot)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+    await expect(checkGitHubCIInputs(escapedDelimiterRoot)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
   })

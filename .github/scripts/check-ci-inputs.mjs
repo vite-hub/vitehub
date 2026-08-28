@@ -352,11 +352,11 @@ function runsInChildShell(tokens, commandIndex) {
   if (groups.length > 0) return true
   for (let index = commandIndex - 1; index >= 0; index--) {
     if (tokens[index] === "|") return true
-    if (tokens[index] === ";" || tokens[index] === "&&" || tokens[index] === "||") break
+    if (tokens[index] === ";" || tokens[index] === "&" || tokens[index] === "&&" || tokens[index] === "||") break
   }
   for (let index = commandIndex + 1; index < tokens.length; index++) {
     if (tokens[index] === "|") return true
-    if (tokens[index] === ";" || tokens[index] === "&&" || tokens[index] === "||") return false
+    if (tokens[index] === ";" || tokens[index] === "&" || tokens[index] === "&&" || tokens[index] === "||") return false
   }
   return false
 }
@@ -527,6 +527,13 @@ function assignedVariableNames(tokens) {
     const assignment = assignmentPattern.exec(token)
     if (assignment) names.add(assignment[1])
   }
+  for (const index of commandIndexes(tokens)) {
+    if (executableName(tokens[index]) !== "unset") continue
+    for (const argument of tokens.slice(index + 1)) {
+      if (shellOperatorPattern.test(argument)) break
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(argument)) names.add(argument)
+    }
+  }
   return names
 }
 
@@ -668,9 +675,10 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     }
     const hereDocument = /(?:^|\s)<<-?\s*(?:'([^']+)'|"([^"]+)"|([^\s'";&|()<>`]+))/.exec(line)
     if (hereDocument && !executableIndexes.some(index => isShellCommand(tokens[index]))) {
+      const unquotedDelimiter = hereDocument[3]
       dataHereDocument = {
-        delimiter: hereDocument[1] ?? hereDocument[2] ?? hereDocument[3],
-        expand: hereDocument[3] !== undefined,
+        delimiter: (hereDocument[1] ?? hereDocument[2] ?? unquotedDelimiter).replace(/\\(.)/g, "$1"),
+        expand: unquotedDelimiter !== undefined && !unquotedDelimiter.includes("\\"),
       }
     }
     for (const index of executableIndexes) {
@@ -689,6 +697,19 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       }
       const corepackDelegate = corepackDelegateName(token)
       const executable = corepackDelegate ?? executableName(token)
+
+      if (executable === "unset") {
+        if (activeFunctionDepth > 0 || opensFunction > 0 || runsInChildShell(tokens, index)) continue
+        const execution = activeConditionalDepth === 0 && opensConditional === 0
+          ? conditionalCommandExecution(tokens, index)
+          : "maybe"
+        if (execution === "never") continue
+        for (const argument of tokens.slice(index + 1)) {
+          if (shellOperatorPattern.test(argument)) break
+          if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(argument)) environment.delete(argument)
+        }
+        continue
+      }
 
       if (assignmentBuiltins.has(executable)) {
         if (activeFunctionDepth > 0 || opensFunction > 0 || runsInChildShell(tokens, index)) continue
