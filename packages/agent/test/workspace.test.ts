@@ -2720,6 +2720,23 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it.each([false, 0, ""])("preserves falsey runtimeConfig %j while resolving Agent inspection metadata", async runtimeConfig => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      uiMessageStream: context => (context as unknown as { runtimeConfig: unknown }).runtimeConfig === runtimeConfig
+        ? { reasoning: "hidden", tools: "hidden" }
+        : { reasoning: "visible", tools: "full" },
+    })
+
+    expect((await resolveAgentInspectionMetadata(agent, {
+      runtime: { runtimeConfig } as never,
+    })).config?.uiMessageStream).toEqual({
+      reasoning: "hidden",
+      tools: "hidden",
+    })
+  })
+
   it("composes static Agent inspection instruction metadata", async () => {
     const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const agent = withExplicitWorkspaceName(defineAgent({
