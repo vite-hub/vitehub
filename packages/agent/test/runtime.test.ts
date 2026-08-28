@@ -5592,7 +5592,7 @@ describe("agent message protocol", () => {
 
     expect(finish).toHaveBeenCalledOnce()
     const event = finish.mock.calls[0]![0]
-    expect(event.input).toMatchObject(input)
+    expect(event.input).toEqual({ ...input, context: {} })
     expect(event.invocation).toMatchObject({ run: { runId: "run-1" } })
     expect(event.invocation.durationMs).toEqual(expect.any(Number))
     expect(event.result).toEqual({ text: "ok" })

@@ -51,12 +51,32 @@ jobs:
         run: vp run test
       - name: Consumer contracts
         run: vp run test:consumer
-      - name: Docs tests
-        run: vp run --filter vitehub-docs test
-      - name: Docs build
-        run: vp run docs:build
-      - name: Docs artifact
-        run: vp run --filter vitehub-docs test:artifact
+
+  windows-agent-credentials:
+    name: agent credentials (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+
+      - name: Build Agent test dependencies
+        run: vp run -t @vite-hub/agent#build
+
+      - name: Codex credential ACLs
+        shell: bash
+        working-directory: packages/agent
+        run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+
+      - run: vp run --filter vitehub-docs test
+      - run: vp run docs:build
+      - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
         run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config docs/.output/server/wrangler.json
 
