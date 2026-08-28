@@ -18,6 +18,7 @@ const envValueOptions = new Set(["--chdir", "--unset", "-C", "-u"])
 const envSplitStringOptions = new Set(["--split-string", "-S"])
 const commandValueOptions = new Set(["--argv0", "-a"])
 const commandQueryOptions = new Set(["--verbose", "-V", "-v"])
+const niceValueOptions = new Set(["--adjustment", "-n"])
 const sudoQueryOptions = new Set(["--list", "-l"])
 const sudoValueOptions = new Set([
   "--chdir", "--chroot", "--close-from", "--command-timeout", "--group", "--host", "--prompt", "--role", "--type", "--user",
@@ -34,12 +35,12 @@ function shellTokens(line) {
   const tokens = []
   let previousEnd = -1
   let wordIndex
-  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(\$\{[^}]*\})|(\d*(?:>&|<&)(?:\d+|-)|\$\(|&&|\|\||[;&|()`{}])|([^\s;&|()`{}"']+)/g)) {
+  for (const token of line.matchAll(/"([^"]*)"|'([^']*)'|(\$\{[^}]*\})|(\d*(?:>&|<&)(?:\d+|-)|\$\(|&&|\|\||[;&|()`{}])|((?:\$\{[^}]*\}|[^\s;&|()`{}"'])+)/g)) {
     if (token.index !== previousEnd) wordIndex = undefined
     previousEnd = token.index + token[0].length
     if (token[5]?.startsWith("#")
       && (token.index === 0 || /[\s;&|()`]/.test(line[token.index - 1]))) break
-    const value = token[1] ?? token[2] ?? token[3] ?? token[4] ?? token[5]
+    const value = token[1] ?? token[2] ?? token[3] ?? token[4] ?? token[5]?.replace(/\\(.)/g, "$1")
     if (token[4] !== undefined) {
       tokens.push(value)
       wordIndex = undefined
@@ -163,6 +164,21 @@ function commandIndexes(tokens) {
             else break
           }
           if (executableIndex < tokens.length) executableIndex++
+          continue
+        }
+        if (wrapper === "nice") {
+          executableIndex++
+          while (executableIndex < tokens.length) {
+            const argument = tokens[executableIndex]
+            if (argument === "--") {
+              executableIndex++
+              break
+            }
+            if (niceValueOptions.has(argument)) executableIndex += 2
+            else if (argument.startsWith("--adjustment=") || /^-\d+$/.test(argument)) executableIndex++
+            else if (argument.startsWith("-")) executableIndex++
+            else break
+          }
           continue
         }
         if (wrapper !== "env") break
@@ -313,12 +329,17 @@ function pipedShellSource(tokens, shellIndex) {
   if (producerArguments[0] === "--") producerArguments = producerArguments.slice(1)
   const format = producerArguments.shift()
   if (format === undefined) return
-  let argumentIndex = 0
-  const source = expandPrintfEscapes(format).replace(/%(%|s|b)/g, (_match, conversion) => {
-    if (conversion === "%") return "%"
-    const argument = producerArguments[argumentIndex++] ?? ""
-    return conversion === "b" ? expandPrintfEscapes(argument) : argument
-  })
+  let source = ""
+  do {
+    let consumedArguments = 0
+    source += expandPrintfEscapes(format).replace(/%(%|s|b)/g, (_match, conversion) => {
+      if (conversion === "%") return "%"
+      const argument = producerArguments.shift() ?? ""
+      consumedArguments++
+      return conversion === "b" ? expandPrintfEscapes(argument) : argument
+    })
+    if (consumedArguments === 0) break
+  } while (producerArguments.length > 0)
   if (!source || /\$|`/.test(source)) return
   return source
 }

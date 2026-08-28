@@ -441,12 +441,18 @@ jobs:
     "timeout 5m npx unpinned",
     "timeout --signal KILL 5m npx unpinned",
     "timeout --sig KILL 5m npx unpinned",
+    "nice npx unpinned",
+    "nice -n 5 npx unpinned",
+    "nice --adjustment=5 npx unpinned",
+    "nice -5 npx unpinned",
     "eval 'npx unpinned'",
     "eval -- 'npx unpinned'",
     "bash <<< 'npx unpinned'",
     "printf 'npx unpinned\\n' | bash",
     "printf '%s\\n' 'npx unpinned' | bash",
+    "printf '%s\\n' 'echo safe' 'npx unpinned' | bash",
     "echo -e 'npx unpinned\\n' | bash",
+    String.raw`n\px unpinned`,
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
       ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
@@ -479,6 +485,21 @@ jobs:
   it("tracks exact package versions assigned by export", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: |\n          export VERSION=1.2.3\n          npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it("tracks exact package versions in braced package words", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          VERSION=1.2.3",
+        "          npx tool@${VERSION}",
+      ].join("\n"),
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
