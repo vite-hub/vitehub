@@ -341,6 +341,7 @@ async function* iterateMaterializationEntries(
 ): AsyncGenerator<MaterializationEntry> {
   const directKey = directMaterializationSourceKey(source, options)
   if (directKey) {
+    if (!(await source.source.getKeys(ctx)).includes(directKey)) return
     const entry = createMaterializationEntry(source, await source.source.getItem(directKey, ctx), undefined)
     if (materializationPathMatches(entry.path, options)) yield entry
     return
@@ -453,19 +454,41 @@ export async function materializeWorkspaceSources(
         bytes: existing?.bytes,
       }
       if (reportedPaths) ready.paths = reportedPaths
-      resultSources.push(ready)
-      files += cachedFiles
-      bytes += existing?.bytes || 0
-      lifecycle?.onCompleted(source)
-      await reportMaterializationProgress(options, source, {
-        bytes: existing?.bytes || 0,
-        cacheStatus,
-        counts: { ...counts },
-        durationMs,
-        files: cachedFiles,
-        revision: existing?.revision,
-        status: "completed",
-      })
+      try {
+        await reportMaterializationProgress(options, source, {
+          bytes: existing?.bytes || 0,
+          cacheStatus,
+          counts: { ...counts },
+          durationMs,
+          files: cachedFiles,
+          revision: existing?.revision,
+          status: "completed",
+        })
+        resultSources.push(ready)
+        files += cachedFiles
+        bytes += existing?.bytes || 0
+        lifecycle?.onCompleted(source)
+      }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const failed = { ...ready, error: message, status: "error" as const }
+        resultSources.push(failed)
+        await writeSourceSnapshotMetadata(store, {
+          ...existing!,
+          error: message,
+          status: "error",
+        }).catch(() => undefined)
+        await reportMaterializationProgress(options, source, {
+          bytes: existing?.bytes || 0,
+          cacheStatus,
+          counts: { ...counts },
+          durationMs,
+          error: message,
+          files: cachedFiles,
+          revision: existing?.revision,
+          status: "failed",
+        })
+      }
       continue
     }
 

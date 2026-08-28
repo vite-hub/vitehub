@@ -740,6 +740,44 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledOnce()
   })
 
+  it("records one failed status when a cache-hit completion observer rejects", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "cache-completion-observer-failure",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# A\n" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    const progress: WorkspaceMaterializeSourcesProgressEvent[] = []
+    const result = await view.materializeSources({
+      async onProgress(event) {
+        progress.push(event)
+        if (event.status === "completed") throw new Error("observer failed")
+      },
+      sources: ["docs"],
+    })
+
+    expect(result.sources).toEqual([
+      expect.objectContaining({ cacheStatus: "hit", error: "observer failed", source: "docs", status: "error" }),
+    ])
+    expect(progress.map(event => event.status)).toEqual(["started", "completed", "failed"])
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      error: "observer failed",
+      status: "error",
+    })
+  })
+
   it("honors cancellation while resolving a cached source snapshot", async () => {
     const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({

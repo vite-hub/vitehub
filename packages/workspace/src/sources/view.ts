@@ -300,6 +300,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return sources.some(source => sourceMountContainsPath(source, path))
   }
 
+  function isLazySource(sourceKey: string) {
+    return sources.some(source => source.key === sourceKey)
+  }
+
   function isSyncSourceMountPath(path: string) {
     return syncSources.some(source => source.mountPath && sourceMountContainsPath(source, path))
   }
@@ -613,9 +617,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const item = await useSourceContext(resolution.source, async context => await resolution.source.source.getItem(resolution.sourcePath, context))
           return decodeFile(await sourceItemContent(item), options)
         }
-        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        if (isLazySource(resolution.sourceKey)) await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
+        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       await materializeRootSourceForPath(resolution.workspacePath)
@@ -691,9 +696,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
           return result
         }
-        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        if (isLazySource(resolution.sourceKey)) await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         const stored = await store.stat(resolution.workspacePath)
         if (stored) return stored
+        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         const result = await useSourceContext(resolution.source, async context => await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, context))
         if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
@@ -721,8 +727,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           if (!resolution.workspacePath) return true
           return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
         }
-        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        if (isLazySource(resolution.sourceKey)) await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         if (await store.stat(resolution.workspacePath)) return true
+        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         return Boolean(await useSourceContext(resolution.source, async context => await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, context)))
       }
       if (await store.stat(resolution.workspacePath)) return true
