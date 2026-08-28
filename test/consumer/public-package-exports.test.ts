@@ -176,7 +176,7 @@ async function importPackagesWithoutRootFallback(
       const importableContracts = publicPackageExportContracts
         .filter(contract => contract.packageName === info.packageName
           && isJavaScriptModule(contract.target)
-          && (includeOptionalPeers || contract.optionalPeers.length === 0))
+          && (includeOptionalPeers || contract.optionalRuntimePeers.length === 0))
       const cloudflareContracts = importableContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
       await importSpecifiers(runnerDir, importableContracts
         .filter(contract => !cloudflareContracts.includes(contract))
@@ -297,7 +297,7 @@ async function typecheckPackageExports(packageName: string, packageRoot: string,
   const modules = publicPackageExportContracts.filter(contract =>
     contract.packageName === packageName
     && isJavaScriptModule(contract.target)
-    && (includeOptionalPeers || contract.optionalPeers.length === 0),
+    && (includeOptionalPeers || contract.optionalDeclarationPeers.length === 0),
   )
   for (const [index, contract] of modules.entries()) {
     await typecheckPackageModule(

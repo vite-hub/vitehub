@@ -29,8 +29,6 @@ describe("public package export contracts", () => {
 
   it("marks eager exports as optional-peer consumers", () => {
     const eagerPeerExports = new Map<string, string>([
-      ["@vite-hub/agent", "@vite-hub/workflow"],
-      ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
       ["@vite-hub/auth/agent", "@vite-hub/agent"],
       ["@vite-hub/auth/nuxt", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
@@ -47,8 +45,16 @@ describe("public package export contracts", () => {
     ])
 
     for (const [specifier, peer] of eagerPeerExports) {
-      expect(publicPackageExportContracts.find(contract => contract.specifier === specifier)?.optionalPeers)
+      expect(publicPackageExportContracts.find(contract => contract.specifier === specifier)?.optionalRuntimePeers)
         .toContain(peer)
+    }
+  })
+
+  it("keeps lazy Agent Workflow imports runnable without their declaration peer", () => {
+    for (const specifier of ["@vite-hub/agent", "@vite-hub/agent/runtime/workflow"]) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === specifier)
+      expect(contract?.optionalRuntimePeers).not.toContain("@vite-hub/workflow")
+      expect(contract?.optionalDeclarationPeers).toContain("@vite-hub/workflow")
     }
   })
 
@@ -76,7 +82,7 @@ describe("public package export contracts", () => {
       const target = join(packageDir(info.name), contract.target.replace(/^\.\//, ""))
 
       expect(existsSync(target), `${contract.specifier} should publish ${contract.target}`).toBe(true)
-      for (const peer of contract.optionalPeers) {
+      for (const peer of new Set([...contract.optionalDeclarationPeers, ...contract.optionalRuntimePeers])) {
         expect(manifest.peerDependencies?.[peer], `${contract.specifier} should declare ${peer}`).toEqual(expect.any(String))
         expect(manifest.peerDependenciesMeta?.[peer]?.optional, `${contract.specifier} should keep ${peer} optional`).toBe(true)
       }

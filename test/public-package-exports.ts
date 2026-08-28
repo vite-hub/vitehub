@@ -9,7 +9,8 @@ export type PublicPackageExportKind
 
 export interface PublicPackageExportContract {
   kind: PublicPackageExportKind
-  optionalPeers: readonly string[]
+  optionalDeclarationPeers: readonly string[]
+  optionalRuntimePeers: readonly string[]
   packageName: string
   specifier: string
   subpath: string
@@ -54,7 +55,12 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
 ])
 
-function optionalPeersForExport(specifier: string, subpath: string) {
+const declarationOnlyPeerExports = new Map<string, readonly string[]>([
+  ["@vite-hub/agent", ["@vite-hub/workflow"]],
+  ["@vite-hub/agent/runtime/workflow", ["@vite-hub/workflow"]],
+])
+
+function optionalDeclarationPeersForExport(specifier: string, subpath: string) {
   const peers = [...(optionalPeerExports.get(specifier) || [])]
   if (/(?:^|\/)vite$/.test(subpath)) peers.push("vite")
   if (/(?:^|\/)vue$/.test(subpath)) peers.push("vue")
@@ -88,9 +94,12 @@ export const publicPackageExportContracts: readonly PublicPackageExportContract[
     const target = exportTarget(rawTarget)
     if (!target) throw new Error(`${info.packageName} ${subpath} has no import, default, or types target`)
     const specifier = exportSpecifier(info.packageName, subpath)
+    const optionalDeclarationPeers = optionalDeclarationPeersForExport(specifier, subpath)
+    const declarationOnlyPeers = new Set(declarationOnlyPeerExports.get(specifier) || [])
     return {
       kind: exportKind(info.packageName, subpath, specifier, target),
-      optionalPeers: optionalPeersForExport(specifier, subpath),
+      optionalDeclarationPeers,
+      optionalRuntimePeers: optionalDeclarationPeers.filter(peer => !declarationOnlyPeers.has(peer)),
       packageName: info.packageName,
       specifier,
       subpath,
