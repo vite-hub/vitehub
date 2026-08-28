@@ -105,6 +105,11 @@ describe("built-in Agent Driver selection", () => {
     expect(() => defineAgent({
       driver: { credentialProfile: "Support", credentials: () => "{}", kind: "codex" },
     })).toThrow("must start with a lowercase letter or number")
+    for (const credentialProfile of ["support.", "con", "con.profile", "lpt1"]) {
+      expect(() => defineAgent({
+        driver: { credentialProfile, credentials: () => "{}", kind: "codex" },
+      })).toThrow("must not use a Windows-equivalent path name")
+    }
     expect(() => defineAgent({
       // SAFETY: This fixture deliberately supplies a string-coercible object.
       driver: { kind: "codex", reasoningEffort: { toString: () => "high" } } as never,

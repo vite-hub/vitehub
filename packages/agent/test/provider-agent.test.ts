@@ -142,6 +142,7 @@ describe("Provider Agent Driver", () => {
       if (threadId === "thread-credentials-first") {
         const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
         await writeFile(`${homePath}/auth.json`, '{"refreshed":true}\n', { mode: 0o600 })
+        await writeFile(`${homePath}/config.toml`, 'model = "gpt-5.6"\ncli_auth_credentials_store = "keyring"\n\n[projects."/workspace"]\ntrust_level = "trusted"\n', { mode: 0o600 })
       }
       if (threadId === "thread-credentials-preserved") {
         const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
@@ -156,7 +157,7 @@ describe("Provider Agent Driver", () => {
     expect(credentials).toHaveBeenCalledTimes(3)
     expect(credentials.mock.calls[0]?.[0]).toMatchObject({ abortSignal: undefined, actor: { id: "actor" }, invoker: { id: "invoker" } })
     await expect(readFile(`${homes[0]}/auth.json`, "utf8")).resolves.toBe('{"OPENAI_API_KEY":"rotated"}\n')
-    await expect(readFile(`${homes[0]}/config.toml`, "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\n')
+    await expect(readFile(`${homes[0]}/config.toml`, "utf8")).resolves.toBe('model = "gpt-5.6"\ncli_auth_credentials_store = "file"\n\n[projects."/workspace"]\ntrust_level = "trusted"\n')
     expect((await stat(homes[0])).mode & 0o777).toBe(0o700)
     expect((await stat(`${homes[0]}/auth.json`)).mode & 0o777).toBe(0o600)
     expect((await stat(`${homes[0]}/config.toml`)).mode & 0o777).toBe(0o600)

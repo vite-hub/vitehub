@@ -198,6 +198,10 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (isRuntimeString(value.credentialProfile) && (value.credentialProfile.length > 128 || !/^[a-z0-9][a-z0-9._-]*$/.test(value.credentialProfile))) {
     throw new TypeError("[vitehub] defineAgent({ driver.credentialProfile }) must start with a lowercase letter or number and contain only lowercase letters, numbers, dots, underscores, or hyphens.")
   }
+  if (isRuntimeString(value.credentialProfile)
+    && (value.credentialProfile.endsWith(".") || /^(?:aux|con|nul|prn|com[1-9]|lpt[1-9])(?:\.|$)/.test(value.credentialProfile))) {
+    throw new TypeError("[vitehub] defineAgent({ driver.credentialProfile }) must not use a Windows-equivalent path name.")
+  }
   if (value.credentialProfile !== undefined && value.credentials === undefined) {
     throw new TypeError("[vitehub] defineAgent({ driver.credentialProfile }) requires driver.credentials.")
   }

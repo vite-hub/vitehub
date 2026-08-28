@@ -240,9 +240,30 @@ async function writeCodexCredentials(homePath: string, credentials: string): Pro
   await writeProtectedCodexFile(homePath, ".vitehub-seed.sha256", `${seedHash}\n`)
 }
 
+function codexFileCredentialStoreConfig(config: string): string {
+  const lines = config.match(/.*(?:\r?\n|$)/g)?.filter(Boolean) || []
+  const assignment = 'cli_auth_credentials_store = "file"'
+  for (const [index, line] of lines.entries()) {
+    if (/^\s*\[/.test(line)) break
+    if (!/^\s*(?:cli_auth_credentials_store|"cli_auth_credentials_store"|'cli_auth_credentials_store')\s*=/.test(line)) continue
+    const newline = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : ""
+    lines[index] = `${assignment}${newline}`
+    return lines.join("")
+  }
+  const newline = config.includes("\r\n") ? "\r\n" : "\n"
+  return `${assignment}${newline}${config}`
+}
+
 async function configureCodexCredentialHome(homePath: string): Promise<void> {
   await chmod(homePath, 0o700)
-  await writeProtectedCodexFile(homePath, "config.toml", 'cli_auth_credentials_store = "file"\n')
+  const configPath = join(homePath, "config.toml")
+  const config = await readFile(configPath, "utf8").catch((error) => {
+    if (hasRuntimeType(error, "object") && "code" in error && error.code === "ENOENT") return ""
+    throw error
+  })
+  const nextConfig = codexFileCredentialStoreConfig(config)
+  if (nextConfig !== config) await writeProtectedCodexFile(homePath, "config.toml", nextConfig)
+  else await chmod(configPath, 0o600)
 }
 
 function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, startedAt: number }): boolean {
