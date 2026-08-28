@@ -728,8 +728,10 @@ async function readRuntimePackages(
 ): Promise<RuntimePackage[]> {
   const packages = new Map<string, RuntimePackage>()
   const bundledPackageJsonPaths = new Map<string, Set<string>>()
-  for (const file of (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()) {
-    const source = await readFile(file, "utf8")
+  const files = (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()
+  const sources = await Promise.all(files.map(file => readFile(file, "utf8")))
+  for (const [index, source] of sources.entries()) {
+    const file = files[index]!
     for (const { name, path: packagePath } of collectBundledPackages(source)) {
       const bundledPaths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
       const candidates = isAbsolute(packagePath)
@@ -771,6 +773,8 @@ async function readRuntimePackages(
         packageJsonPath: packageJsonPath ?? existing?.packageJsonPath,
       })
     }
+  }
+  for (const source of sources) {
     for (const name of collectImportedPackageNames(source)) {
       const existing = packages.get(name)
       const resolvedPackageJsonPath = resolvedPackageJsonPaths.get(name)

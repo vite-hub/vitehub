@@ -911,6 +911,24 @@ try { load("@img/sharp-linux-x64/sharp.node") } catch {}
     expect(existsSync(join(root, ".output/node_modules/@img/sharp-linux-x64"))).toBe(false)
   })
 
+  it("keeps bundle probes optional across split server chunks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-chunks-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/00-probe.mjs"), `
+import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+try { load("@img/sharp-linux-x64/sharp.node") } catch {}
+`)
+    await writeFile(join(root, ".output/server/99-bundle.mjs"), `
+//#region node_modules/.pnpm/@img+sharp-linux-x64@9.9.9/node_modules/@img/sharp-linux-x64/lib/sharp.js
+void 0
+`)
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+    expect(existsSync(join(root, ".output/node_modules/@img/sharp-linux-x64"))).toBe(false)
+  })
+
   it("keeps bundled createRequire probes optional when their bundle marker resolves", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-bundled-optional-"))
     await writeJson(join(root, "package.json"), {})
