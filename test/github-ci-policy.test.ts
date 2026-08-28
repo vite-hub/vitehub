@@ -816,6 +816,16 @@ jobs:
     ])
   })
 
+  it("invalidates variables assigned by read", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: read VERSION <<< latest; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
   it("does not persist assignments from non-final pipeline commands", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "env:\n  VERSION: latest\njobs:\n  test:\n    steps:\n      - run: export VERSION=1.2.3 | cat; npx tool@$VERSION\n",
@@ -857,6 +867,20 @@ jobs:
   it("inspects commands delegated through xargs", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: printf 'arg\\n' | xargs npx unpinned\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+  })
+
+  it.each([
+    "stdbuf -oL npx unpinned",
+    "stdbuf --output=L npx unpinned",
+    "stdbuf -o L npx unpinned",
+  ])("inspects commands delegated through stdbuf: %s", async (command) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
@@ -1009,6 +1033,24 @@ jobs:
     ])
   })
 
+  it("keeps function-local assignments out of caller effects", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          f() { local VERSION=latest; }",
+        "          f",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
   it.each([
     'EXECUTOR=npx; "$EXECUTOR" unpinned',
     'EXECUTOR=pnpm; "$EXECUTOR" dlx unpinned',
@@ -1020,6 +1062,32 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("must use an exact version") }),
     ])
+  })
+
+  it("field-splits an unquoted statically assigned package executor", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: EXECUTOR='npx unpinned'; $EXECUTOR\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+  })
+
+  it("does not field-split a quoted statically assigned command", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: EXECUTOR='npx unpinned'; \"$EXECUTOR\"\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it("ignores an empty unquoted command variable", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: EXECUTOR=''; $EXECUTOR\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it.each([
@@ -1165,6 +1233,29 @@ jobs:
     await expect(checkGitHubCIInputs(escapedDelimiterRoot)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
+  })
+
+  it("inspects static shell input supplied through process substitution", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: bash <(printf 'npx unpinned\\n')",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+  })
+
+  it("ignores process-substitution syntax inside quotes", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: bash \"<(printf 'npx unpinned\\n')\"\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it("rejects mutable environment versions and custom shell executors", async () => {

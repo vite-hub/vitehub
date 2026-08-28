@@ -35,9 +35,11 @@ const xargsValueOptions = new Set([
   "--process-slot-var", "-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s",
 ])
 const xargsOptionalValueOptions = new Set(["--eof", "--replace"])
+const stdbufValueOptions = new Set(["--error", "--input", "--output", "-e", "-i", "-o"])
 const assignmentBuiltins = new Set(["declare", "export", "readonly", "typeset"])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 const commandVariablePattern = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$/
+const quotedCommandVariablePrefix = "\0quoted-command-variable:"
 const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
 
 function shellTokens(line) {
@@ -52,8 +54,11 @@ function shellTokens(line) {
     const dollarQuoted = wordIndex !== undefined && tokens[wordIndex] === "$"
       && token.index > 0 && line[token.index - 1] === "$" && (token[1] !== undefined || token[2] !== undefined)
     if (dollarQuoted) tokens[wordIndex] = ""
-    const value = token[1] ?? (dollarQuoted && token[2] !== undefined ? expandAnsiCQuoting(token[2]) : token[2])
+    let value = token[1] ?? (dollarQuoted && token[2] !== undefined ? expandAnsiCQuoting(token[2]) : token[2])
       ?? token[3] ?? token[4] ?? token[5]?.replace(/\\(.)/g, "$1")
+    if (token[1] !== undefined && commandVariablePattern.test(value)) {
+      value = `${quotedCommandVariablePrefix}${value}`
+    }
     if (token[4] !== undefined) {
       tokens.push(value)
       wordIndex = undefined
@@ -283,6 +288,21 @@ function commandIndexes(tokens) {
           }
           continue
         }
+        if (wrapper === "stdbuf") {
+          executableIndex++
+          while (executableIndex < tokens.length) {
+            const argument = tokens[executableIndex]
+            if (argument === "--") {
+              executableIndex++
+              break
+            }
+            if (stdbufValueOptions.has(argument)) executableIndex += 2
+            else if (/^(?:--(?:error|input|output)=|-[eio]).+/.test(argument)) executableIndex++
+            else if (argument === "--help" || argument === "--version") executableIndex = tokens.length
+            else break
+          }
+          continue
+        }
         const corepackDelegate = wrapper === "corepack"
           ? corepackDelegateName(tokens[executableIndex + 1] ?? "")
           : undefined
@@ -328,8 +348,12 @@ function executableName(token) {
 }
 
 function resolveCommandVariable(token, environment) {
-  const variable = commandVariablePattern.exec(token)
-  return variable ? environment.get(variable[1] ?? variable[2]) ?? token : token
+  const quoted = token.startsWith(quotedCommandVariablePrefix)
+  const source = quoted ? token.slice(quotedCommandVariablePrefix.length) : token
+  const variable = commandVariablePattern.exec(source)
+  const value = variable ? environment.get(variable[1] ?? variable[2]) : undefined
+  if (value === undefined) return [source]
+  return quoted ? [value] : value.split(/\s+/).filter(Boolean)
 }
 
 function corepackDelegateName(token) {
@@ -538,6 +562,21 @@ function assignedVariableNames(tokens) {
   return names
 }
 
+function locallyDeclaredVariableNames(tokens) {
+  const names = new Set()
+  for (const index of commandIndexes(tokens)) {
+    if (executableName(tokens[index]) !== "local") continue
+    for (const argument of tokens.slice(index + 1)) {
+      if (shellOperatorPattern.test(argument)) break
+      if (argument === "--" || argument.startsWith("-")) continue
+      const assignment = assignmentPattern.exec(argument)
+      const name = assignment?.[1] ?? argument
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) names.add(name)
+    }
+  }
+  return names
+}
+
 function commandRunsUnconditionally(tokens, commandIndex) {
   const conditionalScopes = [false]
   for (const token of tokens.slice(0, commandIndex)) {
@@ -568,11 +607,7 @@ function conditionalCommandExecution(tokens, commandIndex) {
   return "maybe"
 }
 
-function pipedShellSource(tokens, shellIndex) {
-  if (tokens[shellIndex - 1] !== "|") return
-  let start = shellIndex - 2
-  while (start >= 0 && !shellOperatorPattern.test(tokens[start])) start--
-  const invocation = tokens.slice(start + 1, shellIndex - 1)
+function staticProducerSource(invocation) {
   const executable = executableName(invocation[0] ?? "")
   if (executable !== "printf" && executable !== "echo") return
   let producerArguments = invocation.slice(1)
@@ -608,6 +643,53 @@ function pipedShellSource(tokens, shellIndex) {
   return source
 }
 
+function pipedShellSource(tokens, shellIndex) {
+  if (tokens[shellIndex - 1] !== "|") return
+  let start = shellIndex - 2
+  while (start >= 0 && !shellOperatorPattern.test(tokens[start])) start--
+  return staticProducerSource(tokens.slice(start + 1, shellIndex - 1))
+}
+
+function processSubstitutionSources(line) {
+  const sources = []
+  let outerQuote
+  for (let index = 0; index < line.length - 1; index++) {
+    if (line[index] === "\\") {
+      index++
+      continue
+    }
+    if (outerQuote) {
+      if (line[index] === outerQuote) outerQuote = undefined
+      continue
+    }
+    if (line[index] === "'" || line[index] === '"') {
+      outerQuote = line[index]
+      continue
+    }
+    if ((line[index] !== "<" && line[index] !== ">") || line[index + 1] !== "(") continue
+    const start = index + 2
+    let depth = 1
+    let quote
+    index++
+    while (depth > 0 && ++index < line.length) {
+      const character = line[index]
+      if (character === "\\") {
+        index++
+        continue
+      }
+      if (quote) {
+        if (character === quote) quote = undefined
+        continue
+      }
+      if (character === "'" || character === '"') quote = character
+      else if (character === "(") depth++
+      else if (character === ")") depth--
+    }
+    if (depth === 0) sources.push(line.slice(start, index))
+  }
+  return sources
+}
+
 function expandPrintfEscapes(value) {
   return value.replace(/\\(\\|a|b|c|e|f|n|r|t|v|0[0-7]{0,2}|x[0-9A-Fa-f]{1,2})/g, (_match, escape) => {
     if (escape === "c") return ""
@@ -624,6 +706,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   let conditionalDepth = 0
   const conditionalExecutions = []
   const functionEffects = new Map()
+  const functionLocals = new Map()
   let functionDepth = 0
   let activeFunctionName
   let pendingFunctionDeclaration
@@ -654,8 +737,13 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const functionName = activeFunctionName ?? openedFunctionName
     if (functionName && (functionDepth > 0 || opensFunction > 0)) {
       const effects = functionEffects.get(functionName) ?? new Set()
-      for (const name of assignedVariableNames(tokens)) effects.add(name)
+      const locals = functionLocals.get(functionName) ?? new Set()
+      for (const name of locallyDeclaredVariableNames(tokens)) locals.add(name)
+      for (const name of assignedVariableNames(tokens)) {
+        if (!locals.has(name)) effects.add(name)
+      }
       functionEffects.set(functionName, effects)
+      functionLocals.set(functionName, locals)
     }
     if (activeConditionalDepth === 0 && opensConditional === 0
       && activeFunctionDepth === 0 && opensFunction === 0) {
@@ -682,13 +770,19 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         expand: unquotedDelimiter !== undefined && !unquotedDelimiter.includes("\\"),
       }
     }
+    const lineTokens = tokens
     for (const index of executableIndexes) {
       let argumentsStart
       let acceptsPackageOptions = false
       let acceptsCallOptions = false
       let executorValueOptions = npmExecValueOptions
       let inspectsTerminatedCommand = false
-      const token = resolveCommandVariable(tokens[index], environment)
+      const commandFields = resolveCommandVariable(lineTokens[index], environment)
+      if (commandFields.length === 0) continue
+      const tokens = commandFields.length === 1
+        ? lineTokens
+        : [...lineTokens.slice(0, index), ...commandFields, ...lineTokens.slice(index + 1)]
+      const token = commandFields[0]
       const invokedFunctionEffects = functionEffects.get(executableName(token))
       if (invokedFunctionEffects && activeFunctionDepth === 0 && opensFunction === 0
         && !runsInChildShell(tokens, index)
@@ -728,6 +822,20 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         continue
       }
 
+      if (executable === "read") {
+        if (activeFunctionDepth > 0 || opensFunction > 0 || runsInChildShell(tokens, index)) continue
+        const execution = activeConditionalDepth === 0 && opensConditional === 0
+          ? conditionalCommandExecution(tokens, index)
+          : "maybe"
+        if (execution === "never") continue
+        for (const argument of tokens.slice(index + 1)) {
+          if (shellOperatorPattern.test(argument) || redirectionPattern.test(argument)) break
+          if (argument === "--" || argument.startsWith("-")) continue
+          if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(argument)) environment.delete(argument)
+        }
+        continue
+      }
+
       if (executable === "eval") {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
         const sourceStart = tokens[index + 1] === "--" ? index + 2 : index + 1
@@ -742,6 +850,10 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       if (isShellCommand(token)) {
         const standardInput = pipedShellSource(tokens, index)
         if (standardInput) specs.push(...findExecutablePackageSpecs(standardInput, environment))
+        for (const substitution of processSubstitutionSources(line)) {
+          const source = staticProducerSource(shellTokens(substitution))
+          if (source) specs.push(...findExecutablePackageSpecs(source, environment))
+        }
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
         const invocation = tokens.slice(index + 1, end === -1 ? tokens.length : end)
         const callIndex = invocation.findIndex(argument => /^-[^-]*c/.test(argument))
