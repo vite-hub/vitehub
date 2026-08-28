@@ -510,7 +510,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     const threadId = "thread-dangling-codex-home-link"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    await symlink(join(sharedHome, "missing-skill"), join(sharedHome, "stale-skill"))
+    await symlink(join(sharedHome, "missing-skills"), join(sharedHome, "skills"))
 
     try {
       const adapter = createProviderAgentAdapter({

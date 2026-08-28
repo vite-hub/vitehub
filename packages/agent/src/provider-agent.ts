@@ -294,8 +294,24 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
   await mkdir(sharedHome, { recursive: true })
   const discoveredEntries = await readdir(sharedHome)
   await Promise.all([
-    ...codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })),
-    ...codexSharedHomeFiles.map(file => writeFile(join(sharedHome, file), "", { flag: "a" })),
+    ...codexSharedHomeDirectories.map(async (directory) => {
+      const path = join(sharedHome, directory)
+      if (await lstat(path).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })) return
+      await mkdir(path, { recursive: true })
+    }),
+    ...codexSharedHomeFiles.map(async (file) => {
+      const path = join(sharedHome, file)
+      if (await lstat(path).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })) return
+      await writeFile(path, "", { flag: "a" })
+    }),
   ])
   const shadowHomeCaseInsensitive = await isCaseInsensitiveCodexHome(home)
   const entries = sharedHomeCaseInsensitive || shadowHomeCaseInsensitive

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { defineConfig } from "vite-plus";
+import { defineConfig, normalizePath } from "vite-plus";
 
 const bundledFilesSdkDrivers = new Set([
   "akamai",
@@ -40,9 +40,9 @@ const filesSdkProviderPeers = [
 export default defineConfig({
   pack: {
     alias: {
-      "@vercel/oidc": fileURLToPath(new URL("./src/internal/vercel-oidc.ts", import.meta.url)),
-      "is-buffer": fileURLToPath(new URL("./src/internal/vercel-is-buffer.ts", import.meta.url)),
-      undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
+      "@vercel/oidc": normalizePath(fileURLToPath(new URL("./src/internal/vercel-oidc.ts", import.meta.url))),
+      "is-buffer": normalizePath(fileURLToPath(new URL("./src/internal/vercel-is-buffer.ts", import.meta.url))),
+      undici: normalizePath(fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url))),
     },
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
