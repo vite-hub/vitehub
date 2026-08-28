@@ -1422,7 +1422,7 @@ describe("Agent Invocation UI", () => {
         hasMore: true,
         items: [{ id: "working", status: "running", title: "Working" }],
         remainingStatuses: ["running", "pending", "completed"],
-        retryKey: "page-2",
+        continuationKey: "page-2",
       },
     });
     const viewport = wrapper.get("nav");
@@ -1436,12 +1436,36 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(1);
 
     await wrapper.setProps({ loading: true });
-    await wrapper.setProps({ loading: false, retryKey: "page-4" });
+    await wrapper.setProps({ continuationKey: "page-4", loading: false });
     expect(wrapper.emitted("endReached")).toHaveLength(2);
 
     await wrapper.setProps({ loading: true });
-    await wrapper.setProps({ loading: false, retryKey: "page-6" });
+    await wrapper.setProps({ continuationKey: "page-6", loading: false });
     expect(wrapper.emitted("endReached")).toHaveLength(3);
+  });
+
+  it("does not continue cursor pagination into collapsed terminal history", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        continuationKey: "page-2",
+        hasMore: true,
+        items: [{ id: "done", status: "completed", title: "Done" }],
+        remainingStatuses: ["completed"],
+        retryKey: 0,
+      },
+    });
+    const viewport = wrapper.get("nav");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ continuationKey: "page-3" });
+    expect(wrapper.emitted("endReached")).toBeUndefined();
+
+    await wrapper.setProps({ retryKey: 1 });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
   });
 
   it("requests another page when the loaded sessions do not fill the viewport", async () => {

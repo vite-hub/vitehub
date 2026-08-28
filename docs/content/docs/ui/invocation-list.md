@@ -20,7 +20,8 @@ icon: i-ph-list-bullets-light
   :has-more="page.hasMore"
   :loading="page.pending"
   :remaining-statuses="page.remainingStatuses"
-  :retry-key="page.cursor"
+  :continuation-key="page.cursor"
+  :retry-key="page.retryRevision"
   @select="openInvocation($event.id)"
   @end-reached="loadNextPage()"
 />
@@ -43,6 +44,7 @@ The list groups sessions by lifecycle and sorts each group by its most recent ac
 | `hasMore`    | `boolean`                            | `false`          | Enables the near-end pagination signal.           |
 | `loading`    | `boolean`                            | `false`          | Shows the loading state and pauses pagination.    |
 | `remainingStatuses` | `readonly AgentInvocationStatus[]` | `[]`         | Statuses that may appear on later cursor pages.    |
+| `continuationKey` | `string \| number`              |                  | Rechecks visible lifecycle pagination after cursor progress. |
 | `retryKey`   | `string \| number`                   |                  | Retries the current page after its value changes. |
 | `now`        | `number`                             |                  | Timestamp used for deterministic relative times.  |
 | `ariaLabel`  | `string`                             | `Agent sessions` | Accessible label for the navigation region.       |
@@ -51,6 +53,6 @@ The list groups sessions by lifecycle and sorts each group by its most recent ac
 
 The component emits `endReached` when the viewport nears the end of the visible sessions. Append the next cursor page to `items` and pass the statuses that remain behind that cursor through `remainingStatuses`. The component can then continue through closed Done pages when an older Working or Queued session is still reachable, without automatically loading the entire closed Done history.
 
-Set `retryKey` from the current cursor so a new cursor can continue pagination even when a page only refreshes already-loaded sessions. If loading fails without changing the cursor, include a retry revision in the key so the same page can be requested again.
+Set `continuationKey` from the current cursor so a new cursor can continue pagination when a page only refreshes already-loaded sessions. Cursor continuation still respects closed lifecycle groups. If loading fails without changing the cursor, increment `retryKey` so the same page can be requested again.
 
 Use `header`, `footer`, `empty`, and `loading` for list states. Use `projectIcon` and `harness` to replace repository and provider presentation without replacing the row behavior. Paginate large histories instead of virtualizing this navigation list.

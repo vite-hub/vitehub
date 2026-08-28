@@ -480,6 +480,7 @@ onBeforeUnmount(() => {
             (!errorMessage(list.error.value) || invocationItems.length)
           "
           class="min-h-0 flex-1 px-1 pb-3"
+          :continuation-key="list.cursor.value"
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoadingMore.value"

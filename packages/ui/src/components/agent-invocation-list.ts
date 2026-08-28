@@ -131,6 +131,7 @@ export const AgentInvocationList = defineComponent({
   name: "AgentInvocationList",
   props: {
     ariaLabel: { default: "Agent sessions", type: String },
+    continuationKey: [Number, String],
     hasMore: Boolean,
     remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
@@ -208,6 +209,10 @@ export const AgentInvocationList = defineComponent({
     watch(() => props.retryKey, () => {
       requestedLength.value = undefined;
       requestMoreIfNeeded();
+    });
+    watch(() => props.continuationKey, () => {
+      requestedLength.value = undefined;
+      requestMoreAutomatically();
     });
     watch([
       () => props.selectedId,
