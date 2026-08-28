@@ -10,11 +10,13 @@ import { createEvent } from "h3-v1"
 
 const generatedHandlerReadGate = vi.hoisted<{
   path: string | undefined
+  blockAtRead: number
   reads: number
   started: (() => void) | undefined
   wait: Promise<void> | undefined
 }>(() => ({
   path: undefined,
+  blockAtRead: 2,
   reads: 0,
   started: undefined,
   wait: undefined,
@@ -27,7 +29,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     async readFile(...args: Parameters<typeof fs.readFile>) {
       if (String(args[0]) === generatedHandlerReadGate.path) {
         generatedHandlerReadGate.reads += 1
-        if (generatedHandlerReadGate.reads === 2) {
+        if (generatedHandlerReadGate.reads === generatedHandlerReadGate.blockAtRead) {
           generatedHandlerReadGate.started?.()
           await generatedHandlerReadGate.wait
         }
@@ -199,6 +201,11 @@ function contributesCli(plugin: Plugin): plugin is Plugin & ViteHubCliContributi
 }
 
 afterEach(async () => {
+  generatedHandlerReadGate.path = undefined
+  generatedHandlerReadGate.blockAtRead = 2
+  generatedHandlerReadGate.reads = 0
+  generatedHandlerReadGate.started = undefined
+  generatedHandlerReadGate.wait = undefined
   await Promise.all(tempDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
 })
 
@@ -1133,6 +1140,51 @@ describe("framework generated types", () => {
       toRuntimeModuleSpecifier(drinks),
     )
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+    expect(oldRestart).not.toHaveBeenCalled()
+  })
+
+  it("lets replacement preparation finish after an in-flight superseded refresh", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "api/collections/meals.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    const generatedMealsHandler = join(root, ".vitehub/source/routes/meals.mjs")
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    let releaseOldPreparation: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedMealsHandler
+    generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseOldPreparation = resolve
+    })
+    const oldPreparationStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+
+    const oldRefresh = oldListeners.get("change")?.(meals)
+    await oldPreparationStarted
+    const replacementPreparation = config(plugin)({
+      root,
+      [VITEHUB_SERVER_DIRS]: ["backend"],
+    })
+    releaseOldPreparation?.()
+    await Promise.all([oldRefresh, replacementPreparation])
+
+    await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(drinks),
+    )
+    await expect(readFile(generatedMealsHandler, "utf8")).rejects.toThrow()
     expect(oldRestart).not.toHaveBeenCalled()
   })
 

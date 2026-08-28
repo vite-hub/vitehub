@@ -365,9 +365,20 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let configuredHandlerKey = "[]"
   const closeHostRefreshByEnvironment = new WeakMap<object, () => void>()
   const closeHostRefreshByRoot = new Map<string, () => void>()
+  const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
-  const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
-    prepareSourceGeneration({ ...input, importBase: options.importBase })
+  const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) => {
+    const root = resolve(input.projectRoot)
+    const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
+    const preparation = previousPreparation.then(() =>
+      prepareSourceGeneration({ ...input, importBase: options.importBase }),
+    )
+    sourcePreparationByRoot.set(root, preparation)
+    void preparation.finally(() => {
+      if (sourcePreparationByRoot.get(root) === preparation) sourcePreparationByRoot.delete(root)
+    }).catch(() => {})
+    return preparation
+  }
   const refresh = async () => {
     if (projectRoot) await prepareSources({ projectRoot, serverDirs })
   }
@@ -387,6 +398,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      closeHostRefreshByRoot.get(projectRoot)?.()
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
       configuredHandlerKey = await generatedHandlerKey(handlers)
