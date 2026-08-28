@@ -65,8 +65,8 @@ try {
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(
-          Object.entries(exports).map(([key, value]) => {
+        return {
+          ...Object.fromEntries(Object.entries(exports).map(([key, value]) => {
             if (String(value) !== value || !value.endsWith(".js")) {
               return [key, value];
             }
@@ -77,8 +77,9 @@ try {
                 import: value,
               },
             ];
-          }),
-        );
+          })),
+          "./tsconfig": "./tsconfig.vite.json",
+        };
       },
       inlinedDependencies: false,
     },

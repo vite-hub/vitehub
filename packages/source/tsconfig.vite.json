@@ -1,3 +1,6 @@
 {
-  "files": ["${configDir}/.vitehub/types/source/collections.d.ts"]
+  "include": [
+    "${configDir}/**/*",
+    "${configDir}/.vitehub/types/source/collections.d.ts"
+  ]
 }

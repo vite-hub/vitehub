@@ -309,7 +309,8 @@ function filterPluginOptions(
       const nested = filterPluginOptions(option, keep)
       return nested.length > 0 ? [nested] : []
     }
-    if (option && typeof option === "object" && "name" in option && !keep(option as Plugin)) return []
+    const plugin = flattenPlugins([option])[0]
+    if (plugin && !keep(plugin)) return []
     return [option]
   })
 }
@@ -628,8 +629,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
   const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.(async (handlers: GeneratedSourceHandler[]) => {
+    const previousHandlers = generatedSourceHandlers
     generatedSourceHandlers = handlers
-    await nuxt.callHook?.("restart")
+    try {
+      await nuxt.callHook?.("restart")
+    }
+    catch (error) {
+      generatedSourceHandlers = previousHandlers
+      throw error
+    }
   }, { handlesHostRestart: true })
   if (removeGeneratedHandlersListener) nuxt.hook?.("close", removeGeneratedHandlersListener)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {

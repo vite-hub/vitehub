@@ -766,6 +766,7 @@ describe("ViteHub Nuxt integration", () => {
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
 
+    // SAFETY: Nuxt plugin setup always assigns an array of Vite plugin options.
     const configuredPlugins = nuxt.options.vite.plugins as unknown[]
     expect(configuredPlugins).toContain(promisedPlugin)
     expect(configuredPlugins.flat(Infinity)).toContain(nestedPromisedPlugin)
@@ -1160,6 +1161,12 @@ describe("ViteHub Nuxt integration", () => {
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     expect(onGeneratedHandlersChanged).toHaveBeenCalledWith(expect.any(Function), { handlesHostRestart: true })
+    nuxt.callHook.mockRejectedValueOnce(new Error("restart failed"))
+    await expect(listener?.([second])).rejects.toThrow("restart failed")
+    const failedNitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(failedNitroConfig)
+    expect(failedNitroConfig.handlers).toEqual([first])
+
     await listener?.([second])
     expect(nuxt.callHook).toHaveBeenCalledWith("restart")
 

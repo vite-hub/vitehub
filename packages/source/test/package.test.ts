@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { getParsedCommandLineOfConfigFile, sys } from "typescript"
 import { describe, expect, it } from "vitest"
@@ -11,23 +12,35 @@ describe("@vite-hub/source package contract", () => {
   it("includes generated Collection types through its TypeScript config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-source-tsconfig-"))
     const generatedTypes = join(root, ".vitehub/types/source/collections.d.ts")
+    const applicationEntry = join(root, "index.ts")
     try {
-      await mkdir(dirname(generatedTypes), { recursive: true })
       await Promise.all([
-        writeFile(generatedTypes, "interface ViteHubCollectionMap { meals: unknown }\n"),
+        writeFile(applicationEntry, "export {}\n"),
         writeFile(join(root, "tsconfig.json"), JSON.stringify({
           extends: [resolve(import.meta.dirname, "../tsconfig.vite.json")],
         })),
       ])
 
-      const parsed = getParsedCommandLineOfConfigFile(join(root, "tsconfig.json"), {}, {
+      const parse = () => getParsedCommandLineOfConfigFile(join(root, "tsconfig.json"), {}, {
         ...sys,
         onUnRecoverableConfigFileDiagnostic: diagnostic => {
           throw new TypeError(String(diagnostic.messageText))
         },
       })
+      const clean = parse()
+      expect(clean?.errors).toEqual([])
+      expect(clean?.fileNames).toEqual([applicationEntry])
 
-      expect(parsed?.fileNames).toEqual([generatedTypes])
+      await mkdir(dirname(generatedTypes), { recursive: true })
+      await writeFile(generatedTypes, "interface ViteHubCollectionMap { meals: unknown }\n")
+      const generated = parse()
+      expect(generated?.errors).toEqual([])
+      expect(new Set(generated?.fileNames)).toEqual(new Set([applicationEntry, generatedTypes]))
+
+      await rm(generatedTypes)
+      const removed = parse()
+      expect(removed?.errors).toEqual([])
+      expect(removed?.fileNames).toEqual([applicationEntry])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -44,7 +57,11 @@ describe("@vite-hub/source package contract", () => {
       "./glob",
       "./markdown",
       "./mcp",
+      "./vite",
     ])
+    const tsconfig = fileURLToPath(import.meta.resolve("@vite-hub/source/tsconfig"))
+    expect(tsconfig).toBe(resolve(import.meta.dirname, "../tsconfig.vite.json"))
+    await expect(readFile(tsconfig, "utf8")).resolves.toContain(".vitehub/types/source/collections.d.ts")
   })
 
   it("keeps CommonJS dependency discovery out of the glob bundle", async () => {
