@@ -278,6 +278,24 @@ import "real"
     expect(existsSync(join(root, ".output/main.ts"))).toBe(false)
   })
 
+  it("accepts relocated URL imports for staged Deno Schedule output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-url-schedule-import-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), [
+      'await import(new URL("./schedule/deno-cron.mjs", import.meta.url).href)',
+      'await import(new URL("./server/index.mjs", import.meta.url).href)',
+      "",
+    ].join("\n"), "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/main.ts"), "utf8"))
+      .resolves.toContain('new URL("./schedule/deno-cron.mjs", import.meta.url).href')
+  })
+
   it("rejects computed local imports in relocated Schedule bundles", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-schedule-"))
     await mkdir(join(root, ".output/server"), { recursive: true })

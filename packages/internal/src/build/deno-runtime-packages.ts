@@ -692,6 +692,13 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
   }
 }
 
+function hasRelocatableDynamicImport(source: string, specifier: string): boolean {
+  const executableSource = maskInertImportText(source)
+  if (findLiteralDynamicImports(executableSource).some(entry => entry.specifier === specifier)) return true
+  return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
+    .some(match => match[1] === specifier)
+}
+
 function denoDeployRunnerSource(deploymentName: string | undefined, entrypoint: string): string {
   return `import { spawn } from "node:child_process"
 import { access, cp, mkdtemp, realpath, rm } from "node:fs/promises"
@@ -840,7 +847,7 @@ export async function finalizeDenoDeploymentOutput(
         "application entrypoint",
         ["./schedule/deno-cron.mjs", "./server/index.mjs"],
       )
-      if (!findLiteralDynamicImports(maskInertImportText(applicationBundle)).some(({ specifier }) => specifier === "./schedule/deno-cron.mjs")) {
+      if (!hasRelocatableDynamicImport(applicationBundle, "./schedule/deno-cron.mjs")) {
         throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./schedule/deno-cron.mjs".')
       }
       await rename(temporaryApplicationOutput, applicationOutput)
