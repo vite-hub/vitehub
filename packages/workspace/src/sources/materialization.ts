@@ -204,7 +204,7 @@ async function removeStaleMaterializedSourceFiles(
   nextPaths: Set<string>,
   scope: WorkspaceMaterializeSourcesOptions | undefined,
   control: MaterializationControl,
-  options: { removeUntracked?: boolean, previousPaths?: Set<string> } = {},
+  previousPaths = new Set<string>(),
 ) {
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
@@ -213,7 +213,8 @@ async function removeStaleMaterializedSourceFiles(
     if (!materializationPathMatches(entry.path, scope)) continue
     if (nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
-    if (options.removeUntracked || options.previousPaths?.has(entry.path) || file?.metadata?.source === source.key) {
+    const currentOwner = file?.metadata?.source
+    if (currentOwner === source.key || (currentOwner === undefined && previousPaths.has(entry.path))) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
       await control.mutate(() => store.rm(entry.path, { force: true }))
     }
@@ -445,10 +446,7 @@ export async function materializeWorkspaceSources(
         }
       }
       throwIfAborted(options.abortSignal)
-      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, control, {
-        removeUntracked: Boolean(source.mountPath),
-        previousPaths: new Set(Object.keys(existing?.items || {})),
-      })
+      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, control, new Set(Object.keys(existing?.items || {})))
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []

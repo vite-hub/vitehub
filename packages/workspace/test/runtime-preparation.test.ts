@@ -350,6 +350,36 @@ describe("Workspace runtime preparation", () => {
     await expect(workspace.fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Ready")
   })
 
+  it("preserves files from overlapping startup Sources", async () => {
+    const name = `workspace-preparation-overlap-${crypto.randomUUID()}`
+    const store = createMemoryWorkspaceStore()
+    registerWorkspace(name, {
+      sources: {
+        generated: custom({
+          async getItem(key) { return { content: "# Generated", key } },
+          async getKeys() { return ["report.md"] },
+          materialize: "startup",
+          mount: "docs/generated",
+        }),
+        docs: custom({
+          async getItem(key) { return { content: "# Docs", key } },
+          async getKeys() { return ["index.md"] },
+          materialize: "startup",
+          mount: "docs",
+        }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await expect(store.readFile("docs/generated/report.md")).resolves.toMatchObject({
+      content: "# Generated",
+      metadata: { source: "generated" },
+    })
+    await preparation.stop()
+  })
+
   it("deduplicates concurrent starts and publishes non-cacheable readiness", async () => {
     const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
     const states = vi.fn()
