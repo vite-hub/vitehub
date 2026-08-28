@@ -57,6 +57,23 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
       },
     }
   }
+  const primitiveWrapper = value instanceof Boolean
+    ? { type: "Boolean", value: value.valueOf() }
+    : value instanceof Number
+      ? { type: "Number", value: value.valueOf() }
+      : Object.prototype.toString.call(value) === "[object BigInt]"
+        ? { type: "BigInt", value: (value as { valueOf: () => bigint }).valueOf() }
+        : undefined
+  if (primitiveWrapper) {
+    return {
+      kvlistValue: {
+        values: [
+          { key: "type", value: { stringValue: primitiveWrapper.type } },
+          { key: "value", value: otlpAnyValue(primitiveWrapper.value) },
+        ],
+      },
+    }
+  }
   if (value && hasRuntimeType(value, "object")) {
     if (ancestors.has(value)) return { stringValue: "[Circular]" }
     const nextAncestors = new Set(ancestors)

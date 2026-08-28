@@ -149,6 +149,9 @@ describe("Agent telemetry", () => {
       records: [{
         attributes: {
           "vitehub.payload.value": {
+            boxedBigInt: Object(9n),
+            boxedBoolean: new Boolean(false),
+            boxedNumber: new Number(5),
             cyclic,
             date: new Date("2026-01-01T00:00:00.000Z"),
             domException: new DOMException("stopped", "AbortError"),
@@ -176,6 +179,18 @@ describe("Agent telemetry", () => {
     expect(payload).toMatchObject({
       kvlistValue: {
         values: [
+          { key: "boxedBigInt", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "BigInt" } },
+            { key: "value", value: { intValue: "9" } },
+          ] } } },
+          { key: "boxedBoolean", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Boolean" } },
+            { key: "value", value: { boolValue: false } },
+          ] } } },
+          { key: "boxedNumber", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Number" } },
+            { key: "value", value: { intValue: "5" } },
+          ] } } },
           { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
           { key: "date", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
           {

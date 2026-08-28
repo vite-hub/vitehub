@@ -894,6 +894,32 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("classifies Capability cleanup failures as ViteHub teardown", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const cleanupFailure = new Error("cleanup failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "cleanup-failure",
+      })],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(cleanupFailure)
+
+    const cleanupEvents = traceLog.entries().filter(event => event.name === "agent.invocation.error")
+    expect(cleanupEvents).not.toHaveLength(0)
+    expect(cleanupEvents.map(event => event.activity)).toEqual(
+      cleanupEvents.map(() => ({ owner: "vitehub", phase: "teardown" })),
+    )
+  })
+
   it("keeps custom Trace Events in the synthesized invocation trace", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

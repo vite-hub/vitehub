@@ -4383,7 +4383,11 @@ async function finishAgentInvocation<
       })
     }
     else {
-      await traceAgentInvocationError(toTraceContext(context), error)
+      await traceAgentInvocationError(
+        toTraceContext(context),
+        error,
+        error === closeError ? { owner: "vitehub", phase: "teardown" } : undefined,
+      )
     }
     await context.invocationJournal?.finish(
       failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
@@ -4392,7 +4396,12 @@ async function finishAgentInvocation<
     if (closeError !== undefined) throw closeError
   }
   catch (finishError) {
-    await traceAgentInvocationError(toTraceContext(context), failed ? error : finishError)
+    const tracedError = failed ? error : finishError
+    await traceAgentInvocationError(
+      toTraceContext(context),
+      tracedError,
+      tracedError === closeError ? { owner: "vitehub", phase: "teardown" } : undefined,
+    )
     await context.invocationJournal?.finish(
       failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
       failed ? error : finishError,
