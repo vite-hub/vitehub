@@ -375,6 +375,14 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
         throw error
       })
       if (targetEntry && sourceEntry.dev === targetEntry.dev && sourceEntry.ino === targetEntry.ino) return
+      if (targetEntry?.isSymbolicLink() && sourceEntry.isFile()) {
+        const targetContents = await readFile(target).catch((error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+          throw error
+        })
+        if (targetContents?.equals(await readFile(source))) return
+      }
       const temporary = join(sharedHome, `.${entry}.${crypto.randomUUID()}.tmp`)
       try {
         if (sourceEntry.isDirectory()) await cp(source, temporary, { recursive: true })
