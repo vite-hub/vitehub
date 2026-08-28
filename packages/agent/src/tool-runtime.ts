@@ -2,6 +2,7 @@ import {
   resolveCapabilityPolicy,
   ViteHubError,
 } from "@vite-hub/runtime"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 import type {
   AgentRuntimeContext,
@@ -11,7 +12,8 @@ import type {
 } from "./types.ts"
 
 function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
-  return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
+  // SAFETY: the object and property guards establish the structural tool-name boundary.
+  return hasRuntimeType(value, "object") && value !== null && "name" in value && hasRuntimeType((value as { name?: unknown }).name, "string")
 }
 
 export const agentToolPolicyApproveSymbol: unique symbol = Symbol("vitehub.agent.tool-policy-approve")
@@ -37,7 +39,7 @@ function createApprovalRequest(name: string, input: unknown, reason?: string) {
 }
 
 function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
-  if (!tool.policy || typeof tool.execute !== "function") {
+  if (!tool.policy || !hasRuntimeType(tool.execute, "function")) {
     return tool
   }
 
@@ -45,6 +47,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   const policy = tool.policy
   const approvedInputs = new Set<unknown>()
 
+  // SAFETY: the wrapper preserves every AgentToolDefinition member and the execute contract.
   return {
     ...tool,
     [agentToolPolicyApproveSymbol](input: unknown) {
@@ -55,7 +58,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         context?.abortSignal?.throwIfAborted()
         return await execute(input, context)
       }
-      const decision = typeof policy === "function"
+      const decision = hasRuntimeType(policy, "function")
         ? await policy({
             name: tool.name,
             input,
@@ -91,10 +94,11 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
 }
 
 export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
-  if (!tools || typeof tools !== "object") {
+  if (!tools || !hasRuntimeType(tools, "object")) {
     return tools
   }
 
+  // SAFETY: entries preserve every key and only replace recognized tool definitions with the same contract.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     if (!isAgentToolDefinition(tool)) {
       return [name, tool]
@@ -104,13 +108,16 @@ export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(t
 }
 
 export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools: TTools): TTools {
-  if (!tools || typeof tools !== "object") return tools
+  if (!tools || !hasRuntimeType(tools, "object")) return tools
 
+  // SAFETY: entries preserve every key and wrapped execute functions retain each tool's external contract.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
-    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+    // SAFETY: the object guard establishes the structural execute-member boundary.
+    if (!tool || !hasRuntimeType(tool, "object") || !hasRuntimeType((tool as { execute?: unknown }).execute, "function")) {
       return [name, tool]
     }
 
+    // SAFETY: the callable guard above establishes the execute signature used by this transparent wrapper.
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
     return [name, {
       ...tool,
@@ -128,9 +135,10 @@ function createToolCallId(name: string): string {
 }
 
 function toolCallIdFromExecutionOptions(value: unknown): string | undefined {
-  if (!value || typeof value !== "object") return
+  if (!value || !hasRuntimeType(value, "object")) return
+  // SAFETY: the object guard establishes the structural toolCallId-member boundary.
   const toolCallId = (value as { toolCallId?: unknown }).toolCallId
-  return typeof toolCallId === "string" && toolCallId ? toolCallId : undefined
+  return hasRuntimeType(toolCallId, "string") && toolCallId ? toolCallId : undefined
 }
 
 function getErrorOutput(error: unknown): string {
@@ -138,7 +146,8 @@ function getErrorOutput(error: unknown): string {
 }
 
 function materializeSummary(output: unknown): unknown {
-  if (!output || typeof output !== "object") return output
+  if (!output || !hasRuntimeType(output, "object")) return output
+  // SAFETY: the object guard establishes the optional materialization-result members read below.
   const result = output as {
     bytes?: unknown
     directories?: unknown
@@ -147,9 +156,12 @@ function materializeSummary(output: unknown): unknown {
     path?: unknown
     sources?: unknown
   }
-  const files = typeof result.files === "number" ? result.files : 0
+  const files = hasRuntimeType(result.files, "number") ? result.files : 0
   const sources = Array.isArray(result.sources)
-    ? result.sources.map(source => typeof source === "object" && source && "source" in source ? String((source as { source: unknown }).source) : "").filter(Boolean)
+    ? result.sources.map(source => hasRuntimeType(source, "object") && source && "source" in source
+        // SAFETY: the object and property guards establish the source member read here.
+        ? String((source as { source: unknown }).source)
+        : "").filter(Boolean)
     : []
   const target = sources.length ? sources.join(" and ") : "workspace sources"
   return {
@@ -163,9 +175,13 @@ export async function reportWorkspaceMaterialization(
   reportToolStep?: AgentToolStepReporter,
   abortSignal?: AbortSignal,
 ): Promise<void> {
-  if (!tools || typeof tools !== "object") return
+  if (!tools || !hasRuntimeType(tools, "object")) return
+  // SAFETY: AgentToolSet is structurally keyed and the object guard establishes record access.
   const materializeTool = (tools as Record<string, unknown>).materialize_sources
-  const execute = materializeTool && typeof materializeTool === "object" && typeof (materializeTool as { execute?: unknown }).execute === "function"
+  const execute = materializeTool && hasRuntimeType(materializeTool, "object")
+    // SAFETY: the object guard establishes the structural execute-member boundary.
+    && hasRuntimeType((materializeTool as { execute?: unknown }).execute, "function")
+    // SAFETY: the callable guard establishes the materialization execute contract supplied by AgentToolSet.
     ? (materializeTool as { execute: (input: unknown, options?: { abortSignal?: AbortSignal }) => Promise<unknown> }).execute
     : undefined
   if (!execute) return
@@ -191,18 +207,21 @@ export async function reportWorkspaceMaterialization(
 }
 
 export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: TTools, reportToolStep?: AgentToolStepReporter): TTools {
-  if (!reportToolStep || !tools || typeof tools !== "object") {
+  if (!reportToolStep || !tools || !hasRuntimeType(tools, "object")) {
     return tools
   }
 
+  // SAFETY: entries preserve every key and wrapped execute functions retain each tool's external contract.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
-    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+    // SAFETY: the object guard establishes the structural execute-member boundary.
+    if (!tool || !hasRuntimeType(tool, "object") || !hasRuntimeType((tool as { execute?: unknown }).execute, "function")) {
       return [name, tool]
     }
     if (name === "materialize_sources") {
       return [name, tool]
     }
 
+    // SAFETY: the callable guard above establishes the execute signature used by this reporting wrapper.
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
     return [name, {
       ...tool,
@@ -215,6 +234,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
 
         await reportToolStep({ toolCalls: [toolCall] })
         try {
+          // SAFETY: AI SDK tool execution passes its execution-options object as the first trailing argument.
           const execution = args[0] as { abortSignal?: AbortSignal } | undefined
           execution?.abortSignal?.throwIfAborted()
           const output = await execute.call(tool, input, ...args)
