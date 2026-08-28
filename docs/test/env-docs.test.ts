@@ -307,6 +307,8 @@ function sectionObjects(sourceFile: Node) {
                 return merged;
               }),
             );
+          } else {
+            for (const effective of alternatives) effective.set(property, property);
           }
         } else if (isPropertyAssignment(property) || isShorthandPropertyAssignment(property)) {
           const name = propertyName(property.name) ?? property.name;
@@ -404,33 +406,62 @@ function declarationSection(
 
 function objectHasBuildMode(
   options: ObjectLiteralExpression,
+  resolveObjectsDetailed: (expression: Expression | FunctionDeclaration) => {
+    complete: boolean;
+    objects: ObjectLiteralExpression[];
+  },
   resolveString: (expression: Expression) => string | undefined,
 ): boolean {
-  let isBuildMode = false;
-  for (const property of options.properties) {
-    if (
-      isSpreadAssignment(property) ||
-      (isPropertyAssignment(property) && isComputedPropertyName(property.name))
-    ) {
-      isBuildMode = false;
-    } else if (isPropertyAssignment(property) && propertyName(property.name) === "mode") {
-      isBuildMode = resolveString(property.initializer) === "build";
-    } else if (isShorthandPropertyAssignment(property) && property.name.text === "mode") {
-      isBuildMode = resolveString(property.name) === "build";
+  function effectiveModes(
+    object: ObjectLiteralExpression,
+    modes: boolean[],
+    seen: ReadonlySet<ObjectLiteralExpression>,
+  ): boolean[] {
+    if (seen.has(object)) return modes.map(() => false);
+    const nextSeen = new Set(seen).add(object);
+    let alternatives = modes;
+    for (const property of object.properties) {
+      if (isSpreadAssignment(property)) {
+        const spread = resolveObjectsDetailed(property.expression);
+        alternatives =
+          spread.complete && spread.objects.length > 0
+            ? alternatives.flatMap((mode) =>
+                spread.objects.flatMap((spreadObject) =>
+                  effectiveModes(spreadObject, [mode], nextSeen),
+                ),
+              )
+            : alternatives.map(() => false);
+      } else if (isPropertyAssignment(property) && isComputedPropertyName(property.name)) {
+        alternatives = alternatives.map(() => false);
+      } else if (isPropertyAssignment(property) && propertyName(property.name) === "mode") {
+        const isBuildMode = resolveString(property.initializer) === "build";
+        alternatives = alternatives.map(() => isBuildMode);
+      } else if (isShorthandPropertyAssignment(property) && property.name.text === "mode") {
+        const isBuildMode = resolveString(property.name) === "build";
+        alternatives = alternatives.map(() => isBuildMode);
+      }
     }
+    return alternatives;
   }
-  return isBuildMode;
+
+  return effectiveModes(options, [false], new Set()).every(Boolean);
 }
 
 function hasBuildMode(options: {
   complete: boolean;
   objects: readonly ObjectLiteralExpression[];
+  resolveObjectsDetailed: (expression: Expression | FunctionDeclaration) => {
+    complete: boolean;
+    objects: ObjectLiteralExpression[];
+  };
   resolveString: (expression: Expression) => string | undefined;
 }): boolean {
   return (
     options.complete &&
     options.objects.length > 0 &&
-    options.objects.every((object) => objectHasBuildMode(object, options.resolveString))
+    options.objects.every((object) =>
+      objectHasBuildMode(object, options.resolveObjectsDetailed, options.resolveString),
+    )
   );
 }
 
@@ -450,8 +481,13 @@ function buildEnvCalls(source: string) {
             {
               call,
               options: argument
-                ? { ...resolveObjectsDetailed(argument), resolveString }
-                : { complete: false, objects: [], resolveString },
+                ? { ...resolveObjectsDetailed(argument), resolveObjectsDetailed, resolveString }
+                : {
+                    complete: false,
+                    objects: [],
+                    resolveObjectsDetailed,
+                    resolveString,
+                  },
               section,
             },
           ]
@@ -675,6 +711,27 @@ defineConfig({
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
+  it("checks reachable entries inside unresolved spreads", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+function entries(value) {
+  return value
+}
+defineConfig({
+  env: {
+    public: {
+      appName: env({ mode: "build" }),
+      ...entries({ token: env({ mode: "runtime" }) }),
+    },
+  },
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public", "public"]);
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, false]);
+  });
+
   it("checks computed section entries", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -824,6 +881,27 @@ defineConfig({ env: { public: { appName: env({ mode }) } } })
     `);
 
     expect(hasBuildMode(calls[0]!.options)).toBe(true);
+  });
+
+  it("resolves declaration option spreads with last-write semantics", () => {
+    expect(fixtureHasBuildMode("{ ...{ mode: 'build' } }")).toBe(true);
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const buildOptions = { mode: "build" }
+defineConfig({
+  env: {
+    public: {
+      spread: env({ ...buildOptions }),
+      spreadLast: env({ mode: "runtime", ...buildOptions }),
+      overrideLast: env({ ...buildOptions, mode: "runtime" }),
+      conditional: env({ ...(flag ? buildOptions : { mode: "runtime" }) }),
+    },
+  },
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([true, true, false, false]);
   });
 
   it("rejects declaration options with an unresolved conditional branch", () => {
