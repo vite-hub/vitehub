@@ -4805,6 +4805,11 @@ async function finishAgentInvocation<
         }
       }
     }
+    if (!failed && usage) {
+      assignResolvedUsageRecord(result, usage)
+      const raw = toAgentRunResult(result).raw
+      if (raw !== result) assignResolvedUsageRecord(raw, usage)
+    }
     if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
@@ -5473,6 +5478,15 @@ async function executeAgentInvocationWithCapacityLease<
           const source = cancellableAsyncIterableSource(stream)
           preservedSources.set(stream, source)
           return source
+        }
+        if (options.holdCapacity === true) {
+          try {
+            for (const stream of streamPropertyValues.values()) preservedSource(stream)
+          }
+          catch (error) {
+            await Promise.allSettled([...preservedSources.values()].flatMap(source => source ? [source.cancel(error)] : []))
+            throw error
+          }
         }
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
           if (options.holdCapacity !== true) return outcome
