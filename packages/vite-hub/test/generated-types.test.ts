@@ -121,7 +121,10 @@ function closeBundle(plugin: Plugin, environment: TestPluginEnvironment) {
   return () => (plugin.closeBundle as (() => Promise<void> | void)).call({ environment })
 }
 
-function configureServer(plugin: Plugin) {
+function configureServer(
+  plugin: Plugin,
+  options: { restartReplacesEnvironments?: (restartCall: number) => boolean } = {},
+) {
   const configureServer = plugin.configureServer
   const rawHook = configureServer instanceof Function ? configureServer : configureServer?.handler
   // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
@@ -136,7 +139,17 @@ function configureServer(plugin: Plugin) {
   }) => void
   return (server: Omit<Parameters<typeof hook>[0], "environments">) => {
     const environment = { id: Symbol("test-plugin-environment") }
-    hook({ ...server, environments: { client: environment } })
+    const viteServer = { ...server, environments: { client: environment } }
+    const restart = viteServer.restart
+    let restartCall = 0
+    viteServer.restart = async () => {
+      restartCall += 1
+      await restart()
+      if (options.restartReplacesEnvironments?.(restartCall) ?? true) {
+        viteServer.environments = { ...viteServer.environments }
+      }
+    }
+    hook(viteServer)
     return environment
   }
 }
@@ -690,7 +703,7 @@ describe("framework generated types", () => {
     expect(restartHost).toHaveBeenCalledTimes(2)
   })
 
-  it("retries a generated topology when the plain Vite restart fails", async () => {
+  it("retries when Vite fulfills a failed restart without replacing the server", async () => {
     vi.useFakeTimers()
     try {
       const { root } = await createNestedProject()
@@ -700,24 +713,24 @@ describe("framework generated types", () => {
       const plugin = sourcePlugin()
       await config(plugin)({ root })
       const listeners = new Map<string, (file: string) => Promise<void> | void>()
-      const restart = vi.fn()
-        .mockRejectedValueOnce(new Error("Vite restart failed"))
-        .mockResolvedValue(undefined)
       const loggerError = vi.fn()
+      const restart = vi.fn()
+        .mockImplementationOnce(async () => loggerError("server restart failed"))
+        .mockResolvedValue(undefined)
 
-      configureServer(plugin)({
+      configureServer(plugin, { restartReplacesEnvironments: call => call > 1 })({
         config: { logger: { error: loggerError } },
         restart,
         watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
       })
 
       await rm(collection)
-      await expect(listeners.get("unlink")?.(collection)).rejects.toThrow("Vite restart failed")
+      await listeners.get("unlink")?.(collection)
       expect(restart).toHaveBeenCalledOnce()
-      expect(loggerError).toHaveBeenCalledWith("Error: Vite restart failed")
+      expect(loggerError).toHaveBeenCalledWith("server restart failed")
 
       await vi.runAllTimersAsync()
-      expect(restart).toHaveBeenCalledTimes(2)
+      await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(2))
     }
     finally {
       vi.useRealTimers()

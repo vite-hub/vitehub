@@ -433,12 +433,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
             return
           }
           if (!hasHostRestartOwner) {
+            const previousEnvironments = server.environments
             try {
               await server.restart()
             }
             catch (error) {
               scheduleHostRefreshRetry(file)
               throw error
+            }
+            if (server.environments === previousEnvironments) {
+              scheduleHostRefreshRetry(file)
+              return
             }
           }
           configuredHandlerKey = handlerKey
