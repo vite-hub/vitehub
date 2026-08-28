@@ -29,6 +29,11 @@ const sudoShortValueOptions = new Set([...sudoValueOptions]
   .filter(option => /^-[^-]$/.test(option))
   .map(option => option.slice(1)))
 const timeoutValueOptions = new Set(["--kill-after", "--signal", "-k", "-s"])
+const xargsValueOptions = new Set([
+  "--arg-file", "--delimiter", "--eof", "--max-args", "--max-chars", "--max-lines", "--max-procs",
+  "--process-slot-var", "--replace", "-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s",
+])
+const assignmentBuiltins = new Set(["declare", "export", "readonly", "typeset"])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 const commandVariablePattern = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$/
 const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
@@ -258,6 +263,22 @@ function commandIndexes(tokens) {
           }
           continue
         }
+        if (wrapper === "xargs") {
+          executableIndex++
+          while (executableIndex < tokens.length) {
+            const argument = tokens[executableIndex]
+            if (argument === "--") {
+              executableIndex++
+              break
+            }
+            if (xargsValueOptions.has(argument)) executableIndex += 2
+            else if (argument.startsWith("--") && argument.includes("=")) executableIndex++
+            else if (/^-[aEdILnPs].+/.test(argument)) executableIndex++
+            else if (argument.startsWith("-")) executableIndex++
+            else break
+          }
+          continue
+        }
         const corepackDelegate = wrapper === "corepack"
           ? corepackDelegateName(tokens[executableIndex + 1] ?? "")
           : undefined
@@ -324,7 +345,12 @@ function runsInChildShell(tokens, commandIndex) {
       else groups.push(token)
     }
   }
-  return groups.length > 0
+  if (groups.length > 0) return true
+  for (let index = commandIndex + 1; index < tokens.length; index++) {
+    if (tokens[index] === "|") return true
+    if (tokens[index] === ";" || tokens[index] === "&&" || tokens[index] === "||") return false
+  }
+  return false
 }
 
 function isSudoQueryOption(argument) {
@@ -407,7 +433,9 @@ function applyLeadingPersistentAssignments(tokens, environment) {
   let commandIndex = 0
   const applyCommand = () => {
     if (command.length === 0) return
-    const assignments = command.map(candidate => assignmentPattern.exec(candidate))
+    const assignments = command
+      .filter(candidate => !redirectionPattern.test(candidate))
+      .map(candidate => assignmentPattern.exec(candidate))
     if (assignments.some(assignment => !assignment)) return
     const execution = conditionalCommandExecution(tokens, commandIndex)
     for (const assignment of assignments) {
@@ -440,7 +468,8 @@ function invalidateConditionalAssignments(tokens, environment) {
       if (!assignment) break
       leadingAssignments.push(assignment)
     }
-    const isAssignmentOnly = leadingAssignments.length === candidates.length
+    const trailing = candidates.slice(leadingAssignments.length)
+    const isAssignmentOnly = trailing.every(candidate => redirectionPattern.test(candidate))
     const preservesLeadingAssignments = candidates[leadingAssignments.length] === "export"
     if (leadingAssignments.length > 0 && (isAssignmentOnly || preservesLeadingAssignments)) {
       const assignments = leadingAssignments
@@ -645,7 +674,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       const corepackDelegate = corepackDelegateName(token)
       const executable = corepackDelegate ?? executableName(token)
 
-      if (executable === "export") {
+      if (assignmentBuiltins.has(executable)) {
         if (activeFunctionDepth > 0 || opensFunction > 0 || runsInChildShell(tokens, index)) continue
         const execution = activeConditionalDepth === 0 && opensConditional === 0
           ? conditionalCommandExecution(tokens, index)
@@ -665,7 +694,10 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && shellOperatorPattern.test(candidate))
         const sourceStart = tokens[index + 1] === "--" ? index + 2 : index + 1
         const source = tokens.slice(sourceStart, end === -1 ? tokens.length : end).join(" ")
-        if (source) specs.push(...findExecutablePackageSpecs(source, environment))
+        if (source) {
+          specs.push(...findExecutablePackageSpecs(source, environment))
+          for (const name of assignedVariableNames(shellTokens(source))) environment.delete(name)
+        }
         continue
       }
 
@@ -714,7 +746,9 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         let subcommand = index + 1
         while (tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) {
           const option = tokens[subcommand++]
-          if (packageExecutorValueOptions.has(option)) subcommand++
+          if (packageExecutorValueOptions.has(option)
+            || !option.includes("=") && tokens[subcommand] !== "dlx"
+            && !tokens[subcommand]?.startsWith("-") && !shellOperatorPattern.test(tokens[subcommand])) subcommand++
         }
         if (tokens[subcommand] !== "dlx") continue
         argumentsStart = subcommand + 1

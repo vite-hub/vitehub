@@ -413,6 +413,7 @@ jobs:
     "npx pinned@1.2.3 && npx unpinned",
     "pnpm --silent dlx unpinned",
     "pnpm --dir . dlx unpinned",
+    "pnpm --reporter append-only dlx unpinned",
     "npm x unpinned",
     "npm --silent exec unpinned",
     "npm --prefix . exec unpinned",
@@ -762,6 +763,66 @@ jobs:
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("tracks assignment-only commands with redirections", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: VERSION=latest >/dev/null; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("invalidates conditional assignment-only commands with redirections", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: if maybe; then VERSION=latest >/dev/null; fi; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
+  it("invalidates assignments performed by eval", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: eval 'VERSION=latest'; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
+  it.each(["declare", "typeset", "readonly"])("tracks assignments performed by %s", async (builtin) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `env:\n  VERSION: 1.2.3\njobs:\n  test:\n    steps:\n      - run: ${builtin} VERSION=latest; npx tool@$VERSION\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("does not persist assignments from non-final pipeline commands", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: latest\njobs:\n  test:\n    steps:\n      - run: export VERSION=1.2.3 | cat; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("inspects commands delegated through xargs", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: printf 'arg\\n' | xargs npx unpinned\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
   })
 
