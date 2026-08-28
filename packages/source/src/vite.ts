@@ -11,7 +11,7 @@ import { findExportNames } from "mlly"
 
 import type { Plugin } from "vite"
 
-const collectionTypesEntry = ".vitehub/source/collections.d.ts"
+const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 

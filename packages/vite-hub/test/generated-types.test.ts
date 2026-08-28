@@ -227,8 +227,8 @@ describe("framework generated types", () => {
     await prepareFeature(viteHubTypesPlugin()).run([], context)
 
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/env.d.ts")
-    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./source/collections.d.ts")
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/source/collections.d.ts")
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
     )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
@@ -247,7 +247,7 @@ describe("framework generated types", () => {
     const context = rawContext as ViteHubCliContext
     await prepareFeature(plugin).run([], context)
 
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       JSON.stringify(join(serverDir, "collections/meals.ts")),
     )
   })
@@ -265,7 +265,7 @@ describe("framework generated types", () => {
       'from "vite-hub/source/server"',
     )
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
-      `./source/collections.d.ts`,
+      `./types/source/collections.d.ts`,
     )
   })
 
@@ -313,7 +313,7 @@ describe("framework generated types", () => {
     const handlers = await plugin.api.prepareSources({ projectRoot: root })
     await viteHubTypesPlugin().api.prepareTypes({ projectRoot: root })
 
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toBe(
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toBe(
       [
         `declare global {`,
         `  interface ViteHubCollectionMap {`,
@@ -326,7 +326,7 @@ describe("framework generated types", () => {
         ``,
       ].join("\n"),
     )
-    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./source/collections.d.ts`)
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./types/source/collections.d.ts`)
     expect(handlers).toEqual([
       {
         handler: join(root, ".vitehub/source/routes/admin/history.mjs"),
@@ -457,7 +457,7 @@ describe("framework generated types", () => {
     ])
 
     const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
-    const collectionTypes = await readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")
+    const collectionTypes = await readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")
 
     expect(handlers).toEqual([
       {
@@ -594,7 +594,7 @@ describe("framework generated types", () => {
       await expect(plugin.api.prepareSources({ projectRoot: root })).rejects.toThrow(
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
-      await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
+      await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
       await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     },
   )
@@ -619,7 +619,7 @@ describe("framework generated types", () => {
     })
 
     expect(handlers.map((handler: { route: string }) => handler.route)).toEqual(["/api/audit", "/api/meals"])
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       JSON.stringify(join(firstServerDir, "collections/meals.ts")),
     )
 
@@ -665,7 +665,7 @@ describe("framework generated types", () => {
 
     const plugin = sourcePlugin()
     await plugin.api.prepareSources({ projectRoot: root })
-    const collectionTypes = join(root, ".vitehub/source/collections.d.ts")
+    const collectionTypes = join(root, ".vitehub/types/source/collections.d.ts")
     const collectionRoute = join(root, ".vitehub/source/routes/meals.mjs")
     const contentRoute = join(root, ".vitehub/content/route.mjs")
     const timestamps = await Promise.all([collectionTypes, collectionRoute, contentRoute].map(async file => (await stat(file)).mtimeMs))
