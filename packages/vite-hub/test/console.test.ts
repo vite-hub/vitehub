@@ -586,7 +586,8 @@ describe("Agent invocation console", () => {
     const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
 
-    const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity)
+    const state = { identity: firstIdentity, projectRoot }
+    const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity, state)
     const resolved = { id: "/agent.ts" }
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
     const buildStart = plugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
@@ -594,9 +595,24 @@ describe("Agent invocation console", () => {
     const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
     await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
     installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    state.identity = secondIdentity
 
     const transformed = transform("export {}", resolved.id)
     expect(transformed).toContain(JSON.stringify(secondIdentity))
+  })
+
+  it("keeps configured identities across concurrent same-root runtimes", async () => {
+    const projectRoot = "/project"
+    const firstIdentity = "fixture:/project:/fixture.json:first"
+    const secondIdentity = "fixture:/project:/fixture.json:second"
+    const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity)
+    const resolved = { id: "/agent.ts" }
+    const buildStart = plugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
+    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
+    await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
+    installConsoleInvocationFallback(fakeInvocations("second"), projectRoot, globalThis, secondIdentity, "second")
+
+    expect(transform("export {}", resolved.id)).toContain(JSON.stringify(firstIdentity))
   })
 
   it("keeps persisted Agent names alongside discovered definitions", async () => {

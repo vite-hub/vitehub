@@ -18,7 +18,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleProductionAccess, consoleInvocationRootPlugin } from "./console/vite.ts"
+import { assertConsoleProductionAccess, consoleInvocationRootPlugin, type ConsoleInvocationRootState } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -170,8 +170,8 @@ function renderConsoleNitroPlugin(
   projectRoot: string,
   agents: readonly { handler: string, name: string }[],
   fixture?: string,
+  fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
 ): string {
-  const fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
@@ -191,11 +191,14 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   agents: readonly { handler: string, name: string }[],
   fixture?: string,
-): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture)
-  if (await readFile(file, "utf8").catch(() => undefined) === contents) return
-  await mkdir(resolve(file, ".."), { recursive: true })
-  await writeFile(file, contents, "utf8")
+): Promise<string> {
+  const snapshot = fixture ? readConsoleFixture(fixture) : undefined
+  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot)
+  if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
+    await mkdir(resolve(file, ".."), { recursive: true })
+    await writeFile(file, contents, "utf8")
+  }
+  return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
 }
 
 async function installConsole(
@@ -206,6 +209,7 @@ async function installConsole(
   serverDirs?: string[],
   installInvocations = true,
   writeGeneratedPlugin = true,
+  invocationRootState?: ConsoleInvocationRootState,
 ): Promise<void> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -250,12 +254,16 @@ async function installConsole(
   const plugins = (nitro.plugins ??= [])
   const plugin = join(projectRoot, ".vitehub/nitro/console/plugin.mjs")
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
-    await writeConsoleNitroPlugin(
+    const identity = await writeConsoleNitroPlugin(
       plugin,
       projectRoot,
       discoverAgentDefinitionEntries(discoveryRoot, serverDirs),
       fixture,
     )
+    if (invocationRootState) {
+      invocationRootState.projectRoot = projectRoot
+      invocationRootState.identity = identity
+    }
   })
   if (writeGeneratedPlugin) await refreshAgentDefinitions()
   if (nuxt.options.dev && writeGeneratedPlugin) {
@@ -492,6 +500,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
+  const consoleInvocationRootState: ConsoleInvocationRootState = {}
   if (options.console) {
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
@@ -521,6 +530,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
       !nuxt.options.vitehubCliDiscovery,
       !nuxt.options.vitehubCliDiscovery,
+      consoleInvocationRootState,
     )
   }
   nuxt.options.vite ??= {}
@@ -590,6 +600,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         resolvedConsoleFixture,
         consoleFixtureSnapshot ? consoleFixtureRevision(consoleFixtureSnapshot) : undefined,
       ),
+      consoleInvocationRootState,
     )] : []),
   ]
   const existing = withoutDeploymentOutput(

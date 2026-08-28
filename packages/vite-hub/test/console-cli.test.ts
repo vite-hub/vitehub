@@ -101,7 +101,7 @@ describe("Console fixture CLI", () => {
     expect(stderr.output()).toContain("Console fixture version must be 1")
   })
 
-  it("rejects fixture invocations without an Agent name", async () => {
+  it("starts a command for fixture invocations without an Agent name", async () => {
     const { fixture, root } = await fixtureRoot()
     const fixtureValue = JSON.parse(await readFile(fixture, "utf8"))
     delete fixtureValue.invocations[0].agentName
@@ -110,10 +110,10 @@ describe("Console fixture CLI", () => {
     const stderr = stream()
     const cli = context(root, { spawn, stderr })
 
-    await expect(runConsoleDevCli(["--fixture", fixture, "--", "pnpm", "dev"], cli)).resolves.toBe(1)
+    await expect(runConsoleDevCli(["--fixture", fixture, "--", "pnpm", "dev"], cli)).resolves.toBe(0)
 
-    expect(spawn).not.toHaveBeenCalled()
-    expect(stderr.output()).toContain("invocations[0].agentName must be a non-empty string")
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(stderr.output()).toBe("")
   })
 
   it("normalizes fixture Agent names for Console selection", () => {

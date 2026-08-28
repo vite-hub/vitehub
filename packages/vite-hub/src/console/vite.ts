@@ -13,7 +13,7 @@ import type { Plugin } from "vite"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
-import { createConsoleInvocationsIdentity, resolveConsoleInvocationsIdentity, resolveConsoleInvocationsRoot } from "./internal.ts"
+import { createConsoleInvocationsIdentity } from "./internal.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -45,6 +45,12 @@ interface ConsoleVitePluginOptions {
   console?: true | ConsoleOptions
   preset?: string
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
+  invocationRootState?: ConsoleInvocationRootState
+}
+
+export interface ConsoleInvocationRootState {
+  identity?: string
+  projectRoot?: string
 }
 
 const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
@@ -87,8 +93,7 @@ export function assertConsoleProductionAccess(
   }
 }
 
-function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[], fixture?: string): string {
-  const fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined
+function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[], fixture?: string, fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined): string {
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
@@ -108,11 +113,14 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   agents: readonly ConsoleAgentEntry[],
   fixture?: string,
-): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture)
-  if (await readFile(file, "utf8").catch(() => undefined) === contents) return
-  await mkdir(resolve(file, ".."), { recursive: true })
-  await writeFile(file, contents, "utf8")
+): Promise<string> {
+  const snapshot = fixture ? readConsoleFixture(fixture) : undefined
+  const contents = renderConsoleNitroPlugin(projectRoot, agents, fixture, snapshot)
+  if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
+    await mkdir(resolve(file, ".."), { recursive: true })
+    await writeFile(file, contents, "utf8")
+  }
+  return createConsoleInvocationsIdentity(projectRoot, fixture, snapshot ? consoleFixtureRevision(snapshot) : undefined)
 }
 
 export function discoverConsoleAgentNames(
@@ -136,12 +144,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
 
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    await writeConsoleNitroPlugin(
+    const identity = await writeConsoleNitroPlugin(
       generatedPlugin,
       projectRoot,
       discoverAgentDefinitionEntries(root, serverDirs),
       fixture,
     )
+    if (options.invocationRootState) {
+      options.invocationRootState.identity = identity
+      options.invocationRootState.projectRoot = projectRoot
+    }
   })
 
   const plugin: Plugin & ViteHubCliContributingPlugin = {
@@ -250,7 +262,11 @@ function normalizeModuleId(id: string): string {
   return id.replace(/\\/g, "/").split("?", 1)[0]!
 }
 
-export function consoleInvocationRootPlugin(configuredProjectRoot?: string, configuredIdentity?: string): Plugin {
+export function consoleInvocationRootPlugin(
+  configuredProjectRoot?: string,
+  configuredIdentity?: string,
+  state: ConsoleInvocationRootState = {},
+): Plugin {
   const frameworkAgentEntries = new Set<string>()
   let projectRoot = configuredProjectRoot
   let identity = configuredIdentity
@@ -279,6 +295,8 @@ export function consoleInvocationRootPlugin(configuredProjectRoot?: string, conf
         fixture,
         revision,
       )
+      state.projectRoot = projectRoot
+      state.identity ??= identity
     },
     async buildStart() {
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
@@ -295,12 +313,9 @@ export function consoleInvocationRootPlugin(configuredProjectRoot?: string, conf
     transform(code, id) {
       if (!frameworkAgentEntries.has(normalizeModuleId(id))) return
       if (!projectRoot) this.error("[vitehub] Could not resolve the project root for the Agent invocation console.")
-      const installedIdentity = resolveConsoleInvocationsRoot() === projectRoot
-        ? resolveConsoleInvocationsIdentity()
-        : undefined
       return [
         `globalThis[Symbol.for("vitehub.console.invocations.root")] = ${JSON.stringify(projectRoot)}`,
-        `globalThis[Symbol.for("vitehub.console.invocations.identity")] = ${JSON.stringify(installedIdentity ?? identity)}`,
+        `globalThis[Symbol.for("vitehub.console.invocations.identity")] = ${JSON.stringify(state.identity ?? identity)}`,
         `globalThis[Symbol.for("vitehub.console.invocations.identity-root")] = ${JSON.stringify(projectRoot)}`,
         code,
       ].join("\n")
