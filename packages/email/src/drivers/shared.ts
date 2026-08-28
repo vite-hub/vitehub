@@ -2,12 +2,23 @@ import { emailProviderError } from "../provider.ts";
 
 import type { EmailAddress, EmailAddressList, EmailMessage } from "../types.ts";
 
+function isAddressArray(input: EmailAddressList): input is readonly EmailAddress[] {
+  return Array.isArray(input);
+}
+
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String);
+}
+
 export function addresses(input: EmailAddressList): EmailAddress[] {
-  return Array.isArray(input) ? [...input] : [input as EmailAddress];
+  if (isAddressArray(input)) return [...input];
+  return [input];
 }
 
 export function addressValue(input: EmailAddress): { email: string; name?: string } {
-  if (typeof input !== "string") return { ...input, email: input.email.trim() };
+  if (!isString(input)) {
+    return { ...input, email: input.email.trim() };
+  }
   const match = /^\s*(.*?)\s*<([^<>]+)>\s*$/.exec(input);
   if (!match) return { email: input.trim() };
   const phrase = match[1]!;
@@ -39,6 +50,7 @@ export function formatAddress(input: EmailAddress): string {
 
 export function bytesToBase64(value: Uint8Array): string {
   const Buffer = (
+    // SAFETY: this optional global is available in Node and omitted in web runtimes.
     globalThis as typeof globalThis & {
       Buffer?: { from: (value: Uint8Array) => { toString: (encoding: string) => string } };
     }
@@ -63,9 +75,17 @@ export function validateAttachments(driver: string, message: EmailMessage): void
   }
 }
 
-function hasHeader(headers: Record<string, string>, name: string): boolean {
+function headerValue(headers: Record<string, string>, name: string): string | undefined {
   const normalizedName = name.toLowerCase();
-  return Object.keys(headers).some((header) => header.toLowerCase() === normalizedName);
+  return Object.entries(headers).find(([header]) => header.toLowerCase() === normalizedName)?.[1];
+}
+
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  return headerValue(headers, name) !== undefined;
+}
+
+function hasListUnsubscribeTarget(value: string, target: string): boolean {
+  return value.match(/<[^<>]*>/g)?.includes(`<${target}>`) === true;
 }
 
 export function applyUnsubscribe(message: EmailMessage, driver = "email"): EmailMessage {
@@ -76,6 +96,13 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   const url = message.unsubscribe.url?.trim();
   const oneClickEnabled = oneClick ?? Boolean(url);
   let normalizedUrl: string | undefined;
+  if (mailto !== undefined && !/^[^@\s<>,]+@[^@\s<>,]+$/.test(mailto)) {
+    throw emailProviderError(
+      driver,
+      "INVALID_OPTIONS",
+      "unsubscribe requires a valid mailto address.",
+    );
+  }
   if (url !== undefined) {
     let parsedUrl: URL;
     try {
@@ -104,7 +131,20 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
     normalizedUrl ? `<${normalizedUrl}>` : undefined,
     mailto ? `<mailto:${mailto}>` : undefined,
   ].filter((value) => value !== undefined);
-  if (values.length > 0 && !hasHeader(headers, "list-unsubscribe"))
+  const existingListUnsubscribe = headerValue(headers, "list-unsubscribe");
+  if (
+    oneClickEnabled &&
+    normalizedUrl &&
+    existingListUnsubscribe !== undefined &&
+    !hasListUnsubscribeTarget(existingListUnsubscribe, normalizedUrl)
+  ) {
+    throw emailProviderError(
+      driver,
+      "INVALID_OPTIONS",
+      "one-click unsubscribe requires List-Unsubscribe to contain its HTTPS URL.",
+    );
+  }
+  if (values.length > 0 && existingListUnsubscribe === undefined)
     headers["List-Unsubscribe"] = values.join(", ");
   if (oneClickEnabled && normalizedUrl && !hasHeader(headers, "list-unsubscribe-post"))
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";

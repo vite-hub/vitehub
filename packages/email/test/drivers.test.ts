@@ -95,6 +95,7 @@ describe("Resend Email driver", () => {
       authorization: "Bearer re_secret",
       "Idempotency-Key": "send-1",
     });
+    // SAFETY: the successful request assertion above proves the body was serialized as JSON text.
     expect(JSON.parse(init.body as string)).toMatchObject({
       attachments: [{ content: "AQID", filename: "report.bin" }],
       from: '"ViteHub" <hello@example.com>',
@@ -117,6 +118,7 @@ describe("Resend Email driver", () => {
       context,
     );
 
+    // SAFETY: the successful Resend request stores its serialized JSON body in this call.
     expect(JSON.parse(request.mock.calls[0]![1]?.body as string).attachments).toEqual([
       { content: "aGVsbG8=", filename: "hello.txt" },
     ]);
@@ -356,6 +358,36 @@ describe("Resend Email driver", () => {
     });
   });
 
+  it.each(["not address", "a>, <https://evil.test>"])(
+    "rejects an invalid unsubscribe mailto target %j before dispatch",
+    async (mailto) => {
+      const request = vi.fn();
+      const driver = resend({ apiKey: "re_secret", fetch: request });
+
+      await expect(
+        driver.send({ ...message, unsubscribe: { mailto } }, context),
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects one-click unsubscribe when a custom header omits its HTTPS target", async () => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(
+      driver.send(
+        {
+          ...message,
+          headers: { "List-Unsubscribe": "<mailto:leave@example.com>" },
+          unsubscribe: { url: "https://example.com/unsubscribe" },
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("rejects one-click unsubscribe without a URL before dispatch", async () => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
@@ -583,6 +615,7 @@ describe("Resend Email driver", () => {
     const driver = resend({ apiKey: "re_secret", fetch: request });
 
     await expect(
+      // SAFETY: this table contains public EmailMessage option fragments for runtime rejection tests.
       driver.send({ ...message, ...unsupported } as typeof message, context),
     ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
     expect(request).not.toHaveBeenCalled();
@@ -647,6 +680,7 @@ describe("Resend Email driver", () => {
       context,
     );
 
+    // SAFETY: the successful Resend request stores its serialized JSON body in this call.
     expect(JSON.parse(request.mock.calls[0]![1]?.body as string)).toMatchObject({
       subject: "Personal welcome",
       to: ["one@example.com"],
@@ -755,6 +789,44 @@ describe("Cloudflare Email driver", () => {
     expect(String(Constructor.mock.calls[0]?.[2])).toContain(
       "List-Unsubscribe: <https://example.com/un%20subscribe>",
     );
+  });
+
+  it.each(["not address", "a>, <https://evil.test>"])(
+    "rejects an invalid unsubscribe mailto target %j before delivery",
+    async (mailto) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      await expect(
+        driver.send({ ...message, unsubscribe: { mailto } }, context),
+      ).resolves.toMatchObject({
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      });
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects one-click unsubscribe when a custom header omits its HTTPS target", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(
+      driver.send(
+        {
+          ...message,
+          headers: { "List-Unsubscribe": "<mailto:leave@example.com>" },
+          unsubscribe: { url: "https://example.com/unsubscribe" },
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("rejects one-click unsubscribe without a URL before delivery", async () => {
@@ -878,6 +950,7 @@ describe("Cloudflare Email driver", () => {
   it("rejects multiple personalizations before delivery", async () => {
     const send = vi.fn();
     const Constructor = vi.fn();
+    // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
 
     await expect(
@@ -932,6 +1005,7 @@ describe("Cloudflare Email driver", () => {
     ) {
       Object.assign(this, { from, raw, to });
     });
+    // SAFETY: this test constructor implements the required runtime constructor behavior.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
 
     await expect(driver.send(message, context)).resolves.toMatchObject({
@@ -960,6 +1034,7 @@ describe("Cloudflare Email driver", () => {
         new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
     );
     await resend({ apiKey: "re_secret", fetch: request }).send(namedMessage, context);
+    // SAFETY: the successful Resend request stores its serialized JSON body in this call.
     expect(JSON.parse(request.mock.calls[0]![1]?.body as string).from).toBe(
       '"Doe, \\"Jane\\"" <jane@example.com>',
     );
@@ -979,6 +1054,7 @@ describe("Cloudflare Email driver", () => {
         new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
     );
     await resend({ apiKey: "re_secret", fetch: request }).send(quotedMessage, context);
+    // SAFETY: the successful Resend request stores its serialized JSON body in this call.
     expect(JSON.parse(request.mock.calls[0]![1]?.body as string).from).toBe(
       '"Doe, Jane" <jane@example.com>',
     );
@@ -1001,6 +1077,7 @@ describe("Cloudflare Email driver", () => {
     ) {
       Object.assign(this, { from, raw, to });
     });
+    // SAFETY: this test constructor implements the required runtime constructor behavior.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
 
     await expect(
@@ -1029,6 +1106,7 @@ describe("Cloudflare Email driver", () => {
     ) {
       Object.assign(this, { from, raw, to });
     });
+    // SAFETY: this test constructor implements the required runtime constructor behavior.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
 
     await driver.send(
@@ -1048,6 +1126,7 @@ describe("Cloudflare Email driver", () => {
 
     await driver.send({ ...message, html: undefined, text: undefined, [field]: content }, context);
 
+    // SAFETY: the Cloudflare Email constructor receives the generated raw MIME string as argument 3.
     const raw = Constructor.mock.calls[0]![2] as string;
     expect(raw).toContain(
       `Content-Type: ${contentType}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${Buffer.from(content).toString("base64")}`,
@@ -1063,6 +1142,7 @@ describe("Cloudflare Email driver", () => {
       context,
     );
 
+    // SAFETY: the Cloudflare Email constructor receives the generated raw MIME string as argument 3.
     const raw = Constructor.mock.calls[0]![2] as string;
     const encoded = raw.split("Content-Transfer-Encoding: base64\r\n\r\n")[1] ?? "";
     expect(encoded.split("\r\n").every((line) => line.length <= 76)).toBe(true);
@@ -1164,7 +1244,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(
-      driver.send({ ...message, ...unsupported } as typeof message, context),
+      driver.send({ ...message, ...unsupported }, context),
     ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1237,6 +1317,7 @@ describe("Cloudflare Email driver", () => {
       context,
     );
 
+    // SAFETY: the Cloudflare Email constructor receives the generated raw MIME string as argument 3.
     const raw = Constructor.mock.calls[0]![2] as string;
     expect(raw).toContain('filename="report\\\\\\"final.pdf"');
     const encoded =
@@ -1265,6 +1346,7 @@ describe("Cloudflare Email driver", () => {
 
   it("rejects header injection before sending", async () => {
     const send = vi.fn();
+    // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never });
     await expect(
       driver.send({ ...message, subject: "Hello\r\nBcc: attacker@example.com" }, context),
@@ -1279,6 +1361,7 @@ describe("Cloudflare Email driver", () => {
     { attachments: [{ content: "report", filename: "report\u007F.txt" }] },
   ])("rejects control characters in raw MIME headers before sending", async (invalid) => {
     const send = vi.fn();
+    // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: class {} as never });
 
     await expect(driver.send({ ...message, ...invalid }, context)).resolves.toMatchObject({
@@ -1291,6 +1374,7 @@ describe("Cloudflare Email driver", () => {
     "rejects the transport-owned %s header",
     async (header) => {
       const send = vi.fn();
+      // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
       const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never });
 
       await expect(
@@ -1304,6 +1388,7 @@ describe("Cloudflare Email driver", () => {
     "rejects the invalid header name %s",
     async (header) => {
       const send = vi.fn();
+      // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
       const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never });
 
       await expect(
