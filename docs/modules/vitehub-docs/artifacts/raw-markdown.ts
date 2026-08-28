@@ -362,7 +362,7 @@ function rewriteInlineLinks(source: string) {
   let htmlPlaceholderPrefix = "__VITEHUB_RAW_HTML_TAG_";
   while (protectedSource.includes(htmlPlaceholderPrefix)) htmlPlaceholderPrefix += "_";
   protectedSource = protectedSource.replace(
-    /<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>/g,
+    /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<![A-Z][^>]*>|<!\[CDATA\[[\s\S]*?\]\]>|<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>/g,
     (tag) => `${htmlPlaceholderPrefix}${htmlTags.push(tag) - 1}__`,
   );
 

@@ -123,6 +123,21 @@ describe("writeDocsArtifacts", () => {
     );
   });
 
+  it("keeps link-like text inside inline HTML forms literal", () => {
+    expect(toRawMarkdown([
+      "Text <!-- [comment](/docs/comment) --> [rendered](/docs/rendered)",
+      "Text <?instruction [literal](/docs/instruction)?> [rendered](/docs/rendered)",
+      "Text <!DOCTYPE [literal](/docs/declaration)> [rendered](/docs/rendered)",
+      "Text <![CDATA[[literal](/docs/cdata)]]> [rendered](/docs/rendered)",
+    ].join("\n"))).toBe([
+      "Text <!-- [comment](/docs/comment) --> [rendered](https://vitehub.dev/docs/rendered)",
+      "Text <?instruction [literal](/docs/instruction)?> [rendered](https://vitehub.dev/docs/rendered)",
+      "Text <!DOCTYPE [literal](/docs/declaration)> [rendered](https://vitehub.dev/docs/rendered)",
+      "Text <![CDATA[[literal](/docs/cdata)]]> [rendered](https://vitehub.dev/docs/rendered)",
+      "",
+    ].join("\n"));
+  });
+
   it("does not start type-7 HTML blocks inside paragraphs", () => {
     expect(toRawMarkdown([
       "Paragraph",
@@ -532,18 +547,41 @@ describe("writeDocsArtifacts", () => {
     }
   });
 
-  it("lets only one process recover a malformed lock", () => {
+  it("does not take over malformed-lock recovery from a live process", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-claimed-lock-"));
     const lockDir = resolve(rootDir, ".raw-artifacts.lock");
 
     try {
       writeText(resolve(lockDir, "owner.json"), "{");
-      mkdirSync(resolve(lockDir, ".recovery-claim"));
+      writeText(resolve(lockDir, ".recovery-claim"), JSON.stringify({
+        pid: process.pid,
+        token: "live-recovery",
+      }));
       utimesSync(lockDir, new Date(0), new Date(0));
 
       expect(recoverAbandonedLock(lockDir)).toBe(false);
       expect(existsSync(lockDir)).toBe(true);
       expect(existsSync(resolve(lockDir, ".recovery-claim"))).toBe(true);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("recovers an abandoned malformed-lock recovery claim", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-abandoned-claim-"));
+    const lockDir = resolve(rootDir, ".raw-artifacts.lock");
+
+    try {
+      writeText(resolve(lockDir, "owner.json"), "{");
+      writeText(resolve(lockDir, ".recovery-claim"), JSON.stringify({
+        identity: "abandoned-process",
+        pid: 2_147_483_647,
+        token: "abandoned-recovery",
+      }));
+      utimesSync(lockDir, new Date(0), new Date(0));
+
+      expect(recoverAbandonedLock(lockDir)).toBe(true);
+      expect(existsSync(lockDir)).toBe(false);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }

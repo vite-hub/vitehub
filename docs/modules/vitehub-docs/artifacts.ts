@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import {
   array,
@@ -76,6 +76,54 @@ function hasRecoveryClaim(lockDir: string) {
   }
 }
 
+function claimMalformedLock(lockDir: string) {
+  const claimPath = resolve(lockDir, ".recovery-claim");
+  while (true) {
+    const owner = {
+      identity: currentProcessIdentity,
+      pid: process.pid,
+      token: randomUUID(),
+    };
+    const candidatePath = resolve(lockDir, `.recovery-candidate-${owner.token}.json`);
+    writeFileSync(candidatePath, JSON.stringify(owner), { flag: "wx" });
+    try {
+      linkSync(candidatePath, claimPath);
+      return claimPath;
+    } catch (error) {
+      if (fileSystemErrorCode(error) === "ENOENT") return null;
+      if (fileSystemErrorCode(error) !== "EEXIST") throw error;
+    } finally {
+      rmSync(candidatePath, { force: true });
+    }
+
+    let existingOwner: unknown;
+    try {
+      existingOwner = JSON.parse(readFileSync(claimPath, "utf8"));
+    } catch (error) {
+      if (fileSystemErrorCode(error) === "ENOENT") continue;
+      throw error;
+    }
+    const parsedOwner = safeParse(lockOwnerSchema, existingOwner);
+    if (!parsedOwner.success || lockOwnerIsRunning(parsedOwner.output)) return false;
+
+    const abandonedPath = resolve(lockDir, `.recovery-abandoned-${randomUUID()}.json`);
+    try {
+      renameSync(claimPath, abandonedPath);
+    } catch (error) {
+      if (fileSystemErrorCode(error) === "ENOENT") continue;
+      throw error;
+    }
+    const abandonedOwner: unknown = JSON.parse(readFileSync(abandonedPath, "utf8"));
+    const parsedAbandonedOwner = safeParse(lockOwnerSchema, abandonedOwner);
+    if (parsedAbandonedOwner.success && parsedAbandonedOwner.output.token === parsedOwner.output.token) {
+      rmSync(abandonedPath, { force: true });
+      continue;
+    }
+    if (!existsSync(claimPath)) renameSync(abandonedPath, claimPath);
+    return false;
+  }
+}
+
 export function recoverAbandonedLock(lockDir: string) {
   try {
     let owner: unknown;
@@ -84,14 +132,9 @@ export function recoverAbandonedLock(lockDir: string) {
     } catch (error) {
       if (fileSystemErrorCode(error) === "ENOENT" || error instanceof SyntaxError) {
         if (Date.now() - statSync(lockDir).mtimeMs < lockStaleAfterMs) return false;
-        const claimPath = resolve(lockDir, ".recovery-claim");
-        try {
-          mkdirSync(claimPath);
-        } catch (claimError) {
-          if (fileSystemErrorCode(claimError) === "ENOENT") return true;
-          if (fileSystemErrorCode(claimError) === "EEXIST") return false;
-          throw claimError;
-        }
+        const claimPath = claimMalformedLock(lockDir);
+        if (claimPath === null) return true;
+        if (claimPath === false) return false;
 
         let liveOwner = false;
         try {
