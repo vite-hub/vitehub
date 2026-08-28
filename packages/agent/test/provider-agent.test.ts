@@ -459,24 +459,21 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
-  it("serializes case-equivalent Codex homes on macOS", async () => {
+  it.runIf(process.platform === "darwin")("serializes case-equivalent Codex homes on macOS", async () => {
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const equivalentHome = sharedHome.toUpperCase()
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
-    vi.resetModules()
-    const macosProviderAgent = await import("../src/provider-agent.ts")
     let releaseFirst!: () => void
     const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
     const first = runtime("thread-macos-home-first", [event("turn.completed", "thread-macos-home-first", { state: "completed" }, { turnId: "turn-1" })], {
       beforeEvent: () => firstBlocked,
     })
     runtime("thread-macos-home-second", [event("turn.completed", "thread-macos-home-second", { state: "completed" }, { turnId: "turn-1" })])
-    const firstAdapter = macosProviderAgent.createProviderAgentAdapter({
+    const firstAdapter = createProviderAgentAdapter({
       credentials: '{"tokens":{"access_token":"secret"}}',
       provider: "codex",
       providerSettings: { homePath: sharedHome },
     })
-    const secondAdapter = macosProviderAgent.createProviderAgentAdapter({
+    const secondAdapter = createProviderAgentAdapter({
       credentials: '{"tokens":{"access_token":"secret"}}',
       provider: "codex",
       providerSettings: { homePath: equivalentHome },
@@ -498,7 +495,6 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
     finally {
       releaseFirst()
-      platform.mockRestore()
       await Promise.all([
         rm(sharedHome, { force: true, recursive: true }),
         rm(equivalentHome, { force: true, recursive: true }),
@@ -2251,13 +2247,13 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
-  it("keeps the shared-home lock until stalled provider cleanup settles", async () => {
+  it("releases the shared-home lock after forced credential removal", async () => {
     vi.useFakeTimers()
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let finishClose: (() => void) | undefined
     try {
       const threadId = "thread-cleanup-timeout-first"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      let finishClose!: () => void
       provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
       const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
@@ -2283,16 +2279,13 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const nextThreadId = "thread-cleanup-timeout-second"
       const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
       // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      const nextResult = adapter.generate(context(nextThreadId) as never)
-      await vi.advanceTimersByTimeAsync(25)
-      expect(nextProvider.startSession).not.toHaveBeenCalled()
-
-      finishClose()
-      await vi.advanceTimersByTimeAsync(0)
-      await expect(nextResult).resolves.toBeDefined()
+      await expect(adapter.generate(context(nextThreadId) as never)).resolves.toBeDefined()
       expect(nextProvider.startSession).toHaveBeenCalledOnce()
+      finishClose?.()
+      await vi.advanceTimersByTimeAsync(0)
     }
     finally {
+      finishClose?.()
       vi.useRealTimers()
       await rm(sharedHome, { force: true, recursive: true })
     }

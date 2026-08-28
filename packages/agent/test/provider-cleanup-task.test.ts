@@ -1,8 +1,25 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { settleAgentProviderCleanups } from "../src/internal/provider-cleanup-task.ts"
+import { createAgentProviderCredentialCleanup, settleAgentProviderCleanups } from "../src/internal/provider-cleanup-task.ts"
 
 describe("Provider Agent cleanup retention", () => {
+  it("force-removes credentials without waiting for stalled persistence", async () => {
+    let finishPersistence!: () => void
+    const persistence = new Promise<void>(resolve => finishPersistence = resolve)
+    const persist = vi.fn(() => persistence)
+    const remove = vi.fn(async () => undefined)
+    const cleanup = createAgentProviderCredentialCleanup(persist, remove)
+
+    const pending = cleanup.cleanup()
+    await vi.waitFor(() => expect(persist).toHaveBeenCalledOnce())
+    await expect(cleanup.forceRemove()).resolves.toBeUndefined()
+    expect(remove).toHaveBeenCalledOnce()
+
+    finishPersistence()
+    await expect(pending).resolves.toBeUndefined()
+    expect(remove).toHaveBeenCalledOnce()
+  })
+
   it("waits for every cleanup before propagating a failure", async () => {
     const failure = new Error("credential cleanup failed")
     let finishRootCleanup!: () => void

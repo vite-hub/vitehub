@@ -58,7 +58,7 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
-import { agentProviderCleanupTask, settleAgentProviderCleanups } from "./internal/provider-cleanup-task.ts"
+import { agentProviderCleanupTask, createAgentProviderCredentialCleanup, settleAgentProviderCleanups } from "./internal/provider-cleanup-task.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1213,30 +1213,20 @@ async function* runProvider<
   let credentialHome: string | undefined
   let credentialSharedHome: string | undefined
   let releaseCredentialHomeLock: (() => void) | undefined
-  let credentialHomeCleanup: Promise<void> | undefined
-  let credentialHomeRemoval: Promise<void> | undefined
-  let credentialHomeForced = false
   const releaseCredentialOverlayLock = () => {
     const release = releaseCredentialHomeLock
     releaseCredentialHomeLock = undefined
     release?.()
   }
-  const removeCredentialHome = () => credentialHomeRemoval ??= credentialHome
-    ? rm(credentialHome, { force: true, recursive: true })
-    : Promise.resolve()
-  const forceRemoveCredentialHome = () => {
-    credentialHomeForced = true
-    return credentialHomeCleanup ?? removeCredentialHome()
-  }
-  const cleanupCredentialHome = () => credentialHomeCleanup ??= (async () => {
-    if (!credentialHome) return
-    try {
-      if (credentialSharedHome && !credentialHomeForced) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome)
-    }
-    finally {
-      await removeCredentialHome()
-    }
-  })()
+  const credentialCleanup = createAgentProviderCredentialCleanup(
+    async () => {
+      if (credentialHome && credentialSharedHome) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome)
+    },
+    async () => {
+      if (credentialHome) await rm(credentialHome, { force: true, recursive: true })
+      releaseCredentialOverlayLock()
+    },
+  )
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1259,12 +1249,16 @@ async function* runProvider<
     deferredRuntimeCleanup = cleanup
     void cleanup.catch(() => undefined)
     let timeout: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
     const boundedCredentialCleanup = Promise.race([
       cleanup,
-      new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+      new Promise<void>(resolve => timeout = setTimeout(() => {
+        timedOut = true
+        resolve()
+      }, providerCleanupTimeoutMs)),
     ]).finally(async () => {
       if (timeout) clearTimeout(timeout)
-      if (credentialHomeCleanup === undefined) await forceRemoveCredentialHome()
+      if (timedOut) await credentialCleanup.forceRemove()
     })
     observeLateCleanup(boundedCredentialCleanup)
   }
@@ -1285,7 +1279,7 @@ async function* runProvider<
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
-        await settleAgentProviderCleanups([cleanupCredentialHome(), cleanupRoot()])
+        await settleAgentProviderCleanups([credentialCleanup.cleanup(), cleanupRoot()])
       }
     }
   }
@@ -1375,7 +1369,7 @@ async function* runProvider<
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
-      await settleAgentProviderCleanups([cleanupCredentialHome(), cleanupRoot()])
+      await settleAgentProviderCleanups([credentialCleanup.cleanup(), cleanupRoot()])
     }
     const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
     const runtimeEnvironment = providerEnvironment(providerEnvironmentOverrides)
@@ -1556,7 +1550,7 @@ async function* runProvider<
       }
       if (!runtimeCleanupDeferred) {
         try {
-          await cleanupCredentialHome()
+          await credentialCleanup.cleanup()
         }
         catch (error) {
           cleanupErrors.push(error)
@@ -1606,7 +1600,7 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
-        forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), forceRemoveCredentialHome()])
+        forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), credentialCleanup.forceRemove()])
         observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)
       }
@@ -1617,7 +1611,7 @@ async function* runProvider<
           new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
         ]).finally(async () => {
           if (timeout) clearTimeout(timeout)
-          await settleAgentProviderCleanups([cleanupRoot(), forceRemoveCredentialHome()])
+          await settleAgentProviderCleanups([cleanupRoot(), credentialCleanup.forceRemove()])
         })
         observeLateCleanup(invocationCleanupDeferred)
         void cleanupTask.catch(() => undefined)
@@ -1629,9 +1623,6 @@ async function* runProvider<
     const deferredSessionCleanup = cleanupTimedOut ? cleanupTask : invocationCleanupDeferred || deferredRuntimeCleanup || deferredWorkspaceCleanup
     if (deferredSessionCleanup) void deferredSessionCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
-    const credentialLockCleanup = runtimeCleanupDeferred ? deferredRuntimeCleanup : cleanupTask
-    if (credentialLockCleanup) void credentialLockCleanup.then(releaseCredentialOverlayLock, releaseCredentialOverlayLock)
-    else releaseCredentialOverlayLock()
     if (sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
         resumeCursors.set(sessionKey, pendingResumeCursor)
