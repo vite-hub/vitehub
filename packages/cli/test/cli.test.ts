@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { constants, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -238,46 +238,33 @@ describe("ViteHub CLI", () => {
   })
 
   it.runIf(process.platform !== "win32")("forwards SIGTERM to the foreground child", async () => {
-    const originalKill = process.kill.bind(process)
-    const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      if (pid > 0 && signal === "SIGTERM") return true
-      return originalKill(pid, signal)
+    const exitCode = await runViteHubCli({
+      args: ["test", "spawn"],
+      loadConfig: async () => ({
+        plugins: [{
+          vitehub: {
+            cli: {
+              namespaces: [{
+                features: [{
+                  name: "spawn",
+                  run: async (_args: string[], context: ViteHubCliContext) => {
+                    const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 10_000)"])
+                    await vi.waitFor(() => expect(process.listenerCount("SIGTERM")).toBeGreaterThan(0))
+                    process.emit("SIGTERM")
+                    return (await result).exitCode
+                  },
+                }],
+                name: "test",
+              }],
+            },
+          },
+        }],
+        root: "/repo",
+      }),
     })
 
-    try {
-      const exitCode = await runViteHubCli({
-        args: ["test", "spawn"],
-        loadConfig: async () => ({
-          plugins: [{
-            vitehub: {
-              cli: {
-                namespaces: [{
-                  features: [{
-                    name: "spawn",
-                    run: async (_args: string[], context: ViteHubCliContext) => {
-                      const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 20)"])
-                      await vi.waitFor(() => expect(process.listenerCount("SIGTERM")).toBeGreaterThan(0))
-                      process.emit("SIGTERM")
-                      return (await result).exitCode
-                    },
-                  }],
-                  name: "test",
-                }],
-              },
-            },
-          }],
-          root: "/repo",
-        }),
-      })
-
-      expect(exitCode).toBe(0)
-      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGTERM")
-      expect(kill.mock.calls.some(([pid]) => pid < 0)).toBe(false)
-      expect(process.listenerCount("SIGTERM")).toBe(0)
-    }
-    finally {
-      kill.mockRestore()
-    }
+    expect(exitCode).toBe(128 + constants.signals.SIGTERM)
+    expect(process.listenerCount("SIGTERM")).toBe(0)
   })
 
   it.runIf(process.platform !== "win32")("leaves foreground terminal signals to the process group", () => {
