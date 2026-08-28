@@ -434,6 +434,20 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `)
       expect(generated).toContain("JSON.parse(")
       expect(development.nuxt.options.watch).toContain(fixture)
+
+      await writeFile(fixture, JSON.stringify(fixtureDocument("vite-startup")))
+      // SAFETY: Nuxt stores Vite plugin options in the nested array shape flattened and guarded below.
+      const invocationRootPlugin = (development.nuxt.options.vite.plugins as unknown[])
+        .flat(Infinity)
+        .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")
+      if (!isTestRecord(invocationRootPlugin)) throw new TypeError("Expected the Console invocation root plugin.")
+      const configResolved = invocationRootPlugin.configResolved
+      const configResolvedHandler = isTestRecord(configResolved) ? configResolved.handler : configResolved
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
+      if (typeof configResolvedHandler !== "function") throw new TypeError("Expected a Console configResolved hook.")
+      await Reflect.apply(configResolvedHandler, {}, [{ root: "/tmp/vitehub-nuxt" }])
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("vite-startup")
+
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
 
       const concurrent = createNuxt(true)
@@ -470,11 +484,6 @@ describe("ViteHub Nuxt integration", () => {
       await development.runBuilderWatchHook()
       await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
 
-      // SAFETY: Nuxt stores Vite plugin options in the nested array shape flattened and guarded below.
-      const invocationRootPlugin = (development.nuxt.options.vite.plugins as unknown[])
-        .flat(Infinity)
-        .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")
-      if (!isTestRecord(invocationRootPlugin)) throw new TypeError("Expected the Console invocation root plugin.")
       const closeBundle = invocationRootPlugin.closeBundle
       const closeBundleHandler = isTestRecord(closeBundle) ? closeBundle.handler : closeBundle
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.

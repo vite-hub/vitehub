@@ -383,7 +383,7 @@ export function consoleInvocationRootPlugin(
       if (config.consumer !== "server") return
       return { resolve: { noExternal: ["vite-hub"] } }
     },
-    configResolved(config) {
+    async configResolved(config) {
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       // SAFETY: ViteHub extends Vite's resolved config with its CLI discovery marker.
       const configuredFixture = (config as typeof config & { vitehubCliDiscovery?: true }).vitehubCliDiscovery
@@ -392,12 +392,17 @@ export function consoleInvocationRootPlugin(
       const fixture = configuredFixture ? resolve(projectRoot, configuredFixture) : undefined
       fixtureConfigured = Boolean(fixture)
       const revision = fixture ? consoleFixtureRevision(readConsoleFixture(fixture)) : undefined
-      identity ||= createConsoleInvocationsIdentity(
+      const resolvedIdentity = createConsoleInvocationsIdentity(
         projectRoot,
         fixture,
         revision,
         state.binding,
       )
+      const activeIdentity = state.identity ?? identity
+      if (fixture && activeIdentity && activeIdentity !== resolvedIdentity && state.fixtureLifecycle) {
+        await state.fixtureLifecycle.reopen()
+      }
+      identity = state.identity ?? resolvedIdentity
       if (!fixture) updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
     },
     async closeBundle() {
