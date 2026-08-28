@@ -5914,7 +5914,10 @@ async function executeAgentInvocationWithCapacityLease<
       const shouldWrapOutput = shouldHoldInvocationOutput()
       const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
       const finishUiMessageStream = async (outcome: CapabilityCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => {
-        const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(source => source.settleCancellation(outcome.failed ? outcome.error : undefined)))
+        const cancellations = await Promise.allSettled([
+          ...uiMessageSources.values(),
+          ...(rendererSource ? [rendererSource] : []),
+        ].map(source => source.settleCancellation(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
         const resolveUsage = !outcome.failed && outcome.completed === true
@@ -5947,10 +5950,7 @@ async function executeAgentInvocationWithCapacityLease<
       }
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
         if (!outcome.failed && !outcome.completed && rendererSource) {
-          void rendererSource.settleCancellation().then(
-            async () => await finishUiMessageStream(outcome, streamedText, streamedUsageRecord),
-            async error => await finishUiMessageStream({ error, failed: true }, streamedText, streamedUsageRecord),
-          ).catch(() => {})
+          void finishUiMessageStream(outcome, streamedText, streamedUsageRecord).catch(() => {})
           return
         }
         await finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
