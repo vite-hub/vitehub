@@ -657,6 +657,33 @@ describe("framework generated types", () => {
     })
   })
 
+  it("does not let a stalled passive observer block the Vite restart fallback", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const observer = vi.fn(() => new Promise<void>(() => {}))
+    plugin.api.onGeneratedHandlersChanged(observer)
+    const listeners = new Map<string, (file: string) => void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+
+    await vi.waitFor(() => {
+      expect(observer).toHaveBeenCalledWith([])
+      expect(restart).toHaveBeenCalledOnce()
+    })
+  })
+
   it("lets a generated-handler listener take host restart ownership", async () => {
     const { root } = await createNestedProject()
     const collection = join(root, "server/collections/meals.ts")
@@ -798,7 +825,7 @@ describe("framework generated types", () => {
       finishObserver = resolve
     })
     const observer = vi.fn(() => observerFinished)
-    plugin.api.onGeneratedHandlersChanged(observer)
+    plugin.api.onGeneratedHandlersChanged(observer, { handlesHostRestart: true })
     const listeners = new Map<string, (file: string) => Promise<void> | void>()
     const restart = vi.fn(async () => {})
 

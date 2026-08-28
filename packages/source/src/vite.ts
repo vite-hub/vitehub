@@ -434,19 +434,26 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const handlerKey = generatedHandlerKey(handlers)
           if (handlerKey === configuredHandlerKey) return
           const listeners = [...generatedHandlersListeners]
+          const passiveListeners = listeners.filter(([, listenerOptions]) =>
+            !listenerOptions.handlesHostRestart,
+          )
+          for (const [listener] of passiveListeners) {
+            void Promise.resolve()
+              .then(() => listener(handlers))
+              .catch(error => server.config.logger.error(String(error)))
+          }
+          const hostRestartOwners = listeners.filter(([, listenerOptions]) =>
+            listenerOptions.handlesHostRestart,
+          )
           const listenerResults = await Promise.allSettled(
-            listeners.map(([listener]) => Promise.resolve().then(() => listener(handlers))),
+            hostRestartOwners.map(([listener]) => Promise.resolve().then(() => listener(handlers))),
           )
           if (serverClosed) return
           for (const result of listenerResults) {
             if (result.status === "rejected") server.config.logger.error(String(result.reason))
           }
-          const hasHostRestartOwner = listeners.some(([, listenerOptions]) =>
-            listenerOptions.handlesHostRestart,
-          )
-          const hostRestartHandled = listeners.some(([, listenerOptions], index) =>
-            listenerOptions.handlesHostRestart && listenerResults[index]?.status === "fulfilled",
-          )
+          const hasHostRestartOwner = hostRestartOwners.length > 0
+          const hostRestartHandled = listenerResults.some(result => result.status === "fulfilled")
           if (hasHostRestartOwner && !hostRestartHandled) {
             scheduleHostRefreshRetry(file)
             return
