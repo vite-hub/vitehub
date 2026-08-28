@@ -429,7 +429,7 @@ describe("hubBlob", () => {
       expect(stdout.trim()).toBe("netlify-store")
     }
     finally {
-      if (typeof previousHosting === "undefined") delete process.env.VITEHUB_HOSTING
+      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
       else process.env.VITEHUB_HOSTING = previousHosting
       await Promise.all([
         rm(root, { force: true, recursive: true }),
