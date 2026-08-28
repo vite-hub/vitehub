@@ -373,7 +373,10 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
       const rootEntry = await lstat(root).catch(() => undefined)
       if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return
       if (process.getuid && rootEntry.uid !== process.getuid()) return
-      const owner = await readFile(join(root, ".vitehub-owner.json"), "utf8")
+      const ownerPath = join(root, ".vitehub-owner.json")
+      const ownerEntry = await lstat(ownerPath).catch(() => undefined)
+      if (!ownerEntry?.isFile() || ownerEntry.isSymbolicLink() || ownerEntry.nlink !== 1 || ownerEntry.size > 4_096) return
+      const owner = await readFile(ownerPath, "utf8")
         .then((value): unknown => JSON.parse(value))
         .catch(() => undefined)
       if (!isRuntimeRecord(owner)
@@ -1510,6 +1513,10 @@ async function* runProvider<
       async lateRuntime => {
         try {
           await lateRuntime.close()
+        }
+        catch (error) {
+          deferredRuntimeFailure = error
+          throw error
         }
         finally {
           await finalizeLateRuntimeCreation()

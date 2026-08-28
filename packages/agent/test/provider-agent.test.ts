@@ -592,6 +592,30 @@ cli_auth_credentials_store = "keyring"
     await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("ignores an abandoned credential root with a linked owner file", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const ownerTarget = join(tmpdir(), `vitehub-codex-owner-${crypto.randomUUID()}.json`)
+    await writeFile(ownerTarget, `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      startedAt: 1,
+    })}\n`, { mode: 0o600 })
+    await symlink(ownerTarget, join(staleRoot, ".vitehub-owner.json"))
+    try {
+      const threadId = "thread-linked-private-credential-owner"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(staleRoot)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(staleRoot, { force: true, recursive: true })
+      await rm(ownerTarget, { force: true })
+    }
+  })
+
   it("ignores an abandoned credential root not owned by the current OS user", async () => {
     if (!process.getuid) return
     const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
@@ -2623,6 +2647,36 @@ cli_auth_credentials_store = "keyring"
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
     await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
     await rm(homePath, { force: true, recursive: true })
+  })
+
+  it("quarantines a named credential profile when late runtime creation fails to close", async () => {
+    const threadId = "thread-late-runtime-close-rejection"
+    const credentialProfile = `provider-late-close-rejection-${crypto.randomUUID()}`
+    const controller = new AbortController()
+    const lateRuntime = runtime(threadId, [])
+    providerRuntimes.pop()
+    lateRuntime.close.mockRejectedValueOnce(new Error("close failed"))
+    let resolveRuntime!: (value: typeof lateRuntime) => void
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => resolveRuntime = resolve) as never)
+    const options = {
+      credentialProfile,
+      credentials: () => JSON.stringify({ tokens: { access_token: "shared" } }),
+      provider: "codex" as const,
+    }
+    const adapter = createProviderAgentAdapter(options)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
+    resolveRuntime(lateRuntime)
+    await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
+    // SAFETY: This fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
   })
 
   it("preserves cancellation when waitUntil rejects late cleanup registration", async () => {
