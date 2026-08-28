@@ -1302,6 +1302,36 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledTimes(2)
   })
 
+  it("refreshes a revision before materializing an uncovered sibling", async () => {
+    const revisions = [
+      { id: "commit-123", immutable: true, ref: "main" },
+      { id: "commit-456", immutable: true, ref: "main" },
+    ]
+    const resolveRevision = vi.fn(async () => revisions.shift())
+    const view = createWorkspaceSourceView({
+      name: "sibling-revision-materialization",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          resolveRevision,
+          async getKeys() {
+            return ["a/guide.md", "b/guide.md"]
+          },
+          async getItem(key, context) {
+            return { key, path: key, content: context.revision?.id || "missing revision" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.list("docs/a", { recursive: true })
+    await expect(view.readFile("docs/a/guide.md", { encoding: "utf8" })).resolves.toBe("commit-123")
+    await view.list("docs/b", { recursive: true })
+    await expect(view.readFile("docs/b/guide.md", { encoding: "utf8" })).resolves.toBe("commit-456")
+    expect(resolveRevision).toHaveBeenCalledTimes(2)
+  })
+
   it("shares and reuses successful pathless lazy materialization", async () => {
     let release!: () => void
     const getKeys = vi.fn(async () => {

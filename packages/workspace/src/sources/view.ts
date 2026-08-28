@@ -58,6 +58,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const materializationPreparationBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   const materializeBySource = new Map<string, Promise<void>>()
+  const materializationAttemptsBySource = new Set<string>()
   const materializedPathsBySource = new Map<string, Set<string>>()
   let materializationQueue = Promise.resolve()
 
@@ -79,6 +80,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     let started = false
     const selectedSources = sources
       .filter(source => !options?.sources?.length || options.sources.includes(source.key))
+    for (const source of selectedSources) materializationAttemptsBySource.add(source.key)
     const concurrentPreparations = new Map(selectedSources
       .map(source => [source.key, prepareBySource.get(source.key)] as const)
       .filter((entry): entry is readonly [string, Promise<void>] => Boolean(entry[1])))
@@ -290,7 +292,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
-      pending = materializeSources({ path, sources: [sourceKey] }, { reusePreparedContext: true }).then(() => undefined)
+      const source = sources.find(item => item.key === sourceKey)
+      const reusePreparedContext = !source?.source.resolveRevision || !materializationAttemptsBySource.has(sourceKey)
+      pending = materializeSources({ path, sources: [sourceKey] }, { reusePreparedContext }).then(() => undefined)
       materializeBySource.set(sourceKey, pending)
       try {
         await pending
