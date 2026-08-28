@@ -63,7 +63,7 @@ function resolveServerOptions(config: ResolvedConfig) {
     ?? config.resolve
   const conditions = serverResolve.conditions ?? defaultServerConditions
   return {
-    alias: serverResolve.alias,
+    alias: config.resolve.alias,
     conditions: conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition),
     extensions: serverResolve.extensions,
     mainFields: serverResolve.mainFields,
