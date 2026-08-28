@@ -10,6 +10,7 @@ import {
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { isPlainObject } from "@vite-hub/internal/object"
 import {
   createNoExternalMerger,
   isServerEnvironment,
@@ -70,13 +71,15 @@ function browserBinding(options: Required<BrowserModuleOptions>) {
 }
 
 function cloneRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+  return isPlainObject(value) ? { ...value } : {}
 }
 
 function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
+  if (value === undefined) return [addition]
   if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro accepts a public string-or-RegExp external value, so this config boundary must distinguish the string representation.
   if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro accepts a public callback external value, so this config boundary must distinguish the callable representation.
   if (typeof value === "function") {
     return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
   }
@@ -185,6 +188,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     enabled = configured !== false
     resolvedOptions = resolveOptions(configured)
     projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
+    // SAFETY: ViteHub decorates resolved config with this symbol and only stores server-directory strings.
     serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
     config.nitro = configureNitroBrowser(config.nitro, resolvedOptions, enabled)
   }
