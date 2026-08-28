@@ -364,16 +364,33 @@ export function normalizeUiMessageStream(
     onUsageRecord?: (usageRecord: AgentUsageRecord) => void
   } = {},
 ): ReadableStream<unknown> {
-  return stream.pipeThrough(new TransformStream<unknown, unknown>({
-    transform(chunk, controller) {
-      const usageRecord = usageRecordFromStreamChunk(chunk, stream)
-      if (usageRecord) options.onUsageRecord?.(usageRecord)
-      if (options.omitUsageEvents && streamEventType(chunk) === "usage" && usageRecord) return
-      const normalized = normalizeUiMessageStreamChunk(chunk)
-      options.onChunk?.(normalized)
-      controller.enqueue(normalized)
+  const reader = stream.getReader()
+  let pulled = false
+  return new ReadableStream<unknown>({
+    async cancel(reason) {
+      const cancellation = reader.cancel(reason)
+      if (!pulled) await cancellation
+      else void cancellation.catch(() => undefined)
     },
-  }))
+    async pull(controller) {
+      pulled = true
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          reader.releaseLock()
+          controller.close()
+          return
+        }
+        const usageRecord = usageRecordFromStreamChunk(chunk.value, stream)
+        if (usageRecord) options.onUsageRecord?.(usageRecord)
+        if (options.omitUsageEvents && streamEventType(chunk.value) === "usage" && usageRecord) continue
+        const normalized = normalizeUiMessageStreamChunk(chunk.value)
+        options.onChunk?.(normalized)
+        controller.enqueue(normalized)
+        return
+      }
+    },
+  }, { highWaterMark: 0 })
 }
 
 function projectUiMessageStream(

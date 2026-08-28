@@ -57,9 +57,15 @@ export function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>, str
   }
 
   const iterator = iterable[Symbol.asyncIterator]()
+  const directCancel = hasRuntimeType(iterable, "object")
+    ? Reflect.get(iterable, Symbol.for("vitehub.agent.stream.cancel"))
+    : undefined
   return withAsyncIterator(new ReadableStream<T>({
-    async cancel() {
-      await iterator.return?.()
+    async cancel(reason) {
+      await Promise.allSettled([
+        Promise.resolve(iterator.return?.(reason)),
+        Promise.resolve(hasRuntimeType(directCancel, "function") ? directCancel(reason) : undefined),
+      ])
     },
     async pull(controller) {
       try {

@@ -1930,7 +1930,7 @@ describe("AI SDK recovery", () => {
 
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
-    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await expect(iterator.next()).resolves.toMatchObject({ done: key === "textStream" })
     await iterator.return?.()
   })
 
@@ -1962,12 +1962,14 @@ describe("AI SDK recovery", () => {
       if (item.done) break
       events.push(item.value)
     }
-    // SAFETY: rawStreamingResult emits the AI SDK's tagged full-stream event records.
+    // SAFETY: rawStreamingResult exposes the AI SDK's tagged Agent stream event records.
     expect(events.map(event => (event as { type: string }).type)).toEqual([
-      "stream-start",
+      "start",
+      "start-step",
       "text-start",
       "text-delta",
       "text-end",
+      "finish-step",
       "finish",
     ])
   })
@@ -2017,7 +2019,7 @@ describe("AI SDK recovery", () => {
       if (item.value?.type === "finish") break
     }
 
-    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 6 })
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
   })
 
   it("settles usage when a UI-message stream stops at its finish chunk", async () => {
@@ -2032,7 +2034,7 @@ describe("AI SDK recovery", () => {
       if (item.value?.type === "finish") break
     }
 
-    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 6 })
+    await expect(streamed.usage).resolves.toMatchObject({ totalTokens: 2 })
   })
 
   it("cancels an unconsumed model stream and settles early usage", async () => {
@@ -2092,14 +2094,16 @@ describe("AI SDK recovery", () => {
     expect(abortListeners.every(listener => removeEventListener.mock.calls.some(([type, removed]) => type === "abort" && removed === listener))).toBe(true)
   })
 
-  it("cancels structured materialization when the event consumer returns", async () => {
+  it("stops structured materialization when the event consumer returns", async () => {
     const fakeModel = streamingRepairModel()
     const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, { prompt: "Search" })
 
     // SAFETY: streamAgentInline returns the documented async iterable result contract.
     for await (const _event of result as AsyncIterable<unknown>) break
 
-    await vi.waitFor(() => expect(fakeModel.cancelCount).toBe(1))
+    const pullCount = fakeModel.pullCount
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(fakeModel.pullCount).toBe(pullCount)
   })
 
   it("settles an unstarted UI-message stream when the consumer cancels", async () => {

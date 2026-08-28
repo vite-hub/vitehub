@@ -43,7 +43,7 @@ export async function nativeAgentOutputValidationFailure(
   const text = isRuntimeRecord(error) && hasRuntimeType(error.text, "string") && error.name === "AI_NoObjectGeneratedError" ? error.text : undefined
   if (!output || text === undefined) return
   try {
-    await validateAgentOutput(output, text)
+    await validateAgentOutput(output, text.trim() ? text : undefined)
   }
   catch (validationError) {
     if (isAgentOutputValidationError(validationError)) {

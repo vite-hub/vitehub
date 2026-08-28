@@ -3583,6 +3583,11 @@ function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream
 
 function withStreamResultCancellation<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
   if (!result || !hasRuntimeType(result, "object")) return stream
+  const resultCancel = Reflect.get(result, Symbol.for("vitehub.agent.stream.cancel"))
+  if (hasRuntimeType(resultCancel, "function")) {
+    Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), { value: resultCancel })
+    return stream
+  }
   for (const property of ["stream", "fullStream"] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(result, property)
     if (!descriptor || !("value" in descriptor)) continue
@@ -3612,7 +3617,12 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
     }
   })()
   const lazyUsage = () => {
-    const resolve = () => drive().then(() => Reflect.get(result, "usage"))
+    const resolve = () => drive()
+      .then(() => Reflect.get(result, "usage"))
+      .catch((error) => {
+        if (isRuntimeObject(error) && Reflect.get(error, "name") === "AbortError") return undefined
+        throw error
+      })
     return {
       catch: (onrejected?: (reason: unknown) => unknown) => resolve().catch(onrejected),
       finally: (onfinally?: () => void) => resolve().finally(onfinally),
@@ -3897,12 +3907,16 @@ async function finishStreamAgentInvocation<
       }
     }
     finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
-    if (context.output) {
+    if (context.output && !allowMaterializedOutput) {
       const source = finishResult
       const materialized = await materializeAgentStructuredOutput(source, context.input.abortSignal, undefined, context.output)
       finishResult = (await validateMaterializedAgentStructuredOutput(source, materialized, context.output, {
-        allowMaterializedObject: allowMaterializedOutput || source !== result,
+        allowMaterializedObject: source !== result,
       })).value
+    }
+    else if (context.output && finishResult && hasRuntimeType(finishResult, "object")) {
+      // The streamed data event already exposes this value. Keep finish-time usage decoration on a separate object.
+      finishResult = cloneWithPropertyDescriptors(finishResult as object, {})
     }
     else finishResult = resultWithUsageRecord(finishResult, usageRecord)
   }
@@ -3961,7 +3975,7 @@ function traceUiMessageStream<
         release()
       }
     },
-  })
+  }, { highWaterMark: 0 })
 }
 
 function maybeTraceUiMessageStreamResult<
@@ -4827,7 +4841,13 @@ function materializeAgentStructuredOutputWithEvents(
     return materialized
   }
   const cancel = (reason?: unknown) => {
-    if (!settled) cancellation.abort(reason ?? new DOMException("[vitehub] Structured Agent output stream cancelled.", "AbortError"))
+    if (settled) return
+    const cancellationReason = reason ?? new DOMException("[vitehub] Structured Agent output stream cancelled.", "AbortError")
+    cancellation.abort(cancellationReason)
+    if (result && hasRuntimeType(result, "object")) {
+      const cancelResult = Reflect.get(result, Symbol.for("vitehub.agent.stream.cancel"))
+      if (hasRuntimeType(cancelResult, "function")) void Promise.resolve(cancelResult(cancellationReason)).catch(() => undefined)
+    }
   }
   const eventSource = (async function* () {
     try {
@@ -5118,7 +5138,7 @@ async function executeAgentInvocationWithCapacityLease<
       const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
-      const rendered = options.renderOutput
+      const rendered = options.renderOutput && !invocation.output
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
       const shouldPreserveStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
@@ -5551,7 +5571,9 @@ async function executeAgentInvocationWithCapacityLease<
           value: preserved,
         }
       }
-      const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
+      let final = options.renderOutput && !invocation.output
+        ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions)
+        : rendered
       let structuredFinal = final
       let structuredValue: unknown
       if (options.renderOutput && invocation.output) {
@@ -5567,7 +5589,9 @@ async function executeAgentInvocationWithCapacityLease<
             : materialized === final && final !== result,
         })
         structuredFinal = validated.result
-        structuredValue = validated.value
+        const renderedValue = await applyOutputRenderers(validated.value, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+        structuredValue = await applyFinalOutputRenderers(renderedValue, invocation, outputExtensions)
+        final = structuredValue
       }
       const resolvedUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
@@ -5692,7 +5716,7 @@ async function executeAgentInvocationWithCapacityLease<
                 yield event
               }
               const materialized = await materialization.result
-              uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized.result)
+              uiMessageStructuredUsageRecord = await resolveAgentUsageRecord(materialized.result, invocation.run)
               uiMessageFinishResult = materialized.value
               const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
                 // SAFETY: The runtime type check above proves this property is a string.
@@ -5703,9 +5727,9 @@ async function executeAgentInvocationWithCapacityLease<
               yield materialization.finishEvent ?? { type: "finish" }
             }
             catch (error) {
-              uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(enrichedRendered)
+              uiMessageStructuredUsageRecord = await resolveAgentUsageRecord(enrichedRendered, invocation.run)
                 ?? observedUsageEvent?.usageRecord
-                ?? usageRecordFromStreamChunk(rendered)
+                ?? await resolveAgentUsageRecord(rendered, invocation.run)
                 ?? uiMessageStructuredUsageRecord
               throw error
             }
@@ -5819,7 +5843,7 @@ async function executeAgentInvocationWithCapacityLease<
               else yield event
             }
             const materialized = await materialization.result
-            structuredUsageRecord = usageRecordFromStreamChunk(materialized.result)
+            structuredUsageRecord = await resolveAgentUsageRecord(materialized.result, invocation.run)
               ?? observedUsageEvent?.usageRecord
               ?? await resolveAgentUsageRecord(streamResult, invocation.run)
             structuredFinishResult = materialized.value

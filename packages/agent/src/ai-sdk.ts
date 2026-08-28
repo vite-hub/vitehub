@@ -1204,6 +1204,7 @@ function withCapturedStreamUsage<T extends {
     stream: ReadableStream<unknown>
   } => {
     let reader: ReadableStreamDefaultReader<unknown> | undefined
+    let usageReader: ReadableStreamDefaultReader<unknown> | undefined
     let iterator: AsyncIterator<unknown> | undefined
     let directCancel: ((reason?: unknown) => unknown) | undefined
     const getSource = () => {
@@ -1212,7 +1213,11 @@ function withCapturedStreamUsage<T extends {
       const candidate = Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
       // SAFETY: hasRuntimeType narrows candidate to a callable function before this assignment.
       if (hasRuntimeType(candidate, "function")) directCancel = candidate as (reason?: unknown) => unknown
-      if (stream instanceof ReadableStream) reader = stream.getReader()
+      if (stream instanceof ReadableStream) {
+        const [consumerStream, usageStream] = stream.tee()
+        reader = consumerStream.getReader()
+        usageReader = usageStream.getReader()
+      }
       else iterator = stream[Symbol.asyncIterator]()
     }
     const readSource = () => {
@@ -1223,8 +1228,9 @@ function withCapturedStreamUsage<T extends {
       getSource()
       if (reader) {
         const cancellation = reader.cancel(reason)
+        const usageCancellation = usageReader?.cancel(reason)
         const directCancellation = Promise.resolve(directCancel?.(reason))
-        await Promise.allSettled([cancellation, directCancellation])
+        await Promise.allSettled([cancellation, usageCancellation, directCancellation])
         return { done: true as const, value: reason }
       }
       const returning = iterator!.return?.(reason)
@@ -1244,7 +1250,6 @@ function withCapturedStreamUsage<T extends {
       completed = true
       primaryCapture?.complete()
     }
-    const buffered: IteratorResult<unknown>[] = []
     let draining: Promise<void> | undefined
     let read = Promise.resolve<IteratorResult<unknown>>({ done: true, value: undefined })
     const readNext = () => read = read.then(() => wrapped.next())
@@ -1307,24 +1312,27 @@ function withCapturedStreamUsage<T extends {
       },
     }
     const drain = () => draining ??= (async () => {
+      getSource()
+      if (!usageReader) {
+        while (!(await readNext()).done) {}
+        return
+      }
       while (true) {
-        const item = await readNext()
-        buffered.push(item)
-        if (item.done) return
+        const item = await usageReader.read()
+        if (item.done) {
+          complete()
+          return
+        }
+        const event = item.value
+        const eventType = event && hasRuntimeType(event, "object") ? Reflect.get(event, "type") : undefined
+        if (eventType === "finish-step" || eventType === "finish") primaryCapture?.captureLanguageModelCallResult(event)
+        if (eventType === "finish") complete()
       }
     })()
-    const next = async () => {
-      const bufferedItem = buffered.shift()
-      if (bufferedItem) return bufferedItem
-      if (!draining) return await readNext()
-      await draining
-      // SAFETY: drain always buffers the terminal iterator result before it resolves.
-      return buffered.shift()!
-    }
     const stream = new ReadableStream({
       pull(controller) {
         primaryCapture?.start(drain)
-        void next().then(
+        void readNext().then(
           (item) => {
             if (cancelled) return
             if (item.done) controller.close()
@@ -1360,39 +1368,48 @@ function withCapturedStreamUsage<T extends {
       ? {
           toUIMessageStream(this: typeof result, ...args: unknown[]) {
             let reader: ReadableStreamDefaultReader<unknown> | undefined
-            const buffered: Array<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>> = []
+            let usageReader: ReadableStreamDefaultReader<unknown> | undefined
             let draining: Promise<void> | undefined
+            let usageDraining: Promise<void> | undefined
             let read = Promise.resolve<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>>({ done: true, value: undefined })
             // SAFETY: the wrapper forwards the original method's arguments without inspecting or changing them.
-            const getReader = () => reader ??= toUIMessageStream.apply(result, args as never[]).getReader()
+            const getReader = () => {
+              if (reader) return reader
+              const [consumerStream, usageStream] = toUIMessageStream.apply(result, args as never[]).tee()
+              reader = consumerStream.getReader()
+              usageReader = usageStream.getReader()
+              return reader
+            }
             const readNext = () => read = read.then(() => getReader().read())
             const drain = () => draining ??= (async () => {
+              getReader()
               while (true) {
-                const item = await readNext()
-                buffered.push(item)
+                const item = await usageReader!.read()
                 if (item.done) return
+                if (recordFrom(item.value)?.type === "finish") {
+                  const primaryCapture = captures()[0]
+                  primaryCapture?.capture(item.value)
+                  primaryCapture?.complete()
+                }
               }
             })()
-            const next = async () => {
-              const bufferedItem = buffered.shift()
-              if (bufferedItem) return bufferedItem
-              if (!draining) return await readNext()
-              await draining
-              // SAFETY: drain always buffers the terminal read result before it resolves.
-              return buffered.shift()!
-            }
             return new ReadableStream({
               async pull(controller) {
                 const primaryCapture = captures()[0]
-                primaryCapture?.start(drain)
+                const driveUsage = wrappedFullStream
+                  ? () => usageDraining ??= (async () => { for await (const _chunk of wrappedFullStream.stream) {} })()
+                  : drain
+                primaryCapture?.start(driveUsage)
+                void driveUsage().catch(() => undefined)
                 try {
-                  const { done, value } = await next()
+                  const { done, value } = await readNext()
                   if (done) {
                     primaryCapture?.complete()
                     controller.close()
                     return
                   }
                   if (recordFrom(value)?.type === "finish") {
+                    await usageDraining
                     primaryCapture?.capture(value)
                     primaryCapture?.complete()
                     const captureList = captures()
@@ -1416,8 +1433,9 @@ function withCapturedStreamUsage<T extends {
                 primaryCapture?.start()
                 try {
                   const uiCancellation = getReader().cancel(reason)
+                  const usageCancellation = usageReader?.cancel(reason)
                   const sourceCancellation = cancelUiMessageSource?.(reason)
-                  await Promise.allSettled([uiCancellation, sourceCancellation])
+                  await Promise.allSettled([uiCancellation, usageCancellation, sourceCancellation])
                 }
                 finally {
                   primaryCapture?.complete()
@@ -1435,7 +1453,7 @@ async function combinedUsageRecord(
   usage: unknown,
 ): Promise<AgentUsageRecord | undefined> {
   const records = (await Promise.all(calls.flatMap(({ capture, result }) => {
-    if (capture.languageModelCallSources.length > 1) {
+    if (capture.languageModelCallSources.length > 1 && result === undefined) {
       return capture.languageModelCallSources.map((source, index) => {
         const resultSource = capture.languageModelCallResultSources[index]
         const sourceRecord = recordFrom(source)
@@ -1505,6 +1523,79 @@ function withResolvedModelMetadata(result: unknown, model: unknown): unknown {
     })
   }
   return result
+}
+
+function withProviderStreamCancellation<T>(model: T): T {
+  if (!model || !hasRuntimeType(model, "object")) return model
+  const doStream = Reflect.get(model, "doStream")
+  if (!hasRuntimeType(doStream, "function")) return model
+  return new Proxy(model, {
+    get(target, property, receiver) {
+      if (property !== "doStream") return Reflect.get(target, property, receiver)
+      return async (options: unknown) => {
+        const result = await Reflect.apply(doStream, target, [options])
+        const resultRecord = recordFrom(result)
+        if (!resultRecord) return result
+        const source = Reflect.get(resultRecord, "stream")
+        if (!(source instanceof ReadableStream)) return result
+        const reader = source.getReader()
+        const signal = options && hasRuntimeType(options, "object")
+          ? Reflect.get(options, "abortSignal") as AbortSignal | undefined
+          : undefined
+        let cancelled = false
+        let completed = false
+        let streamController: ReadableStreamDefaultController<unknown> | undefined
+        const detach = () => signal?.removeEventListener("abort", onAbort)
+        const cancel = async (reason?: unknown) => {
+          if (cancelled || completed) return
+          cancelled = true
+          detach()
+          await reader.cancel(reason)
+          try {
+            streamController?.close()
+          }
+          catch {
+            // A concurrent provider read may already have closed the wrapper.
+          }
+        }
+        const onAbort = () => { void cancel(signal?.reason).catch(() => undefined) }
+        const stream = new ReadableStream({
+          start(controller) {
+            streamController = controller
+          },
+          async cancel(reason) {
+            await cancel(reason)
+          },
+          async pull(controller) {
+            try {
+              const item = await reader.read()
+              if (cancelled) {
+                controller.close()
+                return
+              }
+              if (item.done) {
+                completed = true
+                detach()
+                reader.releaseLock()
+                controller.close()
+              }
+              else controller.enqueue(item.value)
+            }
+            catch (error) {
+              completed = true
+              detach()
+              controller.error(error)
+            }
+          },
+        }, { highWaterMark: 0 })
+        if (signal?.aborted) onAbort()
+        else signal?.addEventListener("abort", onAbort, { once: true })
+        return cloneWithPropertyDescriptors(resultRecord, {
+          stream: { configurable: true, enumerable: true, value: stream, writable: true },
+        })
+      }
+    },
+  })
 }
 
 function arrayFrom(value: unknown): unknown[] {
@@ -1717,6 +1808,7 @@ async function createAgent(
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const executionModel = withProviderStreamCancellation(instrumentedModel)
   const baseInstructions = joinInstructions(
     await resolveInstructions(options, metadataContext),
     context.instructions,
@@ -1768,13 +1860,15 @@ async function createAgent(
     context: context.context,
     input: context.input,
     invoker: context.invoker,
-    model: instrumentedModel,
+    model: executionModel,
     run: context.runtime.run,
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
+  const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false && !streamUsageCapture
+    ? agentOutputJsonSchema(context.output.schema)
+    : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
   const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context), context)
@@ -1812,7 +1906,7 @@ async function createAgent(
             ...repairSettings,
             instructions: toolRepairInstructions,
             // SAFETY: AI SDK adapter normalization establishes the asserted model contract.
-            model: instrumentedModel as never,
+            model: executionModel as never,
             output: aiSdk.Output.object({ schema: jsonSchema(schema) }),
             ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
             stopWhen: isStepCount(1),
@@ -1826,14 +1920,36 @@ async function createAgent(
             onStepEnd: usageCapture.onStepEnd,
             prompt: toolCallRepairPrompt(toolCall, schema, error),
           }, invocationDeadline) as never)
-          return { ...toolCall, input: JSON.stringify(result.output) }
+          const repairedInput = result.output
+          const repairedTool = tools[toolCall.toolName]
+          const inputSchemaValue = repairedTool && hasRuntimeType(repairedTool, "object")
+            ? Reflect.get(repairedTool, "inputSchema")
+            : undefined
+          const standard = inputSchemaValue && hasRuntimeType(inputSchemaValue, "object")
+            ? Reflect.get(inputSchemaValue, "~standard")
+            : undefined
+          const standardRecord = recordFrom(standard)
+          const validate = standardRecord ? Reflect.get(standardRecord, "validate") : undefined
+          if (hasRuntimeType(validate, "function")) {
+            const validation = await Reflect.apply(validate, standardRecord, [repairedInput])
+            const validationRecord = recordFrom(validation)
+            const issues = validationRecord ? Reflect.get(validationRecord, "issues") : undefined
+            if (Array.isArray(issues) && issues.length) {
+              toolRepairFailure = error
+              throw error
+            }
+          }
+          return { ...toolCall, input: JSON.stringify(repairedInput) }
         }
-        catch (error) {
-          if (abortSignal?.aborted) throw abortSignal.reason ?? error
-          const name = error && hasRuntimeType(error, "object") ? Reflect.get(error, "name") : undefined
-          if (isAgentOutputValidationError(error) || name === "AI_NoObjectGeneratedError") return null
-          toolRepairFailure = error
-          throw error
+        catch (repairError) {
+          if (abortSignal?.aborted) throw abortSignal.reason ?? repairError
+          const name = repairError && hasRuntimeType(repairError, "object") ? Reflect.get(repairError, "name") : undefined
+          if (isAgentOutputValidationError(repairError) || name === "AI_NoObjectGeneratedError") {
+            toolRepairFailure = error
+            throw error
+          }
+          toolRepairFailure = repairError
+          throw repairError
         }
       }
     : undefined
@@ -1850,7 +1966,7 @@ async function createAgent(
         ...repairSettings,
         instructions,
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        model: instrumentedModel as never,
+        model: executionModel as never,
         ...(nativeOutput ? { output: nativeOutput } : {}),
         ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
         stopWhen: isStepCount(1),
@@ -1904,17 +2020,19 @@ async function createAgent(
       ...(onChunk ? { onChunk } : {}),
       instructions,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      model: instrumentedModel as never,
+      model: executionModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
+      stopWhen: (repairToolCall === builtInRepairToolCall
+        ? [() => toolRepairFailure !== undefined, ...[((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20))].flat()]
+        : (settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
-    model: instrumentedModel,
+    model: executionModel,
     maxOutputAttempts,
     repairOutput,
     toolRepairFailure: () => toolRepairFailure,
@@ -2085,10 +2203,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       const auxiliaryUsageCaptures = [...toolRepairUsageCaptures, ...repairUsageCaptures]
-      const finalOriginalStep = originalGenerated?.steps?.at(-1) ?? originalGenerated
       const usageRecord = auxiliaryUsageCaptures.some(capture => capture.captured)
         ? await combinedUsageRecord([
-            { capture: usageCapture, result: finalOriginalStep },
+            { capture: usageCapture, result: originalGenerated },
             ...toolRepairUsageCaptures.map(capture => ({ capture })),
             ...repairUsageCaptures.map((capture, index) => ({
               capture,
@@ -2222,7 +2339,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           error => Promise.resolve(onfinally?.()).then(() => { throw error }),
         ),
         // oxlint-disable-next-line unicorn/no-thenable -- Preserve lazy startup until a caller consumes the Promise-compatible AI SDK accessor.
-        then: (onfulfilled, onrejected) => driveUsage().then(select).then(onfulfilled, onrejected),
+        then: (onfulfilled, onrejected) => Promise.resolve().then(driveUsage).then(select).catch((error) => {
+          if (streamCancellation.signal.aborted || abortSignal?.aborted) return undefined as T
+          throw error
+        }).then(onfulfilled, onrejected),
         [Symbol.toStringTag]: "Promise",
       })
       const lazyStream = (property: "fullStream" | "stream" | "textStream"): ReadableStream<unknown> => {
@@ -2429,6 +2549,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       Object.defineProperty(result, agentOutputUsageReadySymbol, {
         configurable: true,
         value: outputUsageLifecycle,
+      })
+      Object.defineProperty(result, Symbol.for("vitehub.agent.stream.cancel"), {
+        configurable: true,
+        value: cancelProvider,
       })
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const effectiveFallback = context.output && maxOutputAttempts <= 1
