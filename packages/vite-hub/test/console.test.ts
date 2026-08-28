@@ -687,6 +687,35 @@ describe("Agent invocation console", () => {
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
   })
 
+  it("keeps fallback Agent Definition journals bound to refreshed fixtures", () => {
+    const projectRoot = "/project"
+    const fixture = "/fixture.json"
+    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const definition = defineAgent({ driver: { run: () => "ok" }, name: "support" })
+
+    installConsoleInvocationFallback(
+      first,
+      projectRoot,
+      globalThis,
+      createConsoleInvocationsIdentity(projectRoot, fixture, "first"),
+      "first",
+    )
+    installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], first)
+    expect(definition.invocations).toBe(first)
+
+    installConsoleInvocationFallback(
+      second,
+      projectRoot,
+      globalThis,
+      createConsoleInvocationsIdentity(projectRoot, fixture, "second"),
+      "second",
+    )
+    expect(definition.invocations).toBe(second)
+  })
+
   it("preserves an explicitly configured Agent invocation journal", () => {
     const explicitInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const consoleInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })

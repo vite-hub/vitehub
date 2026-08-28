@@ -38,7 +38,7 @@ export function installConsoleAgentDefinitions(
       // SAFETY: The object check establishes the string-keyed record needed to inspect a generated module default export.
       agent = module.default as Record<string, unknown>
     }
-    if (agent && (Reflect.get(agent, consoleInvocationsFallbackKey) === true || agent.invocations === undefined)) {
+    if (agent && Reflect.get(agent, consoleInvocationsFallbackKey) !== true && agent.invocations === undefined) {
       agent.invocations = invocations
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent Definitions may come from untyped JavaScript, so verify the identity before installing it.
