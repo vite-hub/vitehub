@@ -81,6 +81,7 @@ If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard both r
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
+    agent: true,
     auth: true,
     console: { access: 'auth' },
     preset: 'node',
@@ -113,6 +114,7 @@ Apps that use another authentication library must protect both route groups in h
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
+    agent: true,
     console: { exposure: 'host-managed' },
     preset: 'node',
   })],

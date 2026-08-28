@@ -173,6 +173,8 @@ describe("ViteHub Console", () => {
 
       expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/sections", "/_vitehub", "/_vitehub/**"])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).not.toContain("hidden.agent")

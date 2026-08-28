@@ -208,6 +208,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
+      "./console/sections",
       "./console/server",
       "./database/drizzle",
       "./nuxt",

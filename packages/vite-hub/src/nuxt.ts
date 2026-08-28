@@ -166,9 +166,10 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
 function renderConsoleNitroPlugin(projectRoot: string, sections: readonly ConsoleSectionId[], agents: readonly { handler: string; name: string }[]): string {
   const agentsEnabled = sections.includes("agents")
   return [
-    `import { ${["installConsoleSections", ...(agentsEnabled ? ["installConsoleAgentDefinitions", "installConsoleInvocations"] : [])].join(
-      ", ",
-    )} } from "vite-hub/console/server"`,
+    `import { installConsoleSections } from "vite-hub/console/sections"`,
+    ...(agentsEnabled
+      ? [`import { installConsoleAgentDefinitions, installConsoleInvocations } from "vite-hub/console/server"`]
+      : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
     ...(agentsEnabled

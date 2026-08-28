@@ -163,6 +163,7 @@ onBeforeUnmount(() => request?.abort());
               color="neutral"
               :icon="section.icon"
               :label="collapsed ? undefined : section.label"
+              :aria-label="collapsed ? section.label : undefined"
               variant="ghost"
               @click="openSection(section.routeName)"
             />
