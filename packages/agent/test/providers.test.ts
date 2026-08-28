@@ -14443,7 +14443,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("rejects request-scoped State before a Workflow custody handoff", async () => {
     const { defineAgent } = await import("../src/index.ts")

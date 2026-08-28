@@ -54,7 +54,7 @@ export async function loadViteHubCliConfig(
   } = {},
 ): Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved: true }> {
   const resolveViteConfig = dependencies.resolveViteConfig ?? defaultResolveViteConfig
-  if (hasConfig(rootDir, "vite") || !hasConfig(rootDir, "nuxt")) {
+  if (!hasConfig(rootDir, "nuxt")) {
     return {
       // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's plugin before Vite reads the config.
       ...await resolveViteConfig({ root: rootDir, vitehubCliDiscovery: true } as InlineConfig, "serve", "development"),
@@ -71,7 +71,7 @@ export async function loadViteHubCliConfig(
   })
   try {
     const nuxtRoot = nuxt.options.rootDir || rootDir
-    const viteRoot = resolve(nuxtRoot, nuxt.options.vite?.root ?? nuxtRoot)
+    const viteRoot = resolve(nuxtRoot, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : nuxtRoot)
     return {
       // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's plugin before Vite reads the config.
       ...await resolveViteConfig({

@@ -133,11 +133,6 @@ async function loadViteConfig(rootDir: string): Promise<ViteHubCliLoadedConfig> 
   return await resolveConfig(inlineConfig, "serve", "development")
 }
 
-function hasViteConfig(rootDir: string) {
-  return ["vite.config.ts", "vite.config.mts", "vite.config.cts", "vite.config.js", "vite.config.mjs", "vite.config.cjs"]
-    .some(file => existsSync(resolve(rootDir, file)))
-}
-
 // Built-in namespace that orchestrates package-contributed Provision Steps.
 function createProvisionNamespace(plugins: readonly unknown[]): ViteHubCliCommandNamespace {
   const collectSteps = () => collectViteHubProvisionSteps(plugins)
@@ -190,10 +185,10 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
   const config = await (options.loadConfig || loadViteConfig)(cwd)
-  const nuxtConfig = config.vitehubConfigResolved || (!options.loadConfig && hasViteConfig(cwd))
+  const nuxtConfig = config.vitehubConfigResolved
     ? undefined
     : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
-  const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])]
+  const plugins = nuxtConfig?.plugins ?? config.plugins
   const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
   const namespaces = [
     ...await collectViteHubCliNamespaces(plugins),

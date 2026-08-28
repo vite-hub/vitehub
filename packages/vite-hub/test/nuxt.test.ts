@@ -8,10 +8,11 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 
-import type { Plugin, PluginOption } from "vite"
+import type { Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
@@ -134,7 +135,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
       srcDir: "/tmp/vitehub-nuxt/app",
-      vite: { plugins },
+      vite: { plugins } as UserConfig,
       vitehubCliDiscovery: undefined as true | undefined,
       watch: undefined as string[] | undefined,
     },
@@ -294,6 +295,16 @@ describe("ViteHub Nuxt integration", () => {
     ])
   })
 
+  it("keeps ViteHub discovery rooted at the Nuxt project", async () => {
+    const { nuxt } = createNuxt()
+    delete nuxt.options.vite.root
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(nuxt.options.vite.root).toBe(nuxt.options.rootDir)
+    expect(Reflect.get(nuxt.options.vite, "__vitehubProjectRoot")).toBe(nuxt.options.rootDir)
+  })
+
   it("loads colocated Markdown templates through Nitro Rollup", async () => {
     const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
     const standaloneLoad = vi.fn()
@@ -353,6 +364,129 @@ describe("ViteHub Nuxt integration", () => {
     expect(standaloneResolveId).not.toHaveBeenCalled()
     expect(standaloneLoad).not.toHaveBeenCalled()
     expect(nestedResolve).toHaveBeenCalledWith("./name.md", "/app/server/api/reply.template.md")
+  })
+
+  it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
+    let resolvedKv: unknown
+    let resolvedBlob: unknown
+    const kvResolveId = vi.fn((id: string) => id === "#vitehub/kv/config" ? "\0#vitehub/kv/config" : undefined)
+    const kvLoad = vi.fn((id: string) => id === "\0#vitehub/kv/config" ? `export const kv = ${JSON.stringify(resolvedKv)}` : undefined)
+    const blobResolveId = vi.fn((id: string) => id === "#vitehub/blob/config" ? "\0#vitehub/blob/config" : undefined)
+    const blobLoad = vi.fn((id: string) => id === "\0#vitehub/blob/config" ? `export const blob = ${JSON.stringify(resolvedBlob)}` : undefined)
+    mocks.vitehub.mockReturnValue([
+      {
+        configResolved(config: { kv?: unknown }) {
+          resolvedKv = config.kv
+        },
+        load: kvLoad,
+        name: "@vite-hub/kv/vite",
+        resolveId: kvResolveId,
+      },
+      {
+        configResolved(config: { blob?: unknown }) {
+          resolvedBlob = config.blob
+        },
+        load: blobLoad,
+        name: "@vite-hub/blob/vite",
+        resolveId: blobResolveId,
+      },
+    ])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options.vite, {
+      blob: { driver: "r2" },
+      kv: { driver: "cloudflare-kv" },
+    })
+    const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
+    const nitroConfig: { rollupConfig: { plugins: Plugin } } = {
+      rollupConfig: { plugins: existingPlugin },
+    }
+
+    await viteHubNuxtModule({ blob: true, kv: true, preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
+    expect(plugins.map(plugin => plugin.name)).toEqual([
+      "existing-nitro-plugin",
+      "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
+      "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
+    ])
+    const kvResolver = plugins[1]!
+    const blobResolver = plugins[2]!
+    const context = { marker: "nitro-context" }
+    expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
+    expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
+      'export const kv = {"driver":"cloudflare-kv"}',
+    )
+    expect(Reflect.apply(blobResolver.resolveId as Function, context, ["#vitehub/blob/config"])).toBe("\0#vitehub/blob/config")
+    expect(Reflect.apply(blobResolver.load as Function, context, ["\0#vitehub/blob/config"])).toBe(
+      'export const blob = {"driver":"r2"}',
+    )
+    expect(kvResolveId.mock.contexts[0]).toBe(context)
+    expect(kvLoad.mock.contexts[0]).toBe(context)
+    expect(blobResolveId.mock.contexts[0]).toBe(context)
+    expect(blobLoad.mock.contexts[0]).toBe(context)
+  })
+
+  it("installs Nitro modules owned by replayed ViteHub plugins", async () => {
+    const setup = vi.fn()
+    const nitroModule = { name: "@vite-hub/sandbox/provider-runtime", setup }
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/sandbox/vite",
+      nitro: nitroModule,
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const existingModule = { name: "existing-module", setup: vi.fn() }
+    const nitroConfig: Record<string, unknown> = { modules: existingModule }
+
+    await viteHubNuxtModule({ preset: "cloudflare", sandbox: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.modules).toEqual([existingModule, nitroModule])
+  })
+
+  it("finalizes Sandbox Wrangler config after every Nuxt replay contributor", async () => {
+    const configResolved = vi.fn((config: { nitro?: Record<string, unknown> }) => {
+      const migrations = ((config.nitro!.cloudflare as Record<string, unknown>).wrangler as Record<string, unknown>).migrations as Array<Record<string, unknown>>
+      migrations.splice(0, migrations.length, {
+        tag: "shared-v1",
+        new_sqlite_classes: migrations.flatMap(migration => migration.new_sqlite_classes as string[] || []),
+      })
+    })
+    mocks.vitehub.mockReturnValue([
+      {
+        name: "@vite-hub/sandbox/vite",
+        config: mocks.sandboxHook,
+        configResolved,
+      },
+      {
+        name: "vite-hub/later-cloudflare",
+        config(config: { nitro?: Record<string, unknown> }) {
+          const cloudflare = config.nitro?.cloudflare as Record<string, unknown>
+          const wrangler = cloudflare.wrangler as Record<string, unknown>
+          ;(wrangler.migrations as Array<Record<string, unknown>>).push({
+            tag: "shared-v1",
+            new_sqlite_classes: ["LaterObject"],
+          })
+        },
+      },
+    ])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig = {
+      cloudflare: {
+        wrangler: {
+          migrations: [{ tag: "shared-v1", new_sqlite_classes: ["Sandbox"] }],
+        },
+      },
+    }
+
+    await viteHubNuxtModule({ preset: "cloudflare", sandbox: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(configResolved).toHaveBeenCalledOnce()
+    expect(nitroConfig.cloudflare.wrangler.migrations).toEqual([{
+      tag: "shared-v1",
+      new_sqlite_classes: ["Sandbox", "LaterObject"],
+    }])
   })
 
   it("installs the read-only console in Nuxt development and production", async () => {
@@ -967,6 +1101,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.sandboxHook).toHaveBeenCalledWith(
       expect.objectContaining({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        [VITEHUB_PROJECT_ROOT]: "/tmp/vitehub-nuxt",
       }),
       expect.anything(),
     )
@@ -1055,6 +1190,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
+        [VITEHUB_PROJECT_ROOT]: "/tmp/vitehub-nuxt",
         root: "/tmp/vitehub-nuxt/custom-vite-root",
         workspace: false,
       }),
@@ -1592,7 +1728,7 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
-  it("resolves generated type roots from the effective Vite root", async () => {
+  it("resolves generated type roots from the Nuxt project root", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options.vite, { root: "app" })
     await mkdir("/tmp/vitehub-nuxt/app", { recursive: true })
@@ -1604,7 +1740,7 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
         exclude: ["../app/packages/config/.vitehub/data/**/*.d.ts"],
-        include: ["../app/.vitehub/types.d.ts", "../app/packages/config/.vitehub/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../app/packages/config/.vitehub/**/*.d.ts"],
       },
     })
   })
@@ -1621,7 +1757,7 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
         exclude: ["../packages/db/.vitehub/data/**/*.d.ts"],
-        include: ["../app/.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
       },
     })
   })

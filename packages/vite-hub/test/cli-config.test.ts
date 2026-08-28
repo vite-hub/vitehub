@@ -56,12 +56,14 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("resolves Nuxt's configured Vite root from the Nuxt root", async () => {
+  it("resolves Nuxt's configured Vite root for CLI discovery", async () => {
     const root = await createProject("nuxt")
+    const close = vi.fn()
     const loadNuxt = vi.fn(async () => ({
+      close,
       options: {
         rootDir: root,
-        vite: { root: "app" },
+        vite: { root: "app", plugins: [{ name: "nuxt-vitehub" }] },
       },
     }))
     const resolveViteConfig = vi.fn(async config => ({
@@ -70,14 +72,16 @@ describe("ViteHub CLI config loading", () => {
     }))
 
     await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
-      plugins: [],
+      plugins: [{ name: "nuxt-vitehub" }],
       root: join(root, "app"),
       vitehubConfigResolved: true,
     })
     expect(resolveViteConfig).toHaveBeenCalledWith(expect.objectContaining({
       configFile: false,
       root: join(root, "app"),
+      vitehubCliDiscovery: true,
     }), "serve", "development")
+    expect(close).toHaveBeenCalledOnce()
   })
 
   it("keeps explicit Vite config ownership", async () => {
@@ -95,10 +99,17 @@ describe("ViteHub CLI config loading", () => {
     expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", "development")
   })
 
-  it("preserves explicit Vite ownership across CLI discovery", async () => {
+  it("uses Nuxt ownership when a Nuxt app also has a Vite config", async () => {
     const root = await createProject("vite")
     await writeFile(join(root, "nuxt.config.ts"), "export default {}\n", "utf8")
-    const loadNuxt = vi.fn()
+    const close = vi.fn()
+    const loadNuxt = vi.fn(async () => ({
+      close,
+      options: {
+        rootDir: root,
+        vite: { plugins: [{ name: "nuxt-vitehub" }] },
+      },
+    }))
     const loadNuxtViteConfig = vi.fn()
     const resolveViteConfig = vi.fn(async config => ({ plugins: [], root: String(config.root) }))
 
@@ -110,7 +121,8 @@ describe("ViteHub CLI config loading", () => {
       stdout: { write: () => true },
     })
 
-    expect(loadNuxt).not.toHaveBeenCalled()
+    expect(loadNuxt).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 })
