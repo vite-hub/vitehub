@@ -283,6 +283,40 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(3)
   })
 
+  it.each(["generate", "stream"] as const)("enforces the invocation timeout while %s setup is pending", async (method) => {
+    const timeoutController = new AbortController()
+    const timeoutError = new DOMException("setup timed out", "TimeoutError")
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeoutController.signal)
+    let markResolverStarted!: () => void
+    const resolverStarted = new Promise<void>((resolve) => { markResolverStarted = resolve })
+    let resolverSignal: AbortSignal | undefined
+    try {
+      const agent = defineAgent({
+        driver: {
+          model: ((context: { abortSignal?: AbortSignal }) => {
+            resolverSignal = context.abortSignal
+            markResolverStarted()
+            return new Promise<never>(() => undefined)
+          }) as never,
+        },
+        runtime: false,
+      })
+      const invocation = method === "generate"
+        ? runAgentInline(agent, runtime, { prompt: "Respond", timeout: 100 })
+        : streamAgentInline(agent, runtime, { prompt: "Respond", timeout: 100 })
+
+      await resolverStarted
+      expect(resolverSignal).toBeDefined()
+      timeoutController.abort(timeoutError)
+
+      await expect(invocation).rejects.toBe(timeoutError)
+      expect(resolverSignal?.aborted).toBe(true)
+    }
+    finally {
+      timeoutSpy.mockRestore()
+    }
+  })
+
   it("shares the invocation timeout with structured output corrections", async () => {
     let now = 1_000
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now)
@@ -306,7 +340,7 @@ describe("AI SDK recovery", () => {
 
       await expect(runAgentInline(agent, runtime, { prompt: "Respond", timeout: 100 })).resolves.toEqual({ text: "repaired" })
 
-      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 20])
+      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 100, 20])
     }
     finally {
       timeoutSpy.mockRestore()
@@ -541,7 +575,7 @@ describe("AI SDK recovery", () => {
       // SAFETY: streamAgentInline returns the documented async iterable result contract.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
-      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 20])
+      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 100, 20])
     }
     finally {
       timeoutSpy.mockRestore()
@@ -1286,7 +1320,7 @@ describe("AI SDK recovery", () => {
         timeout: 100,
       })).resolves.toMatchObject({ text: "Finished" })
 
-      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 20])
+      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 100, 20])
     }
     finally {
       timeoutSpy.mockRestore()

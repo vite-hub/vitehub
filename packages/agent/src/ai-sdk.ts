@@ -479,11 +479,41 @@ async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdk
 
 interface AiSdkInvocationDeadline {
   expiresAt: number
+  signal: AbortSignal
   timeout: number
 }
 
 function createAiSdkInvocationDeadline(timeout: number | undefined): AiSdkInvocationDeadline | undefined {
-  return timeout === undefined ? undefined : { expiresAt: Date.now() + timeout, timeout }
+  return timeout === undefined ? undefined : { expiresAt: Date.now() + timeout, signal: AbortSignal.timeout(timeout), timeout }
+}
+
+function combinedAbortSignal(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const available = signals.filter((signal): signal is AbortSignal => Boolean(signal))
+  if (available.length < 2) return available[0]
+  return AbortSignal.any(available)
+}
+
+async function runWithinInvocationSignal<T>(
+  run: () => PromiseLike<T> | T,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  signal?.throwIfAborted()
+  const pending = Promise.resolve().then(run)
+  if (!signal) return await pending
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+    pending.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(error)
+      },
+    )
+  })
 }
 
 function withRemainingInvocationTimeout<T extends Record<string, unknown>>(
@@ -1650,6 +1680,7 @@ async function createAgent(
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const modelContext = {
     ...metadataContext,
+    ...(repairAbortSignal ? { abortSignal: repairAbortSignal } : {}),
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1744,7 +1775,7 @@ async function createAgent(
         const abortSignal = repairAbortSignal
         try {
           abortSignal?.throwIfAborted()
-          const schema = await inputSchema({ toolName: toolCall.toolName })
+          const schema = await runWithinInvocationSignal(() => inputSchema({ toolName: toolCall.toolName }), abortSignal)
           abortSignal?.throwIfAborted()
           const usageCapture = createUsageCapture()
           toolRepairUsageCaptures.push(usageCapture)
@@ -1865,17 +1896,27 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   return markMessageChannelInstructionConsumer({
     async generate(context) {
       const invocationDeadline = createAiSdkInvocationDeadline(context.input.timeout)
+      const invocationAbortSignal = combinedAbortSignal(context.input.abortSignal, invocationDeadline?.signal)
       const execution = options.execution
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
+      const callInput = await runWithinInvocationSignal(
+        () => getCallInput(context, execution?.attachments),
+        invocationAbortSignal,
+      ) as Record<string, unknown>
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture, undefined, invocationDeadline)
+      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures, tools } = await runWithinInvocationSignal(
+        () => createAgent(options, context, fallbackCapture, undefined, invocationDeadline, invocationAbortSignal),
+        invocationAbortSignal,
+      )
       if (context.workspace && tools && "materialize_sources" in tools) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
+        await runWithinInvocationSignal(
+          () => reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter),
+          invocationAbortSignal,
+        )
       }
       const usageCapture = createUsageCapture()
       const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
@@ -1893,6 +1934,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         repairUsageCaptures.push(usageCapture)
         return {
           ...withRemainingInvocationTimeout(callInput, invocationDeadline),
+          ...(invocationAbortSignal ? { abortSignal: invocationAbortSignal } : {}),
           onEnd: usageCapture.onEnd,
           onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
           onStepEnd: usageCapture.onStepEnd,
@@ -1904,6 +1946,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       const originalCallInput = {
         ...withRemainingInvocationTimeout(callInput, invocationDeadline),
+        ...(invocationAbortSignal ? { abortSignal: invocationAbortSignal } : {}),
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureOriginalStep,
@@ -2064,16 +2107,20 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         : undefined
       const abortSignal = context.input.abortSignal
       const streamCancellation = new AbortController()
-      const providerAbortSignal = abortSignal
-        ? AbortSignal.any([abortSignal, streamCancellation.signal])
-        : streamCancellation.signal
-      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture, invocationDeadline, providerAbortSignal)
+      const providerAbortSignal = combinedAbortSignal(abortSignal, invocationDeadline?.signal, streamCancellation.signal)!
+      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await runWithinInvocationSignal(
+        () => createAgent(options, context, fallbackCapture, usageCapture, invocationDeadline, providerAbortSignal),
+        providerAbortSignal,
+      )
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
       }
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
+      const callInput = await runWithinInvocationSignal(
+        () => getCallInput(context, execution?.attachments),
+        providerAbortSignal,
+      ) as Record<string, unknown>
       const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
       let resolveUsageReady!: () => void
       const usageReady = new Promise<void>((resolve) => { resolveUsageReady = resolve })
