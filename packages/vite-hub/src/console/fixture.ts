@@ -125,8 +125,12 @@ function diagnosticError(value: unknown, path: string): RuntimeDiagnosticError {
     }
     errors = input.errors.map((error, index) => diagnosticError(error, `${path}.errors[${index}]`))
   }
-  if (input.details !== undefined && !record(input.details)) {
-    throw new TypeError(`[vitehub] Console fixture ${path}.details must be an object.`)
+  if (input.details !== undefined) {
+    const details = record(input.details)
+    if (!details) {
+      throw new TypeError(`[vitehub] Console fixture ${path}.details must be an object.`)
+    }
+    assertJsonValue(details, `${path}.details`)
   }
   const code = diagnosticScalar(input.code, `${path}.code`)
   const name = diagnosticString(input.name, `${path}.name`)

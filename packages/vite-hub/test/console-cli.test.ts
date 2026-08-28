@@ -359,6 +359,10 @@ describe("Console fixture CLI", () => {
       { errors: [{}], message: "outer" },
       "invocations[0].error.errors[0].message must be a non-empty string",
     ],
+    [
+      { details: { retry: { attempts: Number.POSITIVE_INFINITY } }, message: "failed" },
+      'invocations[0].error.details["retry"]["attempts"] must be a finite number',
+    ],
   ])("rejects malformed fixture diagnostic errors %#", (error, message) => {
     expect(() =>
       parseConsoleFixture({
