@@ -81,3 +81,19 @@ test('uses only the last assistant message when an invocation record is availabl
   )
   assert.equal(agentResultText({ text: 'Do not leak this fallback.' }, []), undefined)
 })
+
+test('preserves a fragmented Babysitter disposition through interleaved tool output', () => {
+  const observations = [
+    { attributes: { 'message.content': 'Inspection notes.', 'message.role': 'assistant' }, name: 'agent.message.delta' },
+    { attributes: { 'message.content': '<!-- babysitter:disposition:park -->\n', 'message.role': 'assistant' }, name: 'agent.message.delta' },
+    { attributes: { 'tool.output': 'not part of the final answer' }, name: 'agent.tool.output' },
+    { attributes: { 'message.content': 'Required CI is pending.', 'message.role': 'assistant' }, name: 'agent.message.delta' },
+    { attributes: { 'finish.reason': 'completed' }, name: 'agent.stream.finish' },
+    { attributes: { 'message.content': 'late noise', 'message.role': 'assistant' }, name: 'agent.message.delta' },
+  ]
+
+  assert.equal(
+    agentResultText(undefined, observations),
+    '<!-- babysitter:disposition:park -->\nRequired CI is pending.',
+  )
+})

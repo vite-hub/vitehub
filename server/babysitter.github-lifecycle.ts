@@ -71,21 +71,31 @@ export async function finishPullRequestLifecycle(
 
 export function agentResultText(value: unknown, observations?: readonly unknown[]) {
   if (observations) {
-    for (const observation of observations.toReversed()) {
-      if (!observation || typeof observation !== 'object') continue
-      const record = observation as Record<string, unknown>
-      if (record.name !== 'agent.message.delta' || !record.attributes || typeof record.attributes !== 'object') continue
-      const attributes = record.attributes as Record<string, unknown>
-      if (attributes['message.role'] !== 'assistant') continue
-      const content = attributes['message.content']
-      if (typeof content === 'string' && content.trim()) return content.trim()
+    const messages = observations.map(assistantMessage)
+    const dispositionIndex = messages.findLastIndex(message => message?.includes('<!-- babysitter:disposition:'))
+    if (dispositionIndex >= 0) {
+      const streamEnd = observations.findIndex((observation, index) => index > dispositionIndex
+        && observation && typeof observation === 'object'
+        && (observation as Record<string, unknown>).name === 'agent.stream.finish')
+      const content = messages.slice(dispositionIndex, streamEnd < 0 ? undefined : streamEnd).filter(Boolean).join('').trim()
+      if (content) return content
     }
+    for (const message of messages.toReversed()) if (message?.trim()) return message.trim()
     return undefined
   }
   if (typeof value === 'string') return value.trim() || undefined
   if (!value || typeof value !== 'object') return undefined
   const text = (value as Record<string, unknown>).text
   return typeof text === 'string' ? text.trim() || undefined : undefined
+}
+
+function assistantMessage(observation: unknown) {
+  if (!observation || typeof observation !== 'object') return undefined
+  const record = observation as Record<string, unknown>
+  if (record.name !== 'agent.message.delta' || !record.attributes || typeof record.attributes !== 'object') return undefined
+  const attributes = record.attributes as Record<string, unknown>
+  const content = attributes['message.content']
+  return attributes['message.role'] === 'assistant' && typeof content === 'string' ? content : undefined
 }
 
 export function babysitterSessionUrl(invocationId: string) {
