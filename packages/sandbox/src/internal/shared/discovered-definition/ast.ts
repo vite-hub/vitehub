@@ -5,6 +5,12 @@ import type ts from 'typescript'
 
 const require = createRequire(import.meta.url)
 const typescript = require('typescript') as typeof import('typescript')
+const filesystemModuleSpecifiers = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises'])
+
+export interface FilesystemPathReference {
+  path: string
+  relativeTo: 'module' | 'working-directory'
+}
 
 export function resolveImportLocalName(entry: Import) {
   return entry.as || entry.name
@@ -117,6 +123,74 @@ export function findRuntimeRelativeModuleSpecifiers(source: string, id: string) 
 
 export function hasNonLiteralDynamicImport(source: string, id: string) {
   return collectRuntimeModuleSpecifiers(source, id).hasNonLiteralDynamicImport
+}
+
+function readFilesystemPathReference(argument: ts.Expression | undefined): FilesystemPathReference | undefined {
+  if (!argument)
+    return undefined
+  if (typescript.isStringLiteralLike(argument))
+    return { path: argument.text, relativeTo: 'working-directory' }
+  if (!typescript.isNewExpression(argument)
+    || !typescript.isIdentifier(argument.expression)
+    || argument.expression.text !== 'URL') {
+    return undefined
+  }
+  const [path, base] = argument.arguments || []
+  if (!path
+    || !typescript.isStringLiteralLike(path)
+    || !base
+    || !typescript.isPropertyAccessExpression(base)
+    || base.name.text !== 'url'
+    || !typescript.isMetaProperty(base.expression)
+    || base.expression.keywordToken !== typescript.SyntaxKind.ImportKeyword) {
+    return undefined
+  }
+  return { path: path.text, relativeTo: 'module' }
+}
+
+export function findFilesystemPathReferences(source: string, id: string): FilesystemPathReference[] {
+  const sourceFile = createSourceFile(id, source)
+  const directBindings = new Set<string>()
+  const namespaceBindings = new Set<string>()
+  const references: FilesystemPathReference[] = []
+
+  for (const statement of sourceFile.statements) {
+    if (!typescript.isImportDeclaration(statement)
+      || !typescript.isStringLiteralLike(statement.moduleSpecifier)
+      || !filesystemModuleSpecifiers.has(statement.moduleSpecifier.text)
+      || statement.importClause?.isTypeOnly) {
+      continue
+    }
+    const clause = statement.importClause
+    if (clause?.name)
+      namespaceBindings.add(clause.name.text)
+    const bindings = clause?.namedBindings
+    if (bindings && typescript.isNamespaceImport(bindings))
+      namespaceBindings.add(bindings.name.text)
+    else if (bindings && typescript.isNamedImports(bindings)) {
+      for (const binding of bindings.elements) {
+        if (!binding.isTypeOnly)
+          directBindings.add(binding.name.text)
+      }
+    }
+  }
+
+  function visit(node: ts.Node) {
+    if (typescript.isCallExpression(node)) {
+      const direct = typescript.isIdentifier(node.expression) && directBindings.has(node.expression.text)
+      const root = propertyAccessRoot(node.expression).current
+      const namespaced = typescript.isIdentifier(root) && namespaceBindings.has(root.text)
+      if (direct || namespaced) {
+        const reference = readFilesystemPathReference(node.arguments[0])
+        if (reference)
+          references.push(reference)
+      }
+    }
+    typescript.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return references
 }
 
 function propertyAccessRoot(expression: ts.Expression) {

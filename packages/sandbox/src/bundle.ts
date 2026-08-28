@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { builtinModules } from 'node:module'
-import { basename } from 'pathe'
+import { basename, dirname, join, normalize } from 'pathe'
 import { prepareExecutablePackageProject } from './internal/package-entry'
+import { findFilesystemPathReferences } from './internal/shared/discovered-definition/ast'
 import { bundleDiscoveredDefinitionModuleGraph } from './internal/shared/discovered-definition'
 import type { SandboxDefinitionBundle } from './module-types'
 import type { SandboxProject } from './project'
@@ -11,7 +12,48 @@ const builtinModuleSet = new Set([
   ...builtinModules,
   ...builtinModules.map(name => `node:${name}`),
 ])
-const filesystemModuleSet = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises'])
+
+function isRelativeFilesystemPath(path: string) {
+  return !!path
+    && !/^[/\\]/.test(path)
+    && !/^[A-Za-z]:[/\\]/.test(path)
+    && !/^[A-Za-z][A-Za-z\d+.-]*:/.test(path)
+}
+
+function findDefinitionProjectPath(file: string, project: SandboxProject) {
+  const normalizedFile = normalize(file.replaceAll('\\', '/'))
+  return Object.keys(project.files)
+    .filter(path => normalizedFile.endsWith(`/${normalize(path)}`))
+    .sort((left, right) => right.length - left.length)[0]
+}
+
+function hasProjectAssetReference(
+  modules: Record<string, string>,
+  file: string,
+  project: SandboxProject,
+) {
+  const projectPaths = new Set(Object.keys(project.files).map(path => normalize(path)))
+  const packagePath = project.packagePath === '.' ? '' : normalize(project.packagePath)
+  const definitionPath = findDefinitionProjectPath(file, project)
+  return Object.entries(modules).some(([modulePath, contents]) => {
+    return findFilesystemPathReferences(contents, modulePath).some((reference) => {
+      if (!isRelativeFilesystemPath(reference.path))
+        return false
+      const relativePath = normalize(reference.path.replaceAll('\\', '/'))
+      if (reference.relativeTo === 'working-directory') {
+        const projectPath = normalize(join(packagePath, relativePath))
+        return !projectPath.startsWith('../') && projectPaths.has(projectPath)
+      }
+      if (definitionPath) {
+        const projectPath = normalize(join(dirname(definitionPath), relativePath))
+        if (!projectPath.startsWith('../') && projectPaths.has(projectPath))
+          return true
+      }
+      const suffix = relativePath.replace(/^(?:\.\.\/)+/, '').replace(/^\.\//, '')
+      return !!suffix && [...projectPaths].some(path => path === suffix || path.endsWith(`/${suffix}`))
+    })
+  })
+}
 
 export async function bundleSandboxDefinition(
   source: string,
@@ -97,7 +139,8 @@ export async function bundleSandboxDefinition(
     ],
   })
   const requiresProject = hasRuntimeModuleResolution
-    || externalImports.some(specifier => !builtinModuleSet.has(specifier) || filesystemModuleSet.has(specifier))
+    || externalImports.some(specifier => !builtinModuleSet.has(specifier))
+    || (!!options.project && hasProjectAssetReference(bundle.modules, file, options.project))
   if (!options.project || !requiresProject) {
     return {
       ...bundle,
