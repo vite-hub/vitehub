@@ -192,6 +192,26 @@ describe("Provider Agent Driver", () => {
     await rm(homes[0], { force: true, recursive: true })
   })
 
+  it("repairs a named profile after an interrupted credential rotation", async () => {
+    const profile = `provider-interrupted-rotation-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const credentials = JSON.stringify({ OPENAI_API_KEY: "original" })
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+
+    runtime("thread-interrupted-rotation-first", [event("turn.completed", "thread-interrupted-rotation-first", { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context("thread-interrupted-rotation-first") as never)
+    await rm(join(homePath, ".vitehub-seed.sha256"))
+    await writeFile(join(homePath, "auth.json"), '{"OPENAI_API_KEY":"partial-rotation"}\n', { mode: 0o600 })
+
+    runtime("thread-interrupted-rotation-repair", [event("turn.completed", "thread-interrupted-rotation-repair", { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context("thread-interrupted-rotation-repair") as never)
+
+    await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toBe(`${credentials}\n`)
+    await rm(homePath, { force: true, recursive: true })
+  })
+
   it("updates a credential-store setting after multiline TOML content", async () => {
     const profile = `provider-multiline-config-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
@@ -2468,6 +2488,8 @@ cli_auth_credentials_store = "keyring"
   it("releases a named credential profile when only Capability cleanup stalls", async () => {
     vi.useFakeTimers()
     let client: McpClient | undefined
+    let resolveExecute: (() => void) | undefined
+    let toolCall: Promise<unknown> | undefined
     try {
       const threadId = "thread-profile-tool-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
@@ -2477,11 +2499,11 @@ cli_auth_credentials_store = "keyring"
             requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
           })
           await client.connect(transport)
-          void client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
         },
       })
-      const execute = vi.fn(() => new Promise(() => {}))
+      const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
       const options = {
         credentialProfile: `tool-cleanup-timeout-${crypto.randomUUID()}`,
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
@@ -2501,6 +2523,8 @@ cli_auth_credentials_store = "keyring"
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).resolves.toBeDefined()
     }
     finally {
+      resolveExecute?.()
+      await toolCall
       await client?.close().catch(() => undefined)
       vi.useRealTimers()
     }
@@ -2509,6 +2533,8 @@ cli_auth_credentials_store = "keyring"
   it("quarantines a named credential profile when provider cleanup rejects while Capability cleanup stalls", async () => {
     vi.useFakeTimers()
     let client: McpClient | undefined
+    let resolveExecute: (() => void) | undefined
+    let toolCall: Promise<unknown> | undefined
     try {
       const threadId = "thread-profile-rejected-provider-stalled-tool"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
@@ -2518,12 +2544,12 @@ cli_auth_credentials_store = "keyring"
             requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
           })
           await client.connect(transport)
-          void client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
         },
       })
       provider.close.mockRejectedValueOnce(new Error("close failed"))
-      const execute = vi.fn(() => new Promise(() => {}))
+      const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
       const options = {
         credentialProfile: `rejected-provider-stalled-tool-${crypto.randomUUID()}`,
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
@@ -2535,14 +2561,21 @@ cli_auth_credentials_store = "keyring"
       }) as never)
 
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
-      const rejection = expect(result).rejects.toThrow("Provider Agent Driver cleanup failed")
+      const rejection = Promise.resolve(result).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
       await vi.advanceTimersByTimeAsync(10_000)
-      await rejection
+      const cleanupError = await rejection
+      expect(cleanupError).toBeInstanceOf(AggregateError)
+      expect(cleanupError).toHaveProperty("message", "Provider Agent Driver cleanup failed")
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
     }
     finally {
+      resolveExecute?.()
+      await toolCall
       await client?.close().catch(() => undefined)
       vi.useRealTimers()
     }

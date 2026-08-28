@@ -282,6 +282,7 @@ async function writeProtectedCodexFile(homePath: string, name: string, contents:
 
 async function writeCodexCredentials(homePath: string, credentials: string): Promise<void> {
   const seedHash = codexCredentialSeedHash(credentials)
+  await rm(join(homePath, ".vitehub-seed.sha256"), { force: true })
   await writeProtectedCodexFile(homePath, "auth.json", credentials)
   await writeProtectedCodexFile(homePath, ".vitehub-seed.sha256", `${seedHash}\n`)
 }
