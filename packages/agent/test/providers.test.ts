@@ -1609,7 +1609,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const emailPlugin = hubEmail({ driver: "unemail/driver/resend" })
+      const emailPlugin = hubEmail({ driver: "resend" })
       if (isRuntimeFunction(emailPlugin.configResolved)) {
         // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
         await emailPlugin.configResolved.call({} as never, { root } as never)
