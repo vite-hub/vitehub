@@ -279,7 +279,7 @@ export const AgentInvocationList = defineComponent({
             if (!(event.currentTarget instanceof HTMLDetailsElement)) return;
             if (group.key === "queued") queuedOpen.value = event.currentTarget.open;
             else doneOpen.value = event.currentTarget.open;
-            if (event.currentTarget.open) requestMoreIfNeeded();
+            if (event.currentTarget.open) requestMoreAutomatically();
           },
           open: group.key === "queued" ? queuedOpen.value : doneOpen.value,
         }, [h("summary", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)])

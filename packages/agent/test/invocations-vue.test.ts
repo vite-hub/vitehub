@@ -336,19 +336,36 @@ describe("Agent Invocation Vue composables", () => {
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ request }))!;
 
-    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    calls[0]!.resolve({
+      cursor: "page-2",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["pending", "completed"],
+    });
     await settle();
 
     const firstReplay = resource.loadMore();
-    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-1")] });
+    calls[1]!.resolve({
+      cursor: "page-3",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["completed"],
+    });
     await settle();
-    calls[2]!.resolve({ cursor: "page-4", invocations: [record("inv-1")] });
+    calls[2]!.resolve({
+      cursor: "page-4",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["completed"],
+    });
     await firstReplay;
 
     const refresh = resource.refresh();
-    calls[3]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    calls[3]!.resolve({
+      cursor: "page-2",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["pending", "completed"],
+    });
     await refresh;
     expect(resource.cursor.value).toBe("page-4");
+    expect(resource.remainingStatuses.value).toEqual(["completed"]);
 
     const next = resource.loadMore();
     expect(calls[4]!.path).toContain("cursor=page-4");

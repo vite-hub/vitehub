@@ -1751,6 +1751,34 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(1);
   });
 
+  it("does not paginate hidden terminal history when Queued is reopened", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [
+          { id: "queued", status: "pending", title: "Queued" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+        remainingStatuses: ["completed"],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+    const queued = wrapper.get('details[data-group="queued"]');
+
+    if (!(queued.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    queued.element.open = false;
+    await queued.trigger("toggle");
+    queued.element.open = true;
+    await queued.trigger("toggle");
+
+    expect(wrapper.emitted("endReached")).toBeUndefined();
+  });
+
   it("formats token counts with a stable locale", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation: AgentInvocationView = {

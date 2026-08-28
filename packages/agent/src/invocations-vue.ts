@@ -296,6 +296,7 @@ export function useAgentInvocations(
   let loadMoreController: AbortController | undefined;
   let firstPageCursor: string | undefined;
   let paginationCursor: string | undefined;
+  let paginationRemainingStatuses: readonly AgentInvocationRecordStatus[] = [];
   let paginationStarted = false;
   let revision = 0;
   let reconciliationOffset = 0;
@@ -318,8 +319,9 @@ export function useAgentInvocations(
         cursor.value = result.cursor;
         firstPageCursor = result.cursor;
         paginationCursor = result.cursor;
+        paginationRemainingStatuses = result.remainingStatuses ?? [];
         paginationStarted = false;
-        remainingStatuses.value = result.remainingStatuses ?? [];
+        remainingStatuses.value = paginationRemainingStatuses;
         resetFirstPage = false;
         return;
       }
@@ -334,10 +336,13 @@ export function useAgentInvocations(
       if (result.cursor !== firstPageCursor) {
         firstPageCursor = result.cursor;
         paginationCursor = result.cursor;
+        paginationRemainingStatuses = result.remainingStatuses ?? [];
         paginationStarted = false;
       }
       cursor.value = paginationStarted ? paginationCursor : result.cursor;
-      remainingStatuses.value = result.remainingStatuses ?? [];
+      remainingStatuses.value = paginationStarted
+        ? paginationRemainingStatuses
+        : result.remainingStatuses ?? [];
     },
     clear() {
       invocations.value = [];
@@ -354,6 +359,7 @@ export function useAgentInvocations(
         cursor.value = undefined;
         firstPageCursor = undefined;
         paginationCursor = undefined;
+        paginationRemainingStatuses = [];
         paginationStarted = false;
         reconciliationOffset = 0;
         loadMoreError.value = null;
@@ -480,8 +486,9 @@ export function useAgentInvocations(
         }
         paginationStarted = true;
         paginationCursor = result.cursor;
+        paginationRemainingStatuses = result.remainingStatuses ?? [];
         cursor.value = paginationCursor;
-        remainingStatuses.value = result.remainingStatuses ?? [];
+        remainingStatuses.value = paginationRemainingStatuses;
         loadMoreError.value = null;
         if (additions.length > 0 || !result.cursor || visited.size >= maximumPaginationRequestsPerLoad) return result;
         nextCursor = result.cursor;
