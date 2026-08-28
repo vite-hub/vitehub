@@ -490,18 +490,19 @@ function sectionObjects(sourceFile: Node) {
     return configSectionAlternatives(expression);
   }
 
-  function markDefineValue(
+  function markSectionValue(
     expression: Expression,
+    section: "define" | "public",
     seen = new Set<ObjectLiteralExpression>(),
     seenBindings = new Set<string>(),
   ) {
-    sections.set(expression, "define");
+    sections.set(expression, section);
     if (isIdentifier(expression) && !seenBindings.has(expression.text)) {
       for (let current: Node | undefined = expression; current; current = current.parent) {
         if (!isBlock(current) && !isSourceFile(current)) continue;
         const value = bindings.get(current)?.get(expression.text);
         if (value && !isFunctionDeclaration(value)) {
-          markDefineValue(value, seen, new Set(seenBindings).add(expression.text));
+          markSectionValue(value, section, seen, new Set(seenBindings).add(expression.text));
           break;
         }
       }
@@ -511,9 +512,9 @@ function sectionObjects(sourceFile: Node) {
       const nextSeen = new Set(seen).add(object);
       for (const properties of effectiveProperties(object, seen)) {
         for (const property of properties.values()) {
-          sections.set(property, "define");
+          sections.set(property, section);
           const value = propertyValue(property);
-          if (value) markDefineValue(value, nextSeen, seenBindings);
+          if (value) markSectionValue(value, section, nextSeen, seenBindings);
         }
       }
     }
@@ -525,7 +526,7 @@ function sectionObjects(sourceFile: Node) {
         for (const property of properties.values()) {
           sections.set(property, section);
           const value = propertyValue(property);
-          if (section === "define" && value) markDefineValue(value);
+          if (value) markSectionValue(value, section);
         }
       }
     }
@@ -1102,6 +1103,19 @@ defineConfig(Promise.resolve({ env: { define: { group } } }))
     `);
 
     expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("follows referenced Public Env values", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const appName = env({ mode: "runtime" })
+const publicEnv = { appName }
+defineConfig({ env: { public: publicEnv } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
