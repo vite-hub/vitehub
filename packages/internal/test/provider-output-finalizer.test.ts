@@ -302,6 +302,54 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
   })
 
+  it("restores Vercel output after a later owner removes its parent directory", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const vercelRoot = join(rootDir, ".vercel", "output")
+    const outputFile = join(vercelRoot, "config.json")
+    await mkdir(vercelRoot, { recursive: true })
+    await writeFile(outputFile, "previous\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => await writeFile(outputFile, "replacement\n"),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "schedule",
+      rootDir,
+      write: async () => await rm(dirname(vercelRoot), { recursive: true }),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workflow",
+      rootDir,
+      write: async () => { throw new Error("workflow failed") },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("workflow failed")
+    await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
+  })
+
+  it("restores Schedule ownership when a later owner fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const ownershipFile = join(rootDir, ".vitehub/schedule/cloudflare-output.json")
+    await mkdir(dirname(ownershipFile), { recursive: true })
+    await writeFile(ownershipFile, "previous\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "schedule",
+      rootDir,
+      write: async () => await writeFile(ownershipFile, "replacement\n"),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workflow",
+      rootDir,
+      write: async () => { throw new Error("workflow failed") },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("workflow failed")
+    await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
+  })
+
   it("does not roll back client output written by a newer build", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

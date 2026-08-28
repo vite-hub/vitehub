@@ -687,6 +687,7 @@ function pathContains(parent: string, child: string): boolean {
 }
 
 async function restoreProviderDeploymentOutputSnapshot(snapshot: ProviderDeploymentOutputSnapshot): Promise<void> {
+  if (snapshot.present) await mkdir(dirname(snapshot.path), { recursive: true })
   const restoreRoot = await mkdtemp(resolve(snapshot.present ? dirname(snapshot.path) : tmpdir(), "vitehub-provider-output-restore-"))
   const staged = resolve(restoreRoot, "snapshot")
   const preservedRoot = resolve(restoreRoot, "preserved")
@@ -728,7 +729,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
-    resolve(rootDir, ".vitehub/nitro/schedule/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/schedule/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/workflow/vercel-output.json"),
   ]
   const transactionRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-output-"))
