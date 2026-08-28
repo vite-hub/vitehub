@@ -9,7 +9,8 @@
   },
   "unused_files": [],
   "unused_exports": [
-    "packages/blob/src/internal/vercel-fetch.ts:fetch"
+    "packages/blob/src/internal/vercel-fetch.ts:fetch",
+    "packages/blob/src/internal/vercel-oidc.ts:getVercelOidcToken"
   ],
   "unused_types": [],
   "private_type_leaks": [],
