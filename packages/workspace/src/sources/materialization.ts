@@ -621,6 +621,9 @@ export async function materializeWorkspaceSources(
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
           files: scopedItems ? Object.keys(scopedItems).length : 0,
           items: scopedItems,
+          materializedAt: undefined,
+          revision,
+          status: "updating",
         })
       }
       const durationMs = Date.now() - sourceStarted

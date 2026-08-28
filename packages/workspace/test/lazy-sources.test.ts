@@ -1904,6 +1904,39 @@ describe("lazy sources", () => {
     await expect(store.readFile("ingestion/globex/models/orders.sql")).resolves.toBeUndefined()
   })
 
+  it("invalidates a complete snapshot after a scoped revision refresh", async () => {
+    let revision = 0
+    const getItem = vi.fn(async (key: string, context) => ({
+      key,
+      content: `${context.revision.id}:${key}\n`,
+    }))
+    const view = createWorkspaceSourceView({
+      name: "scoped-revision-refresh",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async resolveRevision() {
+            revision++
+            return { id: `commit-${revision}`, immutable: true }
+          },
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          getItem,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    await view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ cacheStatus: "miss", revision: { id: "commit-3" } }],
+    })
+    expect(getItem).toHaveBeenCalledTimes(5)
+    await expect(view.readFile("docs/b.md")).resolves.toBe("commit-3:b.md\n")
+  })
+
   it("rejects keyed lazy source items that escape the source mount", async () => {
     const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({
