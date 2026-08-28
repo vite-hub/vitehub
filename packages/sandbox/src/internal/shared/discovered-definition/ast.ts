@@ -14,6 +14,8 @@ const filesystemModuleSpecifiers = new Set([
   'node:fs',
   'node:fs/promises',
   'node:sqlite',
+  'node:worker_threads',
+  'worker_threads',
 ])
 const pathModuleSpecifiers = new Set(['node:path', 'node:path/posix', 'path', 'path/posix'])
 
@@ -262,6 +264,38 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
       return root.properties.at(-1)
     if (filesystemRequireSpecifier(expression))
       return root.properties.at(-1)
+  }
+
+  function derivedFilesystemOperation(expression: ts.Expression): string | undefined {
+    const value = unwrapExpression(expression)
+    const directOperation = filesystemOperation(value)
+    if (directOperation)
+      return directOperation
+    if (!typescript.isCallExpression(value) || filesystemOperation(value.expression))
+      return
+    const operations = new Set(
+      value.arguments
+        .map(derivedFilesystemOperation)
+        .filter((operation): operation is string => Boolean(operation)),
+    )
+    if (operations.size === 1)
+      return [...operations][0]
+    return operations.size ? 'wrapped-filesystem-operation' : undefined
+  }
+
+  let foundWrappedBinding = true
+  while (foundWrappedBinding) {
+    foundWrappedBinding = false
+    for (const [name, initializer] of variableInitializers) {
+      if (directBindings.has(name))
+        continue
+      const operation = derivedFilesystemOperation(initializer)
+      if (!operation)
+        continue
+      directBindings.add(name)
+      directBindingOperations.set(name, operation)
+      foundWrappedBinding = true
+    }
   }
 
   function isPathFunction(expression: ts.Expression) {

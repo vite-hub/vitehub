@@ -58,7 +58,7 @@ export function createGeneratedSandboxRuntimeRegistry(
       if (!isMissingGeneratedSandboxModule(error))
         throw error
       try {
-        return await import(/* @vite-ignore */ createGeneratedSandboxModuleSpecifier(entry.stablePath))
+        return await import(/* @vite-ignore */ createGeneratedSandboxModuleSpecifier(entry.stablePath, true))
       }
       catch (stableError) {
         if (!isMissingGeneratedSandboxModule(stableError))

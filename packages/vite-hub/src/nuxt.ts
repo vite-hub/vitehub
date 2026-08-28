@@ -437,7 +437,12 @@ function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
   })
 }
 
-async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, unknown>, nuxt: NuxtLike) {
+async function applyNitroConfig(
+  plugins: Plugin[],
+  nitroConfig: Record<string, unknown>,
+  nuxt: NuxtLike,
+  projectRoot: string,
+) {
   const environment = {
     command: nuxt.options.dev ? "serve" : "build",
     isPreview: false,
@@ -460,9 +465,13 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     nitro?: Record<string, unknown>
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
-  config[VITEHUB_GENERATED_ROOT] = generatedRoot
-  config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
-  if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
+  const restoreReplayOwnership = () => {
+    config[VITEHUB_GENERATED_ROOT] = generatedRoot
+    config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+    config[VITEHUB_PROJECT_ROOT] = projectRoot
+    if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
+  }
+  restoreReplayOwnership()
   config.build ??= {}
   config.nitro = nitroConfig
   config.server ??= {}
@@ -482,10 +491,8 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
         const { nitro, ...viteConfig } = result as UserConfig & { nitro?: Record<string, unknown> }
         config = mergeConfig(config, viteConfig)
         if (nitro) config.nitro = nitro as Record<string, unknown>
-        config[VITEHUB_GENERATED_ROOT] = generatedRoot
-        config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
-        if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
       }
+      restoreReplayOwnership()
     }
 
     const createQueueNitroConfig = queueNitroConfigHandler(plugin)
@@ -751,7 +758,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       : {}),
   }
   nuxt.hook?.("nitro:config", async (config) => {
-    await applyNitroConfig(replayPlugins, config, nuxt)
+    await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
     Object.assign(config, mergeGeneratedNitroConfig(config, generatedHandlers))
     installNitroRuntimeResolvers(config, replayPlugins)
     installMarkdownTemplateResolver(config, markdownTemplatePlugin)

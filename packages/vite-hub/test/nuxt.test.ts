@@ -8,6 +8,7 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 
@@ -772,6 +773,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.sandboxHook).toHaveBeenCalledWith(
       expect.objectContaining({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        [VITEHUB_PROJECT_ROOT]: "/tmp/vitehub-nuxt",
       }),
       expect.anything(),
     )
@@ -860,6 +862,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
+        [VITEHUB_PROJECT_ROOT]: "/tmp/vitehub-nuxt",
         root: "/tmp/vitehub-nuxt/custom-vite-root",
         workspace: false,
       }),

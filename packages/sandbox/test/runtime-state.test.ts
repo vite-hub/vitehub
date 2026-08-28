@@ -94,6 +94,30 @@ it("resolves the active Windows generation when a retained registry generation w
   await expect(loadRetainedDefinition()).resolves.toMatchObject({ default: { bundle: { value: "next" } } })
 })
 
+it("reloads a replaced stable Definition during Windows recovery", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-stable-recovery-"))
+  tempDirs.push(root)
+  const missingDefinition = join(root, ".runtime-generations", "runtime-pruned", "definition.mjs")
+  const stableDefinition = join(root, "runtime", "sandbox-definitions", "example.mjs")
+  await mkdir(join(root, "runtime", "sandbox-definitions"), { recursive: true })
+  await writeFile(stableDefinition, `export default { bundle: { value: "current" } }\n`)
+
+  const registry = createGeneratedSandboxRuntimeRegistry(join(root, "runtime", "sandbox.mjs"), {
+    example: {
+      load: async () => await import(pathToFileURL(missingDefinition).href),
+      stablePath: stableDefinition,
+    },
+  })
+  setSandboxRuntimeRegistry(registry)
+  const loadDefinition = registry.example
+  if (typeof loadDefinition !== "function")
+    throw new TypeError("Expected a generated Sandbox Definition loader.")
+
+  await expect(loadDefinition()).resolves.toMatchObject({ default: { bundle: { value: "current" } } })
+  await writeFile(stableDefinition, `export default { bundle: { value: "next" } }\n`)
+  await expect(loadDefinition()).resolves.toMatchObject({ default: { bundle: { value: "next" } } })
+})
+
 it("encodes URL-significant filesystem characters in recovery specifiers", () => {
   const path = join(tmpdir(), "vitehub-sandbox-#%-runtime", "sandbox.mjs")
   const specifier = createGeneratedSandboxModuleSpecifier(path, true)

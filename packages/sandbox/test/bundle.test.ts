@@ -92,8 +92,16 @@ describe("bundleSandboxDefinition assets", () => {
       "import { execFile } from 'node:child_process'\nexport default { run: async () => execFile('./scripts/task.sh') }\n",
     ],
     [
+      "wrapped child process executable",
+      "import { execFile } from 'node:child_process'\nimport { promisify } from 'node:util'\nconst run = promisify(execFile)\nexport default { run: async () => await run('./scripts/task.sh') }\n",
+    ],
+    [
       "SQLite database",
       "import { DatabaseSync } from 'node:sqlite'\nexport default { run: async () => new DatabaseSync('./data/app.db').close() }\n",
+    ],
+    [
+      "Worker entry file",
+      "import { Worker } from 'node:worker_threads'\nexport default { run: async () => new Worker('./scripts/task.sh') }\n",
     ],
   ])("keeps project assets used as a %s", async (_name, source) => {
     const project: SandboxProject = {
