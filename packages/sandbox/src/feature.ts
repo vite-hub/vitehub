@@ -1,10 +1,17 @@
+import { createImportPath } from '@vite-hub/internal/build/paths'
 import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
 import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import { toTemplateSafeName } from './internal/shared/feature-definitions'
 import { createFileImportSpecifier } from './internal/shared/file-import-specifier'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
-import type { FeatureManifest, FeatureRuntimePlan, GeneratedArtifact } from './internal/shared/runtime-artifacts'
+import type {
+  EmittedArtifact,
+  FeatureManifest,
+  FeatureRuntimePlan,
+  GeneratedArtifact,
+  GeneratedArtifactLocation,
+} from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
 import {
   defaultCloudflareSandboxBinding,
@@ -129,11 +136,12 @@ async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefin
 }
 
 function createSandboxRegistryContents(
+  file: string,
   definitions: Array<{ name: string, definitionModulePath: string, stableDefinitionModulePath: string }>,
   runtimeStatePath: string,
   scope: string,
 ) {
-  const runtimeStateSpecifier = createFileImportSpecifier(runtimeStatePath)
+  const runtimeStateSpecifier = createImportPath(file, runtimeStatePath)
   const scopeSpecifier = createFileImportSpecifier(scope)
   return [
     `import { createGeneratedSandboxRuntimeRegistry } from ${JSON.stringify(runtimeStateSpecifier)}`,
@@ -141,7 +149,7 @@ function createSandboxRegistryContents(
     `const registry = createGeneratedSandboxRuntimeRegistry(${JSON.stringify(scopeSpecifier)}, {`,
     ...definitions.map(definition => [
       `  ${JSON.stringify(definition.name)}: {`,
-      `    load: async () => import(${JSON.stringify(createFileImportSpecifier(definition.definitionModulePath))}),`,
+      `    load: async () => import(${JSON.stringify(createImportPath(file, definition.definitionModulePath))}),`,
       `    stablePath: ${JSON.stringify(createFileImportSpecifier(definition.stableDefinitionModulePath))},`,
       '  },',
     ].join('\n')),
@@ -153,6 +161,7 @@ function createSandboxRegistryContents(
 
 export function createSandboxProviderLoaderContents(
   provider: SandboxProvider,
+  file: string,
 ) {
   const providerExport = sandboxProviderRuntimeExport(provider)
   const providerLoaderPath = resolveFeatureRuntimePath(
@@ -162,7 +171,7 @@ export function createSandboxProviderLoaderContents(
     `runtime/providers/${provider}.js`,
   )
   return [
-    `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(createFileImportSpecifier(providerLoaderPath))}`,
+    `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(createImportPath(file, providerLoaderPath))}`,
     '',
     'export async function loadSandboxRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
@@ -296,8 +305,8 @@ export async function createSandboxFeaturePlan(
       {
         key: 'sandbox-registry',
         filename: 'runtime/sandbox-registry.mjs',
-        getContents(emitted) {
-          return createSandboxRegistryContents(sandboxDefinitions.map((definition) => {
+        getContents(emitted, location) {
+          return createSandboxRegistryContents(location.dst, sandboxDefinitions.map((definition) => {
             const artifact = emitted.get(definition.definitionArtifactKey)
             if (!artifact)
               throw new Error(`[vitehub] Missing generated sandbox definition module for "${definition.name}".`)
@@ -313,7 +322,10 @@ export async function createSandboxFeaturePlan(
         ? [{
             key: 'sandbox-provider-loader',
             filename: 'runtime/sandbox-provider-loader.mjs',
-            getContents: () => createSandboxProviderLoaderContents(providerLoaderTarget),
+            getContents: (
+              _emitted: ReadonlyMap<string, EmittedArtifact>,
+              location: GeneratedArtifactLocation,
+            ) => createSandboxProviderLoaderContents(providerLoaderTarget, location.dst),
           }]
         : []),
     ],

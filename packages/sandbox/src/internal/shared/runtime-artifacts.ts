@@ -22,7 +22,15 @@ export interface GeneratedArtifact {
   key: string
   filename: string
   contents?: string
-  getContents?: (artifacts: ReadonlyMap<string, EmittedArtifact>) => string | Promise<string>
+  getContents?: (
+    artifacts: ReadonlyMap<string, EmittedArtifact>,
+    location: GeneratedArtifactLocation,
+  ) => string | Promise<string>
+}
+
+export interface GeneratedArtifactLocation {
+  dst: string
+  stableDst: string
 }
 
 export interface EmittedArtifact extends GeneratedArtifact {

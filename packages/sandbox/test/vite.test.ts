@@ -1,10 +1,11 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { basename, dirname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
+import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { build, type AliasOptions } from "vite"
+import { build as viteBuild, type AliasOptions } from "vite"
 
 const tempDirs: string[] = []
 const runtimePreparationMock = vi.hoisted(() => ({
@@ -176,14 +177,10 @@ describe("hubSandbox", () => {
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toHaveLength(2)
-    expect(facadePackageImports.every(specifier => specifier.startsWith("file:"))).toBe(true)
-    const facadePaths = [sandboxAlias, await realpath(sandboxAlias)]
+    expect(facadePackageImports.every(specifier => specifier.startsWith("."))).toBe(true)
+    const facadePath = await realpath(sandboxAlias)
     await Promise.all(facadePackageImports.map(async (specifier) => {
-      await Promise.all(facadePaths.map(async (facadePath) => {
-        const resolved = new URL(specifier, pathToFileURL(facadePath)).href
-        expect(resolved).toBe(specifier)
-        await expect(realpath(fileURLToPath(resolved))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
-      }))
+      await expect(realpath(resolve(dirname(facadePath), specifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
     }))
     expect(facade).toContain('from "./sandbox-registry.mjs"')
     expect(facade).toContain('from "./sandbox-provider-loader.mjs"')
@@ -192,8 +189,8 @@ describe("hubSandbox", () => {
     const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
     if (!providerRuntimeSpecifier)
       throw new Error("Expected the generated provider loader to import its runtime.")
-    expect(providerRuntimeSpecifier).toMatch(/^file:/)
-    await expect(realpath(fileURLToPath(providerRuntimeSpecifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)\/runtime\/providers\/vercel/)
+    expect(providerRuntimeSpecifier).toMatch(/^\./)
+    await expect(realpath(resolve(dirname(await realpath(providerLoaderAlias)), providerRuntimeSpecifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)\/runtime\/providers\/vercel/)
     expect(providerLoader).not.toContain("createSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
@@ -544,7 +541,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     let resolvedNitro: any
 
-    await build({
+    await viteBuild({
       appType: "custom",
       build: {
         rollupOptions: { input: join(rootDir, "src/server.ts") },
@@ -1371,7 +1368,9 @@ describe("hubSandbox", () => {
     const loadPreviousDefinition = previousFacadeModule.default["tools/release-notes"]
     if (!loadPreviousDefinition)
       throw new Error("Expected the previous sandbox registry to contain tools/release-notes.")
-    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(pathToFileURL(previousResolvedDefinition).href))
+    const definitionImport = "./sandbox-definitions/tools__release-notes.mjs"
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(definitionImport))
+    expect(resolve(dirname(previousResolvedRegistry), definitionImport)).toBe(previousResolvedDefinition)
     const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
     const invalidated: string[] = []
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
@@ -1417,9 +1416,10 @@ describe("hubSandbox", () => {
       await realpath(registryAlias),
       currentResolvedDefinition,
     ]))
-    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(pathToFileURL(previousResolvedDefinition).href))
-    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.not.toContain(JSON.stringify(pathToFileURL(currentResolvedDefinition).href))
-    await expect(readFile(await realpath(registryAlias), "utf8")).resolves.toContain(JSON.stringify(pathToFileURL(currentResolvedDefinition).href))
+    const currentResolvedRegistry = await realpath(registryAlias)
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(definitionImport))
+    await expect(readFile(currentResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(definitionImport))
+    expect(resolve(dirname(currentResolvedRegistry), definitionImport)).toBe(currentResolvedDefinition)
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
 
     await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
@@ -1501,20 +1501,24 @@ describe("hubSandbox", () => {
     await expect(readFile(sandboxAlias, "utf8")).resolves.toContain("setSandboxRuntimeConfig")
   })
 
-  it("bundles generated facade file URL package imports", async () => {
+  it("bundles the generated runtime with bare esbuild", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
 
-    await build({
-      appType: "custom",
-      build: {
-        rollupOptions: { input: join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs") },
-        write: false,
-      },
-      configFile: false,
-      plugins: [hubSandbox({ provider: "vercel" })],
-      root: rootDir,
+    const result = await esbuild({
+      bundle: true,
+      entryPoints: [join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs")],
+      format: "esm",
+      platform: "node",
+      write: false,
     })
+
+    expect(result.outputFiles[0]?.text).toContain("release-notes")
   })
 
   it("removes generated bundles for definitions that no longer exist", async () => {
@@ -1578,8 +1582,8 @@ describe("hubSandbox", () => {
     if (!activeGeneration)
       throw new Error("Expected the active Windows runtime facade to identify its generation.")
     const activeRegistry = await readFile(join(generationsDir, activeGeneration, "sandbox-registry.mjs"), "utf8")
-    expect(activeRegistry).toMatch(/from "file:/)
-    expect(activeRegistry).toMatch(/load: async \(\) => import\("file:/)
+    expect(activeRegistry).toMatch(/^import .* from "\./m)
+    expect(activeRegistry).toMatch(/load: async \(\) => import\("\./)
     expect(activeRegistry).toMatch(/stablePath: "file:/)
     await rm(stableDefinition)
     await expect(loadPreviousDefinition()).resolves.toBeDefined()

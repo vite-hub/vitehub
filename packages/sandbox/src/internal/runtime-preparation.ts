@@ -22,7 +22,6 @@ import {
   type SandboxRuntimeGenerationLease,
   withSandboxRuntimeGenerationLock,
 } from './runtime-generation'
-import { createFileImportSpecifier } from './shared/file-import-specifier'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
 import type { AgentSandboxConfig } from '../module-types'
@@ -194,7 +193,6 @@ function createSandboxRuntimeFacadeContents(
   runtimeConfig: AgentSandboxConfig | false,
   registryFile: string,
   providerLoaderFile?: string,
-  platform?: NodeJS.Platform,
 ) {
   const stateFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
   const packageIndexFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js')
@@ -204,13 +202,13 @@ function createSandboxRuntimeFacadeContents(
     ...(providerLoaderFile
       ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
       : []),
-    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createFileImportSpecifier(stateFile, platform))}`,
+    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, stateFile))}`,
     '',
     `setSandboxRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
     'export default sandboxRegistry',
-    `export * from ${JSON.stringify(createFileImportSpecifier(packageIndexFile, platform))}`,
+    `export * from ${JSON.stringify(createImportPath(file, packageIndexFile))}`,
     '',
   ].join('\n')
 }
@@ -282,7 +280,7 @@ async function writeSandboxArtifactsLocked(
       const stableDst = resolve(generatedDir, artifact.filename)
       const relativePath = stableDst.slice(runtimeDir.length + 1)
       const dst = resolve(generationDir, relativePath)
-      const contents = artifact.contents ?? await artifact.getContents?.(emitted)
+      const contents = artifact.contents ?? await artifact.getContents?.(emitted, { dst, stableDst })
       if (typeof contents !== 'string')
         throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
 
@@ -484,7 +482,6 @@ export async function prepareSandboxRuntime(options: {
       context.runtimeConfig.sandbox,
       registryFile,
       providerLoaderFile,
-      options.platform,
     ),
     options.platform,
   )
