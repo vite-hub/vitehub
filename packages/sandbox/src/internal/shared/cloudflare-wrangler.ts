@@ -90,11 +90,27 @@ function mergeMigrations(migrations: WranglerMigration[] | undefined) {
       byTag.set(migration.tag, migration)
       continue
     }
-    const classes = new Set(existing.new_sqlite_classes || [])
-    for (const className of migration.new_sqlite_classes || []) classes.add(className)
+    const mergeStrings = (left: string[] | undefined, right: string[] | undefined) => {
+      const values = new Set([...(left || []), ...(right || [])])
+      return values.size ? [...values] : undefined
+    }
+    const mergeObjects = <T>(left: T[] | undefined, right: T[] | undefined) => {
+      const values = new Map<string, T>()
+      for (const value of [...(left || []), ...(right || [])]) values.set(JSON.stringify(value), value)
+      return values.size ? [...values.values()] : undefined
+    }
+    const deletedClasses = mergeStrings(existing.deleted_classes, migration.deleted_classes)
+    const newClasses = mergeStrings(existing.new_classes, migration.new_classes)
+    const newSqliteClasses = mergeStrings(existing.new_sqlite_classes, migration.new_sqlite_classes)
+    const renamedClasses = mergeObjects(existing.renamed_classes, migration.renamed_classes)
+    const transferredClasses = mergeObjects(existing.transferred_classes, migration.transferred_classes)
     byTag.set(migration.tag, {
       ...existing,
-      ...(classes.size ? { new_sqlite_classes: [...classes] } : {}),
+      ...(deletedClasses ? { deleted_classes: deletedClasses } : {}),
+      ...(newClasses ? { new_classes: newClasses } : {}),
+      ...(newSqliteClasses ? { new_sqlite_classes: newSqliteClasses } : {}),
+      ...(renamedClasses ? { renamed_classes: renamedClasses } : {}),
+      ...(transferredClasses ? { transferred_classes: transferredClasses } : {}),
     })
   }
 

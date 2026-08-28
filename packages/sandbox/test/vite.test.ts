@@ -7,7 +7,9 @@ import { build, type AliasOptions } from "vite"
 
 const tempDirs: string[] = []
 const runtimePreparationMock = vi.hoisted(() => ({
+  // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
   afterPrepare: undefined as (() => Promise<void>) | undefined,
+  // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
   beforePrepare: undefined as (() => Promise<void>) | undefined,
 }))
 
@@ -748,6 +750,32 @@ describe("hubSandbox", () => {
       { tag: "z-initial", new_classes: ["AnalysisState"] },
       { tag: "v1", new_sqlite_classes: ["Sandbox"] },
     ])
+  })
+
+  it("merges every operation from duplicate Cloudflare migration tags", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const target = { cloudflare: { wrangler: { migrations: [
+      { tag: "v1", new_classes: ["Legacy"], new_sqlite_classes: ["Existing"] },
+      {
+        tag: "v1",
+        deleted_classes: ["Removed"],
+        new_sqlite_classes: ["Sandbox"],
+        renamed_classes: [{ from: "Old", to: "Renamed" }],
+        transferred_classes: [{ from: "Remote", from_script: "source-worker", to: "Local" }],
+      },
+      { tag: "v1", deleted_classes: ["Removed"], new_classes: ["Legacy"] },
+    ] } } }
+
+    finalizeCloudflareWranglerConfig(target)
+
+    expect(target.cloudflare.wrangler.migrations).toEqual([{
+      tag: "v1",
+      deleted_classes: ["Removed"],
+      new_classes: ["Legacy"],
+      new_sqlite_classes: ["Existing", "Sandbox"],
+      renamed_classes: [{ from: "Old", to: "Renamed" }],
+      transferred_classes: [{ from: "Remote", from_script: "source-worker", to: "Local" }],
+    }])
   })
 
   it("does not require local migrations for external Durable Object bindings", async () => {
