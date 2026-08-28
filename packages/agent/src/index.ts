@@ -4096,9 +4096,7 @@ async function resultWithStreamedTextAndUsage(
       ...normalizedWithoutUsage,
       raw: result,
       ...(text ? { text: normalized.text || text } : {}),
-      ...(normalized.usage !== undefined
-        ? { usage: normalized.usage }
-        : mergedUsage ? { usage: mergedUsage } : {}),
+      ...(mergedUsage ? { usage: mergedUsage } : {}),
       ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }
     if (isAsyncIterable(result)) {
@@ -4200,9 +4198,7 @@ async function finishStreamAgentInvocation<
       ? outcome.usage && await resolveAgentUsageRecord({ usageRecord: outcome.usage }, context.run)
       : await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
-    const resolvedResult = context.output && outcome.usageResolved
-      ? result
-      : resultWithResolvedUsageRecord(result, usageRecord)
+    const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
     if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
       try {
         Object.defineProperty(result, "usageRecord", {
