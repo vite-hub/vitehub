@@ -21,17 +21,10 @@ function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
 }
 
-const browserDeclarationExports = new Set([
-  "@vite-hub/ui",
-  "@vite-hub/ui/headless",
-  "vite-hub/ui",
-  "vite-hub/ui/headless",
-])
-
 function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts)[number]) {
   if (contract.packageName === "@vite-hub/auth") return false
   if (contract.subpath.endsWith("/client")) return false
-  return !browserDeclarationExports.has(contract.specifier)
+  return true
 }
 
 const stringRecord = record(string(), string())
@@ -383,7 +376,13 @@ async function typecheckPackageModule(
     types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
   }
   const program = ts.createProgram(rootNames, options)
-  const diagnostics = ts.getPreEmitDiagnostics(program)
+  const diagnostics = ts.getPreEmitDiagnostics(program).filter((diagnostic) => {
+    if (!diagnostic.file) return true
+    const filePath = resolve(diagnostic.file.fileName)
+    return filePath === sourcePath
+      || filePath.startsWith(`${resolve(packageRoot)}${sep}`)
+      || (hostTypesPath ? filePath === hostTypesPath : false)
+  })
   expect(
     ts.formatDiagnosticsWithColorAndContext(diagnostics, {
       getCanonicalFileName: file => file,

@@ -147,6 +147,7 @@
     "./workspace/runtime": "./dist/workspace/runtime.js",
     "./workspace/server": "./dist/workspace/server.js",
     "./package.json": "./package.json",
+    "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json"
   },
