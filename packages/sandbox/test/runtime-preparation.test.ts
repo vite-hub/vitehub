@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rename, rm, utimes, writeFile } from "node:fs/promises"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -112,14 +112,12 @@ describe("Sandbox runtime preparation", () => {
 
     const first = withSandboxRuntimeGenerationLock(root, async () => {
       const stale = new Date(Date.now() - 301_000)
-      await utimes(join(root, ".runtime-generation.lock/.heartbeat"), stale, stale)
+      await utimes(join(root, ".runtime-generation.lock/lease"), stale, stale)
       markFirstStarted()
       await firstReleased
     }, {
-      heartbeatIntervalMs: 5,
+      heartbeatMs: 5,
       host: "remote-host",
-      remove: rm,
-      writeOwner: async (path, value) => await writeFile(path, value),
     })
     await firstStarted
     await new Promise(resolve => setTimeout(resolve, 25))
@@ -149,10 +147,9 @@ describe("Sandbox runtime preparation", () => {
     tempDirs.push(root)
 
     await expect(withSandboxRuntimeGenerationLock(root, async () => "generated", {
-      remove: async () => {
+      removeLock: (async () => {
         throw Object.assign(new Error("busy"), { code: "EBUSY" })
-      },
-      writeOwner: async (path, value) => await writeFile(path, value),
+      }) as typeof rm,
     })).resolves.toBe("generated")
     await expect(withSandboxRuntimeGenerationLock(root, async () => "recovered")).resolves.toBe("recovered")
   })
@@ -182,9 +179,98 @@ describe("Sandbox runtime preparation", () => {
       pid: 42,
       token: "stale",
     }))
+    await writeFile(join(lockDir, "lease"), "stale")
     const stale = new Date(Date.now() - 301_000)
-    await utimes(ownerPath, stale, stale)
+    await utimes(join(lockDir, "lease"), stale, stale)
 
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
+  })
+
+  it("keeps a long-running remote writer leased past the stale threshold", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const order: string[] = []
+    let releaseFirst!: () => void
+    let markFirstStarted!: () => void
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve
+    })
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const lockOptions = {
+      heartbeatMs: 20,
+      host: "remote-host",
+      pollMs: 5,
+      staleMs: 80,
+      waitMs: 1_000,
+    }
+
+    const first = withSandboxRuntimeGenerationLock(root, async () => {
+      order.push("first-start")
+      markFirstStarted()
+      await firstReleased
+      order.push("first-end")
+    }, lockOptions)
+    await firstStarted
+    await new Promise(resolve => setTimeout(resolve, 160))
+    const second = withSandboxRuntimeGenerationLock(root, async () => {
+      order.push("second")
+    }, lockOptions)
+
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(order).toEqual(["first-start"])
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(["first-start", "first-end", "second"])
+  })
+
+  it("recovers an aged malformed generation lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    await mkdir(lockDir)
+    await writeFile(join(lockDir, "owner.json"), "not-json")
+    const stale = new Date(Date.now() - 301_000)
+    await utimes(lockDir, stale, stale)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
+  })
+
+  it("fences a writer after its lock ownership is replaced", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+
+    await expect(withSandboxRuntimeGenerationLock(root, async (lease) => {
+      await rename(lockDir, `${lockDir}.replaced`)
+      await mkdir(lockDir)
+      await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+        host: hostname(),
+        pid: process.pid,
+        token: "replacement",
+      }))
+      await writeFile(join(lockDir, "lease"), "replacement")
+
+      await expect(lease.assertOwned()).rejects.toThrow("Lost ownership")
+    }, { heartbeatMs: 60_000 })).rejects.toThrow("Lost ownership")
+
+    await expect(readFile(join(lockDir, "owner.json"), "utf8")).resolves.toContain("replacement")
+  })
+
+  it("makes a lock reclaimable when release removal fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const removeLock = vi.fn(async () => {
+      throw Object.assign(new Error("busy"), { code: "EBUSY" })
+    })
+
+    await expect(withSandboxRuntimeGenerationLock(
+      root,
+      async () => "released",
+      { removeLock: removeLock as typeof rm },
+    )).resolves.toBe("released")
+    expect(removeLock).toHaveBeenCalledOnce()
     await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
   })
 
@@ -203,7 +289,7 @@ describe("Sandbox runtime preparation", () => {
     await writeFile(claimPath, "")
     const staleLock = new Date(Date.now() - 301_000)
     const staleClaim = new Date(Date.now() - 61_000)
-    await utimes(ownerPath, staleLock, staleLock)
+    await utimes(lockDir, staleLock, staleLock)
     await utimes(claimPath, staleClaim, staleClaim)
 
     await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")

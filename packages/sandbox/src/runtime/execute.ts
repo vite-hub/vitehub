@@ -24,6 +24,10 @@ import type { SandboxDefinitionBundle, SandboxDefinitionOptions } from '../modul
 const defaultNodeLauncher = 'import(process.argv[1])'
 const projectPreparations = new Map<string, Promise<void>>()
 
+export interface SandboxDefinitionExecutionLifecycle {
+  onHandlerStart?: () => void
+}
+
 function toJson(value: unknown, label: string) {
   try {
     return JSON.stringify(value)
@@ -162,7 +166,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   context?: Record<string, unknown>,
   signal?: AbortSignal,
   deadline?: number,
-  onExecutionStart?: () => void,
+  lifecycle?: SandboxDefinitionExecutionLifecycle,
 ) {
   const bundle = normalizeSandboxDefinitionBundle(source)
 
@@ -213,7 +217,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     let execution: Awaited<ReturnType<SandboxExecutionBox['exec']>> | undefined
 
     try {
-      onExecutionStart?.()
+      lifecycle?.onHandlerStart?.()
       execution = await executeLauncher(sandbox, launcher.command, execArgs, {
         cwd: bundle.project
           ? resolveSandboxModulePath(bundleBaseDir, bundle.project.packagePath)
@@ -276,7 +280,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
   source: SandboxDefinitionSource,
   payload?: TPayload,
   context?: Record<string, unknown>,
-  onExecutionStart?: () => void,
+  lifecycle?: SandboxDefinitionExecutionLifecycle,
 ): Promise<TResult> {
   const timeout = definitionOptions?.timeout
   if (typeof timeout !== 'number' || timeout <= 0) {
@@ -289,7 +293,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
       context,
       undefined,
       undefined,
-      onExecutionStart,
+      lifecycle,
     )
   }
 
@@ -308,7 +312,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
         context,
         abortController.signal,
         deadline,
-        onExecutionStart,
+        lifecycle,
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {

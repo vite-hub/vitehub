@@ -16,10 +16,31 @@ type GeneratedSandboxRuntimeRegistry = Record<string, GeneratedSandboxRuntimeReg
 let sandboxConfig: false | AgentSandboxConfig | undefined
 let sandboxRegistry: SandboxRuntimeRegistry | undefined
 const generatedRegistries = new Map<string, GeneratedSandboxRuntimeRegistry>()
+let generatedRegistryRecoveryId = 0
 
 function isMissingGeneratedSandboxModule(error: unknown) {
   const code = Reflect.get(Object(error), 'code')
   return code === 'ENOENT' || code === 'ERR_MODULE_NOT_FOUND'
+}
+
+function createGeneratedSandboxModuleSpecifier(path: string, recover = false) {
+  const normalizedPath = path.replaceAll('\\', '/')
+  const url = new URL(
+    normalizedPath.startsWith('file:')
+      ? normalizedPath
+      : normalizedPath.startsWith('/') ? `file://${normalizedPath}` : `file:///${normalizedPath}`,
+  )
+  if (recover)
+    url.searchParams.set('vitehub-recovery', String(++generatedRegistryRecoveryId))
+  return url.href
+}
+
+async function loadActiveGeneratedSandboxDefinition(scope: string, name: string) {
+  const activeModule = await import(/* @vite-ignore */ createGeneratedSandboxModuleSpecifier(scope, true))
+  const activeEntry = activeModule.default?.[name] as SandboxRuntimeRegistry[string] | undefined
+  if (!activeEntry)
+    throw new Error(`[vitehub] Sandbox definition "${name}" is no longer generated.`)
+  return typeof activeEntry === 'function' ? await activeEntry() : { default: activeEntry }
 }
 
 export function createGeneratedSandboxRuntimeRegistry(
@@ -37,7 +58,14 @@ export function createGeneratedSandboxRuntimeRegistry(
     catch (error) {
       if (!isMissingGeneratedSandboxModule(error))
         throw error
-      return await import(/* @vite-ignore */ entry.stablePath)
+      try {
+        return await import(/* @vite-ignore */ createGeneratedSandboxModuleSpecifier(entry.stablePath))
+      }
+      catch (stableError) {
+        if (!isMissingGeneratedSandboxModule(stableError))
+          throw stableError
+        return await loadActiveGeneratedSandboxDefinition(scope, name)
+      }
     }
   }]))
 }

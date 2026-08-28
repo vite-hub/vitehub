@@ -178,11 +178,10 @@ describe("Sandbox runtime lifecycle", () => {
   it("does not replay Cloudflare definitions whose handler errors look transient", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
-    runtimeMocks.executeSandboxDefinition.mockImplementation(async (...args: unknown[]) => {
-      const onExecutionStart = args[6]
-      if (typeof onExecutionStart === "function")
-        onExecutionStart()
-      throw sandboxError("aborted", {
+    runtimeMocks.executeSandboxDefinition.mockImplementation(async (...args) => {
+      const lifecycle = args[6] as { onHandlerStart?: () => void }
+      lifecycle.onHandlerStart?.()
+      throw sandboxError("container is starting", {
         code: "SANDBOX_HANDLER_ERROR",
         provider: "cloudflare",
       })
@@ -197,12 +196,16 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
-  it("retries transient Cloudflare failures during pre-handler preparation", async () => {
+  it("retries transient Cloudflare failures while Definition staging is still safe", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxDefinition
-      .mockRejectedValueOnce(new Error("network connection lost while staging"))
-      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(new Error("container is starting"))
+      .mockImplementationOnce(async (...args) => {
+        const lifecycle = args[6] as { onHandlerStart?: () => void }
+        lifecycle.onHandlerStart?.()
+        return { ok: true }
+      })
 
     const result = await runSandboxRuntime("example")
 
@@ -296,7 +299,7 @@ describe("Sandbox runtime lifecycle", () => {
       packageDefinition.bundle,
       undefined,
       undefined,
-      expect.any(Function),
+      expect.objectContaining({ onHandlerStart: expect.any(Function) }),
     )
   })
 })

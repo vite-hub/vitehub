@@ -18,6 +18,7 @@ import {
   readSandboxRuntimeGeneration,
   resolveSandboxRuntimeFacadeImportBase,
   resolveSandboxRuntimeLinkType,
+  type SandboxRuntimeGenerationLease,
   withSandboxRuntimeGenerationLock,
 } from './runtime-generation'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
@@ -243,12 +244,12 @@ async function writeSandboxArtifacts(
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
   await mkdir(generatedDir, { recursive: true })
-  return await withSandboxRuntimeGenerationLock(generatedDir, async assertOwnership => await writeSandboxArtifactsLocked(
+  return await withSandboxRuntimeGenerationLock(generatedDir, async lease => await writeSandboxArtifactsLocked(
     plan,
     createFacadeContents,
     generatedDir,
     platform,
-    assertOwnership,
+    lease,
   ))
 }
 
@@ -257,7 +258,7 @@ async function writeSandboxArtifactsLocked(
   createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
   generatedDir: string,
   platform: NodeJS.Platform,
-  assertOwnership: () => Promise<void>,
+  lease: SandboxRuntimeGenerationLease,
 ) {
   const generationsDir = resolve(generatedDir, '.runtime-generations')
   await mkdir(generationsDir, { recursive: true })
@@ -302,12 +303,13 @@ async function writeSandboxArtifactsLocked(
         generationDir,
       ),
     )
-    await assertOwnership()
+    await lease.assertOwned()
     if (platform === 'win32') {
+      await lease.assertOwned()
       await mkdir(runtimeDir, { recursive: true })
       const stableDefinitions = [...emitted.values()].filter(artifact => artifact.key.startsWith('sandbox-definition:'))
       for (const artifact of stableDefinitions) {
-        await assertOwnership()
+        await lease.assertOwned()
         await mkdir(dirname(artifact.stableDst), { recursive: true })
         const stagedDefinition = resolve(
           generatedDir,
@@ -316,7 +318,7 @@ async function writeSandboxArtifactsLocked(
         await activateSandboxRuntimeFile(artifact.dst, artifact.stableDst, stagedDefinition)
       }
       if (typeTemplate) {
-        await assertOwnership()
+        await lease.assertOwned()
         const relativePath = typeTemplate.filename.replace(/^runtime\//, '')
         const stagedType = resolve(generatedDir, `.runtime-types-${generationDir.slice(generationsDir.length + 1)}.d.ts`)
         await activateSandboxRuntimeFile(
@@ -325,7 +327,7 @@ async function writeSandboxArtifactsLocked(
           stagedType,
         )
       }
-      await assertOwnership()
+      await lease.assertOwned()
       const stagedFacade = resolve(generatedDir, `.runtime-facade-${generationDir.slice(generationsDir.length + 1)}.mjs`)
       await activateSandboxRuntimeFile(generationFacadeFile, resolve(runtimeDir, 'sandbox.mjs'), stagedFacade)
       activated = true
@@ -333,13 +335,16 @@ async function writeSandboxArtifactsLocked(
       const retainedDefinitions = new Set(stableDefinitions.map(artifact => artifact.stableDst))
       for (const entry of await readdir(stableDefinitionDir).catch(() => [])) {
         const path = resolve(stableDefinitionDir, entry)
-        if (!retainedDefinitions.has(path))
+        if (!retainedDefinitions.has(path)) {
+          await lease.assertOwned()
           await pruneSandboxRuntimeGeneration(path)
+        }
       }
     }
     else {
-      await assertOwnership()
+      await lease.assertOwned()
       await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(platform))
+      await lease.assertOwned()
 
       try {
         await rename(stagedLink, runtimeDir)
@@ -350,8 +355,10 @@ async function writeSandboxArtifactsLocked(
         if (code !== 'EEXIST' && code !== 'EISDIR' && code !== 'ENOTEMPTY')
           throw error
 
+        await lease.assertOwned()
         await rename(runtimeDir, legacyRuntimeDir)
         try {
+          await lease.assertOwned()
           await rename(stagedLink, runtimeDir)
           activated = true
         }
@@ -367,6 +374,7 @@ async function writeSandboxArtifactsLocked(
           }
           throw activationError
         }
+        await lease.assertOwned()
         await pruneSandboxRuntimeGeneration(legacyRuntimeDir)
       }
     }
@@ -382,11 +390,13 @@ async function writeSandboxArtifactsLocked(
     previousGeneration && resolve(generatedDir, previousGeneration),
     previousWindowsGeneration,
   ].filter(Boolean))
-  await assertOwnership()
+  await lease.assertOwned()
   for (const entry of await readdir(generationsDir)) {
     const path = resolve(generationsDir, entry)
-    if (!retained.has(path))
+    if (!retained.has(path)) {
+      await lease.assertOwned()
       await pruneSandboxRuntimeGeneration(path)
+    }
   }
 
   return emitted

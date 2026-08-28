@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { basename, resolve } from 'pathe'
@@ -9,6 +9,7 @@ const generationLockClaimStaleMs = 60_000
 const generationLockName = '.runtime-generation.lock'
 const generationLockWaitMs = 60_000
 const generationLockStaleMs = 300_000
+const generationLockHeartbeatMs = 30_000
 
 interface SandboxRuntimeGenerationLockOwner {
   host: string
@@ -22,19 +23,23 @@ const releasedSandboxRuntimeGenerationLocks = new Set<string>()
 interface SandboxRuntimeGenerationLockObservation {
   dev: number
   ino: number
-  lease: {
-    dev: number
-    ino: number
-    mtimeMs: number
-  }
+  leaseDev?: number
+  leaseIno?: number
+  leaseMtimeMs: number
   ownerValue: string | undefined
 }
 
-interface SandboxRuntimeGenerationLockOperations {
-  heartbeatIntervalMs?: number
+export interface SandboxRuntimeGenerationLease {
+  assertOwned: () => Promise<void>
+}
+
+interface SandboxRuntimeGenerationLockOptions {
+  heartbeatMs?: number
   host?: string
-  remove: typeof rm
-  writeOwner: (path: string, value: string) => Promise<void>
+  pollMs?: number
+  removeLock?: typeof rm
+  staleMs?: number
+  waitMs?: number
 }
 
 function readNodeErrorCode(error: unknown) {
@@ -86,39 +91,58 @@ function isLocalProcessAlive(pid: number): boolean {
 async function observeSandboxRuntimeGenerationLock(
   lockDir: string,
   ownerPath: string,
+  leasePath: string,
 ): Promise<SandboxRuntimeGenerationLockObservation | undefined> {
   const before = await stat(lockDir).catch(() => undefined)
   if (!before)
     return undefined
   const ownerValue = await readFile(ownerPath, 'utf8').catch(() => undefined)
+  const lease = await stat(leasePath).catch(() => undefined)
   const after = await stat(lockDir).catch(() => undefined)
   if (!after || before.dev !== after.dev || before.ino !== after.ino)
     return undefined
-  const lease = await stat(resolve(lockDir, '.heartbeat')).catch(() => undefined)
-    || await stat(ownerPath).catch(() => undefined)
-    || after
   return {
     dev: after.dev,
     ino: after.ino,
-    lease: { dev: lease.dev, ino: lease.ino, mtimeMs: lease.mtimeMs },
+    leaseDev: lease?.dev,
+    leaseIno: lease?.ino,
+    leaseMtimeMs: lease?.mtimeMs ?? after.mtimeMs,
     ownerValue,
   }
 }
 
-function isSandboxRuntimeGenerationLockStale(observation: SandboxRuntimeGenerationLockObservation): boolean {
+function isSandboxRuntimeGenerationLockStale(
+  observation: SandboxRuntimeGenerationLockObservation,
+  staleMs: number,
+): boolean {
   const owner = parseSandboxRuntimeGenerationLockOwner(observation.ownerValue)
   if (owner?.released === true || (owner && releasedSandboxRuntimeGenerationLocks.has(owner.token)))
     return true
   if (owner?.host === hostname())
     return !isLocalProcessAlive(owner.pid)
 
-  return Date.now() - observation.lease.mtimeMs > generationLockStaleMs
+  return Date.now() - observation.leaseMtimeMs > staleMs
+}
+
+function isSameSandboxRuntimeGenerationLock(
+  left: SandboxRuntimeGenerationLockObservation,
+  right: SandboxRuntimeGenerationLockObservation | undefined,
+): boolean {
+  return !!right
+    && left.dev === right.dev
+    && left.ino === right.ino
+    && left.leaseDev === right.leaseDev
+    && left.leaseIno === right.leaseIno
+    && (typeof left.leaseIno === 'undefined' || left.leaseMtimeMs === right.leaseMtimeMs)
+    && left.ownerValue === right.ownerValue
 }
 
 async function reclaimSandboxRuntimeGenerationLock(
   lockDir: string,
   ownerPath: string,
+  leasePath: string,
   observation: SandboxRuntimeGenerationLockObservation,
+  staleMs: number,
 ): Promise<boolean> {
   const claimPath = resolve(lockDir, '.reclaim')
   let claim: Awaited<ReturnType<typeof open>> | undefined
@@ -143,19 +167,13 @@ async function reclaimSandboxRuntimeGenerationLock(
 
   let reclaimed = false
   try {
-    const currentOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
-    const current = await stat(lockDir).catch(() => undefined)
-    const currentLease = await stat(resolve(lockDir, '.heartbeat')).catch(() => undefined)
-      || await stat(ownerPath).catch(() => undefined)
-    if (
-      currentOwner !== observation.ownerValue
-      || current?.dev !== observation.dev
-      || current.ino !== observation.ino
-      || !currentLease
-      || currentLease.dev !== observation.lease.dev
-      || currentLease.ino !== observation.lease.ino
-      || currentLease.mtimeMs !== observation.lease.mtimeMs
-    )
+    const current = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+    const stillStale = typeof current?.leaseIno === 'undefined'
+      ? isSandboxRuntimeGenerationLockStale(observation, staleMs)
+      : isSandboxRuntimeGenerationLockStale(current, staleMs)
+    if (!isSameSandboxRuntimeGenerationLock(observation, current)
+      || !current
+      || !stillStale)
       return false
 
     const staleDir = `${lockDir}.stale-${randomUUID()}`
@@ -181,18 +199,20 @@ async function reclaimSandboxRuntimeGenerationLock(
 
 export async function withSandboxRuntimeGenerationLock<T>(
   generatedDir: string,
-  operation: (assertOwnership: () => Promise<void>) => Promise<T>,
-  lockOperations: SandboxRuntimeGenerationLockOperations = {
-    remove: rm,
-    writeOwner: async (path, value) => await writeFile(path, value),
-  },
+  operation: (lease: SandboxRuntimeGenerationLease) => Promise<T>,
+  options: SandboxRuntimeGenerationLockOptions = {},
 ): Promise<T> {
   const lockDir = resolve(generatedDir, generationLockName)
   const ownerPath = resolve(lockDir, 'owner.json')
-  const heartbeatPath = resolve(lockDir, '.heartbeat')
-  const owner = JSON.stringify({ host: lockOperations.host ?? hostname(), pid: process.pid, token: randomUUID() })
-  const deadline = Date.now() + generationLockWaitMs
-  let heartbeatFile: Awaited<ReturnType<typeof open>> | undefined
+  const leasePath = resolve(lockDir, 'lease')
+  const heartbeatMs = options.heartbeatMs ?? generationLockHeartbeatMs
+  const pollMs = options.pollMs ?? 25
+  const removeLock = options.removeLock ?? rm
+  const staleMs = options.staleMs ?? generationLockStaleMs
+  const owner = JSON.stringify({ host: options.host ?? hostname(), pid: process.pid, token: randomUUID() })
+  const deadline = Date.now() + (options.waitMs ?? generationLockWaitMs)
+  let ownedLock: SandboxRuntimeGenerationLockObservation | undefined
+  let leaseFile: Awaited<ReturnType<typeof open>> | undefined
   await mkdir(generatedDir, { recursive: true })
 
   while (true) {
@@ -203,14 +223,14 @@ export async function withSandboxRuntimeGenerationLock<T>(
       if (readNodeErrorCode(error) !== 'EEXIST')
         throw error
 
-      const observation = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath)
-      if (observation && isSandboxRuntimeGenerationLockStale(observation)) {
-        await reclaimSandboxRuntimeGenerationLock(lockDir, ownerPath, observation)
+      const observation = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+      if (observation && isSandboxRuntimeGenerationLockStale(observation, staleMs)) {
+        await reclaimSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath, observation, staleMs)
         continue
       }
       if (Date.now() >= deadline)
         throw new Error(`[vitehub] Timed out waiting to prepare the Sandbox runtime in ${generatedDir}.`)
-      await delay(25)
+      await delay(pollMs)
       continue
     }
 
@@ -222,50 +242,122 @@ export async function withSandboxRuntimeGenerationLock<T>(
       finally {
         await ownerFile.close()
       }
-      heartbeatFile = await open(heartbeatPath, 'wx')
+      leaseFile = await open(leasePath, 'wx')
+      await leaseFile.writeFile(owner)
+      ownedLock = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+      if (!ownedLock)
+        throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`)
       break
     }
     catch (error) {
+      await leaseFile?.close().catch(() => {})
+      leaseFile = undefined
       await rm(lockDir, { recursive: true, force: true }).catch(() => {})
       throw error
     }
   }
 
-  const assertOwnership = async () => {
-    const activeOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
-    if (activeOwner !== owner)
+  let heartbeatError: unknown
+  const assertOwned = async () => {
+    if (heartbeatError)
+      throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`, { cause: heartbeatError })
+    const active = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+    if (!ownedLock
+      || !active
+      || active.dev !== ownedLock.dev
+      || active.ino !== ownedLock.ino
+      || active.leaseDev !== ownedLock.leaseDev
+      || active.leaseIno !== ownedLock.leaseIno
+      || active.ownerValue !== owner) {
       throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`)
+    }
   }
-  let heartbeat = Promise.resolve()
-  const heartbeatTimer = setInterval(() => {
-    heartbeat = heartbeat.then(async () => {
-      if (await readFile(ownerPath, 'utf8').catch(() => undefined) === owner)
-        await heartbeatFile?.utimes(new Date(), new Date())
-    }).catch(() => {})
-  }, lockOperations.heartbeatIntervalMs ?? Math.floor(generationLockStaleMs / 3))
-  heartbeatTimer.unref()
-
-  try {
-    return await operation(assertOwnership)
-  }
-  finally {
-    clearInterval(heartbeatTimer)
-    await heartbeat
-    await heartbeatFile?.close().catch(() => {})
-    const activeOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
-    if (activeOwner === owner) {
+  const heartbeatAbort = new AbortController()
+  const heartbeat = (async () => {
+    while (!heartbeatAbort.signal.aborted) {
       try {
-        await lockOperations.remove(lockDir, { recursive: true, force: true })
+        await delay(heartbeatMs, undefined, { signal: heartbeatAbort.signal })
       }
-      catch {
-        const parsedOwner = parseSandboxRuntimeGenerationLockOwner(owner)
-        if (parsedOwner) {
-          releasedSandboxRuntimeGenerationLocks.add(parsedOwner.token)
-          await lockOperations.writeOwner(ownerPath, JSON.stringify({ ...parsedOwner, released: true })).catch(() => {})
-        }
+      catch (error) {
+        if (heartbeatAbort.signal.aborted)
+          return
+        throw error
+      }
+      if (heartbeatAbort.signal.aborted)
+        return
+      const now = new Date()
+      await leaseFile!.utimes(now, now)
+      await assertOwned()
+    }
+  })().catch((error) => {
+    heartbeatError = error
+  })
+
+  let operationFailed = false
+  let operationError: unknown
+  let operationResult: T | undefined
+  try {
+    operationResult = await operation({ assertOwned })
+  }
+  catch (error) {
+    operationFailed = true
+    operationError = error
+  }
+
+  const cleanupErrors: unknown[] = []
+  heartbeatAbort.abort()
+  await heartbeat.catch(error => cleanupErrors.push(error))
+  if (heartbeatError) {
+    cleanupErrors.push(new Error(
+      `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`,
+      { cause: heartbeatError },
+    ))
+  }
+  await leaseFile?.close().catch(error => cleanupErrors.push(error))
+  const activeOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
+  const active = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+  const stillOwned = activeOwner === owner
+    && ownedLock
+    && active?.dev === ownedLock.dev
+    && active.ino === ownedLock.ino
+    && active.leaseDev === ownedLock.leaseDev
+    && active.leaseIno === ownedLock.leaseIno
+  if (stillOwned) {
+    try {
+      await removeLock(lockDir, { recursive: true, force: true })
+    }
+    catch (releaseError) {
+      try {
+        const expired = new Date(0)
+        await writeFile(ownerPath, JSON.stringify({ host: `${hostname()}:released`, pid: process.pid, token: randomUUID() }))
+        await utimes(leasePath, expired, expired)
+      }
+      catch (recoveryError) {
+        cleanupErrors.push(new AggregateError(
+          [releaseError, recoveryError],
+          `[vitehub] Failed to release the Sandbox runtime generation lock in ${generatedDir}.`,
+        ))
       }
     }
   }
+  else if (!heartbeatError) {
+    cleanupErrors.push(new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`))
+  }
+
+  if (operationFailed) {
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [operationError, ...cleanupErrors],
+        `[vitehub] Sandbox runtime preparation and generation lock cleanup failed in ${generatedDir}.`,
+      )
+    }
+    throw operationError
+  }
+  if (cleanupErrors.length === 1)
+    throw cleanupErrors[0]
+  if (cleanupErrors.length > 1)
+    throw new AggregateError(cleanupErrors, `[vitehub] Failed to clean up the Sandbox runtime generation lock in ${generatedDir}.`)
+  return operationResult as T
 }
 
 export function markSandboxRuntimeGeneration(contents: string, generationDir: string): string {

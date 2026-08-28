@@ -178,6 +178,62 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxDefinition", () => {
+  it("does not cross the handler boundary when Definition staging fails", async () => {
+    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+    const onHandlerStart = vi.fn()
+    sandbox.files.write = vi.fn(async () => {
+      throw new Error("container is starting")
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      { onHandlerStart },
+    )).rejects.toThrow("container is starting")
+
+    expect(onHandlerStart).not.toHaveBeenCalled()
+  })
+
+  it("crosses the handler boundary before user code can fail", async () => {
+    const onHandlerStart = vi.fn()
+    const { sandbox } = createFakeSandbox({
+      provider: "cloudflare",
+      async onExecute({ args, write }) {
+        expect(onHandlerStart).toHaveBeenCalledOnce()
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          error: { message: "container is starting" },
+          ok: false,
+        })))
+        return { code: 1, ok: false, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      { onHandlerStart },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_HANDLER_ERROR",
+      message: "container is starting",
+    })
+
+    expect(onHandlerStart).toHaveBeenCalledOnce()
+  })
+
   it("bounds handler diagnostics before constructing the public error", () => {
     const error = createHandlerError("Sandbox definition failed." + "!".repeat(20_000), "vercel", {
       ignored: { private: true },
@@ -218,7 +274,7 @@ describe("executeSandboxDefinition", () => {
 
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
-    const onExecutionStart = vi.fn()
+    const onHandlerStart = vi.fn()
     let finishSetup: (() => void) | undefined
     sandbox.mkdir = async () => await new Promise<void>((resolve) => {
       finishSetup = resolve
@@ -236,7 +292,7 @@ describe("executeSandboxDefinition", () => {
       },
       undefined,
       undefined,
-      onExecutionStart,
+      { onHandlerStart },
     )).rejects.toMatchObject({
       code: "SANDBOX_TIMEOUT",
       details: { provider: "cloudflare", timeout: 10 },
@@ -245,12 +301,12 @@ describe("executeSandboxDefinition", () => {
     finishSetup?.()
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(execCalls.some(call => call.cmd === "node")).toBe(false)
-    expect(onExecutionStart).not.toHaveBeenCalled()
+    expect(onHandlerStart).not.toHaveBeenCalled()
   })
 
   it("marks execution started only when the handler launcher begins", async () => {
     const { sandbox } = createFakeSandbox()
-    const onExecutionStart = vi.fn()
+    const onHandlerStart = vi.fn()
 
     await executeSandboxDefinition(
       sandbox,
@@ -264,10 +320,10 @@ describe("executeSandboxDefinition", () => {
       },
       undefined,
       undefined,
-      onExecutionStart,
+      { onHandlerStart },
     )
 
-    expect(onExecutionStart).toHaveBeenCalledOnce()
+    expect(onHandlerStart).toHaveBeenCalledOnce()
   })
 
   it("imports the generated entry once with the default Node launcher", async () => {

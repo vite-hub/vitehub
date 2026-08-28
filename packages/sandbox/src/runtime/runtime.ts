@@ -105,7 +105,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
         return await serializeCloudflareRun(cloudflareSandboxId, async () => {
           for (let attempt = 0; attempt < attempts; attempt++) {
             let sandbox: SandboxExecutionBox | undefined
-            let definitionExecutionStarted = false
+            let handlerMayHaveStarted = false
             try {
               const session = await box.open({ id: cloudflareSandboxId })
               sandbox = createSandboxExecutionBox(session, provider.provider)
@@ -116,13 +116,17 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
                 context.definition.bundle,
                 payload,
                 options.context,
-                () => { definitionExecutionStarted = true },
+                {
+                  onHandlerStart() {
+                    handlerMayHaveStarted = true
+                  },
+                },
               )
               return result
             }
             catch (error) {
               const sandboxError = toSandboxError(error)
-              const shouldRetry = !definitionExecutionStarted
+              const shouldRetry = !handlerMayHaveStarted
                 && provider.provider === 'cloudflare'
                 && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
                 && isRetriableCloudflareSandboxError(sandboxError)
