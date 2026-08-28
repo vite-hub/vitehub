@@ -223,6 +223,45 @@ function codexCredentialSeedHash(credentials: string): string {
   return createHash("sha256").update(credentials).digest("hex")
 }
 
+function decodeTomlBasicKey(key: string): string | undefined {
+  const simpleEscapes: Record<string, string> = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", '"': '"', "\\": "\\" }
+  let decoded = ""
+  for (let index = 1; index < key.length - 1; index++) {
+    const character = key[index]!
+    if (character !== "\\") {
+      if (character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7F) return undefined
+      decoded += character
+      continue
+    }
+    const escape = key[++index]
+    const simple = escape && simpleEscapes[escape]
+    if (simple !== undefined) {
+      decoded += simple
+      continue
+    }
+    const digits = escape === "u" ? 4 : escape === "U" ? 8 : 0
+    const hexadecimal = key.slice(index + 1, index + 1 + digits)
+    if (!digits || hexadecimal.length !== digits || !/^[\dA-Fa-f]+$/.test(hexadecimal)) return undefined
+    const codePoint = Number.parseInt(hexadecimal, 16)
+    if (codePoint > 0x10FFFF || codePoint >= 0xD800 && codePoint <= 0xDFFF) return undefined
+    decoded += String.fromCodePoint(codePoint)
+    index += digits
+  }
+  return decoded
+}
+
+function multilineTomlValueEnd(lines: string[], startLine: number, valueOffset: number, delimiter: `'''` | `"""`): number | undefined {
+  for (let lineIndex = startLine; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]!
+    const offset = lineIndex === startLine ? valueOffset : 0
+    for (let index = offset; index < line.length - 2; index++) {
+      if (line.slice(index, index + 3) !== delimiter) continue
+      if (delimiter === '"""' && /(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, index))) continue
+      return lineIndex
+    }
+  }
+}
+
 async function writeProtectedCodexFile(homePath: string, name: string, contents: string): Promise<void> {
   const nextPath = join(homePath, `.${name}-${crypto.randomUUID()}.next`)
   try {
@@ -249,20 +288,22 @@ function codexFileCredentialStoreConfig(config: string): string {
   for (const [index, line] of lines.entries()) {
     if (!multiline) {
       if (/^\s*\[/.test(line)) break
-      const key = line.match(/^\s*(cli_auth_credentials_store|'cli_auth_credentials_store'|"(?:\\.|[^"\\])*")\s*=/)?.[1]
-      const decodedKey = key?.startsWith('"')
-        ? (() => {
-            try {
-              return JSON.parse(key) as unknown
-            }
-            catch {
-              return undefined
-            }
-          })()
-        : key?.startsWith("'") ? key.slice(1, -1) : key
-      if (decodedKey === "cli_auth_credentials_store") {
+      const assignmentMatch = line.match(/^\s*(cli_auth_credentials_store|'cli_auth_credentials_store'|"(?:\\.|[^"\\])*")\s*=/)
+      const [, key = ""] = assignmentMatch || []
+      const decodedKey = key.startsWith('"')
+        ? decodeTomlBasicKey(key)
+        : key.startsWith("'") ? key.slice(1, -1) : key
+      if (assignmentMatch && decodedKey === "cli_auth_credentials_store") {
         const newline = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : ""
-        lines[index] = `${assignment}${newline}`
+        const valueStart = assignmentMatch[0].length
+        const matchedDelimiter = line.slice(valueStart).match(/^\s*("""|''')/)?.[1]
+        const multilineValue = matchedDelimiter === '"""' || matchedDelimiter === "'''" ? matchedDelimiter : undefined
+        const end = multilineValue
+          ? multilineTomlValueEnd(lines, index, valueStart + line.slice(valueStart).indexOf(multilineValue) + 3, multilineValue)
+          : index
+        if (end === undefined) break
+        const endNewline = lines[end]!.endsWith("\r\n") ? "\r\n" : lines[end]!.endsWith("\n") ? "\n" : newline
+        lines.splice(index, end - index + 1, `${assignment}${endNewline}`)
         return lines.join("")
       }
     }
@@ -1589,7 +1630,13 @@ async function* runProvider<
     let cleanupTimedOut = false
     let invocationCleanupDeferred: Promise<void> | undefined
     let forcedRootCleanup: Promise<void> | undefined
-    let runtimeCleanupSettled = runtimeCleanupDeferred
+    let runtimeCleanupSettled = false
+    if (runtimeCleanupDeferred) {
+      observeLateCleanup(deferredRuntimeStopped.then(async () => {
+        runtimeCleanupSettled = true
+        await releaseCodexCredentialHome()
+      }))
+    }
     const cleanupTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? Promise.resolve(undefined)
@@ -1604,10 +1651,7 @@ async function* runProvider<
           && (result.reason === caught || result.reason === effectiveSignal?.reason)
         if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
       }
-      if (runtimeCleanupDeferred) {
-        observeLateCleanup(deferredRuntimeStopped.then(releaseCodexCredentialHome))
-      }
-      else {
+      if (!runtimeCleanupDeferred) {
         try {
           await releaseCodexCredentialHome()
         }
