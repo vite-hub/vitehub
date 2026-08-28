@@ -564,11 +564,15 @@ function traceEventAttributes(
   const activity = normalized ? event.activity : normalizedTraceActivity(event.activity)
   const payload = normalized ? event.payload : normalizedTracePayload(event.payload)
   let source: Record<string, unknown> = {}
+  const skippedMetadataContent = new Set<string>()
   try {
     for (const key of Reflect.ownKeys(event.attributes || {})) {
       if (!hasRuntimeType(key, "string")) continue
       const descriptor = Object.getOwnPropertyDescriptor(event.attributes!, key)
       if (descriptor?.enumerable && "value" in descriptor) source[key] = descriptor.value
+      else if (content === "metadata" && descriptor?.enumerable && isTraceContentAttributeKey(key)) {
+        skippedMetadataContent.add(key)
+      }
     }
   }
   catch {
@@ -594,6 +598,11 @@ function traceEventAttributes(
   }
   catch {
     delete source["content.omitted"]
+  }
+  if (skippedMetadataContent.size) {
+    const omitted = new Set(Array.isArray(source["content.omitted"]) ? source["content.omitted"] : [])
+    for (const key of skippedMetadataContent) omitted.add(key)
+    source["content.omitted"] = [...omitted]
   }
   const attributes = content === "metadata" ? metadataAttributes(source) : source
   const next: Record<string, unknown> = { ...attributes }

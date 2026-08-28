@@ -309,6 +309,18 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("marks accessor-backed content as omitted without invoking it", async () => {
+    const log = createTraceEventLog()
+    const getter = vi.fn(() => "secret")
+    const attributes: Record<string, unknown> = {}
+    Object.defineProperty(attributes, "message.content", { enumerable: true, get: getter })
+
+    await log.append({ attributes, name: "agent.message", type: "run" })
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()[0]?.attributes).toEqual({ "content.omitted": ["message.content"] })
+  })
+
   it("normalizes activity ownership and explicit payload visibility", async () => {
     const log = createTraceEventLog()
     await log.append({
