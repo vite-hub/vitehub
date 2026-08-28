@@ -1642,6 +1642,7 @@ async function* runProvider<
         void cleanupTask.catch(() => undefined)
       }
       else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+        if (runtime) deferCredentialOverlayLockRelease(cleanupTask)
         let timeout: ReturnType<typeof setTimeout> | undefined
         invocationCleanupDeferred = Promise.race([
           cleanupTask,
@@ -1657,7 +1658,9 @@ async function* runProvider<
     finally {
       cleanup.dispose()
     }
-    const deferredSessionCleanup = cleanupTimedOut ? cleanupTask : invocationCleanupDeferred || deferredRuntimeCleanup || deferredWorkspaceCleanup
+    const deferredSessionCleanup = cleanupTimedOut || invocationCleanupDeferred
+      ? cleanupTask
+      : deferredRuntimeCleanup || deferredWorkspaceCleanup
     if (deferredSessionCleanup) void deferredSessionCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
     if (sessionKey) {

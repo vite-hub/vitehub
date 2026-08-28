@@ -2306,14 +2306,18 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
 
   it("removes Codex credentials when aborted provider cleanup never settles", async () => {
     vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const otherHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let finishClose: (() => void) | undefined
     try {
       const threadId = "thread-cancel-provider-cleanup"
       const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
-      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
       const controller = new AbortController()
       const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
+        providerSettings: { homePath: sharedHome },
       })
       const runContext = context(threadId, {
         input: { abortSignal: controller.signal, prompt: "hello" },
@@ -2336,9 +2340,36 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
 
       await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
       await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+
+      const runtimeCalls = createProviderRuntime.mock.calls.length
+      const sameSessionProvider = runtime("thread-after-stalled-session", [event("turn.completed", "thread-after-stalled-session", { state: "completed" }, { turnId: "turn-1" })])
+      const sameHomeProvider = runtime("thread-after-stalled-home", [event("turn.completed", "thread-after-stalled-home", { state: "completed" }, { turnId: "turn-1" })])
+      const otherHomeAdapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: otherHome },
+      })
+      // SAFETY: This fixture intentionally reuses the stalled invocation's session with another credential home.
+      const sameSessionResult = otherHomeAdapter.generate(context(threadId) as never)
+      // SAFETY: This fixture intentionally reuses the stalled invocation's credential home with another session.
+      const sameHomeResult = adapter.generate(context("thread-after-stalled-home") as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+
+      finishClose?.()
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(sameSessionResult).resolves.toBeDefined()
+      await expect(sameHomeResult).resolves.toBeDefined()
+      expect(sameSessionProvider.startSession).toHaveBeenCalledOnce()
+      expect(sameHomeProvider.startSession).toHaveBeenCalledOnce()
     }
     finally {
+      finishClose?.()
       vi.useRealTimers()
+      await Promise.all([
+        rm(sharedHome, { force: true, recursive: true }),
+        rm(otherHome, { force: true, recursive: true }),
+      ])
     }
   })
 
