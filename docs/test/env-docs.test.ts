@@ -38,7 +38,18 @@ function declarationSection(call: CallExpression) {
   for (let node: Node | undefined = call.parent; node; node = node.parent) {
     if (!isPropertyAssignment(node)) continue;
     const name = propertyName(node.name);
-    if (name === "public" || name === "define" || name === "server") return name;
+    if (name !== "public" && name !== "define" && name !== "server") continue;
+
+    const sections = node.parent;
+    const envProperty = sections.parent;
+    if (
+      isObjectLiteralExpression(sections) &&
+      isPropertyAssignment(envProperty) &&
+      propertyName(envProperty.name) === "env" &&
+      envProperty.initializer === sections
+    ) {
+      return name;
+    }
   }
 }
 
@@ -115,6 +126,7 @@ describe("canonical Env documentation", () => {
         public: {
           valid: env({ mode: "build" }),
           invalid: env.variable({ mode: "runtime" }),
+          server: env({ mode: "runtime" }),
         },
         server: { token: env({ mode: "runtime" }) },
       } })
@@ -124,12 +136,12 @@ describe("canonical Env documentation", () => {
       return section === "public" || section === "define";
     });
 
-    expect(declarations).toHaveLength(2);
+    expect(declarations).toHaveLength(3);
     expect(
       declarations.map((declaration) => {
         const options = declaration.arguments[0];
         return isObjectLiteralExpression(options) && optionsHaveBuildMode(options);
       }),
-    ).toEqual([true, false]);
+    ).toEqual([true, false, false]);
   });
 });
