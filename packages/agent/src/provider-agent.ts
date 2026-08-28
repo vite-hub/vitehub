@@ -1,7 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, copyFile, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
@@ -203,6 +203,7 @@ if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].Identi
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const providerHostEnvironmentKeys = [
   "APPDATA",
+  "CODEX_HOME",
   "ComSpec",
   "HOME",
   "LANG",
@@ -319,7 +320,7 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
     .map(async (entry) => {
       const source = join(home, entry)
       const sourceEntry = await lstat(source)
-      if (!sourceEntry.isFile()) return
+      if (!sourceEntry.isFile() && !sourceEntry.isDirectory()) return
       const target = join(sharedHome, entry)
       const targetEntry = await lstat(target).catch((error) => {
         // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
@@ -329,17 +330,18 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
       if (targetEntry && sourceEntry.dev === targetEntry.dev && sourceEntry.ino === targetEntry.ino) return
       const temporary = join(sharedHome, `.${entry}.${crypto.randomUUID()}.tmp`)
       try {
-        await copyFile(source, temporary)
+        if (sourceEntry.isDirectory()) await cp(source, temporary, { recursive: true })
+        else await copyFile(source, temporary)
         await rename(temporary, target).catch(async (error) => {
           // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
           const code = (error as NodeJS.ErrnoException).code
           if (code !== "EEXIST" && code !== "EPERM") throw error
-          await rm(target, { force: true })
+          await rm(target, { force: true, recursive: true })
           await rename(temporary, target)
         })
       }
       finally {
-        await rm(temporary, { force: true })
+        await rm(temporary, { force: true, recursive: true })
       }
     }))
 }

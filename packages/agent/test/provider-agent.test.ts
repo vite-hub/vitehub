@@ -348,6 +348,59 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
+  it("uses ambient CODEX_HOME as the shared Codex home", async () => {
+    const threadId = "thread-ambient-codex-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-ambient-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    vi.stubEnv("CODEX_HOME", sharedHome)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists new top-level Codex state directories", async () => {
+    const threadId = "thread-new-codex-state-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await mkdir(join(shadowHome, "rules"))
+      await writeFile(join(shadowHome, "rules", "default.rules"), "allow read\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(await readFile(join(sharedHome, "rules", "default.rules"), "utf8")).toBe("allow read\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
   it("excludes private Codex home entries case-insensitively on macOS", async () => {
     const threadId = "thread-macos-credentials"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
