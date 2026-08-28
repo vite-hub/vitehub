@@ -158,7 +158,7 @@ jobs:
 
             (
               cd "$package_dir"
-              vp pm publish --dry-run --access public --tag "$NPM_TAG" --ignore-scripts --no-git-checks
+              vp pm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks -- --ignore-scripts
             )
           }
 
@@ -328,7 +328,7 @@ jobs:
 
             (
               cd "$package_dir"
-              vp pm publish --access public --tag "$NPM_TAG" --ignore-scripts --no-git-checks
+              vp pm publish --access public --tag "$NPM_TAG" --no-git-checks -- --ignore-scripts
             )
           }
 

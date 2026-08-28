@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -53,6 +55,35 @@ describe("release workflow authority", () => {
   })
 })
 
+describe("release workflow publication", () => {
+  it("forwards lifecycle suppression through the pinned Vite+ publish parser", () => {
+    const packageDir = mkdtempSync(resolve(tmpdir(), "vitehub-release-publish-"))
+    const lifecycleMarker = resolve(packageDir, "lifecycle-ran")
+
+    try {
+      writeFileSync(
+        resolve(packageDir, "package.json"),
+        JSON.stringify({
+          name: "vitehub-release-workflow-parser-test",
+          version: "0.0.0",
+          scripts: { prepublishOnly: "node -e \"require('node:fs').writeFileSync('lifecycle-ran', '')\"" },
+        }),
+      )
+
+      const publish = spawnSync(
+        resolve(repoRoot, "node_modules/.bin/vp"),
+        ["pm", "publish", "--dry-run", "--access", "public", "--no-git-checks", "--", "--ignore-scripts"],
+        { cwd: packageDir, encoding: "utf8" },
+      )
+
+      expect(publish.status, publish.stderr || publish.stdout).toBe(0)
+      expect(existsSync(lifecycleMarker)).toBe(false)
+    } finally {
+      rmSync(packageDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("release workflow artifact handoff", () => {
   it("uploads one bounded immutable workspace after verification", () => {
     expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Dry-run npm package publish"))
@@ -83,7 +114,8 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm.indexOf("Restore local workspace links")).toBeLessThan(publishNpm.indexOf("Publish packages to npm"))
     expect(publishNpm).not.toContain("vp install")
     expect(publishNpm).not.toContain("package-release-order.mjs")
-    expect(publishNpm).toContain('vp pm publish --access public --tag "$NPM_TAG" --ignore-scripts --no-git-checks')
+    expect(verify).toContain('vp pm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks -- --ignore-scripts')
+    expect(publishNpm).toContain('vp pm publish --access public --tag "$NPM_TAG" --no-git-checks -- --ignore-scripts')
   })
 
   it("retains safe resume behavior", () => {
