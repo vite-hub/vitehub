@@ -2488,6 +2488,7 @@ cli_auth_credentials_store = "keyring"
   it("releases a named credential profile when only Capability cleanup stalls", async () => {
     vi.useFakeTimers()
     let client: McpClient | undefined
+    const toolCallController = new AbortController()
     let resolveExecute: (() => void) | undefined
     let toolCall: Promise<unknown> | undefined
     try {
@@ -2499,7 +2500,7 @@ cli_auth_credentials_store = "keyring"
             requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
           })
           await client.connect(transport)
-          toolCall = client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).catch(() => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
         },
       })
@@ -2524,6 +2525,7 @@ cli_auth_credentials_store = "keyring"
     }
     finally {
       resolveExecute?.()
+      toolCallController.abort()
       await toolCall
       await client?.close().catch(() => undefined)
       vi.useRealTimers()
@@ -2533,6 +2535,7 @@ cli_auth_credentials_store = "keyring"
   it("quarantines a named credential profile when provider cleanup rejects while Capability cleanup stalls", async () => {
     vi.useFakeTimers()
     let client: McpClient | undefined
+    const toolCallController = new AbortController()
     let resolveExecute: (() => void) | undefined
     let toolCall: Promise<unknown> | undefined
     try {
@@ -2544,7 +2547,7 @@ cli_auth_credentials_store = "keyring"
             requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
           })
           await client.connect(transport)
-          toolCall = client.callTool({ arguments: {}, name: "stalled" }).catch(() => undefined)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).catch(() => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
         },
       })
@@ -2559,12 +2562,12 @@ cli_auth_credentials_store = "keyring"
       const result = createProviderAgentAdapter(options).generate(context(threadId, {
         tools: { stalled: { execute, name: "stalled" } },
       }) as never)
-
-      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       const rejection = Promise.resolve(result).then(
         () => undefined,
         (error: unknown) => error,
       )
+
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       await vi.advanceTimersByTimeAsync(10_000)
       const cleanupError = await rejection
       expect(cleanupError).toBeInstanceOf(AggregateError)
@@ -2575,6 +2578,7 @@ cli_auth_credentials_store = "keyring"
     }
     finally {
       resolveExecute?.()
+      toolCallController.abort()
       await toolCall
       await client?.close().catch(() => undefined)
       vi.useRealTimers()
