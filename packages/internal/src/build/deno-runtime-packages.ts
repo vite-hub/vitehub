@@ -49,13 +49,13 @@ function collectBundledPackageNames(source: string): Set<string> {
   return names
 }
 
-function collectBundledPackages(source: string): Map<string, string> {
-  const packages = new Map<string, string>()
+function collectBundledPackages(source: string): Array<{ name: string, path: string }> {
+  const packages: Array<{ name: string, path: string }> = []
   for (const match of source.matchAll(
     /(?:^|[\s"'`(])((?:[A-Za-z]:)?[^\s"'`()]*?node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s"'`()]+))/gm,
   )) {
     const name = packageNameFromSpecifier(match[2]!.replaceAll("\\", "/"))
-    if (name) packages.set(name, match[1]!)
+    if (name) packages.push({ name, path: match[1]! })
   }
   return packages
 }
@@ -85,7 +85,7 @@ function collectImportedPackageNames(source: string): Set<string> {
     }
   }
   for (const match of executableSource.matchAll(
-    /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*(?:,|\))/g,
   )) {
     if (!isStandaloneCall(executableSource, match.index))
       continue
@@ -659,7 +659,7 @@ async function recordServerRuntimePackageResolutions(
   const bundledPackageJsonPaths = new Map<string, string>()
   for (const file of files) {
     const source = await readFile(file, "utf8")
-    for (const [name, packagePath] of collectBundledPackages(source)) {
+    for (const { name, path: packagePath } of collectBundledPackages(source)) {
       const candidate = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
       try {
         const packageJsonPath = await realpath(candidate)
@@ -694,7 +694,7 @@ async function readRuntimePackages(
   const packages = new Map<string, RuntimePackage>()
   for (const file of (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()) {
     const source = await readFile(file, "utf8")
-    for (const [name, packagePath] of collectBundledPackages(source)) {
+    for (const { name, path: packagePath } of collectBundledPackages(source)) {
       const existing = packages.get(name)
       packages.set(name, {
         ...existing,
@@ -740,11 +740,21 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
   }
 }
 
-function hasRelocatableDynamicImport(source: string, specifier: string): boolean {
+function isTopLevelExpression(source: string, expressionStart: number): boolean {
+  let braceDepth = 0
+  for (let index = 0; index < expressionStart; index++) {
+    if (source[index] === "{") braceDepth++
+    else if (source[index] === "}") braceDepth--
+  }
+  return braceDepth === 0
+}
+
+function hasTopLevelRelocatableDynamicImport(source: string, specifier: string): boolean {
   const executableSource = maskInertImportText(source)
-  if (findLiteralDynamicImports(executableSource).some(entry => entry.specifier === specifier)) return true
+  if (findLiteralDynamicImports(executableSource)
+    .some(entry => entry.specifier === specifier && isTopLevelExpression(executableSource, entry.start))) return true
   return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
-    .some(match => match[1] === specifier)
+    .some(match => match[1] === specifier && isTopLevelExpression(executableSource, match.index! + match[0].indexOf("import")))
 }
 
 function hasRelocatableStaticImport(source: string, specifier: string): boolean {
@@ -906,11 +916,11 @@ export async function finalizeDenoDeploymentOutput(
         "application entrypoint",
         ["./schedule/deno-cron.mjs", "./server/index.mjs"],
       )
-      if (!hasRelocatableDynamicImport(applicationBundle, "./schedule/deno-cron.mjs")
+      if (!hasTopLevelRelocatableDynamicImport(applicationBundle, "./schedule/deno-cron.mjs")
         && !hasRelocatableStaticImport(applicationBundle, "./schedule/deno-cron.mjs")) {
         throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./schedule/deno-cron.mjs".')
       }
-      if (!hasRelocatableDynamicImport(applicationBundle, "./server/index.mjs")
+      if (!hasTopLevelRelocatableDynamicImport(applicationBundle, "./server/index.mjs")
         && !hasRelocatableStaticImport(applicationBundle, "./server/index.mjs")) {
         throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./server/index.mjs".')
       }

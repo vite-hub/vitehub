@@ -578,13 +578,13 @@ function deploymentPlugins(
       configResolved(config) {
         const serverResolve = config.environments?.ssr?.resolve ?? config.resolve
         resolvedBuildConfig = {
-          alias: serverResolve.alias.map(alias => ({
+          alias: (serverResolve?.alias ?? []).map(alias => ({
             customResolver: alias.customResolver !== undefined,
             find: alias.find,
             replacement: alias.replacement,
           })),
           conditions: resolveServerConditions(config, configuredResolveConditions),
-          hasScheduleIntegration: config.plugins.some(plugin => plugin.name === "@vite-hub/schedule/vite"),
+          hasScheduleIntegration: config.plugins?.some(plugin => plugin.name === "@vite-hub/schedule/vite") ?? false,
         }
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)

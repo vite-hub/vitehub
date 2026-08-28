@@ -235,6 +235,21 @@ import "real"
       .rejects.toThrow('application entrypoint to import "./server/index.mjs"')
   })
 
+  it("rejects required Deno imports deferred inside uncalled functions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-deferred-entry-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), [
+      'export async function startSchedule() { await import("./schedule/deno-cron.mjs") }',
+      'export async function startServer() { await import("./server/index.mjs") }',
+    ].join("\n"), "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root }))
+      .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
+  })
+
   it("bundles package import mappings into relocated entrypoints", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-imports-"))
     await writeJson(join(root, "package.json"), { imports: { "#config": "./config.ts" } })
@@ -317,6 +332,23 @@ import "real"
       alias: [{ find: "#helper", replacement: join(helperDir, "src/index.ts") }],
       rootDir: root,
     })).rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
+  })
+
+  it("rejects conflicting package installations in one generated server file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-server-inline-conflict-"))
+    const first = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
+    const second = join(root, "node_modules/.pnpm/shared-runtime@2/node_modules/shared-runtime")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(first, "package.json"), { name: "shared-runtime", version: "1" })
+    await writeJson(join(second, "package.json"), { name: "shared-runtime", version: "2" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), [
+      `//#region ${relative(root, first).replaceAll("\\", "/")}/index.js`,
+      `//#region ${relative(root, second).replaceAll("\\", "/")}/index.js`,
+    ].join("\n"))
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+      .rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
   })
 
   it("rejects computed local application imports that cannot survive relocation", async () => {
@@ -809,7 +841,7 @@ import "plain"
     await writeRuntimePackage(root, "@scope/bundled-runtime")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), `
-require.resolve("direct-runtime")
+require.resolve("direct-runtime", { paths: [process.cwd()] })
 __require.resolve("@scope/bundled-runtime/entry")
 `)
 
