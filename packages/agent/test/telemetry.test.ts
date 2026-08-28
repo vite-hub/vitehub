@@ -178,7 +178,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })
 
@@ -317,7 +317,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })
 
@@ -340,7 +340,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })).rejects.toThrow("bounded binary budget")
     expect(arrayBuffer).not.toHaveBeenCalled()
@@ -359,7 +359,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       })),
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })).rejects.toThrow("batch exceeds the bounded binary budget")
   })
@@ -380,7 +380,7 @@ describe("Agent telemetry", () => {
           time: "2026-01-01T00:00:00.001Z",
           traceId: "0123456789abcdef0123456789abcdef",
         }],
-        runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+        runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
         signal: "logs",
       })
     }
@@ -409,7 +409,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })
 
