@@ -102,6 +102,7 @@ async function fetchWithRetry(url: URL, options: RequestInit, attemptsLeft = MAX
   try {
     const response = await fetch(url, options)
     if (attemptsLeft > 0 && (response.status === 429 || response.status >= 500)) {
+      await response.body?.cancel()
       await new Promise(resolve => setTimeout(resolve, getRetryDelay(response)))
       return await fetchWithRetry(url, options, attemptsLeft - 1)
     }

@@ -130,13 +130,15 @@ describe("Netlify Blobs driver", () => {
   })
 
   it("retries transient list failures", async () => {
+    const cancel = vi.fn()
     vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(new ReadableStream({ cancel }), { status: 500 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ blobs: [], directories: [] }), { status: 200 })))
 
     await createDriver(options).list()
 
     expect(fetch).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenCalledOnce()
   })
 
   it("supports explicit credentials and retries without process", async () => {
