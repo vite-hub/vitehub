@@ -73,15 +73,22 @@ export function validateAttachments(driver: string, message: EmailMessage): void
   if (message.attachments?.some((value) => value.filename.trim() === "")) {
     throw emailProviderError(driver, "INVALID_OPTIONS", "attachment filenames cannot be empty.");
   }
+  if (
+    message.attachments?.some(
+      (value) => value.contentType !== undefined && value.contentType.trim() === "",
+    )
+  ) {
+    throw emailProviderError(
+      driver,
+      "INVALID_OPTIONS",
+      "attachment content types cannot be empty.",
+    );
+  }
 }
 
 function headerValue(headers: Record<string, string>, name: string): string | undefined {
   const normalizedName = name.toLowerCase();
   return Object.entries(headers).find(([header]) => header.toLowerCase() === normalizedName)?.[1];
-}
-
-function hasHeader(headers: Record<string, string>, name: string): boolean {
-  return headerValue(headers, name) !== undefined;
 }
 
 function hasListUnsubscribeTarget(value: string, target: string): boolean {
@@ -132,6 +139,7 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
     mailto ? `<mailto:${mailto}>` : undefined,
   ].filter((value) => value !== undefined);
   const existingListUnsubscribe = headerValue(headers, "list-unsubscribe");
+  const existingListUnsubscribePost = headerValue(headers, "list-unsubscribe-post");
   if (
     oneClickEnabled &&
     normalizedUrl &&
@@ -146,7 +154,19 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   }
   if (values.length > 0 && existingListUnsubscribe === undefined)
     headers["List-Unsubscribe"] = values.join(", ");
-  if (oneClickEnabled && normalizedUrl && !hasHeader(headers, "list-unsubscribe-post"))
+  if (
+    oneClickEnabled &&
+    normalizedUrl &&
+    existingListUnsubscribePost !== undefined &&
+    existingListUnsubscribePost.trim() !== "List-Unsubscribe=One-Click"
+  ) {
+    throw emailProviderError(
+      driver,
+      "INVALID_OPTIONS",
+      "one-click unsubscribe requires List-Unsubscribe-Post to be List-Unsubscribe=One-Click.",
+    );
+  }
+  if (oneClickEnabled && normalizedUrl && existingListUnsubscribePost === undefined)
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   return { ...message, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
 }

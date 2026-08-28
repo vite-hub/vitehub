@@ -207,6 +207,22 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it.each(["", "   "])(
+    "rejects an empty attachment content type %j before fetch",
+    async (contentType) => {
+      const request = vi.fn();
+      const driver = resend({ apiKey: "re_secret", fetch: request });
+
+      await expect(
+        driver.send(
+          { ...message, attachments: [{ content: "hello", contentType, filename: "report.txt" }] },
+          context,
+        ),
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     [undefined, false],
     ["send-1", true],
@@ -387,6 +403,29 @@ describe("Resend Email driver", () => {
     ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
     expect(request).not.toHaveBeenCalled();
   });
+
+  it.each(["", "List-Unsubscribe=No"])(
+    "rejects an invalid one-click unsubscribe post header %j before dispatch",
+    async (post) => {
+      const request = vi.fn();
+      const driver = resend({ apiKey: "re_secret", fetch: request });
+
+      await expect(
+        driver.send(
+          {
+            ...message,
+            headers: {
+              "List-Unsubscribe": "<https://example.com/unsubscribe>",
+              "List-Unsubscribe-Post": post,
+            },
+            unsubscribe: { url: "https://example.com/unsubscribe" },
+          },
+          context,
+        ),
+      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects one-click unsubscribe without a URL before dispatch", async () => {
     const request = vi.fn();
@@ -829,6 +868,33 @@ describe("Cloudflare Email driver", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it.each(["", "List-Unsubscribe=No"])(
+    "rejects an invalid one-click unsubscribe post header %j before delivery",
+    async (post) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      await expect(
+        driver.send(
+          {
+            ...message,
+            headers: {
+              "List-Unsubscribe": "<https://example.com/unsubscribe>",
+              "List-Unsubscribe-Post": post,
+            },
+            unsubscribe: { url: "https://example.com/unsubscribe" },
+          },
+          context,
+        ),
+      ).resolves.toMatchObject({
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      });
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects one-click unsubscribe without a URL before delivery", async () => {
     const send = vi.fn();
     const Constructor = vi.fn();
@@ -946,6 +1012,26 @@ describe("Cloudflare Email driver", () => {
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
+
+  it.each(["", "   "])(
+    "rejects an empty attachment content type %j before delivery",
+    async (contentType) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      await expect(
+        driver.send(
+          { ...message, attachments: [{ content: "hello", contentType, filename: "report.txt" }] },
+          context,
+        ),
+      ).resolves.toMatchObject({
+        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+      });
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects multiple personalizations before delivery", async () => {
     const send = vi.fn();
@@ -1219,7 +1305,7 @@ describe("Cloudflare Email driver", () => {
     });
   });
 
-  it.each([
+  const unsupportedCloudflareOptions: [string, Partial<EmailMessage>][] = [
     ["raw message payloads", { raw: "From: hello@example.com\r\n\r\nHello" }],
     ["idempotency keys", { idempotencyKey: "send-1" }],
     ["sandbox delivery", { sandbox: true }],
@@ -1238,17 +1324,22 @@ describe("Cloudflare Email driver", () => {
     ["locales", { locale: "en" }],
     ["tags", { tags: [{ name: "kind", value: "welcome" }] }],
     ["metadata", { metadata: { campaign: "welcome" } }],
-  ])("rejects unsupported %s before sending", async (_name, unsupported) => {
-    const send = vi.fn();
-    const Constructor = vi.fn();
-    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+  ];
 
-    await expect(
-      driver.send({ ...message, ...unsupported }, context),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
-    expect(Constructor).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-  });
+  it.each(unsupportedCloudflareOptions)(
+    "rejects unsupported %s before sending",
+    async (_name, unsupported) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      await expect(driver.send({ ...message, ...unsupported }, context)).resolves.toMatchObject({
+        error: { code: "UNSUPPORTED", driver: "cloudflare-email" },
+      });
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { headers: { "X-Long": "x".repeat(1000) }, subject: "Welcome" },
