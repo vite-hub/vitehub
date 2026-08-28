@@ -98,8 +98,10 @@ import { defineAgent, runAgentInline } from "@vite-hub/agent"
 import { mcp } from "@vite-hub/agent/capabilities"
 
 const agent = defineAgent({ driver: { env: { PATH: "" }, kind: "codex" }, runtime: false })
+const optionalServer = false as boolean
 const capability = mcp({
   servers: {
+    optional: optionalServer ? { transport: { type: "http", url: "http://127.0.0.1:1/optional" } } : undefined,
     proof: { transport: { type: "http", url: "http://127.0.0.1:1/mcp" } },
   },
 })
