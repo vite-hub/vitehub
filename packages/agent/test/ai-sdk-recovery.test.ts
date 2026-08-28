@@ -1067,6 +1067,44 @@ describe("AI SDK recovery", () => {
     }))
   })
 
+  it("aborts streamed Workspace fallback synthesis when the consumer cancels", async () => {
+    let fallbackSignal: AbortSignal | undefined
+    const fallbackStarted = Promise.withResolvers<void>()
+    const fakeModel = {
+      ...model([]),
+      async doGenerate(options: ModelCall) {
+        fallbackSignal = options.abortSignal
+        fallbackStarted.resolve()
+        await new Promise<void>((_resolve, reject) => options.abortSignal?.addEventListener("abort", () => reject(options.abortSignal?.reason), { once: true }))
+        throw new Error("Expected fallback synthesis to be aborted")
+      },
+      async doStream() {
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] })
+              controller.enqueue({ output: "found", toolCallId: "call-1", toolName: "search", type: "tool-result" })
+              controller.enqueue({ finishReason: { raw: "tool-calls", unified: "tool-calls" }, type: "finish", usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } } })
+              controller.close()
+            },
+          }),
+        }
+      },
+    }
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(), undefined, undefined, true), runtime, { prompt: "Search" })
+    // SAFETY: streamAgentInline returns the documented streamed result contract.
+    const reader = (result as { fullStream: ReadableStream<unknown> }).fullStream.getReader()
+    const consumption = (async () => {
+      while (!(await reader.read()).done) {}
+    })()
+
+    await fallbackStarted.promise
+    await reader.cancel()
+
+    expect(fallbackSignal?.aborted).toBe(true)
+    await consumption.catch(() => undefined)
+  })
+
   it("retains streamed workspace fallback usage when synthesis is empty", async () => {
     const baseModel = model([""])
     const fakeModel = {
@@ -2055,7 +2093,6 @@ describe("AI SDK recovery", () => {
   })
 
   it("handles provider startup rejection while cancelling an unconsumed stream", async () => {
-    const controller = new AbortController()
     const stopped = new DOMException("stop", "AbortError")
     const doStream = vi.fn(async ({ abortSignal }: ModelCall) => {
       abortSignal?.throwIfAborted()
@@ -2065,12 +2102,13 @@ describe("AI SDK recovery", () => {
       ...model([]),
       doStream,
     }
-    await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, {
-      abortSignal: controller.signal,
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found"), undefined, undefined, true), runtime, {
       prompt: "Search",
     })
+    // SAFETY: streamAgentInline returns the documented streamed result contract.
+    const reader = (result as { stream: ReadableStream<unknown> }).stream.getReader()
 
-    controller.abort(stopped)
+    await expect(reader.cancel(stopped)).resolves.toBeUndefined()
 
     await vi.waitFor(() => expect(doStream).toHaveBeenCalledOnce())
   })

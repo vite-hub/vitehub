@@ -570,9 +570,10 @@ async function synthesizeWorkspaceFallback(
   result: { steps?: Array<{ content?: Array<{ type: string, output?: unknown }> }> },
   maxToolResults: number,
   usageCapture?: ReturnType<typeof createUsageCapture>,
+  callInput?: () => Record<string, unknown>,
 ) {
   const evidence = collectToolResults(result, maxToolResults)
-  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence, usageCapture)
+  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence, usageCapture, callInput)
 }
 
 async function synthesizeWorkspaceFallbackFromEvidence(
@@ -580,11 +581,13 @@ async function synthesizeWorkspaceFallbackFromEvidence(
   context: AgentAdapterRunContext,
   evidence: string[],
   usageCapture?: ReturnType<typeof createUsageCapture>,
+  callInput?: () => Record<string, unknown>,
 ) {
   if (evidence.length === 0) return undefined
 
   const { generateText } = await loadAiSdk()
   const summary = await generateText({
+    ...callInput?.(),
     instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
@@ -795,6 +798,7 @@ function withWorkspaceFallbackFullStream(
   usageCaptures?: () => readonly ReturnType<typeof createUsageCapture>[],
   onSynthesis?: () => void,
   sharedSynthesis?: { task?: Promise<Awaited<ReturnType<typeof synthesizeWorkspaceFallbackFromEvidence>>> },
+  fallbackCallInput?: () => Record<string, unknown>,
 ): AsyncIterable<unknown> {
   return (async function* () {
     let text = ""
@@ -842,13 +846,13 @@ function withWorkspaceFallbackFullStream(
       if (sharedSynthesis) {
         sharedSynthesis.task ??= Promise.resolve().then(() => {
           onSynthesis?.()
-          return synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
+          return synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture, fallbackCallInput)
         })
         synthesized = await sharedSynthesis.task
       }
       else {
         onSynthesis?.()
-        synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
+        synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture, fallbackCallInput)
       }
     }
     catch (error) {
@@ -881,6 +885,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   fallbackUsageCapture?: ReturnType<typeof createUsageCapture>,
   usageCaptures?: () => readonly ReturnType<typeof createUsageCapture>[],
   onSynthesis?: () => void,
+  fallbackCallInput?: () => Record<string, unknown>,
 ): T {
   if (!fallback.enabled) return result
   const hasStream = "stream" in result
@@ -903,6 +908,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
           usageCaptures,
           onSynthesis,
           sharedSynthesis,
+          fallbackCallInput,
         ), { highWaterMark: 0 })
       },
     })
@@ -930,7 +936,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
     return wrapped
   }
   if (isAsyncIterable(result)) {
-    const wrapped = withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)
+    const wrapped = withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis, undefined, fallbackCallInput)
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return cloneWithPropertyDescriptors(result as object, {
       [Symbol.asyncIterator]: {
@@ -2149,6 +2155,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           onStepEnd: usageCapture.onStepEnd,
         }
       }
+      const fallbackCallInput = () => ({
+        ...withRemainingInvocationTimeout(callInput, invocationDeadline),
+        ...(invocationAbortSignal ? { abortSignal: invocationAbortSignal } : {}),
+      })
       const captureOriginalStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
@@ -2224,7 +2234,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         const failure = await nativeAgentOutputValidationFailure(context.output, error)
         const synthesized = failure && fallback.enabled && (!context.output || maxOutputAttempts > 1) && !failure.text.trim()
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-          ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
+          ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture, fallbackCallInput)
           : undefined
         if (synthesized) return await validatedSynthesizedOutput(synthesized)
         const repairedOutput = failure && repairOutput
@@ -2237,9 +2247,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (toolRepairFailure() !== undefined) throw toolRepairFailure()
       if (!repaired && fallback.enabled && (!context.output || maxOutputAttempts > 1) && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
+        const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture, fallbackCallInput)
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
+          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture, fallbackCallInput)
         if (synthesized) return await validatedSynthesizedOutput(synthesized, generated)
       }
       if (!repaired && repairOutput && context.output) {
@@ -2346,6 +2356,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           onStepEnd: repairUsageCapture.onStepEnd,
         }
       }
+      const fallbackCallInput = () => ({
+        ...withRemainingInvocationTimeout(callInput, invocationDeadline),
+        abortSignal: providerAbortSignal,
+      })
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
       let outputAttemptsUsed = 1
       const cancelProvider = (reason?: unknown) => {
@@ -2481,7 +2495,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             try {
               const sourceReader = getReader()
               cancelProvider(reason)
-              await (await sourceReader).cancel(reason).catch(() => undefined)
+              const resolvedReader = await sourceReader.catch(() => undefined)
+              await resolvedReader?.cancel(reason).catch(() => undefined)
             }
             finally {
               detachAbortListener()
@@ -2533,9 +2548,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
                 // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
                 const sourceReader = reader
                   ? Promise.resolve(reader)
+                  // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
                   : start().then(streamed => streamed.toUIMessageStream(...args as never[]).getReader())
                 cancelProvider(reason)
-                reader ??= await sourceReader
+                reader ??= await sourceReader.catch(() => undefined)
+                if (!reader) return
                 const reading = reader.read()
                 await reader.cancel(reason)
                 await reading.catch(() => undefined)
@@ -2647,6 +2664,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         fallbackUsageCapture,
         usageCaptures,
         () => { outputAttemptsUsed = 2 },
+        fallbackCallInput,
       )
     },
   })
