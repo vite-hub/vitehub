@@ -9,7 +9,7 @@ import { isPlainObject } from '@vite-hub/internal/object'
 import { basename, dirname, resolve } from 'pathe'
 
 import { discoverSandboxDefinitions } from '../discovery'
-import { createSandboxFeaturePlan, resolveSandboxFeatureConfig } from '../feature'
+import { createSandboxFeaturePlan, resolveSandboxFeatureConfig, sandboxRuntimeStateSpecifier } from '../feature'
 import { getSandboxFeatureProvider } from '../module-types'
 import {
   activateSandboxRuntimeFile,
@@ -22,12 +22,12 @@ import {
   type SandboxRuntimeGenerationLease,
   withSandboxRuntimeGenerationLock,
 } from './runtime-generation'
-import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
 import type { AgentSandboxConfig } from '../module-types'
 import type { Alias, ConfigEnv, ResolvedConfig } from 'vite'
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox'
+const SANDBOX_RUNTIME_ID = '@vite-hub/sandbox/_internal/runtime'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
 const builtinModuleSet = new Set([
   ...builtinModules,
@@ -194,21 +194,18 @@ function createSandboxRuntimeFacadeContents(
   registryFile: string,
   providerLoaderFile?: string,
 ) {
-  const stateFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
-  const packageIndexFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js')
-
   return [
     `import sandboxRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     ...(providerLoaderFile
       ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
       : []),
-    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, stateFile))}`,
+    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(sandboxRuntimeStateSpecifier)}`,
     '',
     `setSandboxRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
     'export default sandboxRegistry',
-    `export * from ${JSON.stringify(createImportPath(file, packageIndexFile))}`,
+    `export * from ${JSON.stringify(SANDBOX_RUNTIME_ID)}`,
     '',
   ].join('\n')
 }

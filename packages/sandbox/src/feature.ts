@@ -6,11 +6,9 @@ import { toTemplateSafeName } from './internal/shared/feature-definitions'
 import { createFileImportSpecifier } from './internal/shared/file-import-specifier'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import type {
-  EmittedArtifact,
   FeatureManifest,
   FeatureRuntimePlan,
   GeneratedArtifact,
-  GeneratedArtifactLocation,
 } from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
 import {
@@ -29,6 +27,7 @@ export const sandboxRuntimeDependencies = [
   '@cloudflare/sandbox',
   '@vercel/sandbox',
 ]
+export const sandboxRuntimeStateSpecifier = '@vite-hub/sandbox/runtime/state'
 
 export const sandboxRuntimeDependencyByProvider = {
   cloudflare: '@cloudflare/sandbox',
@@ -138,13 +137,11 @@ async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefin
 function createSandboxRegistryContents(
   file: string,
   definitions: Array<{ name: string, definitionModulePath: string, stableDefinitionModulePath: string }>,
-  runtimeStatePath: string,
   scope: string,
 ) {
-  const runtimeStateSpecifier = createImportPath(file, runtimeStatePath)
   const scopeSpecifier = createFileImportSpecifier(scope)
   return [
-    `import { createGeneratedSandboxRuntimeRegistry } from ${JSON.stringify(runtimeStateSpecifier)}`,
+    `import { createGeneratedSandboxRuntimeRegistry } from ${JSON.stringify(sandboxRuntimeStateSpecifier)}`,
     '',
     `const registry = createGeneratedSandboxRuntimeRegistry(${JSON.stringify(scopeSpecifier)}, {`,
     ...definitions.map(definition => [
@@ -161,17 +158,11 @@ function createSandboxRegistryContents(
 
 export function createSandboxProviderLoaderContents(
   provider: SandboxProvider,
-  file: string,
 ) {
   const providerExport = sandboxProviderRuntimeExport(provider)
-  const providerLoaderPath = resolveFeatureRuntimePath(
-    import.meta.url,
-    '@vite-hub/sandbox',
-    `./runtime/providers/${provider}`,
-    `runtime/providers/${provider}.js`,
-  )
+  const providerLoaderPath = `@vite-hub/sandbox/_internal/runtime/providers/${provider}`
   return [
-    `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(createImportPath(file, providerLoaderPath))}`,
+    `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(providerLoaderPath)}`,
     '',
     'export async function loadSandboxRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
@@ -260,12 +251,6 @@ export async function createSandboxFeaturePlan(
   })
   const defaultProvider = getSandboxFeatureProvider(resolvedConfig)
   const defaultProviderName = defaultProvider?.provider
-  const runtimeStatePath = resolveFeatureRuntimePath(
-    import.meta.url,
-    '@vite-hub/sandbox',
-    './runtime/state',
-    'runtime/state.js',
-  )
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
     key: definition.definitionArtifactKey,
     filename: definition.definitionFilename,
@@ -315,17 +300,14 @@ export async function createSandboxFeaturePlan(
               definitionModulePath: artifact.dst,
               stableDefinitionModulePath: artifact.stableDst,
             }
-          }), runtimeStatePath, paths.aliasPath)
+          }), paths.aliasPath)
         },
       },
       ...(providerLoaderTarget
         ? [{
             key: 'sandbox-provider-loader',
             filename: 'runtime/sandbox-provider-loader.mjs',
-            getContents: (
-              _emitted: ReadonlyMap<string, EmittedArtifact>,
-              location: GeneratedArtifactLocation,
-            ) => createSandboxProviderLoaderContents(providerLoaderTarget, location.dst),
+            contents: createSandboxProviderLoaderContents(providerLoaderTarget),
           }]
         : []),
     ],

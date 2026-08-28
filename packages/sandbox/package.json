@@ -56,7 +56,19 @@
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./_internal/runtime": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./_internal/runtime/providers/cloudflare": {
+      "types": "./dist/runtime/providers/cloudflare.d.ts",
+      "import": "./dist/runtime/providers/cloudflare.js"
+    },
+    "./_internal/runtime/providers/vercel": {
+      "types": "./dist/runtime/providers/vercel.d.ts",
+      "import": "./dist/runtime/providers/vercel.js"
+    }
   },
   "scripts": {
     "build": "vp pack",
