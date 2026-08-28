@@ -129,25 +129,21 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
 }
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
-  const script = [
-    ...(withCloudflareHost
-      ? [
-          'const { registerHooks } = await import("node:module")',
-          "registerHooks({ resolve(specifier, context, nextResolve) {",
-          '  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }',
-          "  return nextResolve(specifier, context)",
-          "} })",
-        ]
-      : []),
-    "const specifiers = JSON.parse(process.argv[1])",
-    "const failures = []",
-    "for (const specifier of specifiers) {",
-    "  try { await import(specifier) }",
-    "  catch (error) { failures.push({ message: error instanceof Error ? error.message : String(error), specifier }) }",
-    "}",
-    "if (failures.length) { console.error(JSON.stringify(failures, null, 2)); process.exitCode = 1 }",
-  ].join("\n")
-  await run(process.execPath, ["--input-type=module", "--eval", script, JSON.stringify(specifiers)], appDir)
+  for (const specifier of specifiers) {
+    const script = [
+      ...(withCloudflareHost
+        ? [
+            'const { registerHooks } = await import("node:module")',
+            "registerHooks({ resolve(specifier, context, nextResolve) {",
+            '  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }',
+            "  return nextResolve(specifier, context)",
+            "} })",
+          ]
+        : []),
+      "await import(process.argv[1])",
+    ].join("\n")
+    await run(process.execPath, ["--input-type=module", "--eval", script, specifier], appDir)
+  }
 }
 
 async function importPackagesWithoutRootFallback(
@@ -347,16 +343,6 @@ async function typecheckPackageModule(
   const sourcePath = join(runnerDir, `export-${index}.ts`)
   await writeFile(sourcePath, `${source}\n`, "utf8")
   const rootNames = [sourcePath]
-  if (packageName === "@vite-hub/auth") {
-    const authHostTypesPath = join(runnerDir, "auth-host-types.d.ts")
-    await writeFile(authHostTypesPath, [
-      "type Timer = ReturnType<typeof setTimeout>",
-      "declare module \"bun:sqlite\" { export class Database {} }",
-      "declare module \"@cloudflare/workers-types\" { export interface D1Database {} }",
-      "",
-    ].join("\n"), "utf8")
-    rootNames.push(authHostTypesPath)
-  }
   let hostTypesPath: string | undefined
   if (withCloudflareHost) {
     hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
@@ -371,9 +357,6 @@ async function typecheckPackageModule(
     rootNames.push(hostTypesPath)
   }
   const paths: ts.CompilerOptions["paths"] = {}
-  if (["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)) {
-    paths["json-schema"] = [resolve(packageRoot, "../../@types/json-schema/index.d.ts")]
-  }
   if (hostTypesPath) {
     paths["cloudflare:workers"] = [hostTypesPath]
   }
@@ -385,12 +368,7 @@ async function typecheckPackageModule(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    typeRoots: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
-      ? [resolve(packageRoot, "../../@types"), resolve(runnerDir, "../..", "node_modules/@types")]
-      : undefined,
-    types: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
-      ? ["json-schema", "mdast", "node"]
-      : ["node"],
+    types: ["node"],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
@@ -407,6 +385,16 @@ async function typecheckPackageModule(
 }
 
 describe("published declaration diagnostics", () => {
+  it("imports runtime contracts in isolated processes", async () => {
+    const guardedModule = (id: number) => `data:text/javascript,${encodeURIComponent([
+      "if (globalThis.__vitehubPublicExportLoaded) throw new Error('shared process')",
+      "globalThis.__vitehubPublicExportLoaded = true",
+      `export const id = ${id}`,
+    ].join("\n"))}`
+
+    await importSpecifiers(tmpdir(), [guardedModule(1), guardedModule(2)])
+  })
+
   it("forwards non-Cloudflare imports through the host shim", async () => {
     await importSpecifiers(tmpdir(), ["node:path"], true)
   })
