@@ -24,6 +24,10 @@ import type { SandboxDefinitionBundle, SandboxDefinitionOptions } from '../modul
 const defaultNodeLauncher = 'import(process.argv[1])'
 const projectPreparations = new Map<string, Promise<void>>()
 
+export interface SandboxDefinitionExecutionLifecycle {
+  onHandlerStart?: () => void
+}
+
 function toJson(value: unknown, label: string) {
   try {
     return JSON.stringify(value)
@@ -153,7 +157,7 @@ async function executeLauncher(
   })
 }
 
-async function executeSandboxDefinitionOnce<TPayload, TResult>(
+async function executeSandboxDefinitionOnce<TPayload>(
   sandbox: SandboxExecutionBox,
   definitionName: string,
   definitionOptions: SandboxDefinitionOptions | undefined,
@@ -162,6 +166,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   context?: Record<string, unknown>,
   signal?: AbortSignal,
   deadline?: number,
+  lifecycle?: SandboxDefinitionExecutionLifecycle,
 ) {
   const bundle = normalizeSandboxDefinitionBundle(source)
 
@@ -212,6 +217,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     let execution: Awaited<ReturnType<SandboxExecutionBox['exec']>> | undefined
 
     try {
+      lifecycle?.onHandlerStart?.()
       execution = await executeLauncher(sandbox, launcher.command, execArgs, {
         cwd: bundle.project
           ? resolveSandboxModulePath(bundleBaseDir, bundle.project.packagePath)
@@ -239,7 +245,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
       }
     }
 
-    const output = tryParseSandboxOutput<TResult>(outputRaw)
+    const output = tryParseSandboxOutput<unknown>(outputRaw)
       || tryParseSandboxOutput(extractSandboxOutputFromExecution(execution) || '')
 
     if (!output) {
@@ -250,7 +256,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     }
 
     if (output.ok)
-      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result') as TResult
+      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result')
 
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,
@@ -267,16 +273,17 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   }
 }
 
-export async function executeSandboxDefinition<TPayload, TResult>(
+export async function executeSandboxDefinition<TPayload>(
   sandbox: SandboxExecutionBox,
   definitionName: string,
   definitionOptions: SandboxDefinitionOptions | undefined,
   source: SandboxDefinitionSource,
   payload?: TPayload,
   context?: Record<string, unknown>,
-): Promise<TResult> {
+  lifecycle?: SandboxDefinitionExecutionLifecycle,
+): Promise<unknown> {
   const timeout = definitionOptions?.timeout
-  if (typeof timeout !== 'number' || timeout <= 0) {
+  if (timeout === undefined || timeout <= 0) {
     return await executeSandboxDefinitionOnce(
       sandbox,
       definitionName,
@@ -284,6 +291,9 @@ export async function executeSandboxDefinition<TPayload, TResult>(
       source,
       payload,
       context,
+      undefined,
+      undefined,
+      lifecycle,
     )
   }
 
@@ -302,6 +312,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
         context,
         abortController.signal,
         deadline,
+        lifecycle,
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
@@ -310,7 +321,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
           reject(timeoutError)
         }, timeout)
       }),
-    ]) as TResult
+    ])
   }
   finally {
     if (timeoutId)
