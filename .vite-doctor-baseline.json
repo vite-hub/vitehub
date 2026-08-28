@@ -8300,6 +8300,166 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/workspace/test/vite.test.ts",
       "fingerprint": "18604ea7b9717ad5f3e80b780b9682d7de28b44f1bf10e6095d5ab154bfc4145"
+    },
+    {
+      "ruleId": "typescript/evidence/no-object-parameters",
+      "file": "packages/internal/test/esbuild.test.ts",
+      "fingerprint": "b36e079b76ae248a02a193d3de0d3fc859ddb950fc8a3383bb658fd001bf0525"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "b7ab9169c55ea63ac6225199e20c0f29eea4b9eeef822c6443c6ff704937ad39"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "c81f6beb863395598c2e7a21e1f230c6062ebb6de1b70e697dc93a9bada5e5c8"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "1be19d5683e269761d68cef8146a780698a59a3c64cda52d3720186d606a77a1"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "615299a4a2ba7990d51f0dd87982733bf299ff35dc2359f2c78650276755d9e6"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "c336bfa21254697fbe9126781e724c78ca4fcf6032a656d35a8ad990bec6c1b0"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/src/build/esbuild.ts",
+      "fingerprint": "06c22a85dda99b0a3d34aa5d9c985e7bfe44c81abf71160f8fc833ac3e487822"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/src/build/esbuild.ts",
+      "fingerprint": "71ee79187bd90155279713f73f439ffde1ca38accd69720a0c61b24d4b9c8e85"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/src/build/esbuild.ts",
+      "fingerprint": "99c7f1fbb17bfb4af0be8e74755c79467a63e27b446affee30e882e03682ae34"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/test/deno-runtime-packages.test.ts",
+      "fingerprint": "6d3d3aed08c89e788f933cd1494765f422f1fc1760f7a9a9e6885e1651de84a3"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/internal/test/deno-runtime-packages.test.ts",
+      "fingerprint": "8fe0a6bf8d186bf442c3ac4d24b6fc8af8b8036a03c692a7ff3da7a0a89c35e1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "fixtures/docs-hosts/cloudflare/vite.config.ts",
+      "fingerprint": "b3333aed9ab5a4d1449b4b03d3d1a3de6959d6885f2aebdebc60fb2534cd4b0a"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "fixtures/docs-hosts/deno/vite.config.ts",
+      "fingerprint": "970d3a47548d857c9859dc4fa8343138ecd3364a6dd1e99ac3a97290f08ddf9b"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "fixtures/docs-hosts/installation/vite.config.ts",
+      "fingerprint": "6b363c406e113d90c61594288ba229a1b96345b251217e40438c77be8d49b399"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "fixtures/docs-hosts/netlify/vite.config.ts",
+      "fingerprint": "2232f0e77353e18e331d474e0e7be0419cfa5e06ea5784bff03a16d798acdba3"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "fixtures/docs-hosts/node-self-hosted/vite.config.ts",
+      "fingerprint": "b7b2cd091be1ddd684c59acfae72dd176f3ccb0b334f75166a14489654468db9"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "fixtures/docs-hosts/vercel/database/vite.config.ts",
+      "fingerprint": "b2616d6fdbe5459915d95b29a39f8821ad47b93c6f09147c483367a54fbb4eb1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "fixtures/docs-hosts/vercel/vite.config.ts",
+      "fingerprint": "415d123be9ea440868aac3b68675f859beb33396abe483e2ec031dbb9c39a46e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "3b219e8fb534812850c3aaa6d9877207e12655321af0b2ffccb6ff6aa563f4ea"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/src/vite.ts",
+      "fingerprint": "46241cb329f9ee29b7187f08b3c91f856b35f7e38d8250c251c13cf821e275a0"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/agent/test/providers.test.ts",
+      "fingerprint": "fd948c2a3ca17808b25a835c786c2729123dcf084b1ed08700c1a4c2661a934e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "004a526d04c9662e3df3e2dc9312fb6e17eefe50b7b6ac405fb90f7668801175"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "072764ec3320f68cc1a02645c2fd4ab599467bf91b5868d0767373ad1b984a54"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "5ff7dccbf777e5d7e7a60ddff3a6e67741fa83c79a7e3cf9891110be87d19afe"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "6d14b52f32fada56d5da324943457da5beb28c88d28efd9b47066fd50ac80a79"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "a70fc6ced48c70fa9454108c148bd4d9e9b8d1d4bc3171d814482f331089c1e9"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "c94f92e928210942be90092837c6e6ca952374421e5cec80941fb8b1edd68ee5"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deno-runtime-packages.ts",
+      "fingerprint": "cba339a7e6247cb00b6076889011fe1dd8335c02673224ee200376949516079c"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/test/deno-runtime-packages.test.ts",
+      "fingerprint": "96aadfef707842344972452af8e8b5552136c5769153d154f827a8c5d27935cd"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/test/esbuild.test.ts",
+      "fingerprint": "0158443594c0bea26371f6284bbf5741570a63bf5f7f78e7b1c756cbdb03a133"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/test/esbuild.test.ts",
+      "fingerprint": "67020bbe9a29e52f8bfc13e0e617c63b2e241bc23cfb145582642565e6f3abf5"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/test/esbuild.test.ts",
+      "fingerprint": "8bc63753bea3f6b553962e8fd7ef9958fa23ca1c28cb8c80494e950e130e86d3"
     }
   ]
 }
