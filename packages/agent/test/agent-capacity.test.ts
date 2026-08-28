@@ -440,6 +440,45 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("continues canceling primary streams when one source cannot be opened", async () => {
+    const starts: string[] = []
+    let returned = false
+    const lockedStream = new ReadableStream({})
+    lockedStream.getReader()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "second"
+          const fullStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => fullStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            fullStream,
+            stream: lockedStream,
+            textStream: (async function* () { yield "first" })(),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: AsyncIterable<string> }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const consumption = (async () => { for await (const _chunk of first.textStream) {} })()
+
+    await expect(consumption).rejects.toThrow()
+    expect(returned).toBe(true)
+    await expect(second).resolves.toBe("second")
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("cancels eager sibling streams before completing UI-message output", async () => {
     const starts: string[] = []
     const returnGate = deferred()

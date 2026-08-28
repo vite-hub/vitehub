@@ -5209,7 +5209,9 @@ async function executeAgentInvocationWithCapacityLease<
     try {
       const usage = Reflect.get(rawDriverResult, property)
       if (!isRuntimeObject(usage)) return false
-      return hasRuntimeType(Reflect.get(usage, "then"), "function")
+      if (!hasRuntimeType(Reflect.get(usage, "then"), "function")) return false
+      void Promise.resolve(usage).catch(() => {})
+      return true
     }
     catch {
       return false
@@ -5268,6 +5270,10 @@ async function executeAgentInvocationWithCapacityLease<
         && !(options.renderOutput && invocation.output)
         && (options.holdCapacity === true
           || (hasFinishConsumer(invocation) && rendered !== rawDriverResult && rawDriverHasDeferredUsage)
+          || (invocation.finishHook
+            && !invocation.finishDeliveryEffectProviders.length
+            && !invocation.finishExtensionProviders.length
+            && rendered === rawDriverResult)
           || invocation.finishExtensionProviders.some(provider => provider.eager))
         && shouldHoldInvocationOutput()
       if (shouldPreserveStreamResult || (options.renderOutput
@@ -5434,7 +5440,7 @@ async function executeAgentInvocationWithCapacityLease<
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
           if (options.holdCapacity !== true) return outcome
           const cancellations = await Promise.allSettled(
-            [...preservedSources.keys()].map(stream => preservedSource(stream).cancel(outcome.failed ? outcome.error : undefined)),
+            [...preservedSources.keys()].map(async stream => await preservedSource(stream).cancel(outcome.failed ? outcome.error : undefined)),
           )
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           return rejected ? { error: rejected.reason, failed: true } : outcome

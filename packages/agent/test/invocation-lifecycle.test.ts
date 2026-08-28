@@ -346,6 +346,26 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("defers finish hooks for direct stream results until consumption", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const raw = {
+      stream: (async function* () {
+        yield { text: "Final answer.", type: "text-delta" }
+      })(),
+    }
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The fixture's driver returns this concrete traceable stream result unchanged.
+    const result = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof raw
+    expect(finish).not.toHaveBeenCalled()
+
+    for await (const _event of result.stream) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0]).toMatchObject({ result: { raw, text: "Final answer." } })
+  })
+
   it("wraps raw streams when their text property cannot be replaced", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -932,6 +952,33 @@ describe("Agent Invocation Interface lifecycle", () => {
     const result = finish.mock.calls[0]![0].result as { raw?: unknown, usage?: unknown }
     expect(result.raw).toBe(raw)
     expect(result.usage).toEqual({ totalTokens: 2 })
+  })
+
+  it("observes fresh rejecting usage promises while finalizing raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const unhandled = vi.fn()
+    const raw = Object.defineProperty((async function* () {})(), "usage", {
+      configurable: true,
+      get() {
+        return Promise.reject(new Error("usage unavailable"))
+      },
+    })
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+    process.on("unhandledRejection", unhandled)
+
+    try {
+      // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+      const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+      for await (const _event of stream) {}
+      await new Promise(resolve => setImmediate(resolve))
+
+      expect(finish).toHaveBeenCalledOnce()
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
   })
 
   it("skips throwing metadata existence checks while finalizing raw streams", async () => {
