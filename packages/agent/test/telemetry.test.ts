@@ -273,7 +273,38 @@ describe("Agent telemetry", () => {
     const body = String(fetch.mock.calls[0]![1]?.body)
     expect(body).not.toContain(inherited)
     expect(JSON.parse(body).resourceLogs[0].scopeLogs[0].logRecords[0].attributes[0].value)
-      .toEqual({ arrayValue: { values: [{ stringValue: "undefined" }] } })
+      .toEqual({ arrayValue: { values: [{ stringValue: "[Array hole]" }] } })
+  })
+
+  it("distinguishes sparse holes from explicit undefined array entries", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const value = Array(2)
+    value[0] = undefined
+
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: { "vitehub.payload.value": value },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+      .resourceLogs[0].scopeLogs[0].logRecords[0].attributes[0].value)
+      .toEqual({
+        arrayValue: {
+          values: [
+            { stringValue: "undefined" },
+            { stringValue: "[Array hole]" },
+          ],
+        },
+      })
   })
 
   it("treats partially accepted OTLP logs as failed delivery", async () => {

@@ -66,7 +66,7 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
         arrayValue: {
           values: Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index)
             ? otlpAnyValue(value[index], nextAncestors)
-            : { stringValue: "undefined" }),
+            : { stringValue: "[Array hole]" }),
         },
       }
     }

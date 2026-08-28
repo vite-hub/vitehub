@@ -950,6 +950,32 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("attributes input-hook failures to Agent execution", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "must not run" },
+      hooks: {
+        "agent:input": () => {
+          throw new Error("input hook failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("input hook failed")
+
+    expect(traceLog.entries()).toHaveLength(1)
+    expect(traceLog.entries()[0]).toMatchObject({
+      activity: { owner: "agent", phase: "execution" },
+      name: "agent.invocation.error",
+    })
+  })
+
   it("preserves resolved invokers in setup failure Trace Events", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

@@ -206,7 +206,7 @@ import type {
   WorkspaceName,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
-import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
 
 export type {
   AgentInvocationAnnotationValue,
@@ -3030,6 +3030,7 @@ async function createAgentInvocationContext<
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
   let failureTelemetry = initialTelemetry
+  let failureActivity: TraceActivityContext = { owner: "vitehub", phase: "setup" }
   const telemetryContentTraceLogWrapped = initialTelemetryUsesContent || mayResolveContentTelemetry
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
@@ -3190,6 +3191,7 @@ async function createAgentInvocationContext<
         }))
       }
       catch (error) {
+        failureActivity = { owner: "agent", phase: "execution" }
         try {
           await capabilities.close()
         }
@@ -3375,7 +3377,7 @@ async function createAgentInvocationContext<
       invoker,
       run: context.run,
       runtime: runtimeContext,
-    }, error, { owner: "vitehub", phase: "setup" })
+    }, error, failureActivity)
     scheduleAgentTelemetry(failureTelemetry, runtimeContext, invocationContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
   }
