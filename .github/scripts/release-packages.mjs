@@ -31,9 +31,44 @@ const maxCompressedBytes = 64 * 1024 * 1024
 const maxInflatedBytes = 256 * 1024 * 1024
 const maxMemberBytes = 64 * 1024 * 1024
 const maxMembers = 20_000
+const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 
 function fail(message) {
   throw new Error(message)
+}
+
+function parseSemanticVersion(value, label) {
+  const match = semanticVersionPattern.exec(value || "")
+  if (!match) fail(`Invalid semantic version for ${label}: ${value || "(missing)"}`)
+  const prerelease = match[4]?.split(".") || []
+  if (prerelease.some(identifier => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0"))) {
+    fail(`Invalid semantic version for ${label}: ${value}`)
+  }
+  return { core: match.slice(1, 4).map(part => BigInt(part)), prerelease }
+}
+
+function compareSemanticVersions(leftValue, rightValue) {
+  const left = parseSemanticVersion(leftValue, "registry dist-tag")
+  const right = parseSemanticVersion(rightValue, "release candidate")
+  for (let index = 0; index < left.core.length; index++) {
+    if (left.core[index] > right.core[index]) return 1
+    if (left.core[index] < right.core[index]) return -1
+  }
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) {
+    return left.prerelease.length === right.prerelease.length ? 0 : left.prerelease.length === 0 ? 1 : -1
+  }
+  for (let index = 0; index < Math.max(left.prerelease.length, right.prerelease.length); index++) {
+    const leftPart = left.prerelease[index]
+    const rightPart = right.prerelease[index]
+    if (leftPart === undefined || rightPart === undefined) return leftPart === rightPart ? 0 : leftPart === undefined ? -1 : 1
+    if (leftPart === rightPart) continue
+    const leftNumeric = /^\d+$/.test(leftPart)
+    const rightNumeric = /^\d+$/.test(rightPart)
+    if (leftNumeric && rightNumeric) return BigInt(leftPart) > BigInt(rightPart) ? 1 : -1
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
+    return leftPart > rightPart ? 1 : -1
+  }
+  return 0
 }
 
 function assertSourceSha(value) {
@@ -511,6 +546,14 @@ export async function inspectPublishedPackage(pkg, options) {
   const runtime = options.runtime || defaultRuntime()
   const encodedName = encodeURIComponent(pkg.name)
   const packumentResponse = await registryFetch(runtime, `${registry}/${encodedName}/${encodeURIComponent(pkg.version)}`, options, `${pkg.name}@${pkg.version}`)
+  const rootPackumentResponse = await registryFetch(runtime, `${registry}/${encodedName}`, options, `${pkg.name} dist-tags`)
+  if (rootPackumentResponse.status !== 404 && !rootPackumentResponse.ok) fail(`Registry returned ${rootPackumentResponse.status} for ${pkg.name} dist-tags`)
+  const rootPackument = rootPackumentResponse.status === 404 ? {} : await rootPackumentResponse.json()
+  const taggedVersion = rootPackument["dist-tags"]?.[options.tag]
+  if (taggedVersion && compareSemanticVersions(taggedVersion, pkg.version) > 0) {
+    fail(`Registry dist-tag ${options.tag} already points to newer ${pkg.name}@${taggedVersion}; refusing stale release ${pkg.version}`)
+  }
+
   if (packumentResponse.status === 404) return { state: "absent" }
   if (!packumentResponse.ok) fail(`Registry returned ${packumentResponse.status} for ${pkg.name}@${pkg.version}`)
   const packument = await packumentResponse.json()
@@ -521,11 +564,7 @@ export async function inspectPublishedPackage(pkg, options) {
   if (parsedAttestationUrl.origin !== registry || !parsedAttestationUrl.pathname.startsWith("/-/npm/v1/attestations/")) {
     fail(`Registry returned an untrusted attestation URL for ${pkg.name}@${pkg.version}`)
   }
-
-  const rootPackumentResponse = await registryFetch(runtime, `${registry}/${encodedName}`, options, `${pkg.name} dist-tags`)
-  if (!rootPackumentResponse.ok) fail(`Registry returned ${rootPackumentResponse.status} for ${pkg.name} dist-tags`)
-  const rootPackument = await rootPackumentResponse.json()
-  if (rootPackument["dist-tags"]?.[options.tag] !== pkg.version) {
+  if (taggedVersion !== pkg.version) {
     fail(`Registry dist-tag ${options.tag} does not point to ${pkg.name}@${pkg.version}`)
   }
 

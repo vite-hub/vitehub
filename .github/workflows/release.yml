@@ -51,7 +51,7 @@ jobs:
           publish=false
           version="0.0.0-dev.${GITHUB_RUN_ID}"
 
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/v* ]]; then
             publish=true
             version="${GITHUB_REF_NAME#v}"
           fi

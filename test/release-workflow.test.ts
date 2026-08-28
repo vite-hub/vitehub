@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
+import { execFileSync } from "node:child_process"
 
 import { describe, expect, it } from "vitest"
 
@@ -17,6 +19,37 @@ function job(name: string) {
 const verify = job("verify")
 const publishNpm = job("publish-npm")
 const githubRelease = job("github-release")
+
+function releaseMetadata(eventName: string, ref: string, refName: string) {
+  const step = "      - name: Resolve release metadata\n"
+  const start = verify.indexOf(step)
+  const runMarker = "        run: |\n"
+  const runStart = verify.indexOf(runMarker, start)
+  const scriptStart = runStart + runMarker.length
+  const scriptEnd = verify.indexOf("\n      - name:", scriptStart)
+  if (start === -1 || runStart === -1 || scriptEnd === -1) throw new Error("Missing release metadata script")
+  const script = verify.slice(scriptStart, scriptEnd).replace(/^ {10}/gm, "")
+  const directory = mkdtempSync(join(tmpdir(), "vitehub-release-metadata-"))
+  const output = join(directory, "output")
+  try {
+    execFileSync("bash", ["-euo", "pipefail", "-c", script], {
+      cwd: directory,
+      env: {
+        ...process.env,
+        GITHUB_EVENT_NAME: eventName,
+        GITHUB_OUTPUT: output,
+        GITHUB_REF: ref,
+        GITHUB_REF_NAME: refName,
+        GITHUB_RUN_ID: "42",
+        GITHUB_SHA: "a".repeat(40),
+      },
+    })
+    return Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=", 2)))
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+}
 
 describe("release workflow authority", () => {
   it("serializes every npm-mutating release", () => {
@@ -48,6 +81,8 @@ describe("release workflow authority", () => {
     expect(publishNpm.indexOf(publishGate)).toBeLessThan(publishNpm.indexOf("    steps:"))
     expect(githubRelease.indexOf(publishGate)).toBeLessThan(githubRelease.indexOf("    steps:"))
     expect(workflow).not.toContain("pull_request_target")
+    expect(releaseMetadata("push", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "true", version: "1.2.3" })
+    expect(releaseMetadata("workflow_dispatch", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
   })
 })
 

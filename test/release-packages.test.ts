@@ -207,6 +207,7 @@ function verifiedRegistryEntry(pkg: ReleaseEntry, tag = "latest") {
 
 function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string, ReturnType<typeof verifiedRegistryEntry>>()) {
   const state = initial
+  const distTags = new Map([...initial].map(([name, entry]) => [name, { tag: entry.tag, version: entry.version }]))
   const calls: Array<{ args: string[], command: string, cwd?: string, timeout?: number }> = []
   const events: string[] = []
   const incompleteReads = new Map<string, number>()
@@ -224,7 +225,9 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
       if (command === "npm" && args[0] === "publish" && !args.includes("--dry-run")) {
         const pkg = byTarball.get(args[1]!.slice(2))!
         if (pkg.name === failPublish) throw new Error(`publish failed for ${pkg.name}`)
-        state.set(pkg.name, verifiedRegistryEntry(pkg, args[args.indexOf("--tag") + 1]))
+        const tag = args[args.indexOf("--tag") + 1]!
+        state.set(pkg.name, verifiedRegistryEntry(pkg, tag))
+        distTags.set(pkg.name, { tag, version: pkg.version })
       }
       return { stderr: "", stdout: "" }
     },
@@ -243,7 +246,10 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
             ? response(200, { dist: { attestations: { url: `https://registry.npmjs.org/-/npm/v1/attestations/${encoded}@${pkg.version}` }, integrity: entry.integrity } })
             : response(404)
         }
-        if (url.href === `https://registry.npmjs.org/${encoded}`) return response(200, { "dist-tags": { [entry?.tag || "latest"]: entry?.version } })
+        if (url.href === `https://registry.npmjs.org/${encoded}`) {
+          const tagged = distTags.get(pkg.name)
+          return response(200, { "dist-tags": tagged ? { [tagged.tag]: tagged.version } : {} })
+        }
         if (url.href === `https://registry.npmjs.org/-/npm/v1/attestations/${encoded}@${pkg.version}`) {
           if (entry) events.push(`verified:${pkg.name}`)
           return response(200, { attestations: entry?.attestations || [] })
@@ -260,6 +266,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
     runtime,
     setFailAudit: (value = true) => { failAudit = value },
     setFailPublish: (name?: string) => { failPublish = name },
+    setDistTag: (name: string, tag: string, version: string) => distTags.set(name, { tag, version }),
     setIncompleteReads: (name: string, count: number) => incompleteReads.set(name, count),
     state,
   }
@@ -575,6 +582,33 @@ describe("release publication", () => {
     await expect(publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("Registry integrity mismatch")
     expect(registry.calls).toEqual([])
+  })
+
+  it.each([
+    ["latest", "1.2.4"],
+    ["alpha", "1.2.3-alpha.2"],
+    ["beta", "1.2.3-beta.2"],
+    ["rc", "1.2.3-rc.2"],
+    ["next", "1.2.3-preview.2"],
+  ])("rejects a stale queued %s release before mutation", async (tag, newerVersion) => {
+    const root = await temporaryDirectory("vitehub-release-stale-tag-")
+    const candidateVersion = tag === "latest" ? "1.2.3" : `1.2.3-${tag === "next" ? "preview" : tag}.1`
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime", version: candidateVersion },
+      { name: "@vite-hub/app", version: candidateVersion },
+    ])
+    const registry = fakeRegistryRuntime(artifact.manifest.packages)
+    registry.setDistTag("@vite-hub/app", tag, newerVersion)
+
+    await expect(publishReleaseArtifacts({
+      manifestPath: artifact.manifestPath,
+      runtime: registry.runtime,
+      sourceRef: `refs/tags/v${candidateVersion}`,
+      sourceSha,
+      tag,
+    })).rejects.toThrow(`already points to newer @vite-hub/app@${newerVersion}`)
+    expect(registry.calls).toEqual([])
+    expect(registry.state).toEqual(new Map())
   })
 
   it("stops after a publish failure and resumes from verified registry state", async () => {
