@@ -112,11 +112,15 @@ export async function openRemoteBox(
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        `[vitehub] ${options.runtime} Box initialization and cleanup failed.`,
+        `[vitehub] ${options.runtime} Box initialization failed: ${remoteFailureMessage(error)} Cleanup failed: ${remoteFailureMessage(cleanupError)}`,
       );
     }
     throw error;
   }
+}
+
+function remoteFailureMessage(error: unknown) {
+  return error instanceof Error ? error.message || error.name : String(error);
 }
 
 export async function resolveRemoteEnvironment(

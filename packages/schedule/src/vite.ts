@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 import { shouldSkipViteProviderBuild, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
@@ -42,6 +42,8 @@ export interface ScheduleVitePluginOptions {
 
 export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
   command?: "build" | "serve"
+  /** @internal Resolve generated Nitro registrations from the ViteHub project root. */
+  nitroOwnsPaths?: boolean
   nitro?: unknown
   root?: string
   /** @internal Framework-resolved server definition directories. */
@@ -160,15 +162,27 @@ function cloneNitroConfig(value: unknown): NitroConfig {
   return nitro as NitroConfig
 }
 
-function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], plugin: string, providerWake: boolean }): NitroConfig {
+function isGeneratedNitroRegistration(value: unknown, generatedPath: string): boolean {
+  const suffix = generatedPath.replace(/^\.\//, "")
+  return typeof value === "string"
+    && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${suffix}`))
+}
+
+function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], module: string, plugin: string, providerWake: boolean }): NitroConfig {
   const nitro = cloneNitroConfig(value)
-  nitro.plugins = Array.isArray(nitro.plugins) && nitro.plugins.includes(options.plugin)
-    ? nitro.plugins
-    : [...(Array.isArray(nitro.plugins) ? nitro.plugins : []), options.plugin]
+  nitro.plugins = [
+    ...(Array.isArray(nitro.plugins)
+      ? nitro.plugins.filter(plugin => !isGeneratedNitroRegistration(plugin, generatedNitroSchedulePlugin))
+      : []),
+    options.plugin,
+  ]
   if (!options.providerWake) return nitro
-  nitro.modules = Array.isArray(nitro.modules) && nitro.modules.includes(generatedNitroCloudflareModule)
-    ? nitro.modules
-    : [...(Array.isArray(nitro.modules) ? nitro.modules : []), generatedNitroCloudflareModule]
+  nitro.modules = [
+    ...(Array.isArray(nitro.modules)
+      ? nitro.modules.filter(module => !isGeneratedNitroRegistration(module, generatedNitroCloudflareModule))
+      : []),
+    options.module,
+  ]
   nitro.cloudflare ||= {}
   nitro.cloudflare.wrangler ||= {}
   const wrangler = nitro.cloudflare.wrangler
@@ -487,7 +501,12 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   })
   return mergeNitroScheduleConfig(nitro, {
     crons,
-    plugin,
+    module: options.nitroOwnsPaths
+      ? resolve(roots.projectRoot, generatedNitroCloudflareModule)
+      : generatedNitroCloudflareModule,
+    plugin: options.nitroOwnsPaths
+      ? resolve(roots.projectRoot, plugin)
+      : plugin,
     providerWake: nitroDefinitions.length > 0,
   })
 }
@@ -552,6 +571,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const nitro = await createScheduleNitroConfig({
         ...options,
         command: env.command,
+        nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
         root: config.root || process.cwd(),
         serverDirs,
