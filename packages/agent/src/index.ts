@@ -5409,7 +5409,12 @@ async function executeAgentInvocationWithCapacityLease<
                     },
                     {
                       abortSignal: invocation.input.abortSignal,
-                      cancelOnAbort: source.cancel,
+                      cancelOnAbort: async reason => {
+                        await Promise.allSettled([
+                          source.cancel(reason),
+                          ...(rendererSource ? [rendererSource.cancel(reason)] : []),
+                        ])
+                      },
                       onChunk(chunk) {
                         collectToolResult(chunk)
                         streamedText += uiMessageTextDelta(chunk) || ""
@@ -5935,8 +5940,15 @@ async function executeAgentInvocationWithCapacityLease<
         await finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
       }, {
         abortSignal: invocation.input.abortSignal,
-        cancelOnAbort: options.holdCapacity === true
-          ? async reason => { await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(reason))) }
+        cancelOnAbort: options.holdCapacity === true || rendererSource
+          ? async reason => {
+              await Promise.allSettled([
+                ...(options.holdCapacity === true
+                  ? [...uiMessageSources.values()].map(({ cancel }) => cancel(reason))
+                  : []),
+                ...(rendererSource ? [rendererSource.cancel(reason)] : []),
+              ])
+            }
           : undefined,
         ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
         projection,
