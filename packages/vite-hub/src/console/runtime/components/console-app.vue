@@ -352,7 +352,7 @@ watch(selectedInvocationId, () => {
 
 onMounted(() => {
   rememberConsoleSection("agents");
-  media = window.matchMedia("(min-width: 1024px)");
+  media = window.matchMedia("(min-width: 1280px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
@@ -568,6 +568,7 @@ onBeforeUnmount(() => {
           <template #right>
             <UTooltip text="Open sessions">
               <UButton
+                data-slot="mobile-session-navigation"
                 class="lg:hidden"
                 icon="i-lucide-panel-left"
                 color="neutral"

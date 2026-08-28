@@ -299,6 +299,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)")
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)")
     expect(consolePage).toContain('data-slot="mobile-session-navigation"')
+    expect(consolePage).toContain('window.matchMedia("(min-width: 1280px)")')
     expect(consolePage).not.toContain("route.query.agent")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(consolePage).not.toContain("<UApp")
