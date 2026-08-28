@@ -704,6 +704,44 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("recovers a delivery after its ordinary write and retry both fail", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let deliveryAttempts = 0
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: {
+        ...memory,
+        update(id, input, claimId) {
+          if (input.observation?.name === "agent.channel.delivery.effect" && deliveryAttempts++ < 2) return undefined
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const journal = await bindAgentInvocations(invocations, {
+      ...runtime("twice-failed-delivery"),
+      waitUntil: (task: Promise<unknown>) => { waitUntilTasks.push(task) },
+    })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({
+      attributes: { "channel.effect.content": "Reply recovered after retry" },
+      name: "agent.channel.delivery.effect",
+      type: "run",
+    })
+    await vi.waitFor(() => expect(deliveryAttempts).toBe(2))
+
+    await journal.finish("completed")
+    await Promise.all(waitUntilTasks)
+
+    const record = await invocations.getByRunId("twice-failed-delivery")
+    expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+    expect(record?.observations).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "channel.effect.content": "Reply recovered after retry" }),
+      name: "agent.channel.delivery.effect",
+    }))
+  })
+
   it("retains late delivery outcomes when a completed journal is at capacity", async () => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("late-delivery-at-capacity"))

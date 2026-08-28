@@ -913,12 +913,16 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (!persisted
               && !finished
               && !finishing
-              && outcomeObservationPriority(observation) !== undefined
-              && !retriedObservations.has(observation)) {
-              observationsTruncated = true
-              const retry = truncatedObservation(observation)
-              retriedObservations.add(retry)
-              prioritizePendingOutcomes(pendingObservations, retry, undefined)
+              && outcomeObservationPriority(observation) !== undefined) {
+              if (!retriedObservations.has(observation)) {
+                observationsTruncated = true
+                const retry = truncatedObservation(observation)
+                retriedObservations.add(retry)
+                prioritizePendingOutcomes(pendingObservations, retry, undefined)
+              }
+              else if (failed) {
+                terminalRetryObservations.push(observation)
+              }
             }
           }
         })().catch(() => {})
