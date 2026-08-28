@@ -1,4 +1,5 @@
 packages:
+  - ".github/ci-tools"
   - "docs"
   - "packages/*"
   - "packages/*/examples/*"
