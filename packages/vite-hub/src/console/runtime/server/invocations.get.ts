@@ -130,7 +130,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   for (const [key, statuses] of pendingGroups) {
     if (remainingLimit === 0) break
     const page = pages[key]
-    if (!page.cursor) continue
+    if (page.cursor === undefined) continue
     const backfill = await listLifecyclePage(statuses, remainingLimit, page.cursor, agentName)
     pages[key] = {
       ...backfill,

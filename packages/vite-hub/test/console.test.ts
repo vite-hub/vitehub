@@ -518,23 +518,22 @@ describe("Agent invocation console", () => {
 
   it("preserves empty opaque cursors across lifecycle pages", async () => {
     const store = createMemoryAgentInvocationStore()
-    store.create({
+    const pending = (id: string) => ({
+      agentName: undefined,
       createdAt: "2026-08-23T12:00:00.000Z",
-      id: "pending-empty-cursor",
-      observations: [],
-      status: "pending",
-      traceId: "trace-pending-empty-cursor",
+      cursor: id,
+      id,
+      status: "pending" as const,
+      traceId: `trace-${id}`,
       updatedAt: "2026-08-23T12:00:00.000Z",
     })
-    const list = store.list.bind(store)
     const listSpy = vi.spyOn(store, "list").mockImplementation(async (options) => {
       if (Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === "") {
-        return { invocations: [] }
+        return { invocations: [pending("pending-older")] }
       }
-      const page = await list(options)
       return Array.isArray(options?.status) && options.status.includes("pending") && options.cursor === undefined
-        ? { ...page, cursor: "" }
-        : page
+        ? { cursor: "", invocations: [pending("pending-newer")] }
+        : { invocations: [] }
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
     const requestEvent = event("127.0.0.1")
@@ -543,12 +542,7 @@ describe("Agent invocation console", () => {
     requestEvent.req!.url = url
 
     const first = await invocationsHandler(requestEvent)
-    expect(first.cursor).toBe(JSON.stringify({ queued: "", history: null }))
-
-    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
-    requestEvent.req!.url = requestEvent.node!.req!.url
-    await invocationsHandler(requestEvent)
-
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-newer", "pending-older"])
     expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ cursor: "", status: ["pending"] }))
   })
 
@@ -590,7 +584,7 @@ describe("Agent invocation console", () => {
 
   it("preserves an invocation that becomes terminal between pages", async () => {
     const store = createMemoryAgentInvocationStore()
-    for (const id of ["transitioning", "newer"]) {
+    for (const id of ["transitioning", "newer", "newest"]) {
       store.create({
         createdAt: "2026-08-23T12:00:00.000Z",
         id,
@@ -607,7 +601,7 @@ describe("Agent invocation console", () => {
     requestEvent.req!.url = url
 
     const first = await invocationsHandler(requestEvent)
-    expect(first.invocations.map(invocation => invocation.id)).toEqual(["newer"])
+    expect(first.invocations.map(invocation => invocation.id)).toEqual(["newest", "newer"])
     await store.update("transitioning", {
       status: "completed",
       timestamp: "2026-08-23T12:01:00.000Z",
