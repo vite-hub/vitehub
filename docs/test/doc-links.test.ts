@@ -711,6 +711,20 @@ description: |
     ]);
   });
 
+  it("does not treat YAML files in Markdown-only collections as routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Blog](/blog/draft)\n[Trust](/policy)",
+      "docs/content/blog/draft.yaml": "title: Draft\n",
+      "docs/content/trust/policy.yml": "title: Policy\n",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining('route "/blog/draft" does not exist'),
+      expect.stringContaining('route "/policy" does not exist'),
+    ]);
+  });
+
   it("maps only configured content collections to routes", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template><h1>Home</h1></template>",
@@ -943,6 +957,15 @@ to: /docs/missing-card
       "docs/app/pages/index.vue": "<template />",
       "docs/content/docs/index.md": "# Docs\n\n[Raw index](/raw/docs.md)\n[Raw guide](/raw/docs/guide.md)",
       "docs/content/docs/guide.md": "# Guide",
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);
+  });
+
+  it("accepts generated Agent Skill routes", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": "<template />",
+      "docs/content/docs/index.md": "# Docs\n\n[Catalog](/.well-known/skills/index.json)\n[Skill](/.well-known/skills/vitehub/SKILL.md)",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([]);

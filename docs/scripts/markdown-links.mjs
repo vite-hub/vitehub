@@ -15,6 +15,11 @@ const contentCollectionPrefixes = new Map([
   ["docs", "docs"],
   ["trust", ""],
 ]);
+const contentCollectionExtensions = new Map([
+  ["blog", new Set([".md"])],
+  ["docs", new Set([".md", ".yml", ".yaml"])],
+  ["trust", new Set([".md"])],
+]);
 
 function walk(directory, predicate) {
   if (!existsSync(directory)) return [];
@@ -542,6 +547,7 @@ function routeFromContentPath(contentRoot, path) {
   const parts = relative(contentRoot, path).split(sep);
   const collection = parts.shift();
   if (!contentCollectionPrefixes.has(collection)) return undefined;
+  if (!contentCollectionExtensions.get(collection).has(extname(path))) return undefined;
   if (/^\.navigation\.ya?ml$/.test(parts.at(-1))) return undefined;
   const clean = collection === "docs" ? parts : parts.map((part) => part.replace(/^\d+\./, ""));
   clean[clean.length - 1] = clean.at(-1).replace(/\.(?:md|ya?ml)$/, "");
@@ -737,6 +743,7 @@ function applicationInventory(docsRoot, contentRoutes) {
     if (isStaticApplicationRoute(route)) routeAnchors.set(normalizeRoute(`/${route}`), new Set());
   }
   for (const route of [
+    "/.well-known/skills/index.json",
     "/.well-known/skills/vitehub/SKILL.md",
     "/llms.txt",
     "/llms-full.txt",
