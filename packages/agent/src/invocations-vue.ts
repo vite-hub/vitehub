@@ -294,6 +294,9 @@ export function useAgentInvocations(
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
+  let firstPageCursor: string | undefined;
+  let paginationCursor: string | undefined;
+  let paginationStarted = false;
   let revision = 0;
   let reconciliationOffset = 0;
   let resetFirstPage = true;
@@ -313,6 +316,9 @@ export function useAgentInvocations(
       if (resetFirstPage || invocations.value.length === 0) {
         invocations.value = result.invocations;
         cursor.value = result.cursor;
+        firstPageCursor = result.cursor;
+        paginationCursor = result.cursor;
+        paginationStarted = false;
         remainingStatuses.value = result.remainingStatuses ?? [];
         resetFirstPage = false;
         return;
@@ -325,7 +331,12 @@ export function useAgentInvocations(
         .map(invocation => reconciledInvocations.get(invocation.id) ?? invocation);
       pendingDepartureIds = new Set(result.pendingDepartureIds ?? pendingDepartureIds);
       invocations.value = [...result.invocations, ...retained];
-      cursor.value = result.cursor;
+      if (result.cursor !== firstPageCursor) {
+        firstPageCursor = result.cursor;
+        paginationCursor = result.cursor;
+        paginationStarted = false;
+      }
+      cursor.value = paginationStarted ? paginationCursor : result.cursor;
       remainingStatuses.value = result.remainingStatuses ?? [];
     },
     clear() {
@@ -341,6 +352,9 @@ export function useAgentInvocations(
       if (resetFirstPage) {
         invocations.value = [];
         cursor.value = undefined;
+        firstPageCursor = undefined;
+        paginationCursor = undefined;
+        paginationStarted = false;
         reconciliationOffset = 0;
         loadMoreError.value = null;
       }
@@ -435,7 +449,7 @@ export function useAgentInvocations(
 
   async function loadMore(): Promise<AgentInvocationListResult | undefined> {
     if (stopped || resource.isLoading.value) return;
-    let nextCursor = cursor.value;
+    let nextCursor = paginationCursor;
     if (!nextCursor) return;
     loadMoreController?.abort();
     const controller = new AbortController();
@@ -464,7 +478,9 @@ export function useAgentInvocations(
             ...additions,
           ];
         }
-        cursor.value = result.cursor;
+        paginationStarted = true;
+        paginationCursor = result.cursor;
+        cursor.value = paginationCursor;
         remainingStatuses.value = result.remainingStatuses ?? [];
         loadMoreError.value = null;
         if (additions.length > 0 || !result.cursor || visited.size >= maximumPaginationRequestsPerLoad) return result;

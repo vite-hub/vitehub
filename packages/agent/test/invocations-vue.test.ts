@@ -331,6 +331,33 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("preserves the advanced pagination frontier across polls", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await settle();
+
+    const firstReplay = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-1")] });
+    await settle();
+    calls[2]!.resolve({ cursor: "page-4", invocations: [record("inv-1")] });
+    await firstReplay;
+
+    const refresh = resource.refresh();
+    calls[3]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await refresh;
+    expect(resource.cursor.value).toBe("page-4");
+
+    const next = resource.loadMore();
+    expect(calls[4]!.path).toContain("cursor=page-4");
+    calls[4]!.resolve({ invocations: [record("inv-0")] });
+    await next;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-1", "inv-0"]);
+    scope.stop();
+  });
+
   it("keeps pagination failures separate from first-page refreshes", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
