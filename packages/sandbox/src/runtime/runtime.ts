@@ -109,7 +109,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
             try {
               const session = await box.open({ id: cloudflareSandboxId })
               sandbox = createSandboxExecutionBox(session, provider.provider)
-              const result = await executeSandboxDefinition<TPayload, TResult>(
+              const result = await executeSandboxDefinition<TPayload>(
                 sandbox,
                 context.name,
                 context.definition.options,
@@ -122,7 +122,8 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
                   },
                 },
               )
-              return result
+              // SAFETY: The generated registry binds this runtime Definition to its public result contract.
+              return result as TResult
             }
             catch (error) {
               const sandboxError = toSandboxError(error)

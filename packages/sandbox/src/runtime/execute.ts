@@ -157,7 +157,7 @@ async function executeLauncher(
   })
 }
 
-async function executeSandboxDefinitionOnce<TPayload, TResult>(
+async function executeSandboxDefinitionOnce<TPayload>(
   sandbox: SandboxExecutionBox,
   definitionName: string,
   definitionOptions: SandboxDefinitionOptions | undefined,
@@ -245,7 +245,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
       }
     }
 
-    const output = tryParseSandboxOutput<TResult>(outputRaw)
+    const output = tryParseSandboxOutput<unknown>(outputRaw)
       || tryParseSandboxOutput(extractSandboxOutputFromExecution(execution) || '')
 
     if (!output) {
@@ -256,7 +256,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     }
 
     if (output.ok)
-      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result') as TResult
+      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result')
 
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,
@@ -273,7 +273,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   }
 }
 
-export async function executeSandboxDefinition<TPayload, TResult>(
+export async function executeSandboxDefinition<TPayload>(
   sandbox: SandboxExecutionBox,
   definitionName: string,
   definitionOptions: SandboxDefinitionOptions | undefined,
@@ -281,9 +281,9 @@ export async function executeSandboxDefinition<TPayload, TResult>(
   payload?: TPayload,
   context?: Record<string, unknown>,
   lifecycle?: SandboxDefinitionExecutionLifecycle,
-): Promise<TResult> {
+): Promise<unknown> {
   const timeout = definitionOptions?.timeout
-  if (typeof timeout !== 'number' || timeout <= 0) {
+  if (timeout === undefined || timeout <= 0) {
     return await executeSandboxDefinitionOnce(
       sandbox,
       definitionName,
@@ -321,7 +321,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
           reject(timeoutError)
         }, timeout)
       }),
-    ]) as TResult
+    ])
   }
   finally {
     if (timeoutId)

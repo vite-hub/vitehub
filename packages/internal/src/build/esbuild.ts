@@ -112,6 +112,7 @@ async function resolveViteRawSpecifier(path: string, rootDir: string | undefined
     return publicPath
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     return resolve(rootDir, rootRelativePath)
   }
@@ -141,10 +142,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
           kind: args.kind,
           namespace: args.namespace,
           pluginData: markdownTemplate
-            ? {
-                ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
-                [skipMarkdownTemplateResolve]: true,
-              }
+            ? Object.assign({}, args.pluginData, { [skipMarkdownTemplateResolve]: true })
             : args.pluginData,
           resolveDir: args.resolveDir,
           with: args.with,
@@ -194,10 +192,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
               const resolved = await build.resolve(specifier, {
                 importer,
                 kind: "import-statement",
-                pluginData: {
-                  ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
-                  [skipMarkdownTemplateResolve]: true,
-                },
+                pluginData: Object.assign({}, args.pluginData, { [skipMarkdownTemplateResolve]: true }),
                 resolveDir: dirname(importer),
               })
               if (resolved.errors.length) return Promise.reject(new Error(resolved.errors.map(error => error.text).join("\n")))
@@ -218,6 +213,15 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
         loader: "js",
         resolveDir: dirname(args.path),
       }))
+    },
+  }
+}
+
+function createFileUrlPlugin(): Plugin {
+  return {
+    name: "vitehub-file-url",
+    setup(build) {
+      build.onResolve({ filter: /^file:/ }, args => ({ path: fileURLToPath(args.path) }))
     },
   }
 }
@@ -260,7 +264,7 @@ export async function bundleEsmEntry(
     minifyWhitespace: options.minifyWhitespace,
     outfile,
     platform,
-    plugins: [...(options.plugins ?? []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
+    plugins: [...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime)],
     sourcemap: false,
     target: "es2022",
     write: true,
