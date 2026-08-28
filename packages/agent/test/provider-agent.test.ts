@@ -204,19 +204,18 @@ describe("Provider Agent Driver", () => {
     await rm(sharedHome, { force: true, recursive: true })
   })
 
-  it("copies shared Codex home files while junctioning directories on Windows", async () => {
-    const threadId = "thread-windows-credentials"
+  it("excludes private Codex home entries case-insensitively on macOS", async () => {
+    const threadId = "thread-macos-credentials"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
     await writeFile(join(sharedHome, "Auth.json"), "ambient credentials\n")
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
     let shadowHome: string | undefined
     createProviderRuntime.mockImplementationOnce(async (options) => {
       shadowHome = String(options.settings?.homePath)
       const config = await lstat(join(shadowHome, "config.toml"))
-      expect(config.isFile()).toBe(true)
-      expect(config.isSymbolicLink()).toBe(false)
+      expect(config.isSymbolicLink()).toBe(true)
       expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
       expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
       await expect(access(join(shadowHome, "Auth.json"))).rejects.toMatchObject({ code: "ENOENT" })

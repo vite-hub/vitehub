@@ -265,7 +265,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
   const entries = new Set([...codexSharedHomeDirectories, ...await readdir(sharedHome)])
   await Promise.all([...entries]
     .filter((entry) => {
-      const comparableEntry = process.platform === "win32" ? entry.toLowerCase() : entry
+      const comparableEntry = entry.toLowerCase()
       return !codexPrivateHomeEntries.has(comparableEntry) && !codexLocalHomeEntries.has(comparableEntry)
     })
     .map(async (entry) => {
