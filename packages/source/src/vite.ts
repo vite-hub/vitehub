@@ -385,10 +385,14 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           for (const result of listenerResults) {
             if (result.status === "rejected") server.config.logger.error(String(result.reason))
           }
+          const hasHostRestartOwner = listeners.some(([, listenerOptions]) =>
+            listenerOptions.handlesHostRestart,
+          )
           const hostRestartHandled = listeners.some(([, listenerOptions], index) =>
             listenerOptions.handlesHostRestart && listenerResults[index]?.status === "fulfilled",
           )
-          if (!hostRestartHandled) {
+          if (hasHostRestartOwner && !hostRestartHandled) return
+          if (!hasHostRestartOwner) {
             await server.restart()
           }
           configuredHandlerKey = handlerKey

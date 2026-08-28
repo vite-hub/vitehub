@@ -601,18 +601,18 @@ describe("framework generated types", () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
-  it("restarts the Vite host when every restart-owning listener fails", async () => {
+  it("retries a generated topology until a restart-owning listener succeeds", async () => {
     const { root } = await createNestedProject()
     const collection = join(root, "server/collections/meals.ts")
     await mkdir(join(root, "server/collections"), { recursive: true })
     await writeFile(collection, collectionModule("meals"))
     const plugin = sourcePlugin()
     await config(plugin)({ root })
-    const restartHost = vi.fn(async () => {
-      throw new Error("host restart failed")
-    })
+    const restartHost = vi.fn()
+      .mockRejectedValueOnce(new Error("host restart failed"))
+      .mockResolvedValue(undefined)
     plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
-    const listeners = new Map<string, (file: string) => void>()
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
     const restart = vi.fn(async () => {})
     const loggerError = vi.fn()
 
@@ -623,13 +623,18 @@ describe("framework generated types", () => {
     })
 
     await rm(collection)
-    listeners.get("unlink")?.(collection)
+    await listeners.get("unlink")?.(collection)
 
-    await vi.waitFor(() => {
-      expect(restartHost).toHaveBeenCalledWith([])
-      expect(restart).toHaveBeenCalledOnce()
-      expect(loggerError).toHaveBeenCalledWith("Error: host restart failed")
-    })
+    expect(restartHost).toHaveBeenCalledWith([])
+    expect(restart).not.toHaveBeenCalled()
+    expect(loggerError).toHaveBeenCalledWith("Error: host restart failed")
+
+    await listeners.get("unlink")?.(collection)
+    expect(restartHost).toHaveBeenCalledTimes(2)
+    expect(restart).not.toHaveBeenCalled()
+
+    await listeners.get("unlink")?.(collection)
+    expect(restartHost).toHaveBeenCalledTimes(2)
   })
 
   it("watches custom Source directories and recovers after refresh errors", async () => {

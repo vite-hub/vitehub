@@ -633,13 +633,13 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
+      existingQueuePlugin,
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
+      existingPlugin,
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/markdown-template/vite" }),
-      existingQueuePlugin,
       existingOwnerPlugin,
-      existingPlugin,
     ])
 
     const d1Binding = {
