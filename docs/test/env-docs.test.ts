@@ -116,21 +116,33 @@ function sectionObjects(sourceFile: Node) {
     forEachChild(node, collectBindings);
   }
 
-  function resolveObject(
+  function resolveObjects(
     expression: Expression,
     seen = new Set<string>(),
-  ): ObjectLiteralExpression | undefined {
-    if (isParenthesizedExpression(expression)) return resolveObject(expression.expression, seen);
-    if (isObjectLiteralExpression(expression)) return expression;
+  ): ObjectLiteralExpression[] {
+    if (isParenthesizedExpression(expression)) return resolveObjects(expression.expression, seen);
+    if (isObjectLiteralExpression(expression)) return [expression];
     if (isArrowFunction(expression) || isFunctionExpression(expression)) {
-      if (!isBlock(expression.body)) return resolveObject(expression.body, seen);
-      const returned = expression.body.statements.find(isReturnStatement)?.expression;
-      return returned && resolveObject(returned, seen);
+      if (!isBlock(expression.body)) return resolveObjects(expression.body, seen);
+
+      const body = expression.body;
+      const returned: Expression[] = [];
+      function collectReturns(node: Node) {
+        if (node !== body && (isArrowFunction(node) || isFunctionExpression(node))) {
+          return;
+        }
+        if (isReturnStatement(node)) {
+          if (node.expression) returned.push(node.expression);
+          return;
+        }
+        forEachChild(node, collectReturns);
+      }
+      collectReturns(body);
+      return returned.flatMap((value) => resolveObjects(value, new Set(seen)));
     }
-    if (!isIdentifier(expression) || seen.has(expression.text)) return;
-    seen.add(expression.text);
+    if (!isIdentifier(expression) || seen.has(expression.text)) return [];
     const initializer = bindings.get(expression.text);
-    return initializer ? resolveObject(initializer, seen) : undefined;
+    return initializer ? resolveObjects(initializer, new Set(seen).add(expression.text)) : [];
   }
 
   function propertyValue(object: ObjectLiteralExpression, name: string) {
@@ -151,14 +163,16 @@ function sectionObjects(sourceFile: Node) {
       isIdentifier(node.expression) &&
       node.expression.text === "defineConfig"
     ) {
-      const config = node.arguments[0] && resolveObject(node.arguments[0]);
-      const env = config && propertyValue(config, "env");
-      const envConfig = env && resolveObject(env);
-      if (envConfig) {
-        for (const section of ["define", "public"] as const) {
-          const value = propertyValue(envConfig, section);
-          const object = value && resolveObject(value);
-          if (object) sections.set(object, section);
+      const configs = node.arguments[0] ? resolveObjects(node.arguments[0]) : [];
+      for (const config of configs) {
+        const env = propertyValue(config, "env");
+        const envConfigs = env ? resolveObjects(env) : [];
+        for (const envConfig of envConfigs) {
+          for (const section of ["define", "public"] as const) {
+            const value = propertyValue(envConfig, section);
+            const objects = value ? resolveObjects(value) : [];
+            for (const object of objects) sections.set(object, section);
+          }
         }
       }
     }
@@ -280,10 +294,27 @@ defineConfig(() => ({ env: { public: publicEnv } }))
 defineConfig(function () {
   return { env: { define: { __TARGET__: env({ mode: "build" }) } } }
 })
+defineConfig(({ mode }) => {
+  if (mode === "production") {
+    return { env: { public: { apiUrl: env({ mode: "build" }) } } }
+  }
+  switch (mode) {
+    case "test":
+      return { env: { define: { __TEST__: env({ mode: "build" }) } } }
+    default:
+      return { env: { public: { apiUrl: env({ mode: "build" }) } } }
+  }
+})
 \`\`\`
     `);
 
-    expect(calls.map(({ section }) => section)).toEqual(["public", "define"]);
+    expect(calls.map(({ section }) => section)).toEqual([
+      "public",
+      "define",
+      "public",
+      "define",
+      "public",
+    ]);
   });
 
   it("requires the last effective top-level mode to be build", () => {
