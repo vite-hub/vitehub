@@ -9,7 +9,7 @@ import { isPlainObject } from '@vite-hub/internal/object'
 import { basename, dirname, resolve } from 'pathe'
 
 import { discoverSandboxDefinitions } from '../discovery'
-import { createSandboxFeaturePlan, resolveSandboxFeatureConfig, sandboxRuntimeStateSpecifier } from '../feature'
+import { createSandboxFeaturePlan, resolveSandboxFeatureConfig, sandboxRuntimeSpecifier, sandboxRuntimeStateSpecifier } from '../feature'
 import { getSandboxFeatureProvider } from '../module-types'
 import {
   activateSandboxRuntimeFile,
@@ -27,7 +27,6 @@ import type { AgentSandboxConfig } from '../module-types'
 import type { Alias, ConfigEnv, ResolvedConfig } from 'vite'
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox'
-const SANDBOX_RUNTIME_ID = '@vite-hub/sandbox/_internal/runtime'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
 const builtinModuleSet = new Set([
   ...builtinModules,
@@ -205,7 +204,7 @@ function createSandboxRuntimeFacadeContents(
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
     'export default sandboxRegistry',
-    `export * from ${JSON.stringify(SANDBOX_RUNTIME_ID)}`,
+    `export * from ${JSON.stringify(sandboxRuntimeSpecifier)}`,
     '',
   ].join('\n')
 }

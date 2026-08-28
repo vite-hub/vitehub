@@ -4,7 +4,13 @@ import { realpath } from 'node:fs/promises'
 import { basename, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
-import { sandboxProviderLoaderSpecifiers, sandboxRuntimeDependencyByProvider } from './feature'
+import {
+  sandboxProviderLoaderSpecifiers,
+  sandboxRuntimeDependencyByProvider,
+  sandboxRuntimeProviderSpecifiers,
+  sandboxRuntimeSpecifier,
+  sandboxRuntimeStateSpecifier,
+} from './feature'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxRuntime } from './internal/runtime-preparation'
 import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
@@ -78,6 +84,13 @@ function mergeSandboxNitroNoExternals(
 
 function sandboxProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './runtime/provider-loader', 'runtime/provider-loader.js')
+}
+
+const sandboxRuntimePackageAliases: AliasMap = {
+  [sandboxRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
+  [sandboxRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
+  [sandboxRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
+  [sandboxRuntimeStateSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js'),
 }
 
 function toSandboxAliasEntries(aliases: AliasMap): SandboxAlias[] {
@@ -231,9 +244,12 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       const facade = generatedAliases[SANDBOX_PACKAGE_ID]
       if (facade) {
         internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
+        Object.assign(internalOptions.providerImportAliases, sandboxRuntimePackageAliases)
       }
       else {
         delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
+        for (const specifier of Object.keys(sandboxRuntimePackageAliases))
+          delete internalOptions.providerImportAliases[specifier]
       }
       for (const specifier of sandboxProviderLoaderSpecifiers) {
         const providerLoader = generatedAliases[specifier]

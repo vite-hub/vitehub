@@ -28,6 +28,11 @@ export const sandboxRuntimeDependencies = [
   '@vercel/sandbox',
 ]
 export const sandboxRuntimeStateSpecifier = '@vite-hub/sandbox/runtime/state'
+export const sandboxRuntimeSpecifier = '@vite-hub/sandbox/_internal/runtime'
+export const sandboxRuntimeProviderSpecifiers = {
+  cloudflare: `${sandboxRuntimeSpecifier}/providers/cloudflare`,
+  vercel: `${sandboxRuntimeSpecifier}/providers/vercel`,
+} as const
 
 export const sandboxRuntimeDependencyByProvider = {
   cloudflare: '@cloudflare/sandbox',
@@ -160,7 +165,7 @@ export function createSandboxProviderLoaderContents(
   provider: SandboxProvider,
 ) {
   const providerExport = sandboxProviderRuntimeExport(provider)
-  const providerLoaderPath = `@vite-hub/sandbox/_internal/runtime/providers/${provider}`
+  const providerLoaderPath = sandboxRuntimeProviderSpecifiers[provider]
   return [
     `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(providerLoaderPath)}`,
     '',

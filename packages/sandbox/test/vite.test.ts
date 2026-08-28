@@ -1504,7 +1504,7 @@ describe("hubSandbox", () => {
   })
 
   it.each(["cloudflare", "vercel"] as const)("bundles the generated %s runtime through stable paths with provider aliases", async (provider) => {
-    const rootDir = await createViteRoot(process.cwd())
+    const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
     const providerImportAliases: Record<string, string> = {}
     const plugin = hubSandbox({
@@ -1518,19 +1518,6 @@ describe("hubSandbox", () => {
     await configResolved({ root: rootDir, resolve: { alias: [] } })
 
     const stableFacade = join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs")
-    const result = await esbuild({
-      bundle: true,
-      entryPoints: [stableFacade],
-      format: "esm",
-      platform: "node",
-      external: provider === "cloudflare" ? ["cloudflare:*"] : [],
-      alias: providerImportAliases,
-      write: false,
-    })
-
-    expect(result.outputFiles[0]?.text).toContain("release-notes")
-    expect(result.outputFiles[0]?.text).toContain(provider === "cloudflare" ? "resolveCloudflareSandboxBox" : "resolveVercelSandboxBox")
-
     await viteBuild({
       build: {
         rollupOptions: { external: provider === "cloudflare" ? ["cloudflare:workers"] : [] },
@@ -1538,7 +1525,7 @@ describe("hubSandbox", () => {
         write: false,
       },
       configFile: false,
-      resolve: { preserveSymlinks: true },
+      resolve: { alias: providerImportAliases, preserveSymlinks: true },
       root: rootDir,
     })
 
@@ -1551,6 +1538,20 @@ describe("hubSandbox", () => {
       expect(stableModule.default).toHaveProperty("tools/release-notes")
       expect(realModule.default).toHaveProperty("tools/release-notes")
     }
+
+    await rm(join(rootDir, "node_modules"))
+    const result = await esbuild({
+      bundle: true,
+      entryPoints: [stableFacade],
+      format: "esm",
+      platform: "node",
+      external: provider === "cloudflare" ? ["cloudflare:*"] : [],
+      alias: providerImportAliases,
+      write: false,
+    })
+
+    expect(result.outputFiles[0]?.text).toContain("release-notes")
+    expect(result.outputFiles[0]?.text).toContain(provider === "cloudflare" ? "resolveCloudflareSandboxBox" : "resolveVercelSandboxBox")
   })
 
   it("removes generated bundles for definitions that no longer exist", async () => {
