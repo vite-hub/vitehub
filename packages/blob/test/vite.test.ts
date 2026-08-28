@@ -421,7 +421,11 @@ describe("hubBlob", () => {
         .filter(imported => imported.external)
         .map(imported => imported.path)
       expect(externalImports.every(path => path.startsWith("node:"))).toBe(true)
-      const { stdout } = await execFileAsync(process.execPath, [artifactFile], { cwd: artifactRoot })
+      const netlifyContext = Buffer.from(JSON.stringify({ siteID: "test-site", token: "test-token" })).toString("base64")
+      const { stdout } = await execFileAsync(process.execPath, [artifactFile], {
+        cwd: artifactRoot,
+        env: { ...process.env, NETLIFY_BLOBS_CONTEXT: netlifyContext },
+      })
       expect(stdout.trim()).toBe("netlify-store")
     }
     finally {
