@@ -10,7 +10,8 @@ import { resolve } from "pathe"
 
 import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
-import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration, writeQueueRegistry } from "./internal/vite-build.ts"
+import { captureQueueProviderRuntimeInputs, createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration, writeQueueRegistry } from "./internal/vite-build.ts"
+import type { QueueProviderRuntimeInputs } from "./internal/vite-build.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "./types.ts"
@@ -271,9 +272,13 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         artifactDir = resolve(rootDir, ".vitehub/queue-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const providerImportAliases = internalOptions?.providerImportAliases ?? {}
+        const providerRuntimeInputs = captureQueueProviderRuntimeInputs(providerOutput, providerImportAliases)
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(contributionArtifactDir, "sources"),
-          paths: [...definitions.map(definition => definition.handler), ...Object.values(providerImportAliases)],
+          paths: [
+            ...definitions.map(definition => definition.handler),
+            ...Object.values(providerRuntimeInputs.aliases).flatMap(aliases => Object.values(aliases)),
+          ],
           roots: [rootDir],
         })
         const retainedDefinitions = definitions.map(definition => ({
@@ -282,6 +287,12 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         }))
         const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
           .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
+        const retainedProviderRuntimeInputs: QueueProviderRuntimeInputs = {
+          aliases: Object.fromEntries(Object.entries(providerRuntimeInputs.aliases)
+            .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases)
+              .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))])) as QueueProviderRuntimeInputs["aliases"],
+          vercelPackages: providerRuntimeInputs.vercelPackages,
+        }
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const nitro = (config as { nitro?: unknown }).nitro
         contributeProviderDeploymentOutput(providerOutput, {
@@ -295,7 +306,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
               cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
               definitions: retainedDefinitions,
               providerImportAliases: retainedProviderImportAliases,
-              providerOutput,
+              providerRuntimeInputs: retainedProviderRuntimeInputs,
               queue: queue ?? (resolveNitroHosting(cloneNitroConfig(nitro))
                 ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
                 : undefined),

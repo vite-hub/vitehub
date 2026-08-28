@@ -20,6 +20,7 @@ import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const queuePackageName = "@vite-hub/queue"
 const cloudflareQueueWorkerMarker = "vitehub-queue-worker"
@@ -86,11 +87,17 @@ interface GenerateProviderOutputsOptions {
   definitions?: DiscoveredQueueDefinition[]
   providerImportAliases?: Record<string, string>
   providerOutput?: ProviderOutputCatalog
+  providerRuntimeInputs?: QueueProviderRuntimeInputs
   queue: QueueModuleOptions | undefined
   rootDir: string
   serverFunctionName?: string
   signal?: AbortSignal
   sourceRootDir?: string
+}
+
+export interface QueueProviderRuntimeInputs {
+  aliases: Record<QueueProvider, Record<string, string>>
+  vercelPackages: VercelFunctionRuntimePackage[]
 }
 
 export interface CloudflareQueueConfigOptions {
@@ -312,6 +319,19 @@ function createProviderRuntimeAliases(
   }
 }
 
+export function captureQueueProviderRuntimeInputs(
+  providerOutput: ProviderOutputCatalog | undefined,
+  providerImportAliases: Record<string, string> = {},
+): QueueProviderRuntimeInputs {
+  return {
+    aliases: {
+      cloudflare: createProviderRuntimeAliases(providerOutput, "cloudflare", providerImportAliases),
+      vercel: createProviderRuntimeAliases(providerOutput, "vercel", providerImportAliases),
+    },
+    vercelPackages: getVercelRuntimePackages(providerOutput, "blob").map(runtimePackage => ({ ...runtimePackage })),
+  }
+}
+
 async function copyVercelRuntimePackages(options: Parameters<typeof import("@vite-hub/internal/build/vercel-runtime-package-copy").copyVercelFunctionRuntimePackageDirectories>[0]) {
   const { copyVercelFunctionRuntimePackageDirectories } = await import("@vite-hub/internal/build/vercel-runtime-package-copy")
   await copyVercelFunctionRuntimePackageDirectories(options)
@@ -319,8 +339,7 @@ async function copyVercelRuntimePackages(options: Parameters<typeof import("@vit
 
 function createCloudflareOutput(
   artifacts: GeneratedQueueArtifacts,
-  providerOutput: ProviderOutputCatalog | undefined,
-  providerImportAliases: Record<string, string> | undefined,
+  providerRuntimeAliases: Record<string, string>,
   namePrefix = "",
 ): CloudflareProviderDeploymentOutput {
   const queues = createCloudflareQueueBindings(artifacts.definitions, namePrefix)
@@ -336,7 +355,7 @@ function createCloudflareOutput(
   return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
-      alias: createProviderRuntimeAliases(providerOutput, "cloudflare", providerImportAliases),
+      alias: providerRuntimeAliases,
       banner: `// ${cloudflareQueueWorkerMarker}`,
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["@vercel/queue", "cloudflare:workers", "node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
@@ -456,14 +475,13 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
 
 function createVercelOutput(
   artifacts: GeneratedQueueArtifacts,
-  providerOutput: ProviderOutputCatalog | undefined,
-  providerImportAliases: Record<string, string> | undefined,
+  providerRuntimeAliases: Record<string, string>,
   serverFunctionName?: string,
 ): VercelProviderDeploymentOutput {
   return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
-      alias: createProviderRuntimeAliases(providerOutput, "vercel", providerImportAliases),
+      alias: providerRuntimeAliases,
       format: "esm",
       platform: "node",
     },
@@ -509,8 +527,8 @@ async function writeVercelQueueFunctions(
   rootDir: string,
   queue: QueueModuleOptions | undefined,
   artifacts: GeneratedQueueArtifacts,
-  providerOutput: ProviderOutputCatalog | undefined,
-  providerImportAliases: Record<string, string> | undefined,
+  providerRuntimeAliases: Record<string, string>,
+  vercelRuntimePackages: VercelFunctionRuntimePackage[],
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted()
@@ -543,7 +561,7 @@ async function writeVercelQueueFunctions(
     signal?.throwIfAborted()
     await writeFile(wrapperFile, createVercelQueueWrapperContents(wrapperFile, artifacts.registryFile, definition.name, queueConfig), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
-      alias: createProviderRuntimeAliases(providerOutput, "vercel", providerImportAliases),
+      alias: providerRuntimeAliases,
       format: "esm",
       platform: "node",
       rootDir,
@@ -552,7 +570,7 @@ async function writeVercelQueueFunctions(
     signal?.throwIfAborted()
     await copyVercelRuntimePackages({
       outputRoot: stagedOutputRoot,
-      packages: getVercelRuntimePackages(providerOutput, "blob"),
+      packages: vercelRuntimePackages,
       rootDir,
       serverFunctionName: functionPath,
     })
@@ -601,6 +619,8 @@ export async function generateProviderOutputs(
   options: GenerateProviderOutputsOptions,
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<GeneratedQueueArtifacts> {
+  const providerRuntimeInputs = options.providerRuntimeInputs
+    ?? captureQueueProviderRuntimeInputs(options.providerOutput, options.providerImportAliases)
   const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions, options.sourceRootDir, options.artifactDir)
   options.signal?.throwIfAborted()
   const cloudflareQueueConfig = resolveOutputQueueConfig(options.queue, "cloudflare")
@@ -641,7 +661,7 @@ export async function generateProviderOutputs(
         options.signal?.throwIfAborted()
         const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName)
         await copyVercelRuntimePackages({
-          packages: getVercelRuntimePackages(options.providerOutput, "blob"),
+          packages: providerRuntimeInputs.vercelPackages,
           rootDir: options.rootDir,
           serverFunctionName: vercelFunctionName,
           signal: options.signal,
@@ -665,9 +685,9 @@ export async function generateProviderOutputs(
       }
     },
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflare ? createCloudflareOutput(artifacts, options.providerOutput, options.providerImportAliases, cloudflareNamePrefix) : undefined,
+    cloudflare: createCloudflare ? createCloudflareOutput(artifacts, providerRuntimeInputs.aliases.cloudflare, cloudflareNamePrefix) : undefined,
     rootDir: options.rootDir,
-    vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.providerImportAliases, options.serverFunctionName) : undefined,
+    vercel: createVercel ? createVercelOutput(artifacts, providerRuntimeInputs.aliases.vercel, options.serverFunctionName) : undefined,
   })
   if (createCloudflare) {
     options.signal?.throwIfAborted()
@@ -679,6 +699,6 @@ export async function generateProviderOutputs(
     options.signal?.throwIfAborted()
     await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
   }
-  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, options.providerOutput, options.providerImportAliases, options.signal)
+  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, providerRuntimeInputs.aliases.vercel, providerRuntimeInputs.vercelPackages, options.signal)
   return artifacts
 }

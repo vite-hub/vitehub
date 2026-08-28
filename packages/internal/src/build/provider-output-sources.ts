@@ -42,6 +42,16 @@ function dependencyRoot(root: string): string | undefined {
   return basename(parent) === "node_modules" ? parent : undefined
 }
 
+function sourceClosureRoot(root: string): string {
+  let current = root
+  while (true) {
+    if (existsSync(resolve(current, ".git")) || existsSync(resolve(current, "pnpm-workspace.yaml"))) return current
+    const parent = dirname(current)
+    if (parent === current) return root
+    current = parent
+  }
+}
+
 /** Retains one build generation's source trees while preserving every module's import base. */
 export async function retainProviderOutputSources(options: RetainProviderOutputSourcesOptions): Promise<{
   resolve: (path: string) => string
@@ -55,9 +65,9 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       .filter(root => pathContains(root, path))
       .sort((left, right) => right.length - left.length)[0]
     const nestedInDependencies = configuredRoot && relative(configuredRoot, path).split(sep).includes("node_modules")
-    sourceRootByPath.set(path, configuredRoot && !nestedInDependencies ? configuredRoot : packageRoot(path))
+    sourceRootByPath.set(path, configuredRoot && !nestedInDependencies ? sourceClosureRoot(configuredRoot) : packageRoot(path))
   }
-  for (const root of configuredRoots) sourceRootByPath.set(root, root)
+  for (const root of configuredRoots) sourceRootByPath.set(root, sourceClosureRoot(root))
 
   const roots = [...new Set(sourceRootByPath.values())]
   const retainedRoots = new Map(roots.map((root, index) => [root, resolve(artifactDir, String(index))]))

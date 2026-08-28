@@ -63,6 +63,32 @@ it("retains an aliased package with its relative import base", async () => {
   await expect(readFile(join(dirname(retained.resolve(alias)), "config.ts"), "utf8")).resolves.toContain("old")
 })
 
+it("retains relative imports that escape a package-scoped Vite root", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "queues", "sync.ts")
+  const shared = join(workspace, "packages", "shared", "src", "index.ts")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(shared), { recursive: true })])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, 'export { value } from "../../../../packages/shared/src/index"\n'),
+    writeFile(shared, 'export const value = "old"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "queue-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(shared, 'export const value = "new"\n')
+
+  const retainedHandler = retained.resolve(handler)
+  await expect(readFile(join(dirname(retainedHandler), "../../../../packages/shared/src/index.ts"), "utf8")).resolves.toContain("old")
+  expect(retained.resolve(rootDir)).toBe(dirname(dirname(dirname(retainedHandler))))
+})
+
 it("preserves installed package dependency resolution", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-"))
   tempDirs.push(workspace)
