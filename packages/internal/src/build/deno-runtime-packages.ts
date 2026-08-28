@@ -97,7 +97,7 @@ function collectImportedPackageNames(source: string): Set<string> {
     if (name) names.add(name)
   }
   for (const match of executableSource.matchAll(
-    /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*(["'])((?:\\.|[^"'\\])*)\1\s*(?:,|\))/g,
+    /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*(["'`])((?:\\.|[^"'`\\])*)\1\s*(?:,|\))/g,
   )) {
     if (!isStandaloneCall(executableSource, match.index))
       continue
@@ -224,7 +224,8 @@ function maskInertImportText(source: string): string {
   }
 
   function scanTemplate(): void {
-    if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(output)) {
+    if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(output)
+      || /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/.test(output)) {
       let literalEnd = index + 1
       while (literalEnd < source.length) {
         if (source[literalEnd] === "\\") literalEnd += 2
@@ -746,7 +747,9 @@ function isTopLevelExpression(source: string, expressionStart: number): boolean 
     if (source[index] === "{") braceDepth++
     else if (source[index] === "}") braceDepth--
   }
-  return braceDepth === 0
+  if (braceDepth !== 0) return false
+  const statementPrefix = source.slice(0, expressionStart).split(/[;\n]/).at(-1)!
+  return /^\s*await\s*$/.test(statementPrefix)
 }
 
 function hasTopLevelRelocatableDynamicImport(source: string, specifier: string): boolean {

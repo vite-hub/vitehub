@@ -143,7 +143,9 @@ const resolveText = 'import.meta.resolve("missing-string")'
 loader.import.meta.resolve("missing-member")
 loader . import . meta . resolve("missing-spaced-member")
 import.meta.resolve("resolved-package")
-`)).toEqual(["resolved-package"])
+import.meta.resolve(\`template-resolved-package\`)
+import.meta.resolve(\`escaped\\u002dresolved-package\`)
+`)).toEqual(["escaped-resolved-package", "resolved-package", "template-resolved-package"])
   })
 
   it("ignores import-shaped regular expression literals", () => {
@@ -244,6 +246,21 @@ import "real"
     await writeFile(join(root, "main.ts"), [
       'export async function startSchedule() { await import("./schedule/deno-cron.mjs") }',
       'export async function startServer() { await import("./server/index.mjs") }',
+    ].join("\n"), "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root }))
+      .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
+  })
+
+  it("rejects required Deno imports deferred inside concise arrows", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-deferred-arrow-entry-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), [
+      'export const startSchedule = () => import("./schedule/deno-cron.mjs")',
+      'await import("./server/index.mjs")',
     ].join("\n"), "utf8")
 
     await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root }))
