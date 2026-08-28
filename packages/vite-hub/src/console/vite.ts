@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -64,8 +64,26 @@ interface ConsoleVitePluginOptions {
 export interface ConsoleInvocationRootState {
   binding?: string
   closed?: boolean
+  fixtureLifecycle?: {
+    close: () => Promise<void>
+    reopen: () => Promise<void>
+  }
   identity?: string
   projectRoot?: string
+}
+
+export function configureConsoleFixtureLifecycle(
+  state: ConsoleInvocationRootState,
+  generatedPlugin: string,
+  refresh: () => Promise<void>,
+): void {
+  state.fixtureLifecycle = {
+    async close() {
+      await refresh().catch(() => undefined)
+      await rm(generatedPlugin, { force: true })
+    },
+    reopen: refresh,
+  }
 }
 
 export function updateConsoleInvocationRootState(
@@ -221,6 +239,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         readConsoleFixture(fixture)
       }
       generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
+      if (fixture && options.invocationRootState) {
+        configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshAgentDefinitions)
+      }
       if (!cliDiscovery) {
         await writeConsoleNitroPlugin(generatedPlugin, projectRoot, discoverAgentDefinitionEntries(root), fixture)
       }
@@ -334,17 +355,19 @@ export function consoleInvocationRootPlugin(
       )
       updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
     },
-    closeBundle() {
+    async closeBundle() {
       if (this.environment) activeEnvironments.delete(this.environment)
       if (activeEnvironments.size > 0) return
       state.closed = true
       if (state.binding) releaseConsoleInvocationsBinding(state.binding)
+      await state.fixtureLifecycle?.close()
     },
     async buildStart() {
       if (this.environment) activeEnvironments.add(this.environment)
       if (state.closed) {
         state.closed = false
-        if (state.binding && state.identity && state.projectRoot) {
+        if (state.fixtureLifecycle) await state.fixtureLifecycle.reopen()
+        else if (state.binding && state.identity && state.projectRoot) {
           bindConsoleInvocationsIdentity(state.binding, state.identity, state.projectRoot)
         }
       }

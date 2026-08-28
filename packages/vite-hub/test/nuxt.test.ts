@@ -160,6 +160,7 @@ function nitroOptions(nuxt: ReturnType<typeof createNuxt>["nuxt"]): Record<strin
 
 function nitroPlugins(nuxt: ReturnType<typeof createNuxt>["nuxt"]): string[] {
   const plugins = nitroOptions(nuxt).plugins
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro's plugin boundary accepts mixed values; this helper narrows the test fixture to generated paths.
   if (!Array.isArray(plugins) || !plugins.every(plugin => typeof plugin === "string")) {
     throw new TypeError("Expected string-valued Nitro plugins.")
   }
@@ -462,6 +463,18 @@ describe("ViteHub Nuxt integration", () => {
       await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
       await development.runBuilderWatchHook()
       await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
+
+      const invocationRootPlugin = development.nuxt.options.vite.plugins
+        .flat(Infinity)
+        .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")
+      if (!invocationRootPlugin) throw new TypeError("Expected the Console invocation root plugin.")
+      const closeBundle = invocationRootPlugin.closeBundle
+      const closeBundleHandler = isTestRecord(closeBundle) ? closeBundle.handler : closeBundle
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
+      if (typeof closeBundleHandler !== "function") throw new TypeError("Expected a Console closeBundle hook.")
+      await Reflect.apply(closeBundleHandler, {}, [])
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
 
       const production = createNuxt(false)
       await expect(viteHubNuxtModule({ console: { exposure: "host-managed" }, preset: "node" }, production.nuxt))

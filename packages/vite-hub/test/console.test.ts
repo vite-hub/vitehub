@@ -631,7 +631,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("does not reinstall a refreshed fixture after its runtime closes", async () => {
+  it("cleans up and restores a refreshed fixture across runtime restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-refresh-close-"))
     const fixture = join(root, "console.fixture.json")
     try {
@@ -640,8 +640,11 @@ describe("Agent invocation console", () => {
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
       const state: ConsoleInvocationRootState = {}
       const plugin = consoleVitePlugin({ invocationRootState: state })
-      await callPluginHook(plugin.config, {}, [{ root }, { command: "serve", mode: "development" }])
+      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
+      await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
       await callPluginHook(plugin.configResolved, {}, [{ root }])
+      const generatedPlugin = config.nitro?.plugins?.[0]
+      if (!generatedPlugin) throw new TypeError("Expected a generated Console plugin.")
 
       const listeners = new Map<string, () => Promise<void>>()
       await callPluginHook(plugin.configureServer, {}, [{
@@ -653,14 +656,28 @@ describe("Agent invocation console", () => {
       }])
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
       const refresh = listeners.get("change")?.()
-      const runtimePlugin = consoleInvocationRootPlugin(undefined, undefined, state)
+      const runtimePlugin = consoleInvocationRootPlugin(root, state.identity, state)
       await callPluginHook(runtimePlugin.closeBundle, {})
       await refresh
 
       expect(state.closed).toBe(true)
+      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).toBe(false)
       expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(false)
       expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: root })).toBeUndefined()
+
+      const resolved = { id: "/agent.ts" }
+      await callPluginHook(runtimePlugin.buildStart, { resolve: vi.fn().mockResolvedValue(resolved) })
+      expect(state.closed).toBe(false)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("replacement")
+      const transformed = callPluginHook(runtimePlugin.transform, {}, ["", resolved.id])
+      // SAFETY: The generated script returns the isolated realm used by this focused restart test.
+      const realm = runInNewContext(`${transformed}\nglobalThis`, { process }) as object
+      const invocations = resolveConsoleInvocations(realm)
+      if (!invocations) throw new TypeError("Expected the restarted fixture journal.")
+      await expect(invocations.list()).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "replacement" })],
+      })
     }
     finally {
       vi.unstubAllEnvs()

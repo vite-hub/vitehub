@@ -18,7 +18,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleProductionAccess, consoleInvocationRootPlugin, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleProductionAccess, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -270,6 +270,9 @@ async function installConsole(
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
     }
   })
+  if (fixture && invocationRootState) {
+    configureConsoleFixtureLifecycle(invocationRootState, plugin, refreshAgentDefinitions)
+  }
   if (writeGeneratedPlugin) await refreshAgentDefinitions()
   if (nuxt.options.dev && writeGeneratedPlugin) {
     if (fixture) {
