@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve } from "node:path"
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { dirname, extname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -2447,9 +2448,10 @@ async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
   options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
+  retainedDefinitions?: DiscoveredAgentDefinition[],
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
-  const definitions = discoverAgentDefinitions({
+  const definitions = retainedDefinitions ?? discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: serverDirs,
   })
@@ -2492,6 +2494,7 @@ async function writeNetlifyAgentProviderOutput(
   generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
   serverDirs?: string[],
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
+  retainedDefinitions?: DiscoveredAgentDefinition[],
 ): Promise<void> {
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
@@ -2499,7 +2502,7 @@ async function writeNetlifyAgentProviderOutput(
     inspectionRoute: options.routes.inspection,
     libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options, config),
     webhookRoute: options.routes.webhooks,
-  }, serverDirs ?? [join(config.root, "server")])
+  }, serverDirs ?? [join(config.root, "server")], retainedDefinitions)
   await write({
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
@@ -2931,13 +2934,31 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       if (!resolved || resolved.command !== "build") return
       const config = resolved
-      contributeProviderDeploymentOutput(providerOutput, {
-        owner: "agent",
-        rootDir: config.root,
-        write: async ({ signal, write }) => {
-          const normalized = normalizeAgentOptions(agent)
+      let artifactDir: string | undefined
+      try {
+        const normalized = normalizeAgentOptions(agent)
+        const definitions = normalized && isNetlifyHosting(config)
+        ? discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(config.root, "server")] })
+        : []
+        artifactDir = definitions.length
+          ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
+          : undefined
+        const contributionArtifactDir = artifactDir
+        const retainedDefinitions = contributionArtifactDir
+          ? await Promise.all(definitions.map(async (definition, index) => {
+              const handler = resolve(contributionArtifactDir, `${index}${extname(definition.handler) || ".ts"}`)
+              await mkdir(dirname(handler), { recursive: true })
+              await cp(definition.handler, handler)
+              return { ...definition, handler }
+            }))
+          : definitions
+        contributeProviderDeploymentOutput(providerOutput, {
+          discard: contributionArtifactDir ? async () => await rm(contributionArtifactDir, { force: true, recursive: true }) : undefined,
+          owner: "agent",
+          rootDir: config.root,
+          write: async ({ signal, write }) => {
           if (normalized && normalized.runtime === "deno") return
-          if (normalized && hasHostedAgentDefinitions(config.root, serverDirs) && isNetlifyHosting(config)) {
+          if (normalized && retainedDefinitions.length && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               agentImportBase: getAgentImportBase(agent, frameworkOptions),
               libsqlState: resolveLibsqlAgentState(normalized, config),
@@ -2948,7 +2969,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
               workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-            }, serverDirs, write)
+            }, serverDirs, write, retainedDefinitions)
           }
           else if (isNetlifyHosting(config)) {
             await cleanupNetlifyAgentProviderOutput(config, write)
@@ -2962,8 +2983,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             rootDir: config.root,
             signal,
           })
-        },
-      }, providerOutputGenerations.get(this))
+          },
+        }, providerOutputGenerations.get(this))
+      }
+      catch (error) {
+        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        throw error
+      }
     },
     async renderError(error) {
       await providerOutputGenerations.reset(this, providerOutput, error)

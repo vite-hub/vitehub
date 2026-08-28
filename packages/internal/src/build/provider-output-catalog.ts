@@ -158,6 +158,13 @@ export class ProviderOutputCatalog {
     if (!generation) {
       for (const current of this.#deploymentGenerations) current.valid = false
       this.#deploymentGenerations.clear()
+      for (const entries of this.#deploymentContributions.values()) {
+        for (const entry of entries) this.#queueDeploymentDiscard(entry)
+      }
+      for (const taken of this.#takenDeploymentContributions.values()) {
+        if (!taken.entryDiscarded) this.#queueDeploymentDiscard(taken.entry)
+        for (const fallback of taken.fallbacks) this.#queueDeploymentDiscard(fallback)
+      }
       this.#deploymentContributions.clear()
       this.#takenDeploymentContributions.clear()
       return
@@ -165,6 +172,9 @@ export class ProviderOutputCatalog {
     generation.valid = false
     this.#deploymentGenerations.delete(generation)
     for (const [owner, entries] of this.#deploymentContributions) {
+      for (const entry of entries) {
+        if (entry.generation === generation) this.#queueDeploymentDiscard(entry)
+      }
       const remaining = entries.filter(entry => entry.generation !== generation)
       if (remaining.length) this.#deploymentContributions.set(owner, remaining)
       else this.#deploymentContributions.delete(owner)
@@ -175,6 +185,7 @@ export class ProviderOutputCatalog {
       for (const fallback of invalidatedFallbacks) this.#queueDeploymentDiscard(fallback)
       if (taken.entry.generation !== generation) continue
       this.#takenDeploymentContributions.delete(contribution)
+      if (!taken.entryDiscarded) this.#queueDeploymentDiscard(taken.entry)
       for (const fallback of taken.fallbacks) this.#restoreDeploymentContribution(fallback)
     }
   }
@@ -207,9 +218,8 @@ export class ProviderOutputCatalog {
     for (const contribution of contributions) {
       const taken = this.#takenDeploymentContributions.get(contribution)
       if (!taken || taken.entryDiscarded || !taken.entry.contribution.discard) continue
-      discarded.push(taken.entry.contribution.discard().then(() => {
-        if (this.#takenDeploymentContributions.get(contribution) === taken) taken.entryDiscarded = true
-      }))
+      taken.entryDiscarded = true
+      discarded.push(Promise.resolve().then(taken.entry.contribution.discard))
     }
     const results = await Promise.allSettled(discarded)
     const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")

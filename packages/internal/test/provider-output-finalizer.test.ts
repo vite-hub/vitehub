@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -415,6 +415,23 @@ describe("Provider Output finalizer", () => {
     await finalization
 
     expect(olderDiscard).toHaveBeenCalledOnce()
+  })
+
+  it("discards pending staged artifacts when their generation resets", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const generation = captureProviderDeploymentOutputGeneration(catalog)
+    const discard = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      discard,
+      owner: "blob",
+      rootDir,
+      write: async () => undefined,
+    }, generation)
+
+    await resetProviderDeploymentOutputs(catalog, new Error("build failed"), generation)
+
+    expect(discard).toHaveBeenCalledOnce()
   })
 
   it("rolls back completed roots when a peer root fails", async () => {
@@ -1150,5 +1167,26 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(vercelRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ version: 3 })
     expect(existsSync(join(netlifyRoot, "functions", "stale.mjs"))).toBe(false)
     await expect(readFile(join(netlifyRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ version: 1 })
+  })
+
+  it("preserves client files when Cloudflare cleanup shares the client directory", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareRoot, { recursive: true })
+    await writeFile(join(cloudflareRoot, "index.js"), "client\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: relative(rootDir, cloudflareRoot),
+        cleanup: { cloudflare: { fileNames: ["index.js"] } },
+        rootDir,
+      }),
+    })
+
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    await expect(readFile(join(cloudflareRoot, "index.js"), "utf8")).resolves.toBe("client\n")
   })
 })

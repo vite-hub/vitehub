@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -188,22 +190,25 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         return
       }
 
+      let artifactDir: string | undefined
       try {
         const contributionResolved = resolved
         const contributionRuntimeConfig = runtimeConfig
         const contributionProviderOutput = providerOutput
         await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
+        artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
         const contributionArtifacts = await prepareProviderOutputs({
           appRootDir: contributionResolved.root,
+          artifactDir,
           providerOutput: contributionProviderOutput,
           rootDir: databaseRoot(),
           runtimeConfig: contributionRuntimeConfig,
         })
         contributeProviderDeploymentOutput(contributionProviderOutput, {
+          discard: async () => await rm(artifactDir, { force: true, recursive: true }),
           owner: "database",
           rootDir: contributionResolved.root,
           write: async ({ write }) => {
-            await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
             await generateProviderOutputs({
               artifacts: contributionArtifacts,
               clientOutDir: contributionResolved.build.outDir,
@@ -216,6 +221,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
+        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

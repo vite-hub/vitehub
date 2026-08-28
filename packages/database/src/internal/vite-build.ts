@@ -115,10 +115,10 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, userApp
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir): Promise<GeneratedDBArtifacts> {
+async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir, artifactDir?: string): Promise<GeneratedDBArtifacts> {
   const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
   const normalizedRuntimeConfig = { ...runtimeConfig, definitionDefaults }
-  const generatedDir = ensureGeneratedDir(rootDir, productName)
+  const generatedDir = artifactDir ?? ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const userAppEntry = resolveUserAppEntry(appRootDir, {
@@ -338,8 +338,8 @@ export async function generateProviderOutputs(
   return artifacts
 }
 
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "appRootDir" | "providerOutput" | "rootDir" | "runtimeConfig">): Promise<GeneratedDBArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig, options.appRootDir)
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "appRootDir" | "providerOutput" | "rootDir" | "runtimeConfig"> & { artifactDir?: string }): Promise<GeneratedDBArtifacts> {
+  const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig, options.appRootDir, options.artifactDir)
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir))
   return artifacts
 }

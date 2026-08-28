@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rm, writeFile } from "node:fs/promises"
-import { dirname, relative, resolve, normalize } from "node:path"
+import { cp, mkdir, rm, stat, writeFile } from "node:fs/promises"
+import { dirname, extname, isAbsolute, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -627,23 +627,33 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       }
       const config = resolved
       const rootDir = projectRoot ?? config.root
-      let workflowArtifactDir: string | undefined
+      let artifactDir: string | undefined
       try {
         const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
         const crons = await readDefinitionCrons(definitions)
         const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
           .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
           ?.vitehub?.workflow?.prepareScheduleRuntime
-        workflowArtifactDir = prepareWorkflow
-          ? resolve(rootDir, ".vitehub/workflow-generations", randomUUID())
-          : undefined
-        const workflow = await prepareWorkflow?.(workflowArtifactDir)
-        const artifactDir = workflowArtifactDir
+        artifactDir = resolve(rootDir, ".vitehub/schedule-generations", randomUUID())
+        const contributionArtifactDir = artifactDir
+        const workflow = await prepareWorkflow?.(resolve(contributionArtifactDir, "workflow"))
         const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+        const retainedAliases = Object.fromEntries(await Promise.all(Object.entries(contributedAliases).map(async ([specifier, target], index) => {
+          if (!isAbsolute(target)) return [specifier, target]
+          try {
+            await stat(target)
+          }
+          catch (error) {
+            if (isRecord(error) && error.code === "ENOENT") return [specifier, target]
+            throw error
+          }
+          const retainedTarget = resolve(contributionArtifactDir, "aliases", `${index}${extname(target)}`)
+          await mkdir(dirname(retainedTarget), { recursive: true })
+          await cp(target, retainedTarget, { recursive: true })
+          return [specifier, retainedTarget]
+        })))
         contributeProviderDeploymentOutput(providerOutput, {
-          discard: artifactDir
-            ? async () => await rm(artifactDir, { force: true, recursive: true })
-            : undefined,
+          discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
           owner: "schedule",
           rootDir,
           write: async ({ signal }) => {
@@ -651,7 +661,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             await generateProviderOutputsWithinLock({
               bundleAlias: {
                 ...resolveStringAliases(config),
-                ...contributedAliases,
+                ...retainedAliases,
                 ...internalOptions.providerImportAliases,
                 ...workflow?.bundleAlias,
               },
@@ -669,7 +679,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        if (workflowArtifactDir) await rm(workflowArtifactDir, { force: true, recursive: true })
+        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }
@@ -686,5 +696,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
   }
 
+  // SAFETY: The implementation above supplies Vite's plugin hooks plus ViteHub's intentionally loose public hook index.
   return plugin as ScheduleVitePlugin
 }

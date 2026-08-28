@@ -152,12 +152,13 @@ interface ProviderDeploymentOutputReset {
   promise: Promise<void>
 }
 
-const providerDeploymentOutputRegistry = globalThis as typeof globalThis & {
+// SAFETY: ViteHub owns these symbol-like global registry keys and validates every stored value at the typed access sites below.
+const providerDeploymentOutputRegistry: typeof globalThis & {
   __vitehubProviderDeploymentOutputCompletedResets?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>
   __vitehubProviderDeploymentOutputEnvironmentGenerations?: WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>
   __vitehubProviderDeploymentOutputFinalizations?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>
   __vitehubProviderDeploymentOutputWrites?: Map<string, Promise<unknown>>
-}
+} = globalThis
 const providerDeploymentOutputWrites = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputWrites
   ??= new Map<string, Promise<unknown>>()
 const providerDeploymentOutputFinalizations = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputFinalizations
@@ -618,10 +619,12 @@ async function writeProviderDeploymentOutputsNow(
   const cleanups: Array<() => Promise<void>> = []
   const cleanupPaths: string[] = []
   if (!options.cloudflare && options.cleanup?.cloudflare) {
-    const cleanup = typeof options.cleanup.cloudflare === "function"
+    let cleanup = typeof options.cleanup.cloudflare === "function"
       ? await options.cleanup.cloudflare()
       : options.cleanup.cloudflare
-    cleanupPaths.push(cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir))
+    const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
+    if (resolve(outputRoot) === clientDir) cleanup = { ...cleanup, fileNames: [] }
+    cleanupPaths.push(outputRoot)
     cleanups.push(async () => await cleanupCloudflareDeploymentOutput(options.rootDir, cleanup, signal))
   }
   if (!options.netlify && options.cleanup?.netlify) {
