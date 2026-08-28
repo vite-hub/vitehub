@@ -20,6 +20,7 @@ export {
 export type {
   GeneratedSourceHandler,
   GeneratedSourceHandlersListener,
+  GeneratedSourceHandlersListenerOptions,
   SourceGenerationOptions,
   SourceVitePluginOptions,
 } from "@vite-hub/source/vite"

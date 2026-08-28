@@ -545,6 +545,59 @@ describe("framework generated types", () => {
     await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(2))
   })
 
+  it("keeps the Vite restart fallback for passive generated-handler observers", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const observer = vi.fn()
+    plugin.api.onGeneratedHandlersChanged(observer)
+    const listeners = new Map<string, (file: string) => void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+
+    await vi.waitFor(() => {
+      expect(observer).toHaveBeenCalledWith([])
+      expect(restart).toHaveBeenCalledOnce()
+    })
+  })
+
+  it("lets a generated-handler listener take host restart ownership", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const restartHost = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledWith([]))
+    await Promise.resolve()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
   it("watches custom Source directories and recovers after refresh errors", async () => {
     const { root, viteRoot } = await createNestedProject()
     const serverDir = join(root, "api")

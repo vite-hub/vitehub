@@ -34,6 +34,10 @@ export interface SourceVitePluginOptions {
 
 export type GeneratedSourceHandlersListener = (handlers: GeneratedSourceHandler[]) => Promise<void> | void
 
+export interface GeneratedSourceHandlersListenerOptions {
+  handlesHostRestart?: boolean
+}
+
 interface DiscoveredCollection {
   exportName: string
   file: string
@@ -309,7 +313,10 @@ function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: str
 
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   api: {
-    onGeneratedHandlersChanged: (listener: GeneratedSourceHandlersListener) => () => void
+    onGeneratedHandlersChanged: (
+      listener: GeneratedSourceHandlersListener,
+      options?: GeneratedSourceHandlersListenerOptions,
+    ) => () => void
     prepareSources: (options: Omit<SourceGenerationOptions, "importBase">) => Promise<GeneratedSourceHandler[]>
   }
 } {
@@ -317,14 +324,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let serverDirs: string[] | undefined
   let configuredHandlerKey = generatedHandlerKey([])
   let refreshQueue = Promise.resolve()
-  const generatedHandlersListeners = new Set<GeneratedSourceHandlersListener>()
+  const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
     prepareSourceGeneration({ ...input, importBase: options.importBase })
   const refresh = async () => {
     if (projectRoot) await prepareSources({ projectRoot, serverDirs })
   }
-  const onGeneratedHandlersChanged = (listener: GeneratedSourceHandlersListener) => {
-    generatedHandlersListeners.add(listener)
+  const onGeneratedHandlersChanged = (
+    listener: GeneratedSourceHandlersListener,
+    listenerOptions: GeneratedSourceHandlersListenerOptions = {},
+  ) => {
+    generatedHandlersListeners.set(listener, listenerOptions)
     return () => generatedHandlersListeners.delete(listener)
   }
   return {
@@ -368,8 +378,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const handlers = await prepareSources({ projectRoot: root, serverDirs })
           const handlerKey = generatedHandlerKey(handlers)
           if (handlerKey === configuredHandlerKey) return
-          if (generatedHandlersListeners.size === 0) await server.restart()
-          else await Promise.all([...generatedHandlersListeners].map(listener => listener(handlers)))
+          const listeners = [...generatedHandlersListeners]
+          await Promise.all(listeners.map(([listener]) => listener(handlers)))
+          if (!listeners.some(([, listenerOptions]) => listenerOptions.handlesHostRestart)) {
+            await server.restart()
+          }
           configuredHandlerKey = handlerKey
         })
         refreshQueue = result.catch(() => {})

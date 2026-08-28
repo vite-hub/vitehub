@@ -604,7 +604,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   // SAFETY: The plugin name identifies the ViteHub Source plugin and its public preparation API.
   const sourcePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/source/vite") as Plugin & {
     api?: {
-      onGeneratedHandlersChanged?: (listener: (handlers: GeneratedSourceHandler[]) => Promise<void> | void) => () => void
+      onGeneratedHandlersChanged?: (
+        listener: (handlers: GeneratedSourceHandler[]) => Promise<void> | void,
+        options?: { handlesHostRestart?: boolean },
+      ) => () => void
       prepareSources?: (options: {
         projectRoot: string
         serverDirs?: string[]
@@ -618,7 +621,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.(async (handlers: GeneratedSourceHandler[]) => {
     generatedSourceHandlers = handlers
     await nuxt.callHook?.("restart")
-  })
+  }, { handlesHostRestart: true })
   if (removeGeneratedHandlersListener) nuxt.hook?.("close", removeGeneratedHandlersListener)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
     api?: {

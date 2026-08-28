@@ -1130,12 +1130,13 @@ describe("ViteHub Nuxt integration", () => {
     }
     let listener: ((handlers: Array<{ handler: string; method: "get"; route: string }>) => Promise<void> | void) | undefined
     const removeListener = vi.fn()
+    const onGeneratedHandlersChanged = vi.fn((value: NonNullable<typeof listener>) => {
+      listener = value
+      return removeListener
+    })
     mocks.vitehub.mockReturnValue([{
       api: {
-        onGeneratedHandlersChanged: vi.fn((value) => {
-          listener = value
-          return removeListener
-        }),
+        onGeneratedHandlersChanged,
         prepareSources: vi.fn(async () => [first]),
       },
       name: "@vite-hub/source/vite",
@@ -1143,6 +1144,7 @@ describe("ViteHub Nuxt integration", () => {
     const { closeHooks, nuxt, runNitroConfigHook } = createNuxt(true)
 
     await viteHubNuxtModule({ preset: "node" }, nuxt)
+    expect(onGeneratedHandlersChanged).toHaveBeenCalledWith(expect.any(Function), { handlesHostRestart: true })
     await listener?.([second])
     expect(nuxt.callHook).toHaveBeenCalledWith("restart")
 
