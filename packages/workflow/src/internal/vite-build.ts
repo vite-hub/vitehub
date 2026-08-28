@@ -873,7 +873,7 @@ function renderWorkflowRegistryEntry(registryFile: string, definition: Discovere
   ].filter(Boolean).join("\n")
 }
 
-function createWorkflowRegistryContents(
+export function createWorkflowRegistryContents(
   registryFile: string,
   definitions: DiscoveredWorkflowDefinition[],
   importBases: WorkflowImportBases = {},
@@ -1449,7 +1449,7 @@ async function generateProviderOutputsWithinLock(
   return artifacts
 }
 
-export async function generateProviderOutputs(
+export async function generateWorkflowProviderOutputs(
   options: GenerateProviderOutputsOptions,
   write?: ProviderDeploymentOutputWriter,
 ): Promise<GeneratedWorkflowArtifacts> {

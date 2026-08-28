@@ -73,6 +73,7 @@ export class ProviderOutputCatalog {
   #cloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #runtimeContributions = new Map<ProviderOutputProduct, ProviderRuntimeContribution>()
   #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], ProviderDeploymentOutputContribution>()
+  #deploymentGeneration = 0
 
   appliedCloudflareContributions(): IterableIterator<CloudflareProviderOutputValue> {
     return this.#appliedCloudflareContributions.values()
@@ -121,11 +122,17 @@ export class ProviderOutputCatalog {
     this.#runtimeContributions.clear()
   }
 
-  replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution): void {
+  deploymentGeneration(): number {
+    return this.#deploymentGeneration
+  }
+
+  replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution, generation = this.#deploymentGeneration): void {
+    if (generation !== this.#deploymentGeneration) return
     this.#deploymentContributions.set(contribution.owner, contribution)
   }
 
   resetDeploymentContributions(): void {
+    this.#deploymentGeneration++
     this.#deploymentContributions.clear()
   }
 

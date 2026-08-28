@@ -2,6 +2,7 @@ import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import {
+  captureProviderDeploymentOutputGeneration,
   composeNitroCloudflareProviderOutput,
   contributeCloudflareProviderOutput,
   contributeProviderDeploymentOutput,
@@ -113,6 +114,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const importBase = (options as InternalRateLimitModuleOptions).importBase ?? packageName
   let rateLimit: RateLimitModuleOptions = options
   let composedOutput: ProviderOutputCatalog | undefined
+  let providerOutputGeneration: number | undefined
   let declarations: RateLimitDeclaration[] = []
   let declarationFiles = new Set<string>()
   let cloudflareOwnedByNitro = false
@@ -197,6 +199,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
       return `import ${JSON.stringify(normalizePath(resolve(resolved.root, generatedRuntimeModule)))}\n${code}`
     },
+    buildStart() {
+      providerOutputGeneration = captureProviderDeploymentOutputGeneration(composedOutput)
+    },
     async buildEnd(error) {
       if (error) {
         await resetProviderDeploymentOutputs(composedOutput, error)
@@ -236,7 +241,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
             signal.throwIfAborted()
             previousDeclarations = contributionDeclarations
           },
-        })
+        }, providerOutputGeneration)
       }
       catch (error) {
         await resetProviderDeploymentOutputs(composedOutput, error)

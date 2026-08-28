@@ -2,12 +2,12 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { captureProviderDeploymentOutputGeneration, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -74,6 +74,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
+  let providerOutputGeneration: number | undefined
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
@@ -175,6 +176,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         prepareScheduleRuntime,
       },
     },
+    buildStart() {
+      providerOutputGeneration = captureProviderDeploymentOutputGeneration(providerOutput)
+    },
     async buildEnd(error) {
       if (error) {
         await resetProviderDeploymentOutputs(providerOutput, error)
@@ -191,7 +195,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         owner: "workflow",
         rootDir,
         write: async ({ write }) => {
-          await generateProviderOutputs({
+          await generateWorkflowProviderOutputs({
             agentImportBase: internalOptions?.agentImportBase,
             clientOutDir: resolve(config.root, config.build.outDir),
             hosting: internalOptions?.hosting,
@@ -214,7 +218,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               ?.vitehub?.agent?.transformWorkflowRegistry,
           }, write)
         },
-      })
+      }, providerOutputGeneration)
     },
     async renderError(error) {
       await resetProviderDeploymentOutputs(providerOutput, error)

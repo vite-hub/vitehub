@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  captureProviderDeploymentOutputGeneration,
   contributeProviderDeploymentOutput,
   createDefaultCloudflareOutputRoot,
   finalizeProviderDeploymentOutputs,
@@ -293,6 +294,60 @@ describe("Provider Output finalizer", () => {
     await resetProviderDeploymentOutputs(catalog, failedBuild)
     await finalizeProviderDeploymentOutputs(catalog)
     expect(newerWrite).toHaveBeenCalledOnce()
+  })
+
+  it("rejects a contribution prepared before a build reset", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const generation = captureProviderDeploymentOutputGeneration(catalog)
+    const staleWrite = vi.fn(async () => undefined)
+
+    await resetProviderDeploymentOutputs(catalog, new Error("build failed"))
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: staleWrite }, generation)
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(staleWrite).not.toHaveBeenCalled()
+  })
+
+  it("deduplicates an old failure without shielding a newer failure", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const oldFailure = new Error("old build failed")
+    let releaseOldWrite!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => await new Promise<void>(resolve => releaseOldWrite = resolve),
+    })
+
+    const oldFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(releaseOldWrite).toBeDefined())
+    const oldReset = resetProviderDeploymentOutputs(catalog, oldFailure)
+    releaseOldWrite()
+    await oldReset
+    await expect(oldFinalization).rejects.toThrow("Provider Output finalization reset")
+
+    let activeSignal: AbortSignal | undefined
+    let releaseNewWrite!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async ({ signal }) => {
+        activeSignal = signal
+        await new Promise<void>(resolve => releaseNewWrite = resolve)
+      },
+    })
+    const newFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(activeSignal).toBeDefined())
+
+    await resetProviderDeploymentOutputs(catalog, oldFailure)
+    expect(activeSignal?.aborted).toBe(false)
+
+    const newReset = resetProviderDeploymentOutputs(catalog, new Error("new build failed"))
+    expect(activeSignal?.aborted).toBe(true)
+    releaseNewWrite()
+    await newReset
+    await expect(newFinalization).rejects.toThrow("Provider Output finalization reset")
   })
 
   it("clears the next build's contributions when it fails after reset teardown", async () => {

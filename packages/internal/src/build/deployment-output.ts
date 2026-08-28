@@ -1,5 +1,5 @@
 import { existsSync, renameSync, rmSync } from "node:fs"
-import { cp, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -500,7 +500,6 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     renameSync(stagedOutputRoot, outputRoot)
     installedOutput = true
     signal?.throwIfAborted()
-    rmSync(previousOutputRoot, { force: true, recursive: true })
   }
   catch (error) {
     await rm(stagedOutputRoot, { force: true, recursive: true })
@@ -508,6 +507,10 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     if (replacedOutput && existsSync(previousOutputRoot)) renameSync(previousOutputRoot, outputRoot)
     throw error
   }
+  try {
+    rmSync(previousOutputRoot, { force: true, recursive: true })
+  }
+  catch {}
 }
 
 async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>), signal?: AbortSignal): Promise<void> {
@@ -619,27 +622,30 @@ async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operatio
 export function contributeProviderDeploymentOutput(
   catalog: ProviderOutputCatalogType | undefined,
   contribution: ProviderDeploymentOutputContribution,
+  generation?: number,
 ): void {
-  catalog?.replaceDeploymentContribution(contribution)
+  catalog?.replaceDeploymentContribution(contribution, generation)
+}
+
+export function captureProviderDeploymentOutputGeneration(catalog: ProviderOutputCatalogType | undefined): number | undefined {
+  return catalog?.deploymentGeneration()
 }
 
 export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined, failure?: unknown): Promise<void> {
   if (!catalog) return
   const completedReset = providerDeploymentOutputCompletedResets.get(catalog)
-  if (completedReset) {
-    if (failure !== undefined && !completedReset.failures.has(failure)) {
-      completedReset.failures.add(failure)
-      catalog.resetDeploymentContributions()
-    }
+  if (completedReset && failure !== undefined && completedReset.failures.has(failure)) {
     await completedReset.promise
     return
   }
+  if (completedReset) providerDeploymentOutputCompletedResets.delete(catalog)
   const active = providerDeploymentOutputFinalizations.get(catalog)
   if (active?.reset) {
     if (failure !== undefined && !active.reset.failures.has(failure)) {
       active.reset.failures.add(failure)
       catalog.resetDeploymentContributions()
     }
+    providerDeploymentOutputCompletedResets.set(catalog, active.reset)
     await active.reset.promise
     return
   }
@@ -666,7 +672,6 @@ export async function finalizeProviderDeploymentOutputs(
   options: FinalizeProviderDeploymentOutputOptions = {},
 ): Promise<void> {
   if (!catalog) return
-  providerDeploymentOutputCompletedResets.delete(catalog)
   const existing = providerDeploymentOutputFinalizations.get(catalog)
   if (existing) {
     try {
@@ -732,11 +737,6 @@ export async function finalizeProviderDeploymentOutputs(
         }))
       }
     }
-    catch (error) {
-      // Contributions in this finalization were detached by takeDeploymentContributions().
-      // Anything still pending belongs to a newer build and must survive this failure.
-      throw error
-    }
     finally {
       options.signal?.removeEventListener("abort", abort)
     }
@@ -745,6 +745,7 @@ export async function finalizeProviderDeploymentOutputs(
   providerDeploymentOutputFinalizations.set(catalog, active)
   try {
     await finalization
+    providerDeploymentOutputCompletedResets.delete(catalog)
   }
   finally {
     if (providerDeploymentOutputFinalizations.get(catalog) === active) {

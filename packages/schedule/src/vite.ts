@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
-import { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { captureProviderDeploymentOutputGeneration, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -499,6 +499,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
   let providerOutput: ProviderOutputCatalog | undefined
+  let providerOutputGeneration: number | undefined
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
@@ -612,6 +613,9 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return createTargetsContents()
       }
     },
+    buildStart() {
+      providerOutputGeneration = captureProviderDeploymentOutputGeneration(providerOutput)
+    },
     async buildEnd(error) {
       if (error) {
         await resetProviderDeploymentOutputs(providerOutput, error)
@@ -649,7 +653,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             workflow,
           })
         },
-      })
+      }, providerOutputGeneration)
     },
     async renderError(error) {
       await resetProviderDeploymentOutputs(providerOutput, error)

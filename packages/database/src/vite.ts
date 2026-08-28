@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { captureProviderDeploymentOutputGeneration, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
@@ -97,6 +97,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
+  let providerOutputGeneration: number | undefined
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
@@ -161,6 +162,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     buildStart() {
+      providerOutputGeneration = captureProviderDeploymentOutputGeneration(providerOutput)
       resetProviderOutputRuntime(providerOutput)
     },
     async handleHotUpdate(context) {
@@ -211,7 +213,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               serverFunctionName: resolveNitroVercelFunctionName(contributionResolved, "database"),
             }, write)
           },
-        })
+        }, providerOutputGeneration)
       }
       catch (error) {
         await resetProviderDeploymentOutputs(providerOutput, error)

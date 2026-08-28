@@ -1,4 +1,4 @@
-import { existsSync, renameSync } from "node:fs"
+import { existsSync, renameSync, rmSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, relative } from "node:path"
@@ -10,7 +10,7 @@ import { bundleEsmEntry } from "../src/build/esbuild.ts"
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>()
-  return { ...actual, renameSync: vi.fn(actual.renameSync) }
+  return { ...actual, renameSync: vi.fn(actual.renameSync), rmSync: vi.fn(actual.rmSync) }
 })
 
 vi.mock("../src/build/esbuild.ts", () => ({
@@ -43,6 +43,7 @@ async function writePackage(rootDir: string, name: string, packageJson: Record<s
 afterEach(async () => {
   const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
   vi.mocked(renameSync).mockReset().mockImplementation(actualFs.renameSync)
+  vi.mocked(rmSync).mockReset().mockImplementation(actualFs.rmSync)
   vi.mocked(bundleEsmEntry).mockReset().mockImplementation(async (_entry, outfile) => {
     await mkdir(dirname(outfile), { recursive: true })
     await writeFile(outfile, "export default {}\n", "utf8")
@@ -609,6 +610,37 @@ describe("provider deployment outputs", () => {
       images: { remote_images: ["https://images.example.com/.*"] },
       redirects: [{ from: "/docs", status: 200, to: "/docs/index.html" }],
     })
+  })
+
+  it("keeps committed Netlify output when backup cleanup fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultNetlifyOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    const previousOutputRoot = `${outputRoot}.previous`
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), '{"redirects":[{"from":"/old","to":"/before"}]}\n')
+    vi.mocked(rmSync).mockImplementation((path, options) => {
+      if (path === previousOutputRoot) throw new Error("backup cleanup failed")
+      return actualFs.rmSync(path, options)
+    })
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      netlify: {
+        config: { redirects: [{ from: "/new", to: "/after" }] },
+        configKeys: ["redirects"],
+      },
+      rootDir,
+    })
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      redirects: [{ from: "/new", to: "/after" }],
+    })
+    expect(existsSync(previousOutputRoot)).toBe(true)
   })
 
   it("removes owned Cloudflare config keys before merging new output", async () => {
