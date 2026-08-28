@@ -8,21 +8,56 @@ const docsRoot = resolve(import.meta.dirname, "..");
 function envCalls(source: string) {
   const calls: string[] = [];
 
-  for (
-    let start = source.indexOf("env(");
-    start !== -1;
-    start = source.indexOf("env(", start + 4)
-  ) {
+  for (let start = 0; start < source.length; start++) {
+    const character = source[start] || "";
+    const next = source[start + 1] || "";
+    if (character === "/" && next === "/") {
+      start = source.indexOf("\n", start + 2);
+      if (start === -1) break;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      const end = source.indexOf("*/", start + 2);
+      if (end === -1) break;
+      start = end + 1;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      for (start += 1; start < source.length; start++) {
+        if (source[start] === "\\") start += 1;
+        else if (source[start] === character) break;
+      }
+      continue;
+    }
+    if (!source.startsWith("env(", start) || /[\w$]/.test(source[start - 1] || "")) {
+      continue;
+    }
+
     let depth = 0;
     let quote = "";
     let escaped = false;
+    let comment = "";
 
     for (let index = start + 4; index < source.length; index++) {
       const character = source[index] || "";
-      if (quote) {
+      const next = source[index + 1] || "";
+      if (comment === "line") {
+        if (character === "\n") comment = "";
+      } else if (comment === "block") {
+        if (character === "*" && next === "/") {
+          comment = "";
+          index += 1;
+        }
+      } else if (quote) {
         if (escaped) escaped = false;
         else if (character === "\\") escaped = true;
         else if (character === quote) quote = "";
+      } else if (character === "/" && next === "/") {
+        comment = "line";
+        index += 1;
+      } else if (character === "/" && next === "*") {
+        comment = "block";
+        index += 1;
       } else if (character === '"' || character === "'" || character === "`") {
         quote = character;
       } else if (character === "(") {
@@ -30,6 +65,7 @@ function envCalls(source: string) {
       } else if (character === ")") {
         if (depth === 0) {
           calls.push(source.slice(start + 4, index));
+          start = index;
           break;
         }
         depth -= 1;
@@ -157,9 +193,20 @@ describe("Env documentation", () => {
     ]);
   });
 
+  it("ignores declarations in comments and strings", () => {
+    expect(
+      envCalls(`
+        // env({ mode: 'build' })
+        const example = "env({ mode: 'build' })";
+        env({ source: env.source('APP_NAME'), mode: 'build' })
+        /* env({ mode: 'build' }) */
+      `),
+    ).toEqual(["{ source: env.source('APP_NAME'), mode: 'build' }"]);
+  });
+
   it("requires an actual top-level build mode property", () => {
     expect(hasBuildMode("{ source: env.source('APP_NAME'), mode: 'build' }")).toBe(true);
-    expect(hasBuildMode('{ default: "mode: \'build\'" }')).toBe(false);
+    expect(hasBuildMode("{ default: \"mode: 'build'\" }")).toBe(false);
     expect(hasBuildMode("{ default: 'preview' /* mode: 'build' */ }")).toBe(false);
     expect(hasBuildMode("{ defaults: { mode: 'build' } }")).toBe(false);
   });
