@@ -237,10 +237,10 @@ describe("ViteHub CLI", () => {
     expect(stderrFlush).toHaveBeenCalledOnce()
   })
 
-  it.runIf(process.platform !== "win32")("forwards SIGQUIT to the foreground child", async () => {
+  it.runIf(process.platform !== "win32")("forwards SIGTERM to the foreground child", async () => {
     const originalKill = process.kill.bind(process)
     const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      if (pid > 0 && signal === "SIGQUIT") return true
+      if (pid > 0 && signal === "SIGTERM") return true
       return originalKill(pid, signal)
     })
 
@@ -256,8 +256,8 @@ describe("ViteHub CLI", () => {
                     name: "spawn",
                     run: async (_args: string[], context: ViteHubCliContext) => {
                       const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 20)"])
-                      await vi.waitFor(() => expect(process.listenerCount("SIGQUIT")).toBeGreaterThan(0))
-                      process.emit("SIGQUIT")
+                      await vi.waitFor(() => expect(process.listenerCount("SIGTERM")).toBeGreaterThan(0))
+                      process.emit("SIGTERM")
                       return (await result).exitCode
                     },
                   }],
@@ -271,61 +271,18 @@ describe("ViteHub CLI", () => {
       })
 
       expect(exitCode).toBe(0)
-      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGQUIT")
+      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGTERM")
       expect(kill.mock.calls.some(([pid]) => pid < 0)).toBe(false)
-      expect(process.listenerCount("SIGQUIT")).toBe(0)
+      expect(process.listenerCount("SIGTERM")).toBe(0)
     }
     finally {
       kill.mockRestore()
     }
   })
 
-  it.runIf(process.platform !== "win32")("suspends the wrapper after forwarding SIGTSTP and resumes the child", async () => {
-    const signals: Array<[number, Parameters<typeof process.kill>[1]]> = []
-    const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      signals.push([pid, signal])
-      return true
-    })
-
-    try {
-      const exitCode = await runViteHubCli({
-        args: ["test", "spawn"],
-        loadConfig: async () => ({
-          plugins: [{
-            vitehub: {
-              cli: {
-                namespaces: [{
-                  features: [{
-                    name: "spawn",
-                    run: async (_args: string[], context: ViteHubCliContext) => {
-                      const result = context.spawn(process.execPath, ["-e", "setTimeout(() => {}, 20)"])
-                      await vi.waitFor(() => expect(process.listenerCount("SIGTSTP")).toBeGreaterThan(0))
-                      process.emit("SIGTSTP")
-                      process.emit("SIGCONT")
-                      return (await result).exitCode
-                    },
-                  }],
-                  name: "test",
-                }],
-              },
-            },
-          }],
-          root: "/repo",
-        }),
-      })
-
-      expect(exitCode).toBe(0)
-      expect(signals).toEqual(expect.arrayContaining([
-        [expect.any(Number), "SIGTSTP"],
-        [process.pid, "SIGSTOP"],
-        [expect.any(Number), "SIGCONT"],
-      ]))
-      expect(signals.filter(([pid]) => pid < 0)).toHaveLength(0)
-      expect(process.listenerCount("SIGTSTP")).toBe(0)
-      expect(process.listenerCount("SIGCONT")).toBe(0)
-    }
-    finally {
-      kill.mockRestore()
+  it.runIf(process.platform !== "win32")("leaves foreground terminal signals to the process group", () => {
+    for (const signal of ["SIGCONT", "SIGINT", "SIGQUIT", "SIGTSTP"] as const) {
+      expect(process.listenerCount(signal)).toBe(0)
     }
   })
 
