@@ -5404,7 +5404,7 @@ async function executeAgentInvocationWithCapacityLease<
                   return withReadableStreamCleanup(
                     toReadableAsyncIterableStream(renderedStream),
                     async (outcome) => {
-                      await source.settleCancellation(outcome.failed ? outcome.error : undefined)
+                      if (outcome.failed) await source.settleCancellation(outcome.error)
                       await finishPreserved(outcome)
                     },
                     {
