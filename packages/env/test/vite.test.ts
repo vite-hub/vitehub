@@ -503,11 +503,13 @@ describe("Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-package-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
     const crossVolumeProvider = "D:\\shared\\provider.mjs"
+    const uncProvider = "\\\\server\\share\\provider.mjs"
     const plugin = hubEnv({
       providers: {
         crossVolume: crossVolumeProvider,
         local: "./server/env/provider.mjs",
         packaged: "@example/env-provider",
+        unc: uncProvider,
       },
     })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
@@ -517,6 +519,7 @@ describe("Vite plugin", () => {
           crossVolumeToken: env({ source: env.provider("crossVolume", "token") }),
           localToken: env({ source: env.provider("local", "token") }),
           packagedToken: env({ source: env.provider("packaged", "token") }),
+          uncToken: env({ source: env.provider("unc", "token") }),
         },
       },
       root,
@@ -534,6 +537,7 @@ describe("Vite plugin", () => {
     // SAFETY: This test invokes the plugin's Vite load hook with its public string-id contract.
     const virtualModule = await (plugin.load as (id: string) => string)("\0#vitehub/env/server")
     expect(virtualModule).toContain(`from "/D:/shared/provider.mjs"`)
+    expect(virtualModule).toContain(`from "/@fs///server/share/provider.mjs"`)
     expect(virtualModule).toContain(`from ${JSON.stringify(join(root, "server", "env", "provider.mjs").replace(/\\/g, "/"))}`)
   })
 

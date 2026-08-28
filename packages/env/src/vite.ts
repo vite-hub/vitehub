@@ -466,6 +466,7 @@ function providerImportSpecifier(specifier: string, outputPath: string | undefin
   if (!isAbsolute(specifier) && !windowsAbsolute) return specifier
   if (!outputPath) {
     const normalized = specifier.replace(/\\/g, "/")
+    if (normalized.startsWith("//")) return `/@fs/${encodeModulePath(normalized)}`
     return /^[A-Za-z]:\//.test(normalized) ? `/${normalized}` : normalized
   }
   const outputIsWindows = win32.isAbsolute(outputPath)
