@@ -245,11 +245,7 @@ $ErrorActionPreference = "Stop"
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_CODEX_CREDENTIAL_HOME "auth.json"))) {
   $entry = Get-Item -LiteralPath $path
-  $security = if ($entry.PSIsContainer) {
-    [System.IO.FileSystemAclExtensions]::GetAccessControl([System.IO.DirectoryInfo]::new($path))
-  } else {
-    [System.IO.FileSystemAclExtensions]::GetAccessControl([System.IO.FileInfo]::new($path))
-  }
+  $security = $entry.GetAccessControl()
   $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier])
   $rules = @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
   if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $identity.Value -or $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
@@ -329,6 +325,40 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
     finally {
       await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("replaces shared Codex home links without writing through them", async () => {
+    const threadId = "thread-shared-codex-home-link"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const externalConfig = join(externalHome, "config.toml")
+    await writeFile(externalConfig, "external = true\n")
+    await symlink(externalConfig, join(sharedHome, "config.toml"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rm(join(shadowHome, "config.toml"))
+      await writeFile(join(shadowHome, "config.toml"), "sandbox = true\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect((await lstat(join(sharedHome, "config.toml"))).isFile()).toBe(true)
+      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("sandbox = true\n")
+      expect(await readFile(externalConfig, "utf8")).toBe("external = true\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
     }
   })
 
@@ -2058,6 +2088,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
 
   it("removes Codex credentials when aborted provider startup never settles", async () => {
     vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     try {
       const threadId = "thread-cancel-provider-startup"
       const runtimeCalls = createProviderRuntime.mock.calls.length
@@ -2066,6 +2097,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
+        providerSettings: { homePath: sharedHome },
       })
       const runContext = context(threadId, {
         input: { abortSignal: controller.signal, prompt: "hello" },
@@ -2082,9 +2114,15 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       await vi.advanceTimersByTimeAsync(10_000)
 
       await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      const nextThreadId = "thread-after-cancelled-provider-startup"
+      const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await expect(adapter.generate(context(nextThreadId) as never)).resolves.toBeDefined()
+      expect(nextProvider.startSession).toHaveBeenCalledOnce()
     }
     finally {
       vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
     }
   })
 
@@ -2108,7 +2146,8 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     try {
       const threadId = "thread-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      let finishClose!: () => void
+      provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
       const adapter = createProviderAgentAdapter({
         credentials: '{"tokens":{"access_token":"secret"}}',
         provider: "codex",
@@ -2129,6 +2168,16 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
         expect.objectContaining({ recoverable: true, type: "error" }),
       ]))
       await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      const nextProvider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const nextResult = adapter.generate(context(threadId) as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(nextProvider.startSession).not.toHaveBeenCalled()
+
+      finishClose()
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(nextResult).resolves.toBeDefined()
+      expect(nextProvider.startSession).toHaveBeenCalledOnce()
     }
     finally {
       vi.useRealTimers()

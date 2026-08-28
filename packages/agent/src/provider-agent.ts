@@ -1,7 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, copyFile, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
@@ -178,7 +178,7 @@ $ErrorActionPreference = "Stop"
 $path = $env:VITEHUB_CODEX_CREDENTIAL_HOME
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $directory = [System.IO.DirectoryInfo]::new($path)
-$security = [System.IO.FileSystemAclExtensions]::GetAccessControl($directory)
+$security = $directory.GetAccessControl()
 $security.SetAccessRuleProtection($true, $false)
 foreach ($existing in @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))) {
   [void]$security.RemoveAccessRuleSpecific($existing)
@@ -191,8 +191,8 @@ $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
   [System.Security.AccessControl.AccessControlType]::Allow
 )
 $security.AddAccessRule($rule)
-[System.IO.FileSystemAclExtensions]::SetAccessControl($directory, $security)
-$applied = [System.IO.FileSystemAclExtensions]::GetAccessControl($directory)
+$directory.SetAccessControl($security)
+$applied = $directory.GetAccessControl()
 $owner = $applied.GetOwner([System.Security.Principal.SecurityIdentifier])
 $rules = @($applied.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
 if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $identity.Value -or $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
@@ -315,9 +315,24 @@ async function persistCodexCredentialOverlay(home: string, sharedHome: string): 
       const sourceEntry = await lstat(source)
       if (!sourceEntry.isFile()) return
       const target = join(sharedHome, entry)
-      const targetEntry = await stat(target).catch(() => undefined)
+      const targetEntry = await lstat(target).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })
       if (targetEntry && sourceEntry.dev === targetEntry.dev && sourceEntry.ino === targetEntry.ino) return
-      await copyFile(source, target)
+      const temporary = join(sharedHome, `.${entry}.${crypto.randomUUID()}.tmp`)
+      try {
+        await copyFile(source, temporary)
+        await rename(temporary, target).catch(async (error) => {
+          const code = (error as NodeJS.ErrnoException).code
+          if (code !== "EEXIST" && code !== "EPERM") throw error
+          await rm(target, { force: true })
+          await rename(temporary, target)
+        })
+      }
+      finally {
+        await rm(temporary, { force: true })
+      }
     }))
 }
 
@@ -1195,6 +1210,11 @@ async function* runProvider<
   let credentialSharedHome: string | undefined
   let releaseCredentialHomeLock: (() => void) | undefined
   let credentialHomeCleanup: Promise<void> | undefined
+  const releaseCredentialOverlayLock = () => {
+    const release = releaseCredentialHomeLock
+    releaseCredentialHomeLock = undefined
+    release?.()
+  }
   const cleanupCredentialHome = () => credentialHomeCleanup ??= (async () => {
     if (!credentialHome) return
     try {
@@ -1203,7 +1223,7 @@ async function* runProvider<
     finally {
       await rm(credentialHome, { force: true, recursive: true })
     }
-  })()
+  })().finally(releaseCredentialOverlayLock)
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1591,13 +1611,9 @@ async function* runProvider<
     finally {
       cleanup.dispose()
     }
-    const deferredCleanup = forcedCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
-    const releaseInvocationLocks = () => {
-      releaseCredentialHomeLock?.()
-      releaseSessionLock?.()
-    }
-    if (deferredCleanup) void deferredCleanup.then(releaseInvocationLocks, releaseInvocationLocks)
-    else releaseInvocationLocks()
+    const deferredSessionCleanup = cleanupTimedOut ? cleanupTask : invocationCleanupDeferred || deferredRuntimeCleanup || deferredWorkspaceCleanup
+    if (deferredSessionCleanup) void deferredSessionCleanup.then(releaseSessionLock, releaseSessionLock)
+    else releaseSessionLock?.()
     if (sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
         resumeCursors.set(sessionKey, pendingResumeCursor)
