@@ -27,10 +27,11 @@ describe("public package export contracts", () => {
     ]))
   })
 
-  it("marks eager framework exports as optional-peer consumers", () => {
+  it("marks eager exports as optional-peer consumers", () => {
     const eagerPeerExports = new Map<string, string>([
       ["@vite-hub/auth/nuxt", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
+      ["@vite-hub/blob/drivers/files-sdk", "files-sdk"],
       ["@vite-hub/source/client", "vue"],
       ["@vite-hub/workspace/collections/client", "vue"],
       ["vite-hub", "vite"],
@@ -45,6 +46,16 @@ describe("public package export contracts", () => {
     for (const [specifier, peer] of eagerPeerExports) {
       expect(publicPackageExportContracts.find(contract => contract.specifier === specifier)?.optionalPeers)
         .toContain(peer)
+    }
+  })
+
+  it("publishes declaration dependencies where isolated consumers can resolve them", () => {
+    for (const packageName of ["agent", "auth"]) {
+      const manifest = readPackageManifest(packageName)
+      for (const dependency of ["@types/json-schema", "@types/mdast"]) {
+        expect(manifest.peerDependencies?.[dependency], `${packageName} should expose ${dependency}`).toEqual(expect.any(String))
+        expect(manifest.peerDependenciesMeta?.[dependency]?.optional, `${packageName} should require ${dependency}`).not.toBe(true)
+      }
     }
   })
 

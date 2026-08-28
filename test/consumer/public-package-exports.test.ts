@@ -32,14 +32,6 @@ const packageManifestSchema = object({
   version: optional(string()),
 })
 
-function isPackageDiagnostic(diagnostic: ts.Diagnostic, sourcePath: string, packageRoot: string) {
-  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
-  return !diagnostic.file
-    || diagnostic.file.fileName === sourcePath
-    || diagnostic.file.fileName.startsWith(`${packageRoot}${sep}`)
-    || ((diagnostic.code === 2307 || diagnostic.code === 7016) && message.includes("'@vite-hub/"))
-}
-
 async function run(command: string, args: string[], cwd: string) {
   try {
     const result = await execFileAsync(command, args, { cwd, maxBuffer })
@@ -92,6 +84,8 @@ async function packPublicPackages(packDir: string) {
 async function writeConsumer(appDir: string, specs: Record<string, string>) {
   const requiredPeers = {
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
+    "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
+    "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
@@ -196,6 +190,8 @@ async function importPackagesWithoutRootFallback(
 async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
   const requiredPeerSpecs: Record<string, string> = {
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
+    "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
+    "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
@@ -372,9 +368,7 @@ async function typecheckPackageModule(
     types: ["node"],
   }
   const program = ts.createProgram(rootNames, options)
-  const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
-    isPackageDiagnostic(diagnostic, sourcePath, packageRoot),
-  )
+  const diagnostics = ts.getPreEmitDiagnostics(program)
   expect(
     ts.formatDiagnosticsWithColorAndContext(diagnostics, {
       getCanonicalFileName: file => file,
@@ -400,67 +394,43 @@ describe("published declaration diagnostics", () => {
     await importSpecifiers(tmpdir(), ["node:path"], true)
   })
 
-  it("keeps diagnostics without an associated file", () => {
-    const diagnostic: ts.Diagnostic = {
-      category: ts.DiagnosticCategory.Error,
-      code: 2688,
-      messageText: "Cannot find type definition file for 'missing-types'.",
+  it("reports diagnostics reached through dependency declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-declaration-diagnostics-"))
+    const dependencyDir = join(root, "node_modules/dependency")
+    const typesDir = join(root, "node_modules/@types/example")
+    const sourcePath = join(root, "consumer.ts")
+
+    try {
+      await Promise.all([
+        mkdir(dependencyDir, { recursive: true }),
+        mkdir(typesDir, { recursive: true }),
+      ])
+      await Promise.all([
+        writeFile(join(dependencyDir, "package.json"), JSON.stringify({ name: "dependency", types: "index.d.ts" })),
+        writeFile(join(dependencyDir, "index.d.ts"), "export type BrokenDependency = MissingDependency\n"),
+        writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/example", types: "index.d.ts" })),
+        writeFile(join(typesDir, "index.d.ts"), "export type BrokenTypes = MissingTypes\n"),
+        writeFile(sourcePath, 'import type { BrokenDependency } from "dependency"\nimport type { BrokenTypes } from "example"\nvoid (undefined as unknown as BrokenDependency | BrokenTypes)\n'),
+      ])
+
+      const program = ts.createProgram([sourcePath], {
+        module: ts.ModuleKind.NodeNext,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
+        noEmit: true,
+        skipLibCheck: false,
+      })
+      const diagnosticFiles = ts.getPreEmitDiagnostics(program)
+        .filter(diagnostic => diagnostic.code === 2304)
+        .map(diagnostic => diagnostic.file?.fileName)
+
+      expect(diagnosticFiles).toEqual(expect.arrayContaining([
+        join(dependencyDir, "index.d.ts"),
+        join(typesDir, "index.d.ts"),
+      ]))
     }
-
-    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
-  })
-
-  it("ignores diagnostics owned by imported third-party declarations", () => {
-    const file = ts.createSourceFile(
-      "/consumer/node_modules/.pnpm/dependency/index.d.ts",
-      "export type Broken = Missing",
-      ts.ScriptTarget.ESNext,
-    )
-    const diagnostic: ts.Diagnostic = {
-      category: ts.DiagnosticCategory.Error,
-      code: 2304,
-      file,
-      length: 7,
-      messageText: "Cannot find name 'Missing'.",
-      start: 21,
+    finally {
+      await rm(root, { recursive: true, force: true })
     }
-
-    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(false)
-  })
-
-  it("ignores diagnostics owned by imported @types declarations", () => {
-    const file = ts.createSourceFile(
-      "/consumer/node_modules/.pnpm/@types+example/index.d.ts",
-      "export type Broken = Missing",
-      ts.ScriptTarget.ESNext,
-    )
-    const diagnostic: ts.Diagnostic = {
-      category: ts.DiagnosticCategory.Error,
-      code: 2304,
-      file,
-      length: 7,
-      messageText: "Cannot find name 'Missing'.",
-      start: 21,
-    }
-
-    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(false)
-  })
-
-  it("keeps unresolved ViteHub imports from dependency declarations", () => {
-    const file = ts.createSourceFile(
-      "/consumer/node_modules/.pnpm/dependency/index.d.ts",
-      'export type Broken = import("@vite-hub/missing").Missing',
-      ts.ScriptTarget.ESNext,
-    )
-    const diagnostic: ts.Diagnostic = {
-      category: ts.DiagnosticCategory.Error,
-      code: 2307,
-      file,
-      messageText: "Cannot find module '@vite-hub/missing' or its corresponding type declarations.",
-      start: 28,
-    }
-
-    expect(isPackageDiagnostic(diagnostic, "/consumer/exports.ts", "/consumer/node_modules/example")).toBe(true)
   })
 })
 

@@ -26,6 +26,7 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/agent/eval", ["evalite", "vitest"]],
   ["@vite-hub/auth/nuxt", ["vite"]],
   ["@vite-hub/browser/controllers/playwright", ["playwright-core"]],
+  ["@vite-hub/blob/drivers/files-sdk", ["files-sdk"]],
   ["@vite-hub/blob/drivers/netlify-blobs", ["files-sdk"]],
   ["@vite-hub/kv/runtime/upstash-driver", ["@upstash/redis"]],
   ["@vite-hub/source/client", ["vue"]],

@@ -625,12 +625,6 @@ importers:
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@99682f626b1d24843d3f82bd082644d77aa0de43(@anthropic-ai/sdk@0.120.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ioredis@5.11.1)(zod@4.4.3)
-      '@types/json-schema':
-        specifier: catalog:ai
-        version: 7.0.15
-      '@types/mdast':
-        specifier: catalog:markdown
-        version: 4.0.4
       '@vercel/connect':
         specifier: 0.6.1
         version: 0.6.1(f8fa4c40a8c2eae6013a51be8bd13cc6)
@@ -692,6 +686,12 @@ importers:
       '@github-tools/eve-extension':
         specifier: 0.3.0
         version: 0.3.0(577fc43d7b9d79942d9a2e87ecc25a16)
+      '@types/json-schema':
+        specifier: catalog:ai
+        version: 7.0.15
+      '@types/mdast':
+        specifier: catalog:markdown
+        version: 4.0.4
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
@@ -757,12 +757,6 @@ importers:
 
   packages/auth:
     dependencies:
-      '@types/json-schema':
-        specifier: catalog:ai
-        version: 7.0.15
-      '@types/mdast':
-        specifier: catalog:markdown
-        version: 4.0.4
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -776,6 +770,12 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
     devDependencies:
+      '@types/json-schema':
+        specifier: catalog:ai
+        version: 7.0.15
+      '@types/mdast':
+        specifier: catalog:markdown
+        version: 4.0.4
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
