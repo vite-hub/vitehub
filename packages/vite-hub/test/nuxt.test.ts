@@ -1144,6 +1144,11 @@ describe("ViteHub Nuxt integration", () => {
       method: "get" as const,
       route: "/api/drinks",
     }
+    const third = {
+      handler: "/tmp/vitehub-nuxt/.vitehub/source/routes/snacks.mjs",
+      method: "get" as const,
+      route: "/api/snacks",
+    }
     let listener: ((handlers: Array<{ handler: string; method: "get"; route: string }>) => Promise<void> | void) | undefined
     const removeListener = vi.fn()
     const onGeneratedHandlersChanged = vi.fn((value: NonNullable<typeof listener>) => {
@@ -1173,6 +1178,22 @@ describe("ViteHub Nuxt integration", () => {
     const nitroConfig: Record<string, unknown> = {}
     await runNitroConfigHook(nitroConfig)
     expect(nitroConfig.handlers).toEqual([second])
+
+    let rejectOlderRestart: ((reason?: unknown) => void) | undefined
+    const olderRestart = new Promise<void>((_resolve, reject) => {
+      rejectOlderRestart = reject
+    })
+    nuxt.callHook.mockImplementationOnce(() => olderRestart)
+    const olderUpdate = listener?.([first])
+    const newerUpdate = listener?.([third])
+    const olderFailure = expect(olderUpdate).rejects.toThrow("restart failed")
+    rejectOlderRestart?.(new Error("restart failed"))
+    await olderFailure
+    await newerUpdate
+
+    const concurrentNitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(concurrentNitroConfig)
+    expect(concurrentNitroConfig.handlers).toEqual([third])
 
     closeHooks.forEach(hook => hook())
     expect(removeListener).toHaveBeenCalledOnce()

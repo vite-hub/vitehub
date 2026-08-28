@@ -10,10 +10,12 @@ import { createEvent } from "h3-v1"
 
 const generatedHandlerReadGate = vi.hoisted<{
   path: string | undefined
+  reads: number
   started: (() => void) | undefined
   wait: Promise<void> | undefined
 }>(() => ({
   path: undefined,
+  reads: 0,
   started: undefined,
   wait: undefined,
 }))
@@ -24,8 +26,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     ...fs,
     async readFile(...args: Parameters<typeof fs.readFile>) {
       if (String(args[0]) === generatedHandlerReadGate.path) {
-        generatedHandlerReadGate.started?.()
-        await generatedHandlerReadGate.wait
+        generatedHandlerReadGate.reads += 1
+        if (generatedHandlerReadGate.reads === 2) {
+          generatedHandlerReadGate.started?.()
+          await generatedHandlerReadGate.wait
+        }
       }
       return fs.readFile(...args)
     },
@@ -977,14 +982,17 @@ describe("framework generated types", () => {
       generatedHandlerReadGate.started = resolve
     })
 
+    generatedHandlerReadGate.reads = 0
     await rename(collection, replacementCollection)
     const refresh = listeners.get("unlink")?.(collection)
     await handlerReadStarted
+    expect(generatedHandlerReadGate.reads).toBe(2)
     await closeBundle(plugin, environment)()
     releaseHandlerRead?.()
     await refresh
 
     generatedHandlerReadGate.path = undefined
+    generatedHandlerReadGate.reads = 0
     generatedHandlerReadGate.started = undefined
     generatedHandlerReadGate.wait = undefined
 

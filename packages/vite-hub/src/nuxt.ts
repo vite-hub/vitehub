@@ -628,16 +628,21 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
-  const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.(async (handlers: GeneratedSourceHandler[]) => {
-    const previousHandlers = generatedSourceHandlers
-    generatedSourceHandlers = handlers
-    try {
-      await nuxt.callHook?.("restart")
-    }
-    catch (error) {
-      generatedSourceHandlers = previousHandlers
-      throw error
-    }
+  let generatedSourceRestart = Promise.resolve()
+  const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.((handlers: GeneratedSourceHandler[]) => {
+    const restart = generatedSourceRestart.then(async () => {
+      const previousHandlers = generatedSourceHandlers
+      generatedSourceHandlers = handlers
+      try {
+        await nuxt.callHook?.("restart")
+      }
+      catch (error) {
+        generatedSourceHandlers = previousHandlers
+        throw error
+      }
+    })
+    generatedSourceRestart = restart.catch(() => {})
+    return restart
   }, { handlesHostRestart: true })
   if (removeGeneratedHandlersListener) nuxt.hook?.("close", removeGeneratedHandlersListener)
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
