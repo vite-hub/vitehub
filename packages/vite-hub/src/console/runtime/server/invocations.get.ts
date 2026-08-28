@@ -138,31 +138,33 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       ...backfill,
       invocations: [...page.invocations, ...backfill.invocations],
     }
-    const currentIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
-    let recheckBudget = backfillBudget
-    let rollbackBackfill = false
     const groupIndex = groups.findIndex(([groupKey]) => groupKey === key)
-    for (const [laterKey, laterStatuses] of groups.slice(groupIndex + 1)) {
-      if (laterKey === "history" || !pendingKeys.has(laterKey)) continue
-      const laterPage = pages[laterKey]
-      const recheckLimit = Math.min(pageLimit, laterPage.invocations.length + recheckBudget)
-      if (recheckLimit === 0) continue
-      const refreshed = await listLifecyclePage(
-        laterStatuses,
-        recheckLimit,
-        cursor[laterKey],
-        agentName,
-      )
-      const previousIds = new Set(laterPage.invocations.map(invocation => invocation.id))
-      const added = refreshed.invocations.filter(invocation => !previousIds.has(invocation.id))
-      if (added.length === 0) continue
-      const newIds = added.filter(invocation => !currentIds.has(invocation.id))
-      if (newIds.length > 0) rollbackBackfill = true
-      recheckBudget = Math.max(0, recheckBudget - newIds.length)
-      for (const invocation of refreshed.invocations) currentIds.add(invocation.id)
-      pages[laterKey] = refreshed
+    const recheckLaterGroups = async (budget: number) => {
+      const currentIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
+      let rollback = false
+      for (const [laterKey, laterStatuses] of groups.slice(groupIndex + 1)) {
+        if (laterKey === "history" || !pendingKeys.has(laterKey)) continue
+        const laterPage = pages[laterKey]
+        const recheckLimit = Math.min(pageLimit, laterPage.invocations.length + budget)
+        if (recheckLimit === 0) continue
+        const refreshed = await listLifecyclePage(
+          laterStatuses,
+          recheckLimit,
+          cursor[laterKey],
+          agentName,
+        )
+        const previousIds = new Set(laterPage.invocations.map(invocation => invocation.id))
+        const added = refreshed.invocations.filter(invocation => !previousIds.has(invocation.id))
+        if (added.length === 0) continue
+        const newIds = added.filter(invocation => !currentIds.has(invocation.id))
+        rollback ||= newIds.length > 0
+        budget = Math.max(0, budget - newIds.length)
+        for (const invocation of refreshed.invocations) currentIds.add(invocation.id)
+        pages[laterKey] = refreshed
+      }
+      return rollback
     }
-    if (rollbackBackfill) {
+    const refillEarlierGroup = async () => {
       const otherIds = new Set(Object.entries(pages)
         .filter(([pageKey]) => pageKey !== key)
         .flatMap(([, current]) => current.invocations.map(invocation => invocation.id)))
@@ -170,6 +172,11 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       pages[key] = refillLimit === 0
         ? emptyPage
         : await listLifecyclePage(statuses, refillLimit, cursor[key], agentName)
+      return refillLimit
+    }
+    if (await recheckLaterGroups(backfillBudget)) {
+      const refillLimit = await refillEarlierGroup()
+      await recheckLaterGroups(refillLimit)
     }
     const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
     remainingLimit = Math.max(0, pageLimit - returnedIds.size)
