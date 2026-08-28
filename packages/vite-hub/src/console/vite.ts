@@ -160,6 +160,25 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(root, serverDirs) : [], kvStores)
   })
 
+  function resolveKVRegistration(kv: unknown): void {
+    const resolvedKVStores = options.resolveKVStores?.(kv)
+    sections = resolvedKVStores === false
+      ? (options.sections ?? []).filter(section => section !== "kv")
+      : options.sections ?? []
+    kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
+  }
+
+  function reconcileKVHandler(nitro: ConsoleNitroConfig): void {
+    const kvHandler = join(consoleRuntimeRoot, "server/kv.get.js")
+    const handlers = Array.isArray(nitro.handlers)
+      ? nitro.handlers.filter(handler => handler?.handler !== kvHandler)
+      : []
+    if (sections.includes("kv")) {
+      handlers.push({ handler: kvHandler, route: "/api/_vitehub/console/kv" })
+    }
+    nitro.handlers = handlers
+  }
+
   return {
     name: "vite-hub/console",
     async config(config, environment) {
@@ -171,11 +190,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         auth?: AuthModuleOptions
         kv?: unknown
       }
-      const resolvedKVStores = options.resolveKVStores?.(viteConfig.kv)
-      sections = resolvedKVStores === false
-        ? sections.filter(section => section !== "kv")
-        : options.sections ?? []
-      kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
+      resolveKVRegistration(viteConfig.kv)
       assertConsoleProductionAccess(configured, {
         agentsEnabled: sections.includes("agents"),
         auth: configured !== true && configured.access === "auth"
@@ -230,15 +245,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
               },
             ]
           : []),
-        ...(sections.includes("kv")
-          ? [{
-              handler: join(consoleRuntimeRoot, "server/kv.get.js"),
-              route: "/api/_vitehub/console/kv",
-            }]
-          : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
+      nitro.handlers = handlers
+      reconcileKVHandler(nitro)
       const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter((candidate) => !generatedRegistration(candidate, generatedConsolePlugin)) : []
       plugins.push(generatedPlugin)
       const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets.filter((asset) => asset?.baseURL !== "/_vitehub/assets") : []
@@ -254,6 +265,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       root = config.root
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
+      // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
+      const viteConfig = config as typeof config & { kv?: unknown, nitro?: ConsoleNitroConfig }
+      resolveKVRegistration(viteConfig.kv)
+      const nitro = viteConfig.nitro ??= {}
+      reconcileKVHandler(nitro)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       await refreshAgentDefinitions()

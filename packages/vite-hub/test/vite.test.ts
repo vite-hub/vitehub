@@ -207,29 +207,34 @@ describe("vitehub", () => {
       .rejects.toThrow('Console currently requires preset: "node" for production')
   })
 
-  it("derives Console KV registration from the final Vite KV configuration", async () => {
+  it("derives Console KV registration from the resolved Vite KV configuration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-kv-"))
     try {
       const named = dependencyPluginByName(
         vitehub({ console: true, kv: true, preset: "node" }),
         "vite-hub/console",
       )
-      await callHook(named.config, [{
-        kv: { stores: { cache: { driver: "memory" }, sessions: { driver: "memory" } } },
-        root,
-      }, { command: "serve", mode: "development" }])
+      const namedConfig: Record<string, unknown> = { root }
+      await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
+      namedConfig.kv = { stores: { cache: { driver: "memory" }, sessions: { driver: "memory" } } }
+      await callHook(named.configResolved, [namedConfig])
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleKV(')
       expect(generated).toContain('["cache","sessions"]')
+      expect(namedConfig.nitro).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
 
       const disabledRoot = join(root, "disabled")
       const disabled = dependencyPluginByName(
         vitehub({ console: true, kv: true, preset: "node" }),
         "vite-hub/console",
       )
-      const config: Record<string, unknown> = { kv: false, root: disabledRoot }
+      const config: Record<string, unknown> = { root: disabledRoot }
       await callHook(disabled.config, [config, { command: "serve", mode: "development" }])
+      config.kv = false
+      await callHook(disabled.configResolved, [config])
 
       const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(disabledGenerated).not.toContain("installConsoleKV")
