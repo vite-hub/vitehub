@@ -131,7 +131,7 @@ export function markdownAnchors(markdown, { renderer = "mdc" } = {}) {
   const githubSlugger = new GithubSlugger();
   const { body } = splitFrontmatter(markdown);
   visit(parseMarkdown(body, { renderer }), (node) => {
-    if (renderer === "mdc" && typeof node.attributes?.id === "string") {
+    if (renderer === "mdc" && node.attributes?.id?.constructor === String) {
       anchors.add(node.attributes.id);
     }
     if (node.type === "html") {
