@@ -43,6 +43,7 @@ interface ConsoleVitePluginOptions {
   kvStores?: readonly string[]
   preset?: string
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
+  resolveKVStores?: (kv: unknown) => readonly string[] | false
   sections?: readonly ConsoleSectionId[]
 }
 
@@ -147,8 +148,8 @@ function generatedRegistration(value: string, path: string): boolean {
 }
 
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
-  const sections = options.sections ?? []
-  const kvStores = options.kvStores ?? []
+  let sections = options.sections ?? []
+  let kvStores = options.kvStores ?? []
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
   let root: string | undefined
@@ -168,7 +169,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
+        kv?: unknown
       }
+      const resolvedKVStores = options.resolveKVStores?.(viteConfig.kv)
+      sections = resolvedKVStores === false
+        ? sections.filter(section => section !== "kv")
+        : options.sections ?? []
+      kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
       assertConsoleProductionAccess(configured, {
         agentsEnabled: sections.includes("agents"),
         auth: configured !== true && configured.access === "auth"

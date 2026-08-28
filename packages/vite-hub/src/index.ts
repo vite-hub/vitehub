@@ -663,6 +663,14 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
+      resolveKVStores: (kv) => {
+        if (kv === false) return false
+        const resolved = resolveKVViteConfig(
+          (kv ?? configuredKV) as KVModuleOptions | undefined,
+          { hosting: plan.nitroPreset },
+        ).kv
+        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+      },
       sections: consoleSections,
     }))
     if (options.agent) plugins.push(consoleInvocationRootPlugin())

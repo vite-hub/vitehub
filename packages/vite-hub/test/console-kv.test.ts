@@ -97,6 +97,7 @@ describe("Console KV inspection", () => {
   it("formats structured, null, missing, and large values without writing", async () => {
     const { storage, writes } = memoryKV({
       default: new Map<string, unknown>([
+        ["", "empty key"],
         ["config", { enabled: true }],
         ["nullable", null],
         ["large", "x".repeat(256 * 1_024 + 1)],
@@ -106,6 +107,11 @@ describe("Console KV inspection", () => {
     })
     installConsoleKV("/project", storage)
 
+    await expect(kvHandler(event("?key="))).resolves.toMatchObject({
+      found: true,
+      key: "",
+      value: "empty key",
+    })
     await expect(kvHandler(event("?key=config"))).resolves.toEqual({
       found: true,
       format: "json",

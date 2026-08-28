@@ -24,7 +24,7 @@ function requestError(statusCode: number, statusMessage: string): Error {
 }
 
 function requiredParameter(value: string | null, name: string): string {
-  if (value === null || value.length === 0) throw requestError(400, `${name} is required.`)
+  if (value === null) throw requestError(400, `${name} is required.`)
   if (value.length > maximumKeyLength) throw requestError(400, `${name} is too long.`)
   return value
 }

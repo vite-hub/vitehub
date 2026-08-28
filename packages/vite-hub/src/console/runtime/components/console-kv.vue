@@ -115,7 +115,7 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   valueRequest?.abort();
   selectedValue.value = undefined;
   valueError.value = undefined;
-  if (!key) return;
+  if (key === undefined) return;
   const controller = new AbortController();
   valueRequest = controller;
   valueLoading.value = true;
@@ -153,7 +153,7 @@ async function loadKeys(options: { keepSelection?: boolean } = {}): Promise<void
     listTruncated.value = value.truncated;
     listError.value = undefined;
     const current = options.keepSelection ? selectedKey.value : undefined;
-    selectedKey.value = current && value.keys.includes(current) ? current : value.keys[0];
+    selectedKey.value = current !== undefined && value.keys.includes(current) ? current : value.keys[0];
     await loadValue();
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
@@ -272,13 +272,13 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
-            <UTooltip v-for="key in keys" :key="key" :text="key" :content="{ side: 'right' }">
+            <UTooltip v-for="key in keys" :key="key" :text="key || '(empty key)'" :content="{ side: 'right' }">
               <UButton
                 icon="i-lucide-key-round"
                 color="neutral"
                 :variant="selectedKey === key ? 'soft' : 'ghost'"
                 block
-                :aria-label="key"
+                :aria-label="key || 'Empty key'"
                 @click="selectKey(key)"
               />
             </UTooltip>
@@ -297,7 +297,7 @@ onBeforeUnmount(() => {
             @click="selectKey(key)"
           >
             <UIcon name="i-lucide-key-round" class="size-3.5 shrink-0 text-dimmed" />
-            <span class="truncate font-mono text-xs">{{ key }}</span>
+            <span class="truncate font-mono text-xs">{{ key || "(empty key)" }}</span>
           </button>
           <p v-if="listTruncated" class="px-2 pt-3 text-xs leading-5 text-muted">
             Showing the first {{ keys.length }} of {{ total }} keys. Narrow the prefix to inspect more.
@@ -359,15 +359,15 @@ onBeforeUnmount(() => {
           />
           <div class="min-w-0">
             <p class="truncate font-mono text-xs font-medium text-highlighted">
-              {{ selectedKey || "KV" }}
+              {{ selectedKey === "" ? "(empty key)" : selectedKey ?? "KV" }}
             </p>
-            <p v-if="selectedKey" class="mt-0.5 truncate text-[11px] text-muted">{{ selectedStore }}</p>
+            <p v-if="selectedKey !== undefined" class="mt-0.5 truncate text-[11px] text-muted">{{ selectedStore }}</p>
           </div>
           <UBadge class="ml-auto" color="neutral" label="Read-only" size="sm" variant="soft" />
         </header>
 
         <UEmpty
-          v-if="!selectedKey && !listLoading"
+          v-if="selectedKey === undefined && !listLoading"
           class="min-h-0 flex-1"
           icon="i-lucide-mouse-pointer-click"
           title="Select a key"
