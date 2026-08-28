@@ -71,8 +71,18 @@ await import(\`escaped\\u002dtemplate-package\`)
 `)).toEqual(["data-package", "escaped-template-package", "function-options", "identifier-options", "template-package"])
   })
 
-  it("ignores import-shaped member calls", () => {
-    expect(collectDenoRuntimePackageNames('loader.import("member-data", { with: { type: "json" } }); this.#import("private-member-data")'))
+  it("ignores import- and require-shaped member calls", () => {
+    expect(collectDenoRuntimePackageNames(`
+loader.import("member-data", { with: { type: "json" } })
+this.#import("private-member-data")
+loader.require("member-require")
+loader.__require("member-helper-require")
+loader.require.resolve("member-resolve")
+loader.__require.resolve("member-helper-resolve")
+loader?.require("optional-member-require")
+loader?.require.resolve("optional-member-resolve")
+this.#require("private-member-require")
+`))
       .toEqual([])
   })
 

@@ -66,7 +66,7 @@ function collectImportedPackageNames(source: string): Set<string> {
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
-    /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /(?<![.$#])\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*\)/g,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
