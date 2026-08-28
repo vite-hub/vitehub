@@ -126,6 +126,7 @@ export interface ProviderDeploymentOutputWriter {
 }
 
 export interface ProviderDeploymentOutputContribution {
+  discard?: () => Promise<void>
   owner: ProviderDeploymentOutputOwner
   rootDir: string
   write: (context: { signal: AbortSignal; write: ProviderDeploymentOutputWriter }) => Promise<void>
@@ -632,13 +633,14 @@ async function writeProviderDeploymentOutputsNow(
 }
 
 function providerDeploymentOutputPaths(options: ProviderDeploymentOutputOptions): string[] {
+  const clientDir = resolve(options.rootDir, options.clientOutDir)
   return [
     options.cloudflare?.outputRoot,
     options.cloudflare?.staticOutputDir,
     options.netlify?.outputRoot,
     options.vercel?.outputRoot,
     options.vercel?.staticOutputDir,
-  ].filter((path): path is string => Boolean(path))
+  ].filter((path): path is string => Boolean(path) && resolve(path!) !== clientDir)
 }
 
 async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operation: () => Promise<T>): Promise<T> {
@@ -694,7 +696,6 @@ async function withProviderDeploymentOutputRootTransaction<T>(
 ): Promise<T> {
   const roots = [
     createDefaultCloudflareOutputRoot(rootDir),
-    createDefaultCloudflareStaticOutputDir(rootDir),
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
     resolve(rootDir, ".vitehub/blob/cloudflare-output.json"),
@@ -943,13 +944,24 @@ export async function finalizeProviderDeploymentOutputs(
           })
           const readiness = await Promise.allSettled(roots.map(root => root.readiness))
           const failedRoot = readiness.find((result): result is PromiseRejectedResult => result.status === "rejected")
-          decideRoots(failedRoot?.reason)
+          if (failedRoot) {
+            decideRoots(failedRoot.reason)
+            await settleWrites(roots.map(root => root.write))
+          }
+          try {
+            await catalog.completeDeploymentContributions(contributions)
+          }
+          catch (error) {
+            decideRoots(error)
+            await settleWrites(roots.map(root => root.write))
+            throw error
+          }
+          decideRoots(undefined)
           await settleWrites(roots.map(root => root.write))
-          catalog.completeDeploymentContributions(contributions)
         }
         catch (error) {
           if (state.rollback) catalog.rollbackDeploymentContributions(contributions)
-          else catalog.completeDeploymentContributions(contributions)
+          else await catalog.completeDeploymentContributions(contributions)
           throw error
         }
         finally {

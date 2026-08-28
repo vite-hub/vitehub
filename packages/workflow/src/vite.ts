@@ -219,33 +219,31 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }, workflowServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, config.root, artifactDir)
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
+          discard: async () => {
+            await rm(artifactDir, { force: true, recursive: true })
+            if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+          },
           owner: "workflow",
           rootDir,
           write: async ({ write }) => {
-            try {
-              await generateWorkflowProviderOutputs({
-                agentImportBase: internalOptions?.agentImportBase,
-                artifacts,
-                clientOutDir: resolve(config.root, config.build.outDir),
-                hosting: internalOptions?.hosting,
-                importBase: internalOptions?.importBase,
-                providerImportAliases: importAliases,
-                providerRuntimeImportAliases: runtimeImportAliases,
-                rootDir,
-                definitionRootDir: config.root,
-                serverDirs: workflowServerDirs,
-                serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
-                includeUserAppEntry: internalOptions?.includeUserAppEntry,
-                workflow: workflowOptions,
-                workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-                workspaceImportBase: internalOptions?.workspaceImportBase,
-                transformRegistry,
-              }, write)
-            }
-            finally {
-              await rm(artifactDir, { force: true, recursive: true })
-              if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
-            }
+            await generateWorkflowProviderOutputs({
+              agentImportBase: internalOptions?.agentImportBase,
+              artifacts,
+              clientOutDir: resolve(config.root, config.build.outDir),
+              hosting: internalOptions?.hosting,
+              importBase: internalOptions?.importBase,
+              providerImportAliases: importAliases,
+              providerRuntimeImportAliases: runtimeImportAliases,
+              rootDir,
+              definitionRootDir: config.root,
+              serverDirs: workflowServerDirs,
+              serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
+              includeUserAppEntry: internalOptions?.includeUserAppEntry,
+              workflow: workflowOptions,
+              workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
+              workspaceImportBase: internalOptions?.workspaceImportBase,
+              transformRegistry,
+            }, write)
           },
         }, generation)
       }

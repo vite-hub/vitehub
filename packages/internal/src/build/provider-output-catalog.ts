@@ -197,8 +197,19 @@ export class ProviderOutputCatalog {
     return this.#takenDeploymentContributions.get(contribution)?.entry.generation
   }
 
-  completeDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): void {
-    for (const contribution of contributions) this.#takenDeploymentContributions.delete(contribution)
+  async completeDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): Promise<void> {
+    const discarded: Array<Promise<void>> = []
+    for (const contribution of contributions) {
+      const taken = this.#takenDeploymentContributions.get(contribution)
+      if (!taken) continue
+      this.#takenDeploymentContributions.delete(contribution)
+      for (const entry of [...taken.fallbacks, taken.entry]) {
+        if (entry.contribution.discard) discarded.push(entry.contribution.discard())
+      }
+    }
+    const results = await Promise.allSettled(discarded)
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+    if (failure) throw failure.reason
   }
 
   rollbackDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): void {

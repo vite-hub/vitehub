@@ -241,6 +241,54 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
   })
 
+  it("does not roll back client output written by a newer build", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const clientOutput = join(rootDir, "dist/client/index.html")
+    await mkdir(dirname(clientOutput), { recursive: true })
+    await writeFile(clientOutput, "older build\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await write({ clientOutDir: "dist/client", rootDir })
+        await writeFile(clientOutput, "newer build\n")
+        throw new Error("older output failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("older output failed")
+    await expect(readFile(clientOutput, "utf8")).resolves.toBe("newer build\n")
+  })
+
+  it("discards superseded contribution artifacts after completion", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const olderDiscard = vi.fn(async () => undefined)
+    const newerDiscard = vi.fn(async () => undefined)
+    const olderWrite = vi.fn(async () => undefined)
+    const newerWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      discard: olderDiscard,
+      owner: "blob",
+      rootDir,
+      write: olderWrite,
+    }, captureProviderDeploymentOutputGeneration(catalog))
+    contributeProviderDeploymentOutput(catalog, {
+      discard: newerDiscard,
+      owner: "blob",
+      rootDir,
+      write: newerWrite,
+    }, captureProviderDeploymentOutputGeneration(catalog))
+
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(olderWrite).not.toHaveBeenCalled()
+    expect(newerWrite).toHaveBeenCalledOnce()
+    expect(olderDiscard).toHaveBeenCalledOnce()
+    expect(newerDiscard).toHaveBeenCalledOnce()
+  })
+
   it("rolls back completed roots when a peer root fails", async () => {
     const catalog = createProviderOutputCatalog()
     const firstRoot = await createTempProject()

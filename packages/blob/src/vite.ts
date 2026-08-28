@@ -352,25 +352,23 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         })
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
+          discard: async () => {
+            await rm(artifactDir, { force: true, recursive: true })
+            if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+          },
           owner: "blob",
           rootDir: blobRootDir,
           write: async ({ signal, write }) => {
-            try {
-              await generateProviderOutputs({
-                blob: blobOptions,
-                clientOutDir: blobClientOutDir,
-                cloudflareOwnedByNitro: blobCloudflareOwnedByNitro,
-                artifacts: providerArtifacts,
-                providerOutput,
-                rootDir: blobRootDir,
-                serverFunctionName: blobServerFunctionName,
-                signal,
-              }, write)
-            }
-            finally {
-              await rm(artifactDir, { force: true, recursive: true })
-              if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
-            }
+            await generateProviderOutputs({
+              blob: blobOptions,
+              clientOutDir: blobClientOutDir,
+              cloudflareOwnedByNitro: blobCloudflareOwnedByNitro,
+              artifacts: providerArtifacts,
+              providerOutput,
+              rootDir: blobRootDir,
+              serverFunctionName: blobServerFunctionName,
+              signal,
+            }, write)
           },
         }, generation)
       }
