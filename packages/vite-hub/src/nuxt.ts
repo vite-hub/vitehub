@@ -156,13 +156,18 @@ function pluginConfigResolvedHandler(plugin: Plugin): HookHandler<NonNullable<Pl
   return plugin.configResolved?.handler
 }
 
+function asReplayResolvedConfig(config: UserConfig): ResolvedConfig {
+  // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
+  return config as ResolvedConfig
+}
+
 async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig): Promise<void> {
   for (const plugin of plugins) {
     if (!nitroConfigResolvedNames.has(plugin.name)) continue
     const configResolved = pluginConfigResolvedHandler(plugin)
     if (!configResolved) continue
-    // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
-    await configResolved.call({} as never, config as unknown as ResolvedConfig)
+    // SAFETY: Rollup supplies an opaque plugin context; the replayed hook does not read it.
+    await configResolved.call({} as never, asReplayResolvedConfig(config))
   }
 }
 

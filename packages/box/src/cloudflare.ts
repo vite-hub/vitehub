@@ -127,7 +127,8 @@ export function createCloudflareRuntime(options: CloudflareBoxOptions): BoxRunti
 async function loadCloudflareSandbox() {
   try {
     const { getSandbox } = await import(/* @vite-ignore */ cloudflareSandboxPackage);
-    return getSandbox as unknown as NonNullable<CloudflareBoxOptions["getSandbox"]>;
+    // SAFETY: the optional package's public getSandbox export implements this adapter contract.
+    return getSandbox as NonNullable<CloudflareBoxOptions["getSandbox"]>;
   } catch (error) {
     throw new Error(
       `[vitehub] The cloudflare Box runtime requires @cloudflare/sandbox: ${error instanceof Error ? error.message : error}`,

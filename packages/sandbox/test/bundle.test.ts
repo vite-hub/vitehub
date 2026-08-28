@@ -104,6 +104,10 @@ describe("bundleSandboxDefinition assets", () => {
       "import { execSync } from 'node:child_process'\nexport default { run: async () => execSync('./scripts/task.sh --flag') }\n",
     ],
     [
+      "child process argument",
+      "import { spawn } from 'node:child_process'\nexport default { run: async () => spawn('node', ['./scripts/task.sh']) }\n",
+    ],
+    [
       "aliased filesystem namespace",
       "import * as fs from 'node:fs'\nconst io = fs\nexport default { run: async () => io.readFileSync('./data/app.db') }\n",
     ],

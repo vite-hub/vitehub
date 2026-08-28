@@ -121,4 +121,11 @@ describe("extractSandboxDefinitionMetadata", () => {
       project: false,
     })
   })
+
+  it("reads project policy through a parenthesized Definition export", async () => {
+    const file = await writeDefinition(
+      `export default (defineSandbox({ project: true, run: async () => null }))`,
+    )
+    await expect(extractSandboxDefinitionMetadata(file)).resolves.toEqual({ project: true })
+  })
 })

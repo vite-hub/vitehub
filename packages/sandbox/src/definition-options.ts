@@ -14,6 +14,7 @@ export interface ExtractedSandboxDefinitionMetadata {
 }
 
 function getTypeScript(): TypeScript {
+  // SAFETY: this loads the TypeScript package paired with the compiler node types used below.
   return require('typescript') as TypeScript
 }
 
@@ -100,9 +101,20 @@ function readDefinitionObject(sourceFile: ts.SourceFile): ts.ObjectLiteralExpres
   for (const statement of sourceFile.statements) {
     if (!ts.isExportAssignment(statement))
       continue
-    const expression = ts.isIdentifier(statement.expression)
-      ? immutableBindings.get(statement.expression.text)
-      : statement.expression
+    let expression: ts.Expression | undefined = statement.expression
+    const seen = new Set<string>()
+    while (expression) {
+      if (ts.isParenthesizedExpression(expression)) {
+        expression = expression.expression
+        continue
+      }
+      if (ts.isIdentifier(expression) && !seen.has(expression.text)) {
+        seen.add(expression.text)
+        expression = immutableBindings.get(expression.text)
+        continue
+      }
+      break
+    }
     if (!expression)
       continue
     if (!ts.isCallExpression(expression)) {
@@ -161,7 +173,7 @@ export async function extractSandboxDefinitionMetadata(file: string): Promise<Ex
       throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options must use static values.`)
     const value = readStaticValue(property.initializer)
     if (key === 'project') {
-      if (typeof value !== 'boolean')
+      if (value !== true && value !== false)
         throw new Error(`[vitehub] ${sandboxDefinitionSyntax} project must be a boolean.`)
       project = value
     }
@@ -171,11 +183,12 @@ export async function extractSandboxDefinitionMetadata(file: string): Promise<Ex
   }
   if (!hasRun)
     throw new Error(`[vitehub] ${sandboxDefinitionSyntax} requires a \`run\` handler.`)
+  // SAFETY: readStaticValue parsed every option into the JSON-compatible Definition option contract.
   const runtimeOptions = Object.keys(options).length ? options as SandboxDefinitionOptions : undefined
-  return runtimeOptions || typeof project !== 'undefined'
+  return runtimeOptions || project !== undefined
     ? {
         ...(runtimeOptions ? { options: runtimeOptions } : {}),
-        ...(typeof project !== 'undefined' ? { project } : {}),
+        ...(project !== undefined ? { project } : {}),
       }
     : undefined
 }
