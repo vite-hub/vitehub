@@ -6522,7 +6522,12 @@ describe("agent message protocol", () => {
     })
   })
 
-  it.each(["runAgent", "streamAgent"] as const)("preserves raw usage settled while a nested lazy renderer stream is consumed by %s", async (method) => {
+  it.each([
+    ["runAgent", "fullStream"],
+    ["runAgent", "stream"],
+    ["streamAgent", "fullStream"],
+    ["streamAgent", "stream"],
+  ] as const)("preserves raw usage settled while %s consumes a nested lazy renderer %s", async (method, streamProperty) => {
     const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     let resolveUsage!: (usage: { totalTokens: number }) => void
@@ -6539,7 +6544,7 @@ describe("agent message protocol", () => {
           id: "nested-lazy-renderer-stream",
           output(context) {
             context.output.render(source => ({
-              stream: (async function* () {
+              [streamProperty]: (async function* () {
                 for await (const _event of source as AsyncIterable<unknown>) {}
                 yield { text: "rendered", type: "text-delta" }
               })(),
@@ -6556,7 +6561,9 @@ describe("agent message protocol", () => {
       : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
     expect(finish).not.toHaveBeenCalled()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const stream = method === "runAgent" ? (result as { stream: AsyncIterable<unknown> }).stream : result as AsyncIterable<unknown>
+    const stream = method === "runAgent"
+      ? (result as Record<typeof streamProperty, AsyncIterable<unknown>>)[streamProperty]
+      : result as AsyncIterable<unknown>
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0].result).toMatchObject({
@@ -9980,6 +9987,12 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     const finish = vi.fn()
+    const finalRenderer = vi.fn((result: unknown) => {
+      expect(result).toBeInstanceOf(Response)
+      // SAFETY: This test verifies that Response.prototype.text remains a method.
+      expect(typeof (result as Response).text).toBe("function")
+      return result
+    })
     const providerResult = vi.fn()
     const downstreamProviderResult = vi.fn()
     const agent = defineAgent({
@@ -10010,6 +10023,7 @@ describe("agent message protocol", () => {
               expect(renderContext.output.extensions.get("rendered-response", "decorated")).toBe(true)
               return result
             })
+            context.output.final(finalRenderer)
           },
         }),
       ],
@@ -10053,7 +10067,9 @@ describe("agent message protocol", () => {
     const body = await response.text()
     expect(body).not.toContain("private")
     expect(body).toContain("public")
+    expect(finalRenderer).toHaveBeenCalledOnce()
     expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toBeInstanceOf(Response)
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.message.delta",

@@ -3619,8 +3619,10 @@ function toAgentRunResultWithInheritedProperties(result: unknown): AgentRunResul
     if (normalized[key] !== undefined) continue
     try {
       if (!Reflect.has(result, key)) continue
+      const value = Reflect.get(result, key)
+      if (key === "text" && !hasRuntimeType(value, "string")) continue
       // SAFETY: The key list is limited to writable AgentRunResult properties.
-      normalized[key] = Reflect.get(result, key) as never
+      normalized[key] = value as never
     }
     catch {
       // Ignore provider getters that cannot be read during result normalization.
@@ -3895,7 +3897,8 @@ async function resultWithStreamedTextAndUsage(
   resolveUsage = true,
 ): Promise<unknown> {
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
-  if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result) || usageRecord !== undefined)) {
+  if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result)
+    || (usageRecord !== undefined && hasTraceableStreamResult(result)))) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
     const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
     const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
