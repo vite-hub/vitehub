@@ -199,6 +199,20 @@ import "real"
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
   })
 
+  it("accepts static imports of staged Deno Schedule output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-static-schedule-import-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "globalThis.scheduleLoaded = true\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'import "./schedule/deno-cron.mjs"\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/main.ts"), "utf8"))
+      .resolves.toContain('import "./schedule/deno-cron.mjs"')
+  })
+
   it("bundles package import mappings into relocated entrypoints", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-imports-"))
     await writeJson(join(root, "package.json"), { imports: { "#config": "./config.ts" } })
