@@ -115,8 +115,10 @@ export default defineConfig({
         delete exports["./console/runtime/server/page.get"]
         delete exports["./console/runtime/server/search.get"]
         delete exports["./console/runtime/server/sections.get"]
+        delete exports["./console/runtime/server/sections"]
         return {
           ...exports,
+          "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",
           "./tsconfig": "./tsconfig.json",
         }
