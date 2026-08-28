@@ -297,15 +297,17 @@ function sectionObjects(sourceFile: Node) {
       for (const property of object.properties) {
         if (isSpreadAssignment(property)) {
           const spreads = effectiveProperties(property.expression, nextSeen);
-          alternatives = alternatives.flatMap((effective) =>
-            spreads.map((spread) => {
-              const merged = new Map(effective);
-              for (const [name, spreadProperty] of spread) {
-                merged.set(name, spreadProperty);
-              }
-              return merged;
-            }),
-          );
+          if (spreads.length > 0) {
+            alternatives = alternatives.flatMap((effective) =>
+              spreads.map((spread) => {
+                const merged = new Map(effective);
+                for (const [name, spreadProperty] of spread) {
+                  merged.set(name, spreadProperty);
+                }
+                return merged;
+              }),
+            );
+          }
         } else if (isPropertyAssignment(property) || isShorthandPropertyAssignment(property)) {
           const name = propertyName(property.name) ?? property.name;
           for (const effective of alternatives) {
@@ -652,6 +654,25 @@ defineConfig({ env: { public: { ...(flag ? runtimeEntries : buildEntries) } } })
     `);
 
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([false, true]);
+  });
+
+  it("checks known entries after unresolved spreads", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+defineConfig({
+  ...getDefaults(),
+  env: {
+    public: {
+      ...getSharedEnv(),
+      appName: env({ mode: "runtime" }),
+    },
+  },
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
   it("checks computed section entries", () => {
