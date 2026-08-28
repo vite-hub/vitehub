@@ -373,7 +373,7 @@ describe("hubBlob", () => {
         "const values = new Map()",
         "globalThis.fetch = async (input, init = {}) => {",
         "  const url = new URL(input.toString())",
-        "  const method = init.method || 'GET'",
+        "  const method = (init.method || 'GET').toUpperCase()",
         "  if (url.hostname === 'api.netlify.com') return Response.json({ url: 'https://signed.blobs.example.test/netlify.txt' })",
         "  if (method === 'PUT') {",
         "    const bytes = await new Response(init.body).arrayBuffer()",
@@ -414,7 +414,13 @@ describe("hubBlob", () => {
         .filter(imported => imported.external)
         .map(imported => imported.path)
       expect(externalImports.every(path => path.startsWith("node:"))).toBe(true)
-      const { stdout } = await execFileAsync(process.execPath, [artifactFile], { cwd: artifactRoot })
+      const { stdout } = await execFileAsync(process.execPath, [artifactFile], {
+        cwd: artifactRoot,
+        env: {
+          ...process.env,
+          NETLIFY_BLOBS_CONTEXT: Buffer.from(JSON.stringify({ siteID: "test-site", token: "test-token" })).toString("base64"),
+        },
+      })
       expect(stdout.trim()).toBe("netlify-store")
     }
     finally {
