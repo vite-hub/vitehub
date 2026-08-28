@@ -507,6 +507,37 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
+  it.runIf(process.platform !== "win32")("uses Windows junctions for linked shared Codex home directories", async () => {
+    const threadId = "thread-windows-linked-codex-home-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    await mkdir(join(externalHome, "skills"))
+    await symlink(join(externalHome, "skills"), join(sharedHome, "skills"))
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(beforeCodexHomeSymlink).toHaveBeenCalledWith(
+        join(sharedHome, "skills"),
+        expect.stringContaining("vitehub-codex-shadow-home-"),
+        "junction",
+      )
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
   it.runIf(process.platform !== "win32")("replaces shared Codex home links without writing through them", async () => {
     const threadId = "thread-shared-codex-home-link"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

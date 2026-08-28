@@ -309,13 +309,15 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
     const source = join(sharedHome, entry)
     const target = join(home, entry)
     const sourceEntry = await lstat(source)
+    let linkedEntry = sourceEntry
     if (sourceEntry.isSymbolicLink()) {
-      const linkedEntry = await stat(source).catch((error) => {
+      const resolvedEntry = await stat(source).catch((error) => {
         // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
         throw error
       })
-      if (!linkedEntry) continue
+      if (!resolvedEntry) continue
+      linkedEntry = resolvedEntry
     }
     try {
       if (process.platform === "win32" && sourceEntry.isFile()) {
@@ -327,7 +329,7 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
         })
       }
       else {
-        await symlink(source, target, process.platform === "win32" && sourceEntry.isDirectory() ? "junction" : undefined)
+        await symlink(source, target, process.platform === "win32" && linkedEntry.isDirectory() ? "junction" : undefined)
       }
       materializedEntries.add(comparableEntry)
     }
