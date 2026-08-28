@@ -444,23 +444,36 @@ function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): bo
   })
 }
 
-function containsEnumerableSymbol(value: unknown, seen = new Set<object>()): boolean {
-  if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
-  seen.add(value)
-  const keys = Reflect.ownKeys(value)
-  if (keys.some((key) => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    return descriptor?.enumerable === true && hasRuntimeType(key, "symbol")
-  })) return true
-  if (value instanceof Map) {
-    return [...value].some(([key, entry]) => containsEnumerableSymbol(key, seen) || containsEnumerableSymbol(entry, seen))
+function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = new Map<object, object>()): boolean {
+  if (!source || !hasRuntimeType(source, "object")) return true
+  if (!snapshot || !hasRuntimeType(snapshot, "object")) return false
+  if (seen.has(source)) return seen.get(source) === snapshot
+  seen.set(source, snapshot)
+
+  for (const key of Reflect.ownKeys(source)) {
+    const sourceDescriptor = Object.getOwnPropertyDescriptor(source, key)
+    if (!sourceDescriptor?.enumerable) continue
+    if (hasRuntimeType(key, "symbol") || !("value" in sourceDescriptor)) return false
+    const snapshotDescriptor = Object.getOwnPropertyDescriptor(snapshot, key)
+    if (!snapshotDescriptor || !("value" in snapshotDescriptor)) return false
+    if (!preservesEnumerableFields(sourceDescriptor.value, snapshotDescriptor.value, seen)) return false
   }
-  if (value instanceof Set) return [...value].some(entry => containsEnumerableSymbol(entry, seen))
-  return keys.some((key) => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    if (!descriptor?.enumerable) return false
-    return "value" in descriptor && containsEnumerableSymbol(descriptor.value, seen)
-  })
+  if (source instanceof Map) {
+    if (!(snapshot instanceof Map) || source.size !== snapshot.size) return false
+    const snapshotEntries = [...snapshot]
+    return [...source].every(([key, value], index) => {
+      const snapshotEntry = snapshotEntries[index]
+      return snapshotEntry !== undefined
+        && preservesEnumerableFields(key, snapshotEntry[0], seen)
+        && preservesEnumerableFields(value, snapshotEntry[1], seen)
+    })
+  }
+  if (source instanceof Set) {
+    if (!(snapshot instanceof Set) || source.size !== snapshot.size) return false
+    const snapshotEntries = [...snapshot]
+    return [...source].every((value, index) => preservesEnumerableFields(value, snapshotEntries[index], seen))
+  }
+  return true
 }
 
 function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
@@ -472,9 +485,11 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
     if (!visibility || !("value" in visibility)) return { visibility: "private" }
     if (visibility.value === "public") {
       const value = Object.getOwnPropertyDescriptor(payload, "value")
-      if (value && "value" in value && !containsEnumerableSymbol(value.value)) {
+      if (value && "value" in value) {
         const snapshot = structuredClone(value.value)
-        if (!containsSharedArrayBuffer(snapshot)) return { value: snapshot, visibility: "public" }
+        if (preservesEnumerableFields(value.value, snapshot) && !containsSharedArrayBuffer(snapshot)) {
+          return { value: snapshot, visibility: "public" }
+        }
       }
     }
     if (visibility.value === "summary") {
