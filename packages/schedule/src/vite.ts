@@ -626,37 +626,43 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       }
       const config = resolved
       const rootDir = projectRoot ?? config.root
-      const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
-      const crons = await readDefinitionCrons(definitions)
-      const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
-        .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
-        ?.vitehub?.workflow?.prepareScheduleRuntime
-      contributeProviderDeploymentOutput(providerOutput, {
-        owner: "schedule",
-        rootDir,
-        write: async ({ signal }) => {
-          const workflow = await prepareWorkflow?.()
-          const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
-          signal.throwIfAborted()
-          await generateProviderOutputsWithinLock({
-            bundleAlias: {
-              ...resolveStringAliases(config),
-              ...contributedAliases,
-              ...internalOptions.providerImportAliases,
-              ...workflow?.bundleAlias,
-            },
-            ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
-            clientOutDir: resolve(config.root, config.build.outDir),
-            definitions,
-            crons,
-            rootDir,
-            runtimeImport: internalOptions.runtimeImport,
-            signal,
-            source: standaloneProviderSource,
-            workflow,
-          })
-        },
-      }, providerOutputGenerations.get(this))
+      try {
+        const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
+        const crons = await readDefinitionCrons(definitions)
+        const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
+          .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
+          ?.vitehub?.workflow?.prepareScheduleRuntime
+        contributeProviderDeploymentOutput(providerOutput, {
+          owner: "schedule",
+          rootDir,
+          write: async ({ signal }) => {
+            const workflow = await prepareWorkflow?.()
+            const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+            signal.throwIfAborted()
+            await generateProviderOutputsWithinLock({
+              bundleAlias: {
+                ...resolveStringAliases(config),
+                ...contributedAliases,
+                ...internalOptions.providerImportAliases,
+                ...workflow?.bundleAlias,
+              },
+              ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
+              clientOutDir: resolve(config.root, config.build.outDir),
+              definitions,
+              crons,
+              rootDir,
+              runtimeImport: internalOptions.runtimeImport,
+              signal,
+              source: standaloneProviderSource,
+              workflow,
+            })
+          },
+        }, providerOutputGenerations.get(this))
+      }
+      catch (error) {
+        await resetProviderDeploymentOutputs(providerOutput, error)
+        throw error
+      }
     },
     async renderError(error) {
       await resetProviderDeploymentOutputs(providerOutput, error)

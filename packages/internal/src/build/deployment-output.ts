@@ -693,7 +693,12 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     createDefaultCloudflareStaticOutputDir(rootDir),
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
-    resolve(rootDir, ".vitehub"),
+    resolve(rootDir, ".vitehub/blob/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/queue/vercel-output.json"),
+    resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/nitro/schedule/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/workflow/vercel-output.json"),
   ]
   const transactionRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-output-"))
   const snapshots = new Map<string, ProviderDeploymentOutputSnapshot>()
@@ -704,8 +709,6 @@ async function withProviderDeploymentOutputRootTransaction<T>(
         .sort((left, right) => left.length - right.length)
         .filter((path, index, all) => !all.slice(0, index).some(parent => pathContains(parent, path)))
         .filter(path => ![...snapshots.keys()].some(parent => pathContains(parent, path)))
-      const expanding = candidates.find(path => [...snapshots.keys()].some(child => pathContains(path, child)))
-      if (expanding) throw new Error(`Provider Output transaction cannot expand over an active snapshot: ${expanding}`)
       const pending = candidates.map(path => ({
         backup: resolve(transactionRoot, String(snapshotIndex++)),
         path,
@@ -719,7 +722,24 @@ async function withProviderDeploymentOutputRootTransaction<T>(
         await Promise.all(pending.map(snapshot => rm(snapshot.backup, { force: true, recursive: true })))
         throw failure.reason
       }
-      for (const snapshot of pending) snapshots.set(snapshot.path, snapshot)
+      for (const snapshot of pending) {
+        const children = [...snapshots.values()].filter(child => pathContains(snapshot.path, child.path))
+        if (snapshot.present) {
+          for (const child of children) {
+            const nestedBackup = resolve(snapshot.backup, relative(snapshot.path, child.path))
+            await rm(nestedBackup, { force: true, recursive: true })
+            if (child.present) {
+              await mkdir(dirname(nestedBackup), { recursive: true })
+              await cp(child.backup, nestedBackup, { recursive: true })
+            }
+          }
+        }
+        for (const child of children) {
+          snapshots.delete(child.path)
+          await rm(child.backup, { force: true, recursive: true })
+        }
+        snapshots.set(snapshot.path, snapshot)
+      }
     },
   }
   try {

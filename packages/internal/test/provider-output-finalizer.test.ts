@@ -126,6 +126,50 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
   })
 
+  it("preserves newer generated inputs when rolling back output ownership", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const generatedInput = join(rootDir, ".vitehub/blob/runtime.mjs")
+    await mkdir(dirname(generatedInput), { recursive: true })
+    await writeFile(generatedInput, "old input\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => {
+        await writeFile(generatedInput, "new input\n")
+        throw new Error("output failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("output failed")
+    await expect(readFile(generatedInput, "utf8")).resolves.toBe("new input\n")
+  })
+
+  it("coalesces a custom parent output root with default child snapshots", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = join(rootDir, "dist")
+    const previousFile = join(outputRoot, "existing.txt")
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(previousFile, "previous\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          clientOutDir: join(outputRoot, "client"),
+          cloudflare: { files: { "index.js": "replacement\n" }, outputRoot, wranglerConfig: {} },
+          rootDir,
+        })
+        throw new Error("output failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("output failed")
+    await expect(readFile(previousFile, "utf8")).resolves.toBe("previous\n")
+    expect(existsSync(join(outputRoot, "index.js"))).toBe(false)
+  })
+
   it("does not enter finalization when a root snapshot fails", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
