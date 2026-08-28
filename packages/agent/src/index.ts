@@ -3675,7 +3675,10 @@ function assignResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecor
     }
     if (!assignable("usage") || !assignable("usageRecord")) return
     Reflect.set(result, "usageRecord", usageRecord)
-    if (usageRecord.usage) Reflect.set(result, "usage", usageRecord.usage)
+    const currentUsage = Reflect.get(result, "usage")
+    const replaceUsage = currentUsage === undefined
+      || (hasRuntimeType(currentUsage, "object") && currentUsage !== null && hasRuntimeType(Reflect.get(currentUsage, "then"), "function"))
+    if (replaceUsage && usageRecord.usage) Reflect.set(result, "usage", usageRecord.usage)
   }
   catch {
     // The finish result still carries merged usage when the preserved result cannot be updated.
@@ -4198,7 +4201,7 @@ async function finishStreamAgentInvocation<
       ? outcome.usage && await resolveAgentUsageRecord({ usageRecord: outcome.usage }, context.run)
       : await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
-    const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
+    const resolvedResult = context.output ? result : resultWithResolvedUsageRecord(result, usageRecord)
     if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
       try {
         Object.defineProperty(result, "usageRecord", {
@@ -5914,13 +5917,13 @@ async function executeAgentInvocationWithCapacityLease<
       const shouldWrapOutput = shouldHoldInvocationOutput()
       const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
       const finishUiMessageStream = async (outcome: CapabilityCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => {
-        const cancellationSources = !outcome.failed && !outcome.completed && rendererSource
-          ? [rendererSource]
-          : [
-              ...uiMessageSources.values(),
-              ...(rendererSource ? [rendererSource] : []),
-            ]
-        const cancellations = await Promise.allSettled(cancellationSources.map(source => source.settleCancellation(outcome.failed ? outcome.error : undefined)))
+        const reason = outcome.failed ? outcome.error : undefined
+        const uiSources = [...uiMessageSources.values()]
+        await Promise.allSettled(uiSources.map(source => source.cancel(reason)))
+        const cancellations = await Promise.allSettled([
+          ...(rendererSource ? [rendererSource.settleCancellation(reason)] : []),
+          ...uiSources.map(source => source.settleCancellation(reason)),
+        ])
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
         const resolveUsage = !outcome.failed && outcome.completed === true
