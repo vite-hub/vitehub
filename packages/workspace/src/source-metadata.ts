@@ -3,6 +3,11 @@ import { sourceSnapshotMetaKey } from "./sources/materialization.ts"
 import { resolveWorkspaceMetadataTarget } from "./storage/metadata-target.ts"
 import type { WorkspaceSourceMaterializationStatus } from "./core/types.ts"
 
+export async function listMaterializedWorkspaceEntries(workspace: unknown) {
+  const metadata = await resolveWorkspaceMetadataTarget(workspace)
+  return await metadata?.list?.("", { recursive: true })
+}
+
 export {
   normalizeWorkspaceSourceMetadata,
   normalizeWorkspaceSourcesMetadata,

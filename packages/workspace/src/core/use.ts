@@ -56,6 +56,7 @@ import type {
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
 
 type WorkspaceWithDefinitionSync = Workspace & {
+  __workspaceDefinitionSyncKey?: object
   __syncWorkspaceDefinition?: (abortSignal?: AbortSignal) => Promise<void>
 }
 
@@ -64,15 +65,21 @@ interface WorkspaceDefinitionSyncState {
   promise?: Promise<void>
 }
 
-const workspaceDefinitionSyncStates = new WeakMap<object, WorkspaceDefinitionSyncState>()
+const workspaceDefinitionSyncStates = new WeakMap<object, WeakMap<object, WorkspaceDefinitionSyncState>>()
 
 async function workspaceDefinitionSyncState(workspace: Workspace): Promise<WorkspaceDefinitionSyncState> {
   const target = await (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
   const owner = target && typeof target === "object" ? target : workspace
-  let state = workspaceDefinitionSyncStates.get(owner)
+  const key = (workspace as WorkspaceWithDefinitionSync).__workspaceDefinitionSyncKey ?? workspace
+  let states = workspaceDefinitionSyncStates.get(owner)
+  if (!states) {
+    states = new WeakMap()
+    workspaceDefinitionSyncStates.set(owner, states)
+  }
+  let state = states.get(key)
   if (!state) {
     state = {}
-    workspaceDefinitionSyncStates.set(owner, state)
+    states.set(key, state)
   }
   return state
 }

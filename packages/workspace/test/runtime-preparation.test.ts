@@ -29,6 +29,20 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
 }
 
 describe("Workspace runtime preparation", () => {
+  it("synchronizes distinct definitions that share a Store", async () => {
+    const store = createMemoryWorkspaceStore()
+    const loaded: string[] = []
+    const first = `workspace-shared-store-first-${crypto.randomUUID()}`
+    const second = `workspace-shared-store-second-${crypto.randomUUID()}`
+    registerWorkspace(first, { loaders: [{ name: "first", async load() { loaded.push("first") } }], store })
+    registerWorkspace(second, { loaders: [{ name: "second", async load() { loaded.push("second") } }], store })
+
+    await useWorkspace(first).fs.list("")
+    await useWorkspace(second).fs.list("")
+
+    expect(loaded).toEqual(["first", "second"])
+  })
+
   it("is stopped until preparation starts", async () => {
     const preparation = createWorkspacePreparation({
       workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }]),

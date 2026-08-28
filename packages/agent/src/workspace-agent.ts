@@ -1,5 +1,5 @@
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
-import { normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { listMaterializedWorkspaceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -1135,22 +1135,20 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<AgentInspectionFileTreeItem[]> {
   const sources = normalizedSourcesFromOptions(options)
-  const startupSources = sources.filter(source => sourceMaterialize(source) === "startup")
-  const materialized = startupSources.length
-    ? await workspace.fs.materializeSources?.({ sources: startupSources.map(source => source.key) })
-    : undefined
-  const sourceSnapshots = new Map<string, WorkspaceSourceMaterializationStatus>(
-    materialized?.sources.map(source => [source.source, source]),
-  )
+  const sourceSnapshots = new Map<string, WorkspaceSourceMaterializationStatus>()
   const root: AgentInspectionFileTreeItem = {
     children: [],
     kind: "directory",
     label: "",
     path: "",
   }
-  const entries = await workspace.fs.list("", { recursive: true })
+  const entries = await listMaterializedWorkspaceEntries(workspace) ?? await workspace.fs.list("", { recursive: true })
   for (const entry of entries) {
     addFileTreePath(root, entry)
+  }
+  for (const source of sources) {
+    const mountPath = sourceMountPath(source)
+    if (mountPath) addFileTreePath(root, { path: mountPath, type: "directory" })
   }
   for (const source of sources) {
     if (sourceSnapshots.has(source.key)) continue
