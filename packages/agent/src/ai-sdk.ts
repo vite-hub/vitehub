@@ -1172,7 +1172,7 @@ function withCapturedStreamUsage<T extends {
       getSource()
       if (reader) {
         directCancel?.(reason)
-        void reader.cancel(reason).catch(() => undefined)
+        await reader.cancel(reason).catch(() => undefined)
         return { done: true as const, value: reason }
       }
       directCancel?.(reason)
@@ -1280,7 +1280,7 @@ function withCapturedStreamUsage<T extends {
       async cancel(reason) {
         cancelled = true
         complete()
-        void Promise.resolve(wrapped.return?.(reason)).catch(() => undefined)
+        await Promise.resolve(wrapped.return?.(reason)).catch(() => undefined)
       },
     }, { highWaterMark: 0 })
     return { cancel: cancelSource, stream }
@@ -1357,8 +1357,9 @@ function withCapturedStreamUsage<T extends {
                 const primaryCapture = captures()[0]
                 primaryCapture?.start()
                 try {
-                  void cancelUiMessageSource?.(reason).catch(() => undefined)
+                  const sourceCancellation = cancelUiMessageSource?.(reason)
                   await getReader().cancel(reason)
+                  await sourceCancellation?.catch(() => undefined)
                 }
                 finally {
                   primaryCapture?.complete()
@@ -2189,7 +2190,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             cancelled = true
             cancelProvider(reason)
             try {
-              void (await getReader()).cancel(reason).catch(() => undefined)
+              await (await getReader()).cancel(reason).catch(() => undefined)
             }
             finally {
               detachAbortListener()
