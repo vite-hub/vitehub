@@ -6658,6 +6658,7 @@ describe("agent message protocol", () => {
           id: "cancelled-lazy-ui-renderer",
           output(context) {
             context.output.render((source) => {
+              // SAFETY: The output renderer receives the raw async iterable created by this fixture.
               const iterator = (source as AsyncIterable<unknown>)[Symbol.asyncIterator]()
               return {
                 toUIMessageStream: () => new ReadableStream({
@@ -10120,8 +10121,7 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const finalRenderer = vi.fn((result: unknown) => {
       expect(result).toBeInstanceOf(Response)
-      // SAFETY: This test verifies that Response.prototype.text remains a method.
-      expect(typeof (result as Response).text).toBe("function")
+      expect(result).toHaveProperty("text", expect.any(Function))
       return result
     })
     const providerResult = vi.fn()

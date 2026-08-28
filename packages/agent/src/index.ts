@@ -5208,7 +5208,7 @@ async function executeAgentInvocationWithCapacityLease<
   const rawDriverHasDeferredUsage = rawDriverUsageObserved && hasRuntimeType(rawDriverResult, "object") && rawDriverResult !== null && ["usage", "totalUsage"].some((property) => {
     try {
       const usage = Reflect.get(rawDriverResult, property)
-      if (usage === null || !hasRuntimeType(usage, "object")) return false
+      if (!isRuntimeObject(usage)) return false
       return hasRuntimeType(Reflect.get(usage, "then"), "function")
     }
     catch {
