@@ -3763,7 +3763,7 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenCalledOnce()
     expect(titleEffect).toHaveBeenCalledTimes(2)
     expect(retryingTitleEffect).toHaveBeenCalledTimes(2)
-    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+    expect(traceLog.entries().filter(event => event.name === "agent.channel.delivery.effect" && event.attributes?.["error.message"])).toMatchObject([{
       activity: { owner: "agent", phase: "delivery" },
       attributes: { "error.message": "temporary title failure" },
     }])
@@ -6120,7 +6120,7 @@ describe("agent message protocol", () => {
       const result = runAgent(agent, {
         [agentWorkflowExecutionContextKey]: true,
         memo: vi.fn(),
-        run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        run: { channelId: "telegram", origin: "telegram", runId: "durable-finish-timeout", threadId: "telegram:123" },
         runtime: "unknown",
         traceLog,
         waitUntil: vi.fn(),
