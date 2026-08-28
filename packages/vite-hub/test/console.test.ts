@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
-import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, createConsoleInvocationsIdentity, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { consoleInvocationsBindingKey, consoleInvocationsBindingRegistryKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, createConsoleInvocationsIdentity, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
@@ -22,7 +22,7 @@ import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandler from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
-import { consoleInvocationRootPlugin, consoleVitePlugin } from "../src/console/vite.ts"
+import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
 
 import { runAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
@@ -77,10 +77,13 @@ afterEach(() => {
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsIdentityKey]
   delete scope[consoleInvocationsIdentityRootKey]
+  delete scope[consoleInvocationsBindingKey]
   delete scope[consoleInvocationsRootKey]
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsIdentityKey)
   Reflect.deleteProperty(process, consoleInvocationsIdentityRootKey)
+  Reflect.deleteProperty(process, consoleInvocationsBindingKey)
+  Reflect.deleteProperty(process, consoleInvocationsBindingRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
@@ -577,7 +580,7 @@ describe("Agent invocation console", () => {
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["review", "support"] })
   })
 
-  it("binds newly transformed Agent realms to a refreshed fixture revision", async () => {
+  it("rebinds already evaluated Agent realms to a refreshed fixture revision", async () => {
     const projectRoot = "/project"
     const fixture = "/fixture.json"
     const firstIdentity = createConsoleInvocationsIdentity(projectRoot, fixture, "first")
@@ -587,6 +590,7 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
 
     const state = { identity: firstIdentity, projectRoot }
+    updateConsoleInvocationRootState(state, projectRoot, firstIdentity)
     const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity, state)
     const resolved = { id: "/agent.ts" }
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
@@ -594,27 +598,58 @@ describe("Agent invocation console", () => {
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
     const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
     await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
-    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
-    state.identity = secondIdentity
+    const transformed = transform("", resolved.id)
+    // SAFETY: The generated script returns the isolated realm used by this focused binding test.
+    const realm = runInNewContext(`${transformed}\nglobalThis`, { process }) as object
+    expect(resolveConsoleInvocations(realm)).toBe(first)
 
-    const transformed = transform("export {}", resolved.id)
-    expect(transformed).toContain(JSON.stringify(secondIdentity))
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    updateConsoleInvocationRootState(state, projectRoot, secondIdentity)
+
+    expect(resolveConsoleInvocations(realm)).toBe(second)
   })
 
   it("keeps configured identities across concurrent same-root runtimes", async () => {
     const projectRoot = "/project"
     const firstIdentity = "fixture:/project:/fixture.json:first"
     const secondIdentity = "fixture:/project:/fixture.json:second"
-    const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity)
+    const thirdIdentity = "fixture:/project:/fixture.json:third"
+    const first = fakeInvocations("first")
+    const second = fakeInvocations("second")
+    const third = fakeInvocations("third")
+    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
+    const firstState = { identity: firstIdentity, projectRoot }
+    updateConsoleInvocationRootState(firstState, projectRoot, firstIdentity)
+    const firstPlugin = consoleInvocationRootPlugin(projectRoot, firstIdentity, firstState)
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    const secondState = { identity: secondIdentity, projectRoot }
+    updateConsoleInvocationRootState(secondState, projectRoot, secondIdentity)
+    const secondPlugin = consoleInvocationRootPlugin(projectRoot, secondIdentity, secondState)
     const resolved = { id: "/agent.ts" }
     // SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const buildStart = plugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
+    const firstBuildStart = firstPlugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
     // SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
-    await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
-    installConsoleInvocationFallback(fakeInvocations("second"), projectRoot, globalThis, secondIdentity, "second")
+    const secondBuildStart = secondPlugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
+    // SAFETY: This focused test invokes Vite hooks with structural arguments.
+    const firstTransform = firstPlugin.transform as unknown as (code: string, id: string) => string
+    // SAFETY: This focused test invokes Vite hooks with structural arguments.
+    const secondTransform = secondPlugin.transform as unknown as (code: string, id: string) => string
+    await Reflect.apply(firstBuildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
+    await Reflect.apply(secondBuildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
 
-    expect(transform("export {}", resolved.id)).toContain(JSON.stringify(firstIdentity))
+    // SAFETY: Each generated script returns the isolated realm used by this focused binding test.
+    const firstRealm = runInNewContext(`${firstTransform("", resolved.id)}\nglobalThis`, { process }) as object
+    // SAFETY: Each generated script returns the isolated realm used by this focused binding test.
+    const secondRealm = runInNewContext(`${secondTransform("", resolved.id)}\nglobalThis`, { process }) as object
+
+    expect(resolveConsoleInvocations(firstRealm)).toBe(first)
+    expect(resolveConsoleInvocations(secondRealm)).toBe(second)
+
+    installConsoleInvocationFallback(third, projectRoot, globalThis, thirdIdentity, "third")
+    updateConsoleInvocationRootState(firstState, projectRoot, thirdIdentity)
+
+    expect(resolveConsoleInvocations(firstRealm)).toBe(third)
+    expect(resolveConsoleInvocations(secondRealm)).toBe(second)
   })
 
   it("keeps persisted Agent names alongside discovered definitions", async () => {

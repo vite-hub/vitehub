@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
@@ -13,7 +14,7 @@ import type { Plugin } from "vite"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
-import { createConsoleInvocationsIdentity } from "./internal.ts"
+import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity } from "./internal.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -49,8 +50,20 @@ interface ConsoleVitePluginOptions {
 }
 
 export interface ConsoleInvocationRootState {
+  binding?: string
   identity?: string
   projectRoot?: string
+}
+
+export function updateConsoleInvocationRootState(
+  state: ConsoleInvocationRootState,
+  projectRoot: string,
+  identity: string,
+): void {
+  state.binding ??= randomUUID()
+  state.identity = identity
+  state.projectRoot = projectRoot
+  bindConsoleInvocationsIdentity(state.binding, identity)
 }
 
 const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
@@ -151,8 +164,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       fixture,
     )
     if (options.invocationRootState) {
-      options.invocationRootState.identity = identity
-      options.invocationRootState.projectRoot = projectRoot
+      updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
     }
   })
 
@@ -298,8 +310,7 @@ export function consoleInvocationRootPlugin(
         fixture,
         revision,
       )
-      state.projectRoot = projectRoot
-      state.identity ??= identity
+      updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
     },
     async buildStart() {
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
@@ -320,6 +331,9 @@ export function consoleInvocationRootPlugin(
         `globalThis[Symbol.for("vitehub.console.invocations.root")] = ${JSON.stringify(projectRoot)}`,
         `globalThis[Symbol.for("vitehub.console.invocations.identity")] = ${JSON.stringify(state.identity ?? identity)}`,
         `globalThis[Symbol.for("vitehub.console.invocations.identity-root")] = ${JSON.stringify(projectRoot)}`,
+        ...(state.binding
+          ? [`globalThis[Symbol.for("vitehub.console.invocations.binding")] = ${JSON.stringify(state.binding)}`]
+          : []),
         code,
       ].join("\n")
     },

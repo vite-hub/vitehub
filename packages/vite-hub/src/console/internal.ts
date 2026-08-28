@@ -5,6 +5,8 @@ export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
 export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
 export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
+export const consoleInvocationsBindingKey: unique symbol = Symbol.for("vitehub.console.invocations.binding")
+export const consoleInvocationsBindingRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.bindings")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
@@ -24,6 +26,7 @@ type ConsoleInvocationIdentitiesByRoot = {
 
 export type ConsoleInvocationScope = {
   process?: unknown
+  [consoleInvocationsBindingKey]?: string
   [consoleInvocationsKey]?: AgentInvocations
   [consoleInvocationsIdentityKey]?: string
   [consoleInvocationsIdentityRootKey]?: string
@@ -69,19 +72,41 @@ function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegist
   return scope.process as ConsoleInvocationRegistry
 }
 
+export function bindConsoleInvocationsIdentity(
+  binding: string,
+  identity: string,
+  scope: ConsoleInvocationScope = globalThis,
+): void {
+  const registry = processRegistry(scope)
+  if (!registry) return
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+    ?? new Map<string, string>()
+  bindings.set(binding, identity)
+  registry[consoleInvocationsBindingRegistryKey] = bindings
+}
+
 export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {
   const root = scope[consoleInvocationsRootKey]
   const registry = processRegistry(scope)
   // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
   const identities = registry?.[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
   const registered = invocationsByRoot(registry?.[consoleInvocationsRegistryKey])
-  const scopeIdentity = scope[consoleInvocationsIdentityRootKey] === root
+  const scopeOwnsRoot = scope[consoleInvocationsIdentityRootKey] === root
+  const scopeIdentity = scopeOwnsRoot
     ? scope[consoleInvocationsIdentityKey]
     : undefined
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry?.[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const boundIdentity = scopeOwnsRoot && scope[consoleInvocationsBindingKey]
+    ? bindings?.get(scope[consoleInvocationsBindingKey])
+    : undefined
+  const boundInvocations = boundIdentity ? registered?.get(boundIdentity) : undefined
   const identity = root
     ? scopeIdentity && registered?.get(scopeIdentity) ? scopeIdentity : identities?.get(root) ?? root
     : scope[consoleInvocationsIdentityKey]
   if (root) {
+    if (boundInvocations) return boundInvocations
     return scopeIdentity
       ? scope[consoleInvocationsKey] ?? registered?.get(scopeIdentity)
       : registered?.get(identity ?? root)

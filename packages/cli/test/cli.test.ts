@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -504,6 +504,8 @@ export default {
 
   it("marks Nuxt module loading as CLI discovery", async () => {
     const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
     await writeFile(join(rootDir, "nuxt.config.ts"), `
 export default {
   modules: ["./discovery-module.ts"],

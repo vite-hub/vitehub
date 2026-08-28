@@ -18,7 +18,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleProductionAccess, consoleInvocationRootPlugin, type ConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleProductionAccess, consoleInvocationRootPlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -261,8 +261,7 @@ async function installConsole(
       fixture,
     )
     if (invocationRootState) {
-      invocationRootState.projectRoot = projectRoot
-      invocationRootState.identity = identity
+      updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
     }
   })
   if (writeGeneratedPlugin) await refreshAgentDefinitions()
