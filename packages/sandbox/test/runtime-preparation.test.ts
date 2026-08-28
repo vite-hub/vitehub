@@ -154,6 +154,41 @@ describe("Sandbox runtime preparation", () => {
     await expect(withSandboxRuntimeGenerationLock(root, async () => "recovered")).resolves.toBe("recovered")
   })
 
+  it("retires only the observed lock while a successor writer is active", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    let continueRemoval!: () => void
+    let releaseSuccessor!: () => void
+    const removalStarted = Promise.withResolvers<void>()
+    const removalContinued = new Promise<void>((resolve) => { continueRemoval = resolve })
+    const successorStarted = Promise.withResolvers<void>()
+    const successorReleased = new Promise<void>((resolve) => { releaseSuccessor = resolve })
+
+    const first = withSandboxRuntimeGenerationLock(root, async () => "first", {
+      removeLock: (async (path, options) => {
+        expect(path).not.toBe(lockDir)
+        removalStarted.resolve()
+        await removalContinued
+        await rm(path, options)
+      }) as typeof rm,
+    })
+    await removalStarted.promise
+    const second = withSandboxRuntimeGenerationLock(root, async (lease) => {
+      successorStarted.resolve()
+      await successorReleased
+      await expect(lease.assertOwned()).resolves.toBeUndefined()
+      return "second"
+    })
+    await successorStarted.promise
+
+    continueRemoval()
+    await expect(first).resolves.toBe("first")
+    await expect(readFile(join(lockDir, "owner.json"), "utf8")).resolves.toContain("token")
+    releaseSuccessor()
+    await expect(second).resolves.toBe("second")
+  })
+
   it("reclaims a generation lock left by a terminated process", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)

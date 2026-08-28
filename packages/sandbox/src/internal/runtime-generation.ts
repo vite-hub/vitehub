@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { basename, resolve } from 'pathe'
@@ -197,6 +197,45 @@ async function reclaimSandboxRuntimeGenerationLock(
   }
 }
 
+async function retireSandboxRuntimeGenerationLock(
+  lockDir: string,
+  ownerPath: string,
+  leasePath: string,
+  observation: SandboxRuntimeGenerationLockObservation,
+  markReleased: () => Promise<void>,
+): Promise<string | undefined> {
+  const claimPath = resolve(lockDir, '.reclaim')
+  let claim: Awaited<ReturnType<typeof open>>
+  try {
+    claim = await open(claimPath, 'wx')
+  }
+  catch (error) {
+    if (readNodeErrorCode(error) === 'ENOENT' || readNodeErrorCode(error) === 'EEXIST')
+      return
+    throw error
+  }
+  await claim.close()
+
+  let retired = false
+  try {
+    const current = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+    if (!isSameSandboxRuntimeGenerationLock(observation, current))
+      return
+    await markReleased()
+    const retiredDir = `${lockDir}.released-${randomUUID()}`
+    retired = await rename(lockDir, retiredDir).then(() => true, (error) => {
+      if (readNodeErrorCode(error) === 'ENOENT')
+        return false
+      throw error
+    })
+    return retired ? retiredDir : undefined
+  }
+  finally {
+    if (!retired)
+      await rm(claimPath, { force: true }).catch(() => {})
+  }
+}
+
 export async function withSandboxRuntimeGenerationLock<T>(
   generatedDir: string,
   operation: (lease: SandboxRuntimeGenerationLease) => Promise<T>,
@@ -209,10 +248,12 @@ export async function withSandboxRuntimeGenerationLock<T>(
   const pollMs = options.pollMs ?? 25
   const removeLock = options.removeLock ?? rm
   const staleMs = options.staleMs ?? generationLockStaleMs
-  const owner = JSON.stringify({ host: options.host ?? hostname(), pid: process.pid, token: randomUUID() })
+  const ownerRecord = { host: options.host ?? hostname(), pid: process.pid, token: randomUUID() }
+  const owner = JSON.stringify(ownerRecord)
   const deadline = Date.now() + (options.waitMs ?? generationLockWaitMs)
   let ownedLock: SandboxRuntimeGenerationLockObservation | undefined
   let leaseFile: Awaited<ReturnType<typeof open>> | undefined
+  let ownerFile: Awaited<ReturnType<typeof open>> | undefined
   await mkdir(generatedDir, { recursive: true })
 
   while (true) {
@@ -235,13 +276,8 @@ export async function withSandboxRuntimeGenerationLock<T>(
     }
 
     try {
-      const ownerFile = await open(ownerPath, 'wx')
-      try {
-        await ownerFile.writeFile(owner)
-      }
-      finally {
-        await ownerFile.close()
-      }
+      ownerFile = await open(ownerPath, 'wx')
+      await ownerFile.writeFile(owner)
       leaseFile = await open(leasePath, 'wx')
       await leaseFile.writeFile(owner)
       ownedLock = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
@@ -252,6 +288,8 @@ export async function withSandboxRuntimeGenerationLock<T>(
     catch (error) {
       await leaseFile?.close().catch(() => {})
       leaseFile = undefined
+      await ownerFile?.close().catch(() => {})
+      ownerFile = undefined
       await rm(lockDir, { recursive: true, force: true }).catch(() => {})
       throw error
     }
@@ -313,7 +351,6 @@ export async function withSandboxRuntimeGenerationLock<T>(
       { cause: heartbeatError },
     ))
   }
-  await leaseFile?.close().catch(error => cleanupErrors.push(error))
   const activeOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
   const active = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
   const stillOwned = activeOwner === owner
@@ -323,14 +360,27 @@ export async function withSandboxRuntimeGenerationLock<T>(
     && active.leaseDev === ownedLock.leaseDev
     && active.leaseIno === ownedLock.leaseIno
   if (stillOwned) {
+    releasedSandboxRuntimeGenerationLocks.add(ownerRecord.token)
+    const markReleased = async () => {
+      const releasedOwner = JSON.stringify({ ...ownerRecord, released: true })
+      await ownerFile!.write(releasedOwner, 0, 'utf8')
+      await ownerFile!.truncate(Buffer.byteLength(releasedOwner))
+      const expired = new Date(0)
+      await leaseFile!.utimes(expired, expired)
+    }
+    let retiredDir: string | undefined
     try {
-      await removeLock(lockDir, { recursive: true, force: true })
+      retiredDir = await retireSandboxRuntimeGenerationLock(
+        lockDir,
+        ownerPath,
+        leasePath,
+        active,
+        markReleased,
+      )
     }
     catch (releaseError) {
       try {
-        const expired = new Date(0)
-        await writeFile(ownerPath, JSON.stringify({ host: `${hostname()}:released`, pid: process.pid, token: randomUUID() }))
-        await utimes(leasePath, expired, expired)
+        await markReleased()
       }
       catch (recoveryError) {
         cleanupErrors.push(new AggregateError(
@@ -339,10 +389,23 @@ export async function withSandboxRuntimeGenerationLock<T>(
         ))
       }
     }
+    if (!retiredDir && cleanupErrors.length === 0) {
+      await markReleased().catch(error => cleanupErrors.push(error))
+    }
+    await leaseFile?.close().catch(error => cleanupErrors.push(error))
+    leaseFile = undefined
+    await ownerFile?.close().catch(error => cleanupErrors.push(error))
+    ownerFile = undefined
+    if (retiredDir) {
+      await removeLock(retiredDir, { recursive: true, force: true }).catch(() => {})
+      releasedSandboxRuntimeGenerationLocks.delete(ownerRecord.token)
+    }
   }
   else if (!heartbeatError) {
     cleanupErrors.push(new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`))
   }
+  await leaseFile?.close().catch(error => cleanupErrors.push(error))
+  await ownerFile?.close().catch(error => cleanupErrors.push(error))
 
   if (operationFailed) {
     if (cleanupErrors.length > 0) {
