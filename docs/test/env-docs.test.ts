@@ -5,6 +5,8 @@ import {
   createSourceFile,
   forEachChild,
   isArrowFunction,
+  isArrayBindingPattern,
+  isArrayLiteralExpression,
   isAsExpression,
   isAwaitExpression,
   isBinaryExpression,
@@ -25,6 +27,7 @@ import {
   isNamedImports,
   isNamespaceImport,
   isNonNullExpression,
+  isObjectBindingPattern,
   isObjectLiteralExpression,
   isParenthesizedExpression,
   isPropertyAccessExpression,
@@ -34,6 +37,7 @@ import {
   isShorthandPropertyAssignment,
   isSourceFile,
   isSpreadAssignment,
+  isSpreadElement,
   isStringLiteralLike,
   isSatisfiesExpression,
   isSwitchStatement,
@@ -183,7 +187,14 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
       node.operatorToken.kind >= SyntaxKind.FirstAssignment &&
       node.operatorToken.kind <= SyntaxKind.LastAssignment
     ) {
-      const scope = bindingScope(node);
+      let scope = bindingScope(node);
+      for (let current: Node | undefined = node; current; current = current.parent) {
+        if (!isBlock(current) && !isSourceFile(current)) continue;
+        if (bindings.get(current)?.has(node.left.text)) {
+          scope = current;
+          break;
+        }
+      }
       const scopeReassignments = reassignedBindings.get(scope) ?? new Set<string>();
       scopeReassignments.add(node.left.text);
       reassignedBindings.set(scope, scopeReassignments);
@@ -583,11 +594,49 @@ function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
       const scopeBindings =
         bindings.get(parameterScope) ?? new Map<string, Expression | FunctionDeclaration>();
       const previousBindings = new Map<string, Expression | FunctionDeclaration | undefined>();
+      function bindParameter(name: Node, value: Expression | undefined) {
+        if (isIdentifier(name)) {
+          if (!value) return;
+          previousBindings.set(name.text, scopeBindings.get(name.text));
+          scopeBindings.set(name.text, value);
+          return;
+        }
+        if (isObjectBindingPattern(name) && value) {
+          const objects = resolveObjectsDetailed(value).objects;
+          for (const element of name.elements) {
+            if (element.dotDotDotToken) continue;
+            const key = propertyName(element.propertyName ?? element.name);
+            const property =
+              key &&
+              objects
+                .flatMap((object) => effectiveProperties(object))
+                .map((properties) => properties.get(key))
+                .find((candidate) => candidate !== undefined);
+            bindParameter(
+              element.name,
+              (property && propertyValue(property)) ?? element.initializer,
+            );
+          }
+          return;
+        }
+        if (isArrayBindingPattern(name) && value && isArrayLiteralExpression(value)) {
+          name.elements.forEach((element, index) => {
+            if (element.kind === SyntaxKind.OmittedExpression || element.dotDotDotToken) return;
+            const argument = value.elements[index];
+            bindParameter(
+              element.name,
+              argument &&
+                argument.kind !== SyntaxKind.OmittedExpression &&
+                !isSpreadElement(argument)
+                ? argument
+                : element.initializer,
+            );
+          });
+        }
+      }
       expression.parameters.forEach((parameter, index) => {
         const value = arguments_[index] ?? parameter.initializer;
-        if (!isIdentifier(parameter.name) || !value) return;
-        previousBindings.set(parameter.name.text, scopeBindings.get(parameter.name.text));
-        scopeBindings.set(parameter.name.text, value);
+        bindParameter(parameter.name, value);
       });
       bindings.set(parameterScope, scopeBindings);
       if (!isBlock(body)) {
@@ -1384,6 +1433,24 @@ defineConfig(config())
     expect(hasBuildMode(calls[0]!.options)).toBe(false);
   });
 
+  it("binds destructured configuration factory parameters", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+function objectConfig({ publicEnv }) {
+  return { env: { public: publicEnv } }
+}
+function arrayConfig([defineEnv]) {
+  return { env: { define: defineEnv } }
+}
+defineConfig(objectConfig({ publicEnv: { appName: env({ mode: "runtime" }) } }))
+defineConfig(arrayConfig([{ __TARGET__: env({ mode: "runtime" }) }]))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public", "define"]);
+    expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([false, false]);
+  });
+
   it("resolves computed Env section names", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -1503,6 +1570,20 @@ defineConfig({ env: { public: { appName: env({ mode }) } } })
 let mode = "build"
 mode = "runtime"
 defineConfig({ env: { public: { appName: env({ mode }) } } })
+\`\`\`
+    `);
+
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("rejects shorthand mode bindings reassigned from nested blocks", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+let mode = "build"
+if (condition) {
+  mode = "runtime"
+  defineConfig({ env: { public: { appName: env({ mode }) } } })
+}
 \`\`\`
     `);
 
