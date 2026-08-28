@@ -61,6 +61,13 @@ describe("public package export contracts", () => {
     }
   })
 
+  it("publishes Better Auth host declarations in its dependency closure", () => {
+    const manifest = readPackageManifest("auth")
+    for (const dependency of ["@cloudflare/workers-types", "bun-types"]) {
+      expect(manifest.dependencies?.[dependency], `auth should install ${dependency}`).toEqual(expect.any(String))
+    }
+  })
+
   it("points every contract at a built artifact and declared optional peers", () => {
     for (const contract of publicPackageExportContracts) {
       const info = packageInfos.find(info => info.packageName === contract.packageName)!

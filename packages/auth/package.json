@@ -47,9 +47,11 @@
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
+    "@cloudflare/workers-types": "^4.20260509.1",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "better-auth": "catalog:auth"
+    "better-auth": "catalog:auth",
+    "bun-types": "^1.3.10"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",
