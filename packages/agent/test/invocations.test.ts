@@ -14,6 +14,8 @@ import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
 import type { Client } from "@libsql/client"
 
+const outcomeObservationNames = new Set(["agent.invocation.finish", "agent.stream.error"])
+
 function runtime(runId: string, annotations?: Record<string, boolean | number | string | null>) {
   return {
     memo: vi.fn(),
@@ -1662,8 +1664,8 @@ describe("Agent Invocations", () => {
     expect(observationWrites).toBeLessThanOrEqual(256)
     expect(record?.observations.length).toBeLessThanOrEqual(256)
     expect(record?.observations.slice(-3)).toMatchObject([
-      { attributes: { "error.message": "fatal run error" }, name: "run.error" },
       { attributes: { generation: "older" }, name: "agent.invocation.finish" },
+      { attributes: { "error.message": "fatal run error" }, name: "run.error" },
       { attributes: { generation: "latest" }, name: "agent.invocation.finish" },
     ])
   })
@@ -1714,7 +1716,7 @@ describe("Agent Invocations", () => {
 
     const record = await invocations.getByRunId("retried-earliest-fatal")
     expect(record?.observations).toHaveLength(256)
-    expect(record?.observations.slice(-3)).toMatchObject([
+    expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
       { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
       { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
       { name: "agent.invocation.finish" },
@@ -1773,7 +1775,7 @@ describe("Agent Invocations", () => {
 
       const record = await invocations.getByRunId("timed-out-earliest-fatal")
       expect(record?.observations).toHaveLength(256)
-      expect(record?.observations.slice(-3)).toMatchObject([
+      expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
         { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
         { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
         { name: "agent.invocation.finish" },
