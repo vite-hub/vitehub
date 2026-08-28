@@ -728,6 +728,57 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it("isolates first implicit materialization from an active Source listing", async () => {
+    let releaseListing!: () => void
+    let observeListing!: () => void
+    const listingPending = new Promise<void>((resolve) => {
+      releaseListing = resolve
+    })
+    const listingObserved = new Promise<void>((resolve) => {
+      observeListing = resolve
+    })
+    const contexts: SourceContext[] = []
+    let getKeysCalls = 0
+    const prepare = vi.fn(async (context: SourceContext) => {
+      contexts.push(context)
+    })
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/stale.md", { path: "docs/stale.md", content: "# Stale\n" })
+    const view = createWorkspaceSourceView({
+      name: "implicit-materialization-context-isolation",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          prepare,
+          async getKeys() {
+            getKeysCalls++
+            if (getKeysCalls === 1) {
+              observeListing()
+              await listingPending
+            }
+            return ["current.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Current\n" }
+          },
+        }),
+      },
+    }, store)
+
+    const listing = view.list("", { recursive: true })
+    await listingObserved
+    await expect(view.readFile("docs/current.md", { encoding: "utf8" })).resolves.toBe("# Current\n")
+
+    expect(contexts).toHaveLength(2)
+    expect(contexts[1]).not.toBe(contexts[0])
+    expect(prepare).toHaveBeenCalledTimes(2)
+    releaseListing()
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ path: "docs", type: "directory" }),
+    ])
+  })
+
   it("retries a failed concurrent preparation before materializing the Source", async () => {
     let releasePreparation!: () => void
     let observePreparation!: () => void

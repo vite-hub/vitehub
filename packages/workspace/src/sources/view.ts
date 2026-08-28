@@ -57,8 +57,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const preparedSources = new Set<string>()
   const materializationPreparationBySource = new Map<string, Promise<void>>()
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
+  const sourceContextUsers = new Map<string, number>()
   const materializeBySource = new Map<string, Promise<void>>()
-  const materializationAttemptsBySource = new Set<string>()
   const materializedPathsBySource = new Map<string, Set<string>>()
   let materializationQueue = Promise.resolve()
 
@@ -80,7 +80,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     let started = false
     const selectedSources = sources
       .filter(source => !options?.sources?.length || options.sources.includes(source.key))
-    for (const source of selectedSources) materializationAttemptsBySource.add(source.key)
     const concurrentPreparations = new Map(selectedSources
       .map(source => [source.key, prepareBySource.get(source.key)] as const)
       .filter((entry): entry is readonly [string, Promise<void>] => Boolean(entry[1])))
@@ -89,11 +88,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const getOperationContext = (source: (typeof sources)[number]) => {
       let context = operationContexts.get(source.key)
       if (!context) {
-        context = behavior.reusePreparedContext && preparedSources.has(source.key)
+        const reusePreparedContext = behavior.reusePreparedContext && preparedSources.has(source.key) && !sourceContextUsers.has(source.key)
+        context = reusePreparedContext
           ? getSourceContext(source)
           : createSourceContext(definition, source, store)
         operationContexts.set(source.key, context)
-        if (behavior.reusePreparedContext && preparedSources.has(source.key)) operationPrepared.add(source.key)
+        if (reusePreparedContext) operationPrepared.add(source.key)
       }
       return context
     }
@@ -195,6 +195,22 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return context
   }
 
+  async function useSourceContext<T>(
+    source: { key: string, mountPath: string },
+    use: (context: ReturnType<typeof createSourceContext>) => Promise<T>,
+  ) {
+    const context = getSourceContext(source)
+    sourceContextUsers.set(source.key, (sourceContextUsers.get(source.key) || 0) + 1)
+    try {
+      return await use(context)
+    }
+    finally {
+      const users = sourceContextUsers.get(source.key)! - 1
+      if (users) sourceContextUsers.set(source.key, users)
+      else sourceContextUsers.delete(source.key)
+    }
+  }
+
   function isLazySourcePath(path: string) {
     return sources.some(source => sourceMountContainsPath(source, path))
   }
@@ -293,7 +309,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
-      const reusePreparedContext = !materializationAttemptsBySource.has(sourceKey)
+      const reusePreparedContext = !materializedPathsBySource.has(sourceKey)
       pending = materializeSources({ path, sources: [sourceKey] }, { reusePreparedContext }).then(() => undefined)
       materializeBySource.set(sourceKey, pending)
       try {
@@ -332,7 +348,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
-          const allowed = await currentSourceTreePaths(source, getSourceContext(source))
+          const allowed = await useSourceContext(source, async context => await currentSourceTreePaths(source, context))
           for (const key of result.keys()) {
             if (sourceMountContainsPath(source, key) && !allowed.has(key)) result.delete(key)
           }
@@ -407,7 +423,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         for (const entry of liveEntries) {
           const sourcePath = source.livePaths[entry.path]
           if (typeof sourcePath !== "string") continue
-          const item = await source.source.getItem(sourcePath, getSourceContext(source))
+          const item = await useSourceContext(source, async context => await source.source.getItem(sourcePath, context))
           const content = await sourceItemContent(item)
           const text = typeof content === "string" ? content : new TextDecoder().decode(content)
           results.push(...searchText(entry.path, text, { ...query, limit: limit - results.length }))
@@ -503,12 +519,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
         if (isLiveSource(resolution.sourceKey)) {
-          const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
+          const item = await useSourceContext(resolution.source, async context => await resolution.source.source.getItem(resolution.sourcePath, context))
           return decodeFile(await sourceItemContent(item), options)
         }
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
-        await ensureMaterialized(resolution.sourceKey)
+        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       await materializeRootSourceForPath(resolution.workspacePath)
@@ -586,8 +602,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         const stored = await store.stat(resolution.workspacePath)
         if (stored) return stored
-        await ensureMaterialized(resolution.sourceKey)
-        const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source))
+        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        const result = await useSourceContext(resolution.source, async context => await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, context))
         if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
@@ -615,8 +631,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
         }
         if (await store.stat(resolution.workspacePath)) return true
-        await ensureMaterialized(resolution.sourceKey)
-        return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
+        await ensureMaterialized(resolution.sourceKey, resolution.workspacePath)
+        return Boolean(await useSourceContext(resolution.source, async context => await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, context)))
       }
       if (await store.stat(resolution.workspacePath)) return true
       if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) return true
