@@ -12,7 +12,13 @@ export interface McpClient {
   tools: () => MaybePromise<Record<string, unknown>>
 }
 
-export type McpClientConfig = AiSdkMcpClientConfig
+export interface McpClientConfig extends AiSdkMcpClientConfig {
+  initializationOptions?: {
+    signal?: AbortSignal
+    timeout?: number
+  }
+  protocolVersionDiscovery?: boolean
+}
 
 export type McpServerConfig<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
