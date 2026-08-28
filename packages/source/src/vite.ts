@@ -435,6 +435,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const handlers = await prepareSources({ projectRoot: root, serverDirs })
           if (serverClosed) return
           const handlerKey = await generatedHandlerKey(handlers)
+          if (serverClosed) return
           if (handlerKey === configuredHandlerKey) return
           const listeners = [...generatedHandlersListeners]
           const passiveListeners = listeners.filter(([, listenerOptions]) =>

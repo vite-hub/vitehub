@@ -925,6 +925,32 @@ describe("framework generated types", () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
+  it("does not dispatch a Source refresh after its Vite server closes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const observer = vi.fn()
+    plugin.api.onGeneratedHandlersChanged(observer, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+    const environment = configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    const refresh = listeners.get("unlink")?.(collection)
+    await closeBundle(plugin, environment)()
+    await refresh
+
+    expect(observer).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
   it("keeps replacement Source refreshes active when the old Vite server closes", async () => {
     const { root } = await createNestedProject()
     const collection = join(root, "server/collections/meals.ts")
