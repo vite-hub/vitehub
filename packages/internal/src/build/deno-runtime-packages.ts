@@ -11,6 +11,7 @@ const builtinModuleNames = new Set([
   ...builtinModules.map((name) => `node:${name}`),
 ])
 const runtimeExtensions = new Set([".cjs", ".js", ".mjs", ".ts"])
+const activeDenoDeploymentStages = new Set<string>()
 const denoRuntimeTargets = [
   { cpu: "arm64", libc: "glibc", os: "linux" },
   { cpu: "x64", libc: "glibc", os: "linux" },
@@ -132,6 +133,19 @@ function collectImportedPackageNames(source: string): Set<string> {
     if (name) names.add(name)
   }
   return names
+}
+
+function maskBundledPackageRegions(source: string): string {
+  const regions: boolean[] = []
+  return source.split("\n").map((line) => {
+    if (/^\s*\/\/#region\b/.test(line)) {
+      regions.push(Boolean(regions.at(-1)) || /node_modules[/\\]/.test(line))
+      return regions.at(-1) ? " ".repeat(line.length) : line
+    }
+    const masked = Boolean(regions.at(-1))
+    if (/^\s*\/\/#endregion\b/.test(line)) regions.pop()
+    return masked ? " ".repeat(line.length) : line
+  }).join("\n")
 }
 
 interface LiteralDynamicImport {
@@ -715,10 +729,11 @@ async function recordServerRuntimePackageResolutions(
   for (const file of files) {
     const source = await readFile(file, "utf8")
     const resolver = createRequire(file)
+    const externalPackageNames = collectImportedPackageNames(maskBundledPackageRegions(source))
     for (const name of collectImportedPackageNames(source)) {
       const bundledPaths = bundledPackageJsonPaths.get(name)
       const localBundledPaths = bundledPackageJsonPathsByFile.get(file)?.get(name)
-      const resolvedPackageJsonPath = localBundledPaths?.size
+      const resolvedPackageJsonPath = localBundledPaths?.size && !externalPackageNames.has(name)
         ? localBundledPaths.values().next().value
         : await resolvePackageJson(name, resolver, dirname(file)).then(path => path && realpath(path))
       const resolvedPaths = new Set(bundledPaths)
@@ -956,6 +971,7 @@ export async function finalizeDenoDeploymentOutput(
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
   await recoverInterruptedDenoDeploymentOutput(outputDir)
   const stageRoot = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}.vitehub-`))
+  activeDenoDeploymentStages.add(stageRoot)
   const stagedOutputDir = join(stageRoot, "output")
   const previousOutputDir = join(stageRoot, "previous")
   try {
@@ -971,17 +987,19 @@ export async function finalizeDenoDeploymentOutput(
     }
   }
   finally {
+    activeDenoDeploymentStages.delete(stageRoot)
     await rm(stageRoot, { force: true, recursive: true })
   }
 }
 
 async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promise<void> {
+  let outputExists = true
   try {
     await access(outputDir)
-    return
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    outputExists = false
   }
 
   const parentDir = dirname(outputDir)
@@ -990,6 +1008,7 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
     .filter(entry => entry.isDirectory() && entry.name.startsWith(stagePrefix))
     .map(async (entry) => {
       const stageRoot = join(parentDir, entry.name)
+      if (activeDenoDeploymentStages.has(stageRoot)) return
       const previousOutputDir = join(stageRoot, "previous")
       const previous = await stat(previousOutputDir).catch((error) => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return
@@ -999,10 +1018,14 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
     })))
     .filter(recovery => recovery !== undefined)
     .sort((a, b) => b.updatedAt - a.updatedAt)
+  if (outputExists) {
+    await Promise.all(recoveries.map(recovery => rm(recovery.stageRoot, { force: true, recursive: true })))
+    return
+  }
   const recovery = recoveries[0]
   if (!recovery) return
   await rename(recovery.previousOutputDir, outputDir)
-  await rm(recovery.stageRoot, { force: true, recursive: true })
+  await Promise.all(recoveries.map(entry => rm(entry.stageRoot, { force: true, recursive: true })))
 }
 
 async function finalizeStagedDenoDeploymentOutput(

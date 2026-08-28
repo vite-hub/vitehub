@@ -925,6 +925,20 @@ import "real"
     expect(existsSync(interruptedStage)).toBe(false)
   })
 
+  it("cleans a prior output backup left after a completed directory swap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-completed-swap-"))
+    const completedStage = join(root, "..output.vitehub-completed")
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await mkdir(join(completedStage, "previous/server"), { recursive: true })
+    await writeFile(join(completedStage, "previous/server/index.mjs"), "old output\n", "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    expect(existsSync(completedStage)).toBe(false)
+  })
+
   it("uses the pnpm package from a bundle marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-pnpm-"))
     const bundled = join(root, "node_modules/.pnpm/sharp@2/node_modules/sharp/package.json")
@@ -1116,6 +1130,24 @@ try { load("optional-native") } catch {}
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/a-marker.mjs"), `//#region ${relative(root, bundledDir).replaceAll("\\", "/")}/index.js\n`)
     await writeFile(join(root, ".output/server/nested/b-import.mjs"), 'import "shared-runtime"\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+      .rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
+  })
+
+  it("rejects an external import beside a different bundle marker in the same file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-same-chunk-conflict-"))
+    const bundledDir = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
+    const importedDir = join(root, ".output/server/node_modules/shared-runtime")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(bundledDir, "package.json"), { name: "shared-runtime", version: "1" })
+    await writeJson(join(importedDir, "package.json"), { name: "shared-runtime", version: "2" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), [
+      `//#region ${relative(root, bundledDir).replaceAll("\\", "/")}/index.js`,
+      "//#endregion",
+      'import "shared-runtime"',
+    ].join("\n"))
 
     await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
       .rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
