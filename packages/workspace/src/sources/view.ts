@@ -80,7 +80,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   function recordMaterializedPath(sourceKey: string, path: string, revision?: { id: string, immutable: boolean }) {
     const previousRevision = materializedRevisionBySource.get(sourceKey)
-    if (revision && previousRevision && (!revision.immutable || revision.id !== previousRevision.id)) {
+    if (revision && previousRevision && (!previousRevision.immutable || !revision.immutable || revision.id !== previousRevision.id)) {
       materializedPathsBySource.delete(sourceKey)
     }
     if (path) invalidateMaterializedPath(sourceKey, path)
