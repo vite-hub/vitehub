@@ -140,11 +140,13 @@ describe("Provider Agent Driver", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await adapter.generate(context(threadId) as never)
       if (threadId === "thread-credentials-first") {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
         const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
         await writeFile(`${homePath}/auth.json`, '{"refreshed":true}\n', { mode: 0o600 })
         await writeFile(`${homePath}/config.toml`, 'model = "gpt-5.6"\ncli_auth_credentials_store = "keyring"\n\n[projects."/workspace"]\ntrust_level = "trusted"\n', { mode: 0o600 })
       }
       if (threadId === "thread-credentials-preserved") {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
         const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
         await expect(readFile(`${homePath}/auth.json`, "utf8")).resolves.toBe('{"refreshed":true}\n')
         source = JSON.stringify({ OPENAI_API_KEY: "rotated" })
@@ -152,6 +154,7 @@ describe("Provider Agent Driver", () => {
     }
 
     const calls = createProviderRuntime.mock.calls.slice(-3)
+    // SAFETY: These calls all come from the Codex adapter configured with credentials above.
     const homes = calls.map(call => (call[0].settings as { homePath: string }).homePath)
     expect(new Set(homes).size).toBe(1)
     expect(credentials).toHaveBeenCalledTimes(3)
@@ -189,8 +192,10 @@ describe("Provider Agent Driver", () => {
       },
     })
     runtime(invocations[1][1], [event("turn.completed", invocations[1][1], { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: The test context supplies the complete provider invocation contract.
     const primaryInvocation = primary.generate(context(invocations[0][1]) as never)
     await primaryRunning
+    // SAFETY: The test context supplies the complete provider invocation contract.
     const auxiliaryInvocation = auxiliary.generate(context(invocations[1][1]) as never)
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
@@ -198,6 +203,7 @@ describe("Provider Agent Driver", () => {
     await Promise.all([primaryInvocation, auxiliaryInvocation])
 
     const calls = createProviderRuntime.mock.calls.slice(-2)
+    // SAFETY: Both calls come from Codex adapters configured with a named credential profile.
     const settings = calls.map(call => call[0].settings as { homePath: string, launchArgs: string })
     expect(new Set(settings.map(value => value.homePath)).size).toBe(1)
     expect(settings.map(value => value.launchArgs)).toEqual(expect.arrayContaining([
@@ -212,16 +218,18 @@ describe("Provider Agent Driver", () => {
     let homePath: string | undefined
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       beforeEvent: async () => {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
         homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
         await expect(readFile(`${homePath}/auth.json`, "utf8")).resolves.toBe('{"OPENAI_API_KEY":"private"}\n')
       },
     })
 
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await createProviderAgentAdapter({
+    const adapter = createProviderAgentAdapter({
       credentials: () => JSON.stringify({ OPENAI_API_KEY: "private" }),
       provider: "codex",
-    }).generate(context(threadId) as never)
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
 
     expect(homePath).toBeDefined()
     await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
@@ -232,6 +240,7 @@ describe("Provider Agent Driver", () => {
     let homePath: string | undefined
     runtime(threadId, [event("turn.completed", threadId, { errorMessage: "provider failed", state: "failed" }, { turnId: "turn-1" })], {
       beforeEvent: async () => {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
         homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
       },
     })
@@ -253,12 +262,14 @@ describe("Provider Agent Driver", () => {
     let homePath: string | undefined
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       beforeEvent: async () => {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
         homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
         controller.abort(new DOMException("cancelled", "AbortError"))
       },
     })
 
     const runContext = context(threadId, { input: { abortSignal: controller.signal, prompt: "hello" } })
+    // SAFETY: This fixture replaces waitUntil with the same promise-accepting runtime contract.
     runContext.runtime.waitUntil = ((cleanup: Promise<unknown>) => {
       deferredCleanup.push(cleanup)
     }) as never
@@ -323,6 +334,7 @@ describe("Provider Agent Driver", () => {
       credentialProfile,
       credentials: () => "not-json",
       provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }).generate(context("thread-invalid-credentials") as never)).rejects.toThrow("must be valid JSON")
 
     expect(createProviderRuntime).toHaveBeenCalledTimes(calls)
@@ -2150,6 +2162,7 @@ describe("Provider Agent Driver", () => {
     expect(runtimeCall).toBeDefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const root = (runtimeCall![0] as { cwd: string }).cwd
+    // SAFETY: The mocked Codex runtime call records the credential homePath setting.
     const homePath = (runtimeCall![0].settings as { homePath: string }).homePath
     await expect(access(root)).resolves.toBeUndefined()
     runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])

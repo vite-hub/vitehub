@@ -189,6 +189,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.credentials !== undefined
     && !isRuntimeString(value.credentials)
     && !isRuntimeFunction(value.credentials)
+    // SAFETY: The assertion only exposes `unseal` so isRuntimeFunction can validate it.
     && !(value.credentials && isRuntimeFunction((value.credentials as { unseal?: unknown }).unseal))) {
     throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a string, sealed Server Env value, or resolver function.")
   }
@@ -224,6 +225,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   const execution = normalizeProviderExecution(value.execution)
   return {
     capacity: normalizeAgentDriverCapacity(value.capacity),
+    // SAFETY: credentialProfile is either absent or validated as a non-empty string above.
     credentialProfile: value.credentialProfile as string | undefined,
     // SAFETY: The credential input shape is validated above.
     credentials: value.credentials as AgentProviderCredentialResolver | undefined,
@@ -238,6 +240,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     permissions: normalizeProviderPermissions(value.permissions),
     provider,
     reasoningEffort: isRuntimeString(value.reasoningEffort) ? value.reasoningEffort.trim() : undefined,
+    // SAFETY: reasoningSummary is either absent or validated against the Codex summary values above.
     reasoningSummary: value.reasoningSummary as CodexReasoningSummary | undefined,
   }
 }

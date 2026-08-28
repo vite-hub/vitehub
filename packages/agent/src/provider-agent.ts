@@ -198,8 +198,9 @@ const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 let codexCredentialScavenging = Promise.resolve()
 
 function normalizeCodexCredentials(value: unknown): string {
-  const unsealed = value && hasRuntimeType(value, "object") && hasRuntimeType((value as { unseal?: unknown }).unseal, "function")
-    ? (value as { unseal: () => unknown }).unseal()
+  const unseal = value && hasRuntimeType(value, "object") ? Reflect.get(value, "unseal") : undefined
+  const unsealed = hasRuntimeType(unseal, "function")
+    ? Reflect.apply(unseal, value, [])
     : value
   if (!hasRuntimeType(unsealed, "string") || !unsealed.trim()) {
     throw new Error("[vitehub] Codex Driver credentials are missing.")
@@ -258,7 +259,7 @@ async function configureCodexCredentialHome(homePath: string): Promise<void> {
   await chmod(homePath, 0o700)
   const configPath = join(homePath, "config.toml")
   const config = await readFile(configPath, "utf8").catch((error) => {
-    if (hasRuntimeType(error, "object") && "code" in error && error.code === "ENOENT") return ""
+    if (hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ENOENT") return ""
     throw error
   })
   const nextConfig = codexFileCredentialStoreConfig(config)
@@ -274,7 +275,7 @@ function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, s
     return true
   }
   catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH"
+    return !(hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ESRCH")
   }
 }
 
@@ -288,16 +289,16 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
       if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return
       if (process.getuid && rootEntry.uid !== process.getuid()) return
       const owner = await readFile(join(root, ".vitehub-owner.json"), "utf8")
-        .then(value => JSON.parse(value) as { hostname?: unknown, pid?: unknown, startedAt?: unknown })
+        .then((value): unknown => JSON.parse(value))
         .catch(() => undefined)
-      if (!owner
+      if (!isRuntimeRecord(owner)
         || !hasRuntimeType(owner.hostname, "string")
         || !hasRuntimeType(owner.pid, "number")
         || !Number.isSafeInteger(owner.pid)
         || owner.pid < 1
         || !hasRuntimeType(owner.startedAt, "number")
         || !Number.isFinite(owner.startedAt)
-        || codexCredentialOwnerIsRunning(owner as { hostname: string, pid: number, startedAt: number })) return
+        || codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, startedAt: owner.startedAt })) return
       await rm(root, { force: true, recursive: true }).catch(() => undefined)
     }))
 }
@@ -366,6 +367,7 @@ function providerMetadataContext<
   CALL_OPTIONS,
 >(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  // SAFETY: The invocation context and normalized provider runtime establish every metadata field below.
   return {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
@@ -385,6 +387,7 @@ async function prepareCodexCredentialHome<
   const profile = options.credentialProfile?.trim()
   const resolveCredentials = async () => {
     context.input.abortSignal?.throwIfAborted()
+    // SAFETY: providerMetadataContext establishes the credential resolver contract; this adds its optional abort signal.
     const credentialContext = {
       ...providerMetadataContext(context),
       abortSignal: context.input.abortSignal,
