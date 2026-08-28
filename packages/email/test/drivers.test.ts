@@ -509,10 +509,9 @@ describe("Resend Email driver", () => {
   ])("rejects ambiguous one-click headers before dispatch", async (options) => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
+    const invalidMessage: EmailMessage = { ...message, ...options };
 
-    await expect(
-      driver.send({ ...message, ...options } as typeof message, context),
-    ).resolves.toMatchObject({
+    await expect(driver.send(invalidMessage, context)).resolves.toMatchObject({
       error: { code: "INVALID_OPTIONS", driver: "resend" },
     });
     expect(request).not.toHaveBeenCalled();
@@ -1080,10 +1079,9 @@ describe("Cloudflare Email driver", () => {
     const send = vi.fn();
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+    const invalidMessage: EmailMessage = { ...message, ...options };
 
-    await expect(
-      driver.send({ ...message, ...options } as typeof message, context),
-    ).resolves.toMatchObject({
+    await expect(driver.send(invalidMessage, context)).resolves.toMatchObject({
       error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
     });
     expect(Constructor).not.toHaveBeenCalled();

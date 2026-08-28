@@ -449,7 +449,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
           error: responseError(response, idempotencyKey, responseBody, responseBody.message),
         };
       }
-      return typeof responseBody.id === "string" && responseBody.id.trim() !== ""
+      return isString(responseBody.id) && responseBody.id.trim() !== ""
         ? {
             data: { at: new Date(), driver: "resend", id: responseBody.id, provider: responseBody },
             error: null,
