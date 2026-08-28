@@ -175,6 +175,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         invalidateMaterializedPath(source.source, path)
         continue
       }
+      if (path) invalidateMaterializedPath(source.source, path)
       let paths = materializedPathsBySource.get(source.source)
       if (!paths) {
         paths = new Set()

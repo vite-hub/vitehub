@@ -1023,7 +1023,7 @@ describe("lazy sources", () => {
       files: 2,
       bytes: 8,
       sources: [{
-        cacheStatus: "hit",
+        cacheStatus: "miss",
         counts: { added: 0, removed: 0, unchanged: 2, updated: 0 },
         files: 2,
         bytes: 8,
@@ -1064,7 +1064,7 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       bytes: 9,
       files: 2,
-      sources: [{ bytes: 9, cacheStatus: "hit", files: 2 }],
+      sources: [{ bytes: 9, cacheStatus: "miss", files: 2 }],
     })
     await expect(store.stat("docs/guides/untracked.md")).resolves.toBeUndefined()
   })
@@ -1099,7 +1099,7 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       bytes: 9,
       files: 2,
-      sources: [{ bytes: 9, cacheStatus: "hit", files: 2 }],
+      sources: [{ bytes: 9, cacheStatus: "miss", files: 2 }],
     })
   })
 
@@ -1904,7 +1904,7 @@ describe("lazy sources", () => {
     await expect(store.readFile("ingestion/globex/models/orders.sql")).resolves.toBeUndefined()
   })
 
-  it("invalidates a complete snapshot after a scoped revision refresh", async () => {
+  it("invalidates broad lazy coverage after a scoped revision refresh", async () => {
     let revision = 0
     const getItem = vi.fn(async (key: string, context) => ({
       key,
@@ -1930,10 +1930,9 @@ describe("lazy sources", () => {
 
     await view.materializeSources({ sources: ["docs"] })
     await view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
-    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
-      sources: [{ cacheStatus: "miss", revision: { id: "commit-3" } }],
-    })
+    await expect(view.glob("docs/**")).resolves.toHaveLength(2)
     expect(getItem).toHaveBeenCalledTimes(5)
+    await expect(view.readFile("docs/a.md")).resolves.toBe("commit-3:a.md\n")
     await expect(view.readFile("docs/b.md")).resolves.toBe("commit-3:b.md\n")
   })
 
@@ -2215,6 +2214,58 @@ describe("lazy sources", () => {
         "docs/b.md": expect.any(Object),
       },
     })
+  })
+
+  it("invalidates a cached snapshot when scoped materialization is canceled after a write", async () => {
+    const abort = new AbortController()
+    let cancel = false
+    const contents = new Map([
+      ["guides/a.md", "# A1\n"],
+      ["guides/b.md", "# B1\n"],
+    ])
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-mutated-scoped-cancel",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return [...contents.keys()]
+          },
+          async getItem(key) {
+            if (key === "guides/b.md" && cancel) {
+              cancel = false
+              abort.abort(new DOMException("Canceled", "AbortError"))
+              abort.signal.throwIfAborted()
+            }
+            return { key, path: key, content: contents.get(key) || "" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    contents.set("guides/a.md", "# A2\n")
+    contents.set("guides/b.md", "# B2\n")
+    cancel = true
+    await expect(view.materializeSources({
+      abortSignal: abort.signal,
+      path: "docs/guides",
+      sources: ["docs"],
+    })).rejects.toThrow("Canceled")
+
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      bytes: 10,
+      files: 2,
+      materializedAt: undefined,
+      status: "updating",
+    })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ bytes: 10, cacheStatus: "miss", files: 2 }],
+    })
+    await expect(view.readFile("docs/guides/a.md")).resolves.toBe("# A2\n")
+    await expect(view.readFile("docs/guides/b.md")).resolves.toBe("# B2\n")
   })
 
   it("persists complete source metadata at lifecycle boundaries", async () => {

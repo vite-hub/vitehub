@@ -479,6 +479,7 @@ export async function materializeWorkspaceSources(
     let sourceFiles = 0
     let sourceBytes = 0
     let persistedBytesDelta = 0
+    let storeMutationStarted = false
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
@@ -547,6 +548,7 @@ export async function materializeWorkspaceSources(
         const comparedStream = previousFile && entry.contentStream
           ? compareContentStream(entry.contentStream, previousFile.content)
           : undefined
+        storeMutationStarted = true
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
@@ -589,6 +591,7 @@ export async function materializeWorkspaceSources(
       throwIfAborted(options.abortSignal)
       await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, {
         onRemoved(path, removedBytes) {
+          storeMutationStarted = true
           counts.removed++
           if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= removedBytes
           delete itemMetadata[path]
@@ -669,7 +672,19 @@ export async function materializeWorkspaceSources(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, items: checkpointItems(itemMetadata) }
+            ? storeMutationStarted
+              ? {
+                  ...existing,
+                  bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
+                  files: Object.keys(itemMetadata).length,
+                  items: checkpointItems(itemMetadata),
+                  materializedAt: undefined,
+                  revision,
+                  status: "updating" as const,
+                }
+              : existing
+            : storeMutationStarted
+              ? { ...failed, status: "updating" as const, error: undefined }
             : undefined
         : failed
       if (checkpoint) await writeSourceSnapshotMetadata(store, checkpoint).catch(() => undefined)
