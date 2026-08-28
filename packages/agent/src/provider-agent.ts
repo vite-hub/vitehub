@@ -294,14 +294,14 @@ async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> 
 
 async function materializeCodexCredentialOverlay(home: string, sharedHome: string, caseInsensitive: boolean): Promise<void> {
   await mkdir(sharedHome, { recursive: true })
+  const discoveredEntries = await readdir(sharedHome)
   await Promise.all([
     ...codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })),
     ...codexSharedHomeFiles.map(file => writeFile(join(sharedHome, file), "", { flag: "a" })),
   ])
-  const discoveredEntries = await readdir(sharedHome)
   const entries = caseInsensitive
     ? new Map([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries].map(entry => [entry.toLowerCase(), entry])).values()
-    : new Set([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries])
+    : new Set([...discoveredEntries, ...codexSharedHomeDirectories, ...codexSharedHomeFiles])
   const materializedEntries = new Set<string>()
   for (const entry of entries) {
     const comparableEntry = entry.toLowerCase()

@@ -453,6 +453,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     await mkdir(join(sharedHome, "Sessions"))
+    await writeFile(join(sharedHome, "Sessions", "existing.jsonl"), "existing session\n")
     const linkedShadowEntries = new Set<string>()
     beforeCodexHomeSymlink.mockImplementation((_source, target) => {
       const path = String(target)
@@ -466,7 +467,8 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     createProviderRuntime.mockImplementationOnce(async (options) => {
       const shadowHome = String(options.settings?.homePath)
       const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions")
-      expect(sessionEntries).toEqual(["sessions"])
+      expect(sessionEntries).toEqual(["Sessions"])
+      expect(await readFile(join(shadowHome, "Sessions", "existing.jsonl"), "utf8")).toBe("existing session\n")
       return providerRuntimes.shift()
     })
 
