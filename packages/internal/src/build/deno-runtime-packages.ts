@@ -1,6 +1,6 @@
-import { access, cp, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import type { Plugin } from "esbuild"
 
@@ -19,8 +19,10 @@ const denoRuntimeTargets = [
 interface FinalizeDenoDeploymentOutputOptions {
   alias?: ViteAlias[]
   conditions?: string[]
+  extensions?: string[]
   deploymentName?: string
   hasScheduleIntegration?: boolean
+  mainFields?: string[]
   outputDir?: string
   rootDir: string
 }
@@ -77,11 +79,14 @@ function escapeRegExp(value: string) {
 
 function collectCreateRequireAliases(source: string): Set<string> {
   const factories = new Set<string>()
-  for (const match of source.matchAll(/(?:^|[;\n])\s*import\s*\{([^}]*)\}\s*from\s*["']node:module["']/gm)) {
+  for (const match of source.matchAll(/(?:^|[;\n])\s*import\s*\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
     for (const specifier of match[1]!.split(",")) {
       const imported = /^\s*createRequire(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(specifier)
       if (imported) factories.add(imported[1] ?? "createRequire")
     }
+  }
+  for (const match of source.matchAll(/(?:^|[;\n])\s*import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
+    factories.add(`${match[1]}.createRequire`)
   }
   if (factories.size === 0) return new Set()
 
@@ -804,8 +809,10 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
   for (const literalImport of findLiteralDynamicImports(remaining).reverse()) {
     remaining = remaining.slice(0, literalImport.start) + " ".repeat(literalImport.literalEnd - literalImport.start) + remaining.slice(literalImport.literalEnd)
   }
-  if (/(?:^|[^\w$.#])import\s*\(/.test(remaining)) {
-    throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
+  for (const match of remaining.matchAll(/\bimport\s*\(/g)) {
+    if (isStandaloneCall(remaining, match.index!)) {
+      throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
+    }
   }
 }
 
@@ -817,7 +824,7 @@ function isTopLevelExpression(source: string, expressionStart: number): boolean 
   }
   if (braceDepth !== 0) return false
   const statementPrefix = source.slice(0, expressionStart).split(/[;\n]/).at(-1)!
-  return /^\s*await\s*$/.test(statementPrefix)
+  return /^\s*await\b/.test(statementPrefix)
 }
 
 function hasTopLevelRelocatableDynamicImport(source: string, specifier: string): boolean {
@@ -934,11 +941,36 @@ export async function finalizeDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
 ): Promise<void> {
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
+  const stageRoot = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}.vitehub-`))
+  const stagedOutputDir = join(stageRoot, "output")
+  const previousOutputDir = join(stageRoot, "previous")
+  try {
+    await cp(outputDir, stagedOutputDir, { recursive: true })
+    await finalizeStagedDenoDeploymentOutput({ ...options, outputDir: stagedOutputDir }, join(outputDir, "server"))
+    await rename(outputDir, previousOutputDir)
+    try {
+      await rename(stagedOutputDir, outputDir)
+    }
+    catch (error) {
+      await rename(previousOutputDir, outputDir)
+      throw error
+    }
+  }
+  finally {
+    await rm(stageRoot, { force: true, recursive: true })
+  }
+}
+
+async function finalizeStagedDenoDeploymentOutput(
+  options: FinalizeDenoDeploymentOutputOptions,
+  runtimeServerDir: string,
+): Promise<void> {
+  const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
   const serverDir = join(outputDir, "server")
   const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
   const applicationEntrySource = join(options.rootDir, "main.ts")
   const resolvedPackageJsonPaths = new Map<string, string>()
-  await recordServerRuntimePackageResolutions(serverDir, options.rootDir, resolvedPackageJsonPaths)
+  await recordServerRuntimePackageResolutions(runtimeServerDir, options.rootDir, resolvedPackageJsonPaths)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
   try {
@@ -956,9 +988,11 @@ export async function finalizeDenoDeploymentOutput(
       external: [...builtinModuleNames],
       alias: options.alias,
       conditions: options.conditions,
+      extensions: options.extensions,
       format: "esm",
       packages: "external",
       platform: "neutral",
+      mainFields: options.mainFields,
       plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
       rootDir: options.rootDir,
       workingDir: options.rootDir,
@@ -971,9 +1005,11 @@ export async function finalizeDenoDeploymentOutput(
         external: [...builtinModuleNames, "./schedule/deno-cron.mjs", "./server/index.mjs"],
         alias: options.alias,
         conditions: options.conditions,
+        extensions: options.extensions,
         format: "esm",
         packages: "external",
         platform: "neutral",
+        mainFields: options.mainFields,
         plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
         rootDir: options.rootDir,
         workingDir: options.rootDir,
@@ -1009,7 +1045,7 @@ export async function finalizeDenoDeploymentOutput(
     }
   }
   const packages = await readRuntimePackages([
-    serverDir,
+    runtimeServerDir,
     ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
   ], options.rootDir, resolvedPackageJsonPaths)
   const nodeTypesPackageJson = await resolvePackageJson(

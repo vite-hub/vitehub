@@ -8,6 +8,7 @@ interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
   banner?: string
   conditions?: string[]
+  extensions?: string[]
   external?: string[]
   format?: "esm" | "cjs"
   mainFields?: string[]
@@ -306,6 +307,7 @@ export async function bundleEsmEntry(
     format,
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
+    resolveExtensions: options.extensions,
     minifyIdentifiers: options.minifyIdentifiers,
     minifyWhitespace: options.minifyWhitespace,
     outfile,

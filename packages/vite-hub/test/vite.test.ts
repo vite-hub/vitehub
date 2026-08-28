@@ -1020,15 +1020,20 @@ describe("vitehub", () => {
           ...resolvedConfig.environments.ssr,
           resolve: {
             ...resolvedConfig.resolve,
+            alias: [
+              { find: "#server-first", replacement: "/server/first.ts" },
+              { find: "#server-second", replacement: "/server/second.ts" },
+            ],
             conditions: ["module", "node", "development|production", "browser", "launch"],
+            extensions: [".mts", ".mjs", ".ts", ".js"],
+            mainFields: ["server", "module", "main"],
           },
         },
       },
       resolve: {
         ...resolvedConfig.resolve,
         alias: [
-          { find: "#server-first", replacement: "/server/first.ts" },
-          { find: "#server-second", replacement: "/server/second.ts" },
+          { find: "#root-only", replacement: "/root/only.ts" },
         ],
       },
       nitro: nitroConfig,
@@ -1041,6 +1046,8 @@ describe("vitehub", () => {
         { customResolver: false, find: "#server-second", replacement: "/server/second.ts" },
       ],
       conditions: ["module", "node", "production", "browser", "launch"],
+      extensions: [".mts", ".mjs", ".ts", ".js"],
+      mainFields: ["server", "module", "main"],
     }))
   })
 

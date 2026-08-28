@@ -83,6 +83,20 @@ const inert = 'load("inert-runtime")'
 `)).toEqual(["@scope/aliased-resolve", "aliased-runtime"])
   })
 
+  it("finds createRequire aliases from bare, namespace, and default module imports", () => {
+    expect(collectDenoRuntimePackageNames(`
+import { createRequire as makeRequire } from "module"
+import * as moduleApi from "node:module"
+import moduleDefault from "node:module"
+const loadBare = makeRequire(import.meta.url)
+const loadNamespace = moduleApi.createRequire(import.meta.url)
+const loadDefault = moduleDefault.createRequire(import.meta.url)
+loadBare("bare-runtime")
+loadNamespace("namespace-runtime")
+loadDefault("default-runtime")
+`)).toEqual(["bare-runtime", "default-runtime", "namespace-runtime"])
+  })
+
   it("ignores import- and require-shaped member calls", () => {
     expect(collectDenoRuntimePackageNames(`
 loader.import("member-data", { with: { type: "json" } })
@@ -103,6 +117,11 @@ loader /* receiver */ . /* call */ require("commented-member-require")
 this.#require("private-member-require")
 `))
       .toEqual([])
+    expect(() => assertSupportedRelocatedImports(`
+loader . import("member-package")
+loader . import(path)
+loader /* receiver */ . /* call */ import(path)
+`, "application entrypoint")).not.toThrow()
   })
 
   it("stages literal imports with expression options without resolving member calls", async () => {
@@ -668,6 +687,41 @@ import "real"
     }
   })
 
+  it("uses Vite main fields and extensions for Deno entrypoint bundles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-resolve-options-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeJson(join(root, "field-package/package.json"), {
+      browser: "./browser.js",
+      main: "./main.js",
+      name: "field-package",
+    })
+    await writeFile(join(root, "field-package/browser.js"), 'export default "browser-field"\n', "utf8")
+    await writeFile(join(root, "field-package/main.js"), 'export default "main-field"\n', "utf8")
+    await writeFile(join(root, "extension-target.mts"), 'export default "mts-extension"\n', "utf8")
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'import field from "./field-package"\nimport extension from "./extension-target"\nglobalThis.values = [field, extension]\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ extensions: [".mts", ".js"], mainFields: ["browser", "main"], rootDir: root })
+
+    const source = await readFile(join(root, ".output/main.ts"), "utf8")
+    expect(source).toContain("browser-field")
+    expect(source).toContain("mts-extension")
+    expect(source).not.toContain("main-field")
+  })
+
+  it("accepts top-level awaited wrappers for relocated entrypoints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-awaited-wrapper-"))
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
+    await writeFile(join(root, "main.ts"), 'await Promise.all([import("./schedule/deno-cron.mjs"), import("./server/index.mjs")])\n', "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+  })
+
   it("filters optional packages for Deno runtimes and hoists the selected closure once", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-platforms-"))
     const outputNodeModules = join(root, ".output/node_modules")
@@ -812,6 +866,34 @@ import "real"
     })
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
     expect(deployRunner.indexOf("if (!interrupted) {")).toBeLessThan(deployRunner.indexOf('const common = ["--allow-node-modules"'))
+  })
+
+  it("re-finalizes packages already staged in the existing output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-repeat-output-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeJson(join(root, ".output/node_modules/staged-runtime/package.json"), { name: "staged-runtime", version: "1" })
+    await writeFile(join(root, ".output/node_modules/staged-runtime/marker"), "preserved", "utf8")
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "staged-runtime"\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/staged-runtime/marker"), "utf8")).resolves.toBe("preserved")
+  })
+
+  it("preserves the prior output and cleans its stage when finalization fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-atomic-output-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "missing-runtime"\n', "utf8")
+    await writeFile(join(root, ".output/deno.json"), "prior output\n", "utf8")
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+      "Could not resolve package.json for missing-runtime",
+    )
+
+    await expect(readFile(join(root, ".output/deno.json"), "utf8")).resolves.toBe("prior output\n")
+    expect((await readdir(root)).some(name => name.startsWith("..output.vitehub-"))).toBe(false)
   })
 
   it("uses the pnpm package from a bundle marker", async () => {

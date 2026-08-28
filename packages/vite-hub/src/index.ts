@@ -57,11 +57,17 @@ export type { ConsoleOptions } from "./console/vite.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 
-function resolveServerConditions(config: ResolvedConfig): string[] {
-  const conditions = config.environments?.nitro?.resolve.conditions
-    ?? config.environments?.ssr?.resolve.conditions
-    ?? defaultServerConditions
-  return conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition)
+function resolveServerOptions(config: ResolvedConfig) {
+  const serverResolve = config.environments?.nitro?.resolve
+    ?? config.environments?.ssr?.resolve
+    ?? config.resolve
+  const conditions = serverResolve.conditions ?? defaultServerConditions
+  return {
+    alias: serverResolve.alias,
+    conditions: conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition),
+    extensions: serverResolve.extensions,
+    mainFields: serverResolve.mainFields,
+  }
 }
 
 const generatedOwnerPackageAccess = {
@@ -363,7 +369,7 @@ function deploymentNitroModule(
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
-  resolvedBuildConfig: () => { alias: ViteAlias[], conditions: string[], hasScheduleIntegration: boolean },
+  resolvedBuildConfig: () => { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[] },
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
@@ -397,10 +403,12 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  let resolvedBuildConfig: { alias: ViteAlias[], conditions: string[], hasScheduleIntegration: boolean } = {
+  let resolvedBuildConfig: { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[] } = {
     alias: [],
     conditions: [],
+    extensions: [],
     hasScheduleIntegration: false,
+    mainFields: [],
   }
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
@@ -575,14 +583,17 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        const serverResolve = resolveServerOptions(config)
         resolvedBuildConfig = {
-          alias: (config.resolve?.alias ?? []).map(alias => ({
+          alias: (serverResolve.alias ?? []).map(alias => ({
             customResolver: alias.customResolver !== undefined,
             find: alias.find,
             replacement: alias.replacement,
           })),
-          conditions: resolveServerConditions(config),
+          conditions: serverResolve.conditions,
+          extensions: serverResolve.extensions,
           hasScheduleIntegration: config.plugins?.some(plugin => plugin.name === "@vite-hub/schedule/vite") ?? false,
+          mainFields: serverResolve.mainFields,
         }
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
