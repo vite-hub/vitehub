@@ -93,6 +93,10 @@
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
     },
+    "./runtime/process": {
+      "types": "./dist/runtime/process.d.ts",
+      "import": "./dist/runtime/process.js"
+    },
     "./runtime/workflow": {
       "types": "./dist/runtime/workflow.d.ts",
       "import": "./dist/runtime/workflow.js"
