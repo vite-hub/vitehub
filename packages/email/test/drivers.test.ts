@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import cloudflareEmail from "../src/drivers/cloudflare-email.ts";
 import resend from "../src/drivers/resend.ts";
+import { emailProviderError } from "../src/provider.ts";
 
 import type { EmailMessage } from "../src/types.ts";
 import type { ResendEmailDriverOptions } from "../src/drivers/resend.ts";
@@ -592,6 +593,38 @@ describe("Resend Email driver", () => {
       error: { code: "CANCELLED", driver: "resend", retryable: false },
     });
   });
+
+  it.each(["request", "response"] as const)(
+    "classifies a provider-shaped %s abort reason as cancellation",
+    async (phase) => {
+      const controller = new AbortController();
+      const reason = emailProviderError("foreign", "NETWORK", "Prior delivery failed.", {
+        retryable: true,
+      });
+      const request = async (
+        _input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ): Promise<Response> => {
+        if (phase === "response") {
+          queueMicrotask(() => controller.abort(reason));
+          return new Response(new ReadableStream());
+        }
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+            once: true,
+          });
+          queueMicrotask(() => controller.abort(reason));
+        });
+      };
+      const driver = resend({ apiKey: "re_secret", fetch: request });
+
+      await expect(
+        driver.send(message, { ...context, signal: controller.signal }),
+      ).resolves.toMatchObject({
+        error: { code: "CANCELLED", driver: "resend", retryable: false },
+      });
+    },
+  );
 
   it("rejects invalid idempotency header values before fetch", async () => {
     const request = vi.fn();

@@ -349,7 +349,6 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       } catch (cause) {
         clearTimeout(requestTimeout);
         context.signal?.removeEventListener("abort", abortRequest);
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
         if (requestTimedOut)
           return {
             data: null,
@@ -366,6 +365,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
               retryable: false,
             }),
           };
+        if (isEmailProviderError(cause)) return { data: null, error: cause };
         return {
           data: null,
           error: emailProviderError("resend", "NETWORK", "Resend request failed.", {
@@ -383,7 +383,6 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
           idempotencyKey !== undefined,
         );
       } catch (cause) {
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
         if (cancelled(context.signal, cause))
           return {
             data: null,
@@ -392,6 +391,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
               retryable: false,
             }),
           };
+        if (isEmailProviderError(cause)) return { data: null, error: cause };
         return {
           data: null,
           error: emailProviderError("resend", "NETWORK", "Resend response failed.", {
