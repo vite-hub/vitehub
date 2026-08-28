@@ -1222,6 +1222,11 @@ export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
   credentials?: AgentProviderCredentialResolver
+  /**
+   * Advanced Codex runtime settings. A durable `homePath` used with `credentials`
+   * must be owned by one ViteHub provider host process; replicas must use distinct homes.
+   */
+  providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
 }
