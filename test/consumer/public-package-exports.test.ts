@@ -21,6 +21,11 @@ function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
 }
 
+function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts)[number]) {
+  if (contract.packageName === "@vite-hub/auth") return false
+  return !contract.subpath.endsWith("/client")
+}
+
 const stringRecord = record(string(), string())
 const packageManifestSchema = object({
   dependencies: optional(stringRecord),
@@ -367,7 +372,7 @@ async function typecheckPackageModule(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    types: packageName === "@vite-hub/auth" ? [] : ["node"],
+    types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program)
