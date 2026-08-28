@@ -139,10 +139,12 @@ describe("Agent Invocation Vue composables", () => {
     calls[1]!.resolve({
       cursor: "next",
       invocations: [record("inv-2")],
+      remainingStatuses: ["completed"],
     } satisfies AgentInvocationListResult);
     await settle();
     expect(resource.invocations.value).toEqual([record("inv-2")]);
     expect(resource.cursor.value).toBe("next");
+    expect(resource.remainingStatuses.value).toEqual(["completed"]);
     expect(resource.isLoading.value).toBe(false);
     expect(resource.error.value).toBeNull();
 
@@ -154,6 +156,7 @@ describe("Agent Invocation Vue composables", () => {
     await older;
     expect(resource.invocations.value).toEqual([record("inv-2"), record("inv-3")]);
     expect(resource.cursor.value).toBeUndefined();
+    expect(resource.remainingStatuses.value).toEqual([]);
     scope.stop();
   });
 
@@ -207,7 +210,7 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
-  it("keeps lazy-loaded pages when polling refreshes the first page", async () => {
+  it("keeps lazy-loaded pages and refreshes their pagination frontier when polling", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();
     const resource = scope.run(() => useAgentInvocations({ request }))!;
@@ -223,7 +226,152 @@ describe("Agent Invocation Vue composables", () => {
     await refresh;
 
     expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-3", "inv-2", "inv-1", "inv-0"]);
-    expect(resource.cursor.value).toBe("page-3");
+    expect(resource.cursor.value).toBe("new-page-2");
+
+    const refreshedPages = resource.loadMore();
+    expect(calls[3]!.path).toContain("cursor=new-page-2");
+    calls[3]!.resolve({ cursor: "new-page-3", invocations: [record("inv-1"), record("inv-0")] });
+    await settle();
+    expect(calls[4]!.path).toContain("cursor=new-page-3");
+    calls[4]!.resolve({ invocations: [record("inv-transitioned")] });
+    await refreshedPages;
+
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual([
+      "inv-3",
+      "inv-2",
+      "inv-1",
+      "inv-0",
+      "inv-transitioned",
+    ]);
+    scope.stop();
+  });
+
+  it("lets pagination finish across repeated poll intervals", async () => {
+    vi.useFakeTimers();
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ pollInterval: 100, request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+
+    const replay = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-2"), record("inv-1")] });
+    await settle();
+    expect(calls[2]!.path).toContain("cursor=page-3");
+
+    for (let poll = 0; poll < 3; poll++) {
+      await vi.advanceTimersByTimeAsync(100);
+      expect(calls).toHaveLength(3);
+      expect(calls[2]!.options.signal?.aborted).toBe(false);
+      expect(resource.loadMoreError.value).toBeNull();
+    }
+
+    calls[2]!.resolve({ invocations: [record("inv-0")] });
+    await replay;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-2", "inv-1", "inv-0"]);
+    expect(resource.loadMoreError.value).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls[3]!.path).toBe("/api/invocations");
+    scope.stop();
+  });
+
+  it("refreshes duplicate summaries while replaying pagination", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await settle();
+
+    const replay = resource.loadMore();
+    calls[1]!.resolve({
+      cursor: "page-3",
+      invocations: [{
+        ...record("inv-1"),
+        completedAt: "2026-08-22T12:01:00.000Z",
+        status: "completed",
+        updatedAt: "2026-08-22T12:01:00.000Z",
+      }],
+    });
+    await settle();
+    calls[2]!.resolve({ invocations: [record("inv-0")] });
+    await replay;
+
+    expect(resource.invocations.value).toEqual([
+      expect.objectContaining({ id: "inv-1", status: "completed" }),
+      record("inv-0"),
+    ]);
+    scope.stop();
+  });
+
+  it("bounds duplicate-page replay per load-more request", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await settle();
+
+    const replay = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-3", invocations: [record("inv-1")] });
+    await settle();
+    calls[2]!.resolve({ cursor: "page-4", invocations: [record("inv-1")] });
+    await replay;
+
+    expect(calls).toHaveLength(3);
+    expect(resource.cursor.value).toBe("page-4");
+    expect(resource.isLoadingMore.value).toBe(false);
+
+    const next = resource.loadMore();
+    calls[3]!.resolve({ invocations: [record("inv-0")] });
+    await next;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-1", "inv-0"]);
+    scope.stop();
+  });
+
+  it("preserves the advanced pagination frontier across polls", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({
+      cursor: "page-2",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["pending", "completed"],
+    });
+    await settle();
+
+    const firstReplay = resource.loadMore();
+    calls[1]!.resolve({
+      cursor: "page-3",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["completed"],
+    });
+    await settle();
+    calls[2]!.resolve({
+      cursor: "page-4",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["completed"],
+    });
+    await firstReplay;
+
+    const refresh = resource.refresh();
+    calls[3]!.resolve({
+      cursor: "page-2",
+      invocations: [record("inv-1")],
+      remainingStatuses: ["pending", "completed"],
+    });
+    await refresh;
+    expect(resource.cursor.value).toBe("page-4");
+    expect(resource.remainingStatuses.value).toEqual(["completed"]);
+
+    const next = resource.loadMore();
+    expect(calls[4]!.path).toContain("cursor=page-4");
+    calls[4]!.resolve({ invocations: [record("inv-0")] });
+    await next;
+    expect(resource.invocations.value.map(invocation => invocation.id)).toEqual(["inv-1", "inv-0"]);
     scope.stop();
   });
 
