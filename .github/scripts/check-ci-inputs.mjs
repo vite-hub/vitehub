@@ -12,6 +12,7 @@ const versionCommentPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const shellOperatorPattern = /^(?:&&|\|\||[;&|]|\$\(|\(|\)|`|\{|\})$/
 const packageExecutorValueOptions = new Set(["--cwd", "--dir", "--filter", "-C", "-F"])
 const npmExecValueOptions = new Set(["--allow-scripts", "--workspace", "-w"])
+const pnpmDlxValueOptions = new Set(["--allow-build", "--reporter"])
 const shellCommands = new Set(["bash", "dash", "ksh", "sh", "zsh"])
 const corepackDelegates = new Set(["pnpm", "pnpx", "yarn", "yarnpkg"])
 const shellCommandPrefixes = new Set(["!", "do", "elif", "else", "if", "then", "until", "while"])
@@ -30,9 +31,10 @@ const sudoShortValueOptions = new Set([...sudoValueOptions]
   .map(option => option.slice(1)))
 const timeoutValueOptions = new Set(["--kill-after", "--signal", "-k", "-s"])
 const xargsValueOptions = new Set([
-  "--arg-file", "--delimiter", "--eof", "--max-args", "--max-chars", "--max-lines", "--max-procs",
-  "--process-slot-var", "--replace", "-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s",
+  "--arg-file", "--delimiter", "--max-args", "--max-chars", "--max-lines", "--max-procs",
+  "--process-slot-var", "-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s",
 ])
+const xargsOptionalValueOptions = new Set(["--eof", "--replace"])
 const assignmentBuiltins = new Set(["declare", "export", "readonly", "typeset"])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 const commandVariablePattern = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$/
@@ -256,7 +258,7 @@ function commandIndexes(tokens) {
               executableIndex++
               break
             }
-            if (niceValueOptions.has(argument)) executableIndex += 2
+            if (niceValueOptions.has(argument) || isUniqueLongOption(argument, niceValueOptions)) executableIndex += 2
             else if (argument.startsWith("--adjustment=") || /^-\d+$/.test(argument)) executableIndex++
             else if (argument.startsWith("-")) executableIndex++
             else break
@@ -271,7 +273,9 @@ function commandIndexes(tokens) {
               executableIndex++
               break
             }
-            if (xargsValueOptions.has(argument)) executableIndex += 2
+            if (xargsValueOptions.has(argument) || isUniqueLongOption(argument, xargsValueOptions)) executableIndex += 2
+            else if (xargsOptionalValueOptions.has(argument)
+              || isUniqueLongOption(argument, xargsOptionalValueOptions)) executableIndex++
             else if (argument.startsWith("--") && argument.includes("=")) executableIndex++
             else if (/^-[aEdILnPs].+/.test(argument)) executableIndex++
             else if (argument.startsWith("-")) executableIndex++
@@ -346,11 +350,21 @@ function runsInChildShell(tokens, commandIndex) {
     }
   }
   if (groups.length > 0) return true
+  for (let index = commandIndex - 1; index >= 0; index--) {
+    if (tokens[index] === "|") return true
+    if (tokens[index] === ";" || tokens[index] === "&&" || tokens[index] === "||") break
+  }
   for (let index = commandIndex + 1; index < tokens.length; index++) {
     if (tokens[index] === "|") return true
     if (tokens[index] === ";" || tokens[index] === "&&" || tokens[index] === "||") return false
   }
   return false
+}
+
+function isUniqueLongOption(argument, options) {
+  if (!argument.startsWith("--") || argument.includes("=")) return false
+  const matches = [...options].filter(option => option.startsWith("--") && option.startsWith(argument))
+  return matches.length === 1
 }
 
 function isSudoQueryOption(argument) {
@@ -662,6 +676,8 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     for (const index of executableIndexes) {
       let argumentsStart
       let acceptsPackageOptions = false
+      let acceptsCallOptions = false
+      let executorValueOptions = npmExecValueOptions
       let inspectsTerminatedCommand = false
       const token = resolveCommandVariable(tokens[index], environment)
       const invokedFunctionEffects = functionEffects.get(executableName(token))
@@ -722,6 +738,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       if (executable === "npx") {
         argumentsStart = index + 1
         acceptsPackageOptions = true
+        acceptsCallOptions = true
         inspectsTerminatedCommand = true
       }
       else if (executable === "bunx" || executable === "pnpx") argumentsStart = index + 1
@@ -739,6 +756,7 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         if (tokens[subcommand] !== "exec" && tokens[subcommand] !== "x") continue
         argumentsStart = subcommand + 1
         acceptsPackageOptions = true
+        acceptsCallOptions = true
         inspectsTerminatedCommand = true
       }
       else if (executable === "vp" || executable === "pnpm" || executable === "yarn" || executable === "yarnpkg") {
@@ -752,6 +770,8 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
         }
         if (tokens[subcommand] !== "dlx") continue
         argumentsStart = subcommand + 1
+        acceptsPackageOptions = executable === "pnpm"
+        executorValueOptions = pnpmDlxValueOptions
       }
       else continue
 
@@ -776,13 +796,13 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
           else if (argument === "--package" || argument === "-p") {
             packageSpecs.push(invocation[++argumentIndex] ?? "(missing)")
           }
-          else if (argument.startsWith("--call=")) {
+          else if (acceptsCallOptions && argument.startsWith("--call=")) {
             callCommands.push(argument.slice(argument.indexOf("=") + 1))
           }
-          else if (argument === "--call" || argument === "-c") {
+          else if (acceptsCallOptions && (argument === "--call" || argument === "-c")) {
             callCommands.push(invocation[++argumentIndex] ?? "")
           }
-          else if (npmExecValueOptions.has(argument)) {
+          else if (executorValueOptions.has(argument)) {
             optionValueIndexes.add(argumentIndex + 1)
             argumentIndex++
           }

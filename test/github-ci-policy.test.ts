@@ -816,6 +816,16 @@ jobs:
     ])
   })
 
+  it("does not persist assignments from final pipeline commands", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": "env:\n  VERSION: latest\njobs:\n  test:\n    steps:\n      - run: printf x | export VERSION=1.2.3; npx tool@$VERSION\n",
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
   it("inspects commands delegated through xargs", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: printf 'arg\\n' | xargs npx unpinned\n",
@@ -824,6 +834,40 @@ jobs:
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("unpinned") }),
     ])
+  })
+
+  it.each(["--replace", "--eof"])("preserves the delegated command after bare xargs %s", async (option) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: printf 'arg\\n' | xargs ${option} npx unpinned\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+  })
+
+  it.each([
+    "nice --adju 5 npx unpinned",
+    "printf 'arg\\n' | xargs --max-p 1 npx unpinned",
+  ])("inspects commands after abbreviated GNU wrapper options in %s", async (command) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("unpinned") }),
+    ])
+  })
+
+  it.each([
+    "pnpm dlx --package=tool@1.2.3 tool",
+    "pnpm dlx --reporter silent tool@1.2.3",
+  ])("accepts exact pnpm dlx option forms in %s", async (command) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: ${command}\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
   })
 
   it.each([
