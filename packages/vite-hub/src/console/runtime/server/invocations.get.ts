@@ -197,10 +197,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     if (await recheckLaterGroups(backfillBudget)) {
       const refillLimit = await refillEarlierGroup()
       if (await recheckLaterGroups(refillLimit)) {
-        const preRefillCursor = pages[key].cursor
         await refillEarlierGroup()
-        if (preRefillCursor !== undefined) pages[key].cursor = preRefillCursor
-        else deferredGroups.add(key)
       }
     }
     const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))

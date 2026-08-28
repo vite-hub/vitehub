@@ -776,7 +776,7 @@ describe("ViteHub Console", () => {
     expect(result.invocations).toHaveLength(6)
   })
 
-  it("preserves the earlier cursor when a transition occurs during the final refill", async () => {
+  it("keeps the cursor produced by the final refill", async () => {
     const store = createMemoryAgentInvocationStore()
     for (let index = 0; index < 10; index++) {
       store.create({
@@ -790,6 +790,7 @@ describe("ViteHub Console", () => {
     }
     const list = store.list.bind(store)
     let pendingReads = 0
+    const queuedCursors: (string | undefined)[] = []
     vi.spyOn(store, "list").mockImplementation(async (options) => {
       if (Array.isArray(options?.status) && options.status.includes("pending")) {
         pendingReads++
@@ -814,7 +815,11 @@ describe("ViteHub Console", () => {
           })
         }
       }
-      return list(options)
+      const result = await list(options)
+      if (Array.isArray(options?.status) && options.status.includes("pending")) {
+        queuedCursors.push(result.cursor)
+      }
+      return result
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
     const requestEvent = event("127.0.0.1")
@@ -825,7 +830,8 @@ describe("ViteHub Console", () => {
     const result = await invocationsHandler(requestEvent)
 
     expect(result.invocations).toHaveLength(6)
-    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "4" })
+    expect(queuedCursors).toHaveLength(4)
+    expect(JSON.parse(result.cursor!)).toMatchObject({ queued: queuedCursors.at(-1) })
     expect(result.remainingStatuses).toContain("pending")
 
     const visited = new Set<string>()
