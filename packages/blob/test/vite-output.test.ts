@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { build as bundle } from "esbuild"
+import { build as bundle, transform } from "esbuild"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { contributeProviderRuntime, createProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
@@ -1021,7 +1021,8 @@ describe("Vite provider outputs", () => {
     await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
     await writeFile(join(rootDir, "src", "server.ts"), [
       'import { BlobServiceClient } from "@azure/storage-blob"',
-      "export default async () => new Response(BlobServiceClient.name)",
+      'import { Files } from "files-sdk"',
+      "export default async () => new Response(`${BlobServiceClient.name}:${Files.name}`)",
       "",
     ].join("\n"), "utf8")
 
@@ -1033,8 +1034,11 @@ describe("Vite provider outputs", () => {
 
     const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
     const serverContents = await readFile(join(functionRoot, "index.mjs"), "utf8")
-    expect(serverContents).not.toMatch(/(?:from\s*|import\()\s*["']@azure\//)
+    const executableContents = (await transform(serverContents, { legalComments: "none", loader: "js" })).code
+    expect(executableContents).not.toMatch(/(?:from\s*|import\()\s*["']@azure\//)
+    expect(executableContents).not.toMatch(/(?:from\s*|import\()\s*["']files-sdk(?:\/|["'])/)
     expect(existsSync(join(functionRoot, "node_modules", "@azure", "storage-blob"))).toBe(false)
+    expect(existsSync(join(functionRoot, "node_modules", "files-sdk"))).toBe(false)
   })
 
   it("generates MinIO driver reachability for selected stores", { timeout: 30_000 }, async () => {
