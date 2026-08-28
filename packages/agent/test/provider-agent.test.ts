@@ -204,6 +204,40 @@ describe("Provider Agent Driver", () => {
     await rm(sharedHome, { force: true, recursive: true })
   })
 
+  it("copies shared Codex home files while junctioning directories on Windows", async () => {
+    const threadId = "thread-windows-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+    let shadowHome: string | undefined
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      shadowHome = String(options.settings?.homePath)
+      const config = await lstat(join(shadowHome, "config.toml"))
+      expect(config.isFile()).toBe(true)
+      expect(config.isSymbolicLink()).toBe(false)
+      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      expect(await readlink(join(shadowHome, "sessions"))).toBe(join(sharedHome, "sessions"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      await createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      }).generate(context(threadId) as never)
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+
+    expect(shadowHome).toBeDefined()
+    if (!shadowHome) throw new Error("Expected a Codex shadow home")
+    await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("passes Codex reasoning selections to provider session startup", async () => {
     const threadId = "thread-reasoning-options"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

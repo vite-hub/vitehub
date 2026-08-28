@@ -1,7 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
@@ -217,7 +217,16 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
   const entries = new Set([...codexSharedHomeDirectories, ...await readdir(sharedHome)])
   await Promise.all([...entries]
     .filter(entry => !codexPrivateHomeEntries.has(entry) && !codexLocalHomeEntries.has(entry))
-    .map(entry => symlink(join(sharedHome, entry), join(home, entry), process.platform === "win32" ? "junction" : undefined)))
+    .map(async (entry) => {
+      const source = join(sharedHome, entry)
+      const target = join(home, entry)
+      const sourceEntry = await stat(source)
+      if (process.platform === "win32" && sourceEntry.isFile()) {
+        await copyFile(source, target)
+        return
+      }
+      await symlink(source, target, process.platform === "win32" && sourceEntry.isDirectory() ? "junction" : undefined)
+    }))
 }
 
 async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeConfig>(
