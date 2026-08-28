@@ -72,17 +72,18 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
     : undefined
 }
 
-function retireConsoleInvocationsIdentity(registry: ConsoleInvocationRegistry, identity: string): void {
+function retireConsoleInvocationsIdentity(registry: ConsoleInvocationRegistry, identity: string): boolean {
   // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
   const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
-  if (bindings && [...bindings.values()].includes(identity)) return
+  if (bindings && [...bindings.values()].includes(identity)) return false
   // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
   const roots = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
-  if (roots && [...roots.values()].includes(identity)) return
+  if (roots && [...roots.values()].includes(identity)) return false
   invocationsByRoot(registry[consoleInvocationsRegistryKey])?.delete(identity)
   // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
   const revisions = registry[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
   revisions?.delete(identity)
+  return true
 }
 
 function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegistry | undefined {
@@ -141,7 +142,26 @@ export function releaseConsoleInvocationsBinding(
     if (survivingIdentity) roots.set(projectRoot, survivingIdentity)
     else roots.delete(projectRoot)
   }
-  retireConsoleInvocationsIdentity(registry, identity)
+  const journals = invocationsByRoot(registry[consoleInvocationsRegistryKey])
+  const releasedInvocations = journals?.get(identity)
+  if (!retireConsoleInvocationsIdentity(registry, identity)) return
+  const survivingIdentity = projectRoot ? roots?.get(projectRoot) : undefined
+  const survivingInvocations = survivingIdentity ? journals?.get(survivingIdentity) : undefined
+  if (releasedInvocations && registry[consoleInvocationsKey] === releasedInvocations) {
+    if (survivingInvocations) registry[consoleInvocationsKey] = survivingInvocations
+    else delete registry[consoleInvocationsKey]
+  }
+  if (scope[consoleInvocationsIdentityKey] !== identity) return
+  if (survivingIdentity && survivingInvocations && projectRoot) {
+    scope[consoleInvocationsKey] = survivingInvocations
+    scope[consoleInvocationsIdentityKey] = survivingIdentity
+    scope[consoleInvocationsIdentityRootKey] = projectRoot
+    return
+  }
+  delete scope[consoleInvocationsKey]
+  delete scope[consoleInvocationsIdentityKey]
+  delete scope[consoleInvocationsIdentityRootKey]
+  if (scope[consoleInvocationsRootKey] === projectRoot) delete scope[consoleInvocationsRootKey]
 }
 
 export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {

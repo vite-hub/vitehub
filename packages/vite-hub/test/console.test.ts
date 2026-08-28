@@ -721,6 +721,11 @@ describe("Agent invocation console", () => {
     expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).has(projectRoot)).toBe(false)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(identity)).toBe(false)
     expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(identity)).toBe(false)
+    expect(Reflect.has(process, consoleInvocationsKey)).toBe(false)
+    expect(resolveConsoleInvocations()).toBeUndefined()
+    expect(scope[consoleInvocationsRootKey]).toBeUndefined()
+    expect(scope[consoleInvocationsIdentityKey]).toBeUndefined()
+    expect(scope[consoleInvocationsIdentityRootKey]).toBeUndefined()
   })
 
   it("restores a surviving same-root runtime when the current runtime closes", async () => {
@@ -741,6 +746,9 @@ describe("Agent invocation console", () => {
 
     expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).get(projectRoot)).toBe(firstIdentity)
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: projectRoot })).toBe(first)
+    expect(resolveConsoleInvocations()).toBe(first)
+    expect(Reflect.get(process, consoleInvocationsKey)).toBe(first)
+    expect(scope[consoleInvocationsIdentityKey]).toBe(firstIdentity)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(firstIdentity)).toBe(true)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
   })
