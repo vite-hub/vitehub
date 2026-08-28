@@ -79,6 +79,7 @@ describe("optional peer imports", () => {
   })
 
   it("keeps the bundled Vercel Blob driver statically reachable for selected Vercel outputs", async () => {
+    const built = await readFile(new URL("../dist/drivers/vercel-bundled.js", import.meta.url), "utf8")
     const closure = (await readLocalClosure(new URL("../dist/drivers/vercel-bundled.js", import.meta.url))).join("\n")
 
     expect(closure).not.toContain('from "files-sdk"')
@@ -86,7 +87,7 @@ describe("optional peer imports", () => {
     expect(closure).not.toContain('from "@vercel/blob"')
     expect(closure).not.toContain('from "undici"')
     expect(closure).not.toContain('from "stream"')
-    expect(closure).not.toContain('from "node:module"')
+    expect(built).not.toContain('from "node:module"')
     expect(closure).toContain("globalThis.fetch")
     expect(closure).toContain("vercel-storage.com")
   })

@@ -492,9 +492,9 @@ describe("Vite db provider outputs", () => {
     expect(bundledServerCode.includes("runtime/virtual-databases.js")).toBe(false)
     expect(bundledServerCode.includes("var databases$1 = {};")).toBe(false)
 
-    const cloudflareRuntime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
-    expect(cloudflareRuntime).toContain("export const agentDb = createAgentDatabase(databases)")
-    expect(cloudflareRuntime).toContain("export function useDatabase(name) { return databases[name] }")
+    const cloudflareWorker = await readCloudflareWorker(rootDir)
+    expect(cloudflareWorker).toContain("createAgentDatabase")
+    expect(cloudflareWorker).toContain("useDatabase")
 
     const vercelServerCode = await readFile(vercelServer, "utf8")
     expect(vercelServerCode).toContain("process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL")

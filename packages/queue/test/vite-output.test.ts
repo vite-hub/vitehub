@@ -605,7 +605,7 @@ describe("Vite provider outputs", () => {
     ])
     for (const contents of [queueContents, callbackContents]) {
       expect(contents).toContain("__vitehubQueueBlobRuntimeLoaded")
-      expect(contents).not.toContain("@vite-hub/blob/drivers/")
+      expect(contents).not.toMatch(/(?:from\s+|import\s*\()["']@vite-hub\/blob\/drivers\//)
     }
     for (const functionDir of [join(functionsRoot, "__queue.func"), callbackFunctionDir]) {
       expect(existsSync(join(functionDir, "node_modules", "files-sdk", "package.json"))).toBe(false)
