@@ -52,17 +52,6 @@ const METADATA_CONCURRENCY = 16
 const MAX_FETCH_RETRIES = 5
 const MIN_RETRY_DELAY = 1_000
 const RATE_LIMIT_HEADER = "X-RateLimit-Reset"
-const providerMetadataFields = new Set([
-  "__contentType",
-  "__lastModified",
-  "__size",
-  "__user",
-  "contentType",
-  "customMetadata",
-  "size",
-  "uploadedAt",
-])
-
 function isNumber(value: unknown): value is number {
   return Number(value) === value
 }
@@ -71,9 +60,40 @@ function isString(value: unknown): value is string {
   return String(value) === value
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every(isString)
+}
+
+function isValidDateString(value: unknown): value is string {
+  return isString(value) && !Number.isNaN(Date.parse(value))
+}
+
+function isProviderMetadata(key: string, value: unknown) {
+  switch (key) {
+    case "__contentType":
+    case "contentType":
+      return isString(value)
+    case "__lastModified":
+      return isNumber(value) && Number.isFinite(value)
+    case "__size":
+    case "size":
+      return isNumber(value) && Number.isFinite(value) && value >= 0
+    case "__user":
+    case "customMetadata":
+      return isStringRecord(value)
+    case "uploadedAt":
+      return isValidDateString(value)
+    default:
+      return false
+  }
+}
+
 function rawCustomMetadata(metadata: StoredMetadata): Record<string, string> {
   return Object.fromEntries(Object.entries(metadata).flatMap(([key, value]): [string, string][] =>
-    !providerMetadataFields.has(key) && isString(value) ? [[key, value]] : [],
+    !isProviderMetadata(key, value) && isString(value) ? [[key, value]] : [],
   ))
 }
 
@@ -300,14 +320,23 @@ function toBlobObject(
   metadata: StoredMetadata = {},
   listed?: Pick<NetlifyListBlob, "last_modified" | "lastModified" | "size" | "uploaded_at" | "uploadedAt">,
 ): BlobObject {
-  const contentType = metadata.__contentType || metadata.contentType
-  const customMetadata = metadata.__user || metadata.customMetadata || rawCustomMetadata(metadata)
-  const size = metadata.__size ?? listed?.size ?? metadata.size ?? 0
+  const contentType = isString(metadata.__contentType)
+    ? metadata.__contentType
+    : isString(metadata.contentType) ? metadata.contentType : undefined
+  const customMetadata = {
+    ...rawCustomMetadata(metadata),
+    ...(isStringRecord(metadata.customMetadata) ? metadata.customMetadata : {}),
+    ...(isStringRecord(metadata.__user) ? metadata.__user : {}),
+  }
+  const metadataSize = isNumber(metadata.__size) && Number.isFinite(metadata.__size) && metadata.__size >= 0
+    ? metadata.__size
+    : isNumber(metadata.size) && Number.isFinite(metadata.size) && metadata.size >= 0 ? metadata.size : undefined
+  const size = metadataSize ?? listed?.size ?? 0
   const listedUploadTime = listed?.uploaded_at ?? listed?.uploadedAt ?? listed?.last_modified ?? listed?.lastModified
-  const uploadedAt = metadata.__lastModified
+  const uploadedAt = isNumber(metadata.__lastModified) && Number.isFinite(metadata.__lastModified)
     ? new Date(metadata.__lastModified)
     : listedUploadTime ? new Date(listedUploadTime)
-      : metadata.uploadedAt ? new Date(metadata.uploadedAt) : new Date(0)
+      : isValidDateString(metadata.uploadedAt) ? new Date(metadata.uploadedAt) : new Date(0)
   return {
     contentType,
     customMetadata,

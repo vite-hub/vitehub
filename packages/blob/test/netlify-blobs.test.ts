@@ -281,6 +281,33 @@ describe("Netlify Blobs driver", () => {
     expect(result?.customMetadata).toEqual({ owner: "external-client" })
   })
 
+  it("keeps invalid reserved Netlify metadata as custom metadata", async () => {
+    store.getMetadata.mockResolvedValue({
+      etag: "etag",
+      metadata: {
+        __user: { owner: "vitehub" },
+        contentType: 42,
+        customMetadata: "external-custom",
+        size: "large",
+        uploadedAt: "eventually",
+      },
+    })
+
+    const result = await createDriver(options).head("external.txt")
+
+    expect(result).toMatchObject({
+      customMetadata: {
+        customMetadata: "external-custom",
+        owner: "vitehub",
+        size: "large",
+        uploadedAt: "eventually",
+      },
+      httpMetadata: {},
+      size: 0,
+      uploadedAt: new Date(0),
+    })
+  })
+
   it("uses provider list attributes when custom metadata has no object details", async () => {
     mockListPages({
       first: {
