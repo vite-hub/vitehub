@@ -11,7 +11,13 @@ import { resolve } from 'pathe'
 import { discoverSandboxDefinitions } from '../discovery'
 import { createSandboxFeaturePlan, resolveSandboxFeatureConfig } from '../feature'
 import { getSandboxFeatureProvider } from '../module-types'
-import { activateSandboxRuntimeFile, pruneSandboxRuntimeGeneration, resolveSandboxRuntimeLinkType } from './runtime-generation'
+import {
+  activateSandboxRuntimeFile,
+  markSandboxRuntimeGeneration,
+  pruneSandboxRuntimeGeneration,
+  readSandboxRuntimeGeneration,
+  resolveSandboxRuntimeLinkType,
+} from './runtime-generation'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
 import type { AgentSandboxConfig } from '../module-types'
@@ -238,7 +244,6 @@ async function writeSandboxArtifacts(
   await mkdir(generationsDir, { recursive: true })
   const existingGenerations = (await readdir(generationsDir))
     .filter(entry => entry.startsWith('runtime-'))
-    .sort()
   const generationDir = await mkdtemp(resolve(generationsDir, 'runtime-'))
   const runtimeDir = resolve(generatedDir, 'runtime')
   const stagedLink = resolve(generatedDir, `.runtime-link-${generationDir.slice(generationsDir.length + 1)}`)
@@ -247,6 +252,9 @@ async function writeSandboxArtifacts(
   const typeTemplate = plan.manifest.typeTemplate
   let activated = false
   const previousGeneration = await readlink(runtimeDir).catch(() => undefined)
+  const previousWindowsGeneration = platform === 'win32'
+    ? await readSandboxRuntimeGeneration(resolve(runtimeDir, 'sandbox.mjs'), generationsDir)
+    : undefined
 
   try {
     for (const artifact of plan.artifacts || []) {
@@ -283,7 +291,10 @@ async function writeSandboxArtifacts(
         : resolve(generationDir, providerLoaderArtifact.dst.slice(runtimeDir.length + 1))
     await writeFileIfChanged(
       generationFacadeFile,
-      createFacadeContents(generationFacadeFile, generationRegistryFile, generationProviderLoaderFile),
+      markSandboxRuntimeGeneration(
+        createFacadeContents(generationFacadeFile, generationRegistryFile, generationProviderLoaderFile),
+        generationDir,
+      ),
     )
     if (platform === 'win32') {
       await mkdir(runtimeDir, { recursive: true })
@@ -339,13 +350,13 @@ async function writeSandboxArtifacts(
       await rm(generationDir, { recursive: true, force: true })
   }
 
-  const previousWindowsGeneration = platform === 'win32' && existingGenerations.length
-    ? resolve(generationsDir, existingGenerations.at(-1)!)
-    : undefined
   const retained = new Set([
     generationDir,
     previousGeneration && resolve(generatedDir, previousGeneration),
     previousWindowsGeneration,
+    ...platform === 'win32' && !previousWindowsGeneration
+      ? existingGenerations.map(entry => resolve(generationsDir, entry))
+      : [],
   ].filter(Boolean))
   for (const entry of await readdir(generationsDir)) {
     const path = resolve(generationsDir, entry)

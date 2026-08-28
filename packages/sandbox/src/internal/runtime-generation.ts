@@ -1,4 +1,20 @@
-import { copyFile, rename, rm } from 'node:fs/promises'
+import { copyFile, readFile, rename, rm } from 'node:fs/promises'
+import { basename, resolve } from 'pathe'
+
+const generationMarker = '// vitehub-sandbox-generation: '
+
+export function markSandboxRuntimeGeneration(contents: string, generationDir: string): string {
+  return `${generationMarker}${basename(generationDir)}\n${contents}`
+}
+
+export async function readSandboxRuntimeGeneration(
+  facadeFile: string,
+  generationsDir: string,
+): Promise<string | undefined> {
+  const contents = await readFile(facadeFile, 'utf8').catch(() => undefined)
+  const name = contents?.split('\n', 1)[0]?.slice(generationMarker.length)
+  return name?.startsWith('runtime-') && basename(name) === name ? resolve(generationsDir, name) : undefined
+}
 
 interface SandboxRuntimeFileOperations {
   copyFile: typeof copyFile

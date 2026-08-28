@@ -135,15 +135,16 @@ function parseSandboxProjectOptions(manifest: PackageManifest, path: string): Sa
   }
 
   const timeout = sandbox.timeout
-  if (typeof timeout === 'undefined')
+  if (timeout === undefined)
     return undefined
-  if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout <= 0 || timeout > maxTimeout) {
+  const numericTimeout = Number(timeout)
+  if (numericTimeout !== timeout || !Number.isInteger(numericTimeout) || numericTimeout <= 0 || numericTimeout > maxTimeout) {
     throw new Error(
       `[vitehub] Sandbox package manifest "vitehub.sandbox.timeout" must be a positive integer no greater than ${maxTimeout}.`,
     )
   }
 
-  return { timeout }
+  return { timeout: numericTimeout }
 }
 
 function pnpmPatchPaths(manifest: PackageManifest) {
@@ -153,10 +154,12 @@ function pnpmPatchPaths(manifest: PackageManifest) {
 }
 
 export function parsePnpmWorkspacePatchPaths(source: string) {
-  const workspace = parseYaml(source) as { patchedDependencies?: unknown } | null
-  if (!workspace || !isPlainObject(workspace.patchedDependencies)) return []
-  return Object.values(workspace.patchedDependencies)
-    .filter((value): value is string => typeof value === 'string')
+  const workspace: unknown = parseYaml(source)
+  const patchedDependencies = isPlainObject(workspace) ? Reflect.get(workspace, 'patchedDependencies') : undefined
+  if (!isPlainObject(patchedDependencies)) return []
+  return Object.values(patchedDependencies)
+    .filter(value => value === String(value))
+    .map(String)
 }
 
 export function parsePnpmWorkspacePackages(source: string) {

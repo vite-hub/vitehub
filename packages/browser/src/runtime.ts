@@ -216,7 +216,7 @@ function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
         engine: runtimeConfig.engine,
       },
       configuredLoader
-        ? async () => await configuredLoader() as unknown as CloudflarePlaywrightDriver
+        ? async () => await configuredLoader()
         : () => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"),
     ),
   })
@@ -224,7 +224,7 @@ function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
 }
 
 function isBrowserDefinition(value: unknown): value is BrowserDefinition {
-  return !!value && typeof value === "object" && typeof (value as BrowserDefinition).run === "function"
+  return !!value && typeof value === "object" && "run" in value && typeof value.run === "function"
 }
 
 async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition> {

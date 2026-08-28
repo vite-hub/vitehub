@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   activateSandboxRuntimeFile,
+  markSandboxRuntimeGeneration,
   pruneSandboxRuntimeGeneration,
+  readSandboxRuntimeGeneration,
   resolveSandboxRuntimeLinkType,
 } from "../src/internal/runtime-generation.ts"
 
@@ -54,5 +56,19 @@ describe("Sandbox runtime preparation", () => {
     })
 
     await expect(pruneSandboxRuntimeGeneration("/generated/runtime", remove)).resolves.toBeUndefined()
+  })
+
+  it("reads the active Windows generation instead of sorting random suffixes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const generationsDir = join(root, ".runtime-generations")
+    const facade = join(root, "runtime", "sandbox.mjs")
+    await mkdir(join(root, "runtime"), { recursive: true })
+    await mkdir(generationsDir, { recursive: true })
+
+    for (const generation of ["runtime-zzz", "runtime-aaa", "runtime-mmm"]) {
+      await writeFile(facade, markSandboxRuntimeGeneration("export default {}\n", join(generationsDir, generation)))
+      await expect(readSandboxRuntimeGeneration(facade, generationsDir)).resolves.toBe(join(generationsDir, generation))
+    }
   })
 })
