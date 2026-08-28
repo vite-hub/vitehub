@@ -22,11 +22,21 @@ interface BrowserBuildConfig extends Record<string, unknown> {
   root: string
 }
 
+async function runHook(hook: unknown, ...args: unknown[]): Promise<unknown> {
+  if (hook instanceof Function) {
+    return await Reflect.apply(hook, undefined, args)
+  }
+  if (hook instanceof Object && "handler" in hook && hook.handler instanceof Function) {
+    return await Reflect.apply(hook.handler, undefined, args)
+  }
+  throw new TypeError("Expected a callable Vite hook")
+}
+
 async function runBrowserProviderOutput(plugin: ReturnType<typeof hubBrowser>, config: BrowserBuildConfig): Promise<void> {
-  await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
-  await (plugin.buildStart as unknown as () => Promise<void> | void)()
-  await (plugin.buildEnd as unknown as () => Promise<void> | void)()
-  await (plugin.closeBundle as { handler(): Promise<void> }).handler()
+  await runHook(plugin.configResolved, config)
+  await runHook(plugin.buildStart)
+  await runHook(plugin.buildEnd)
+  await runHook(plugin.closeBundle)
 }
 
 afterEach(async () => {
@@ -35,12 +45,13 @@ afterEach(async () => {
 
 describe("hubBrowser", () => {
   it("rejects an explicitly empty Browser engine", () => {
+    // SAFETY: This test intentionally passes an invalid engine to exercise runtime validation.
     expect(() => hubBrowser({ engine: "" as "chromium" })).toThrow(
       'Browser engine must be "chromium" or "kitesurf"',
     )
   })
 
-  it("composes the Cloudflare binding into Nitro config", () => {
+  it("composes the Cloudflare binding into Nitro config", async () => {
     const config: Record<string, unknown> = {
       nitro: {
         cloudflare: { wrangler: { compatibility_flags: ["existing"] } },
@@ -49,7 +60,7 @@ describe("hubBrowser", () => {
     }
     const plugin = hubBrowser({ binding: "MY_BROWSER", remote: true })
 
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await runHook(plugin.config, config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER", remote: true })
     expect(config).toHaveProperty("nitro.cloudflare.nodeCompat", true)
@@ -57,14 +68,14 @@ describe("hubBrowser", () => {
     expect(config).toHaveProperty("nitro.rollupConfig.external", ["existing-module", "cloudflare:workers"])
   })
 
-  it("honors top-level Browser config", () => {
+  it("honors top-level Browser config", async () => {
     const config: Record<string, unknown> = {
       browser: { binding: "TOP_LEVEL_BROWSER" },
       nitro: {},
     }
     const plugin = hubBrowser()
 
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await runHook(plugin.config, config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "TOP_LEVEL_BROWSER" })
     expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", engine: "kitesurf", remote: false })
@@ -89,13 +100,13 @@ describe("hubBrowser", () => {
       root,
     }
 
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
-    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await runHook(plugin.config, config)
+    await runHook(plugin.configResolved, config)
 
-    const registryId = (plugin.resolveId as (id: string) => string)("#vitehub/browser/registry")
-    const runtimeId = (plugin.resolveId as (id: string) => string)("#vitehub/browser/runtime")
-    const registry = await (plugin.load as (id: string) => string | Promise<string>)(registryId)
-    const runtime = await (plugin.load as (id: string) => string | Promise<string>)(runtimeId)
+    const registryId = await runHook(plugin.resolveId, "#vitehub/browser/registry")
+    const runtimeId = await runHook(plugin.resolveId, "#vitehub/browser/runtime")
+    const registry = await runHook(plugin.load, registryId)
+    const runtime = await runHook(plugin.load, runtimeId)
     const types = await readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")
 
     expect(registry).toContain('"code-image": async () => import(')
@@ -108,7 +119,7 @@ describe("hubBrowser", () => {
 
     const jsxDefinition = join(root, "server", "browsers", "jsx-browser.jsx")
     await writeFile(jsxDefinition, "export default defineBrowser(async () => undefined)\n", "utf8")
-    await (plugin.handleHotUpdate as unknown as (context: Record<string, unknown>) => Promise<void>)({
+    await runHook(plugin.handleHotUpdate, {
       file: jsxDefinition,
       server: {
         config: { root },
@@ -144,8 +155,8 @@ describe("hubBrowser", () => {
       root: appRoot,
     }
 
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
-    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await runHook(plugin.config, config)
+    await runHook(plugin.configResolved, config)
 
     await expect(readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")).resolves.toContain(
       "server/browsers/parent-definition.ts",
@@ -171,8 +182,8 @@ describe("hubBrowser", () => {
       root,
     }
 
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
-    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await runHook(plugin.config, config)
+    await runHook(plugin.configResolved, config)
 
     const types = await readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")
     expect(types).not.toContain("disabled-definition")
@@ -201,8 +212,8 @@ describe("hubBrowser", () => {
       root,
     }
 
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
-    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await runHook(plugin.config, config)
+    await runHook(plugin.configResolved, config)
     await writeFile(
       join(root, "consumer.ts"),
       [
@@ -244,6 +255,7 @@ describe("hubBrowser", () => {
       await execFileAsync(process.execPath, [tsc, "-p", root], { cwd: root })
     }
     catch (error) {
+      // SAFETY: Node execFile failures carry Error fields plus captured stdout and stderr.
       const output = error as Error & { stderr?: string, stdout?: string }
       throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
     }
@@ -432,14 +444,14 @@ describe("hubBrowser", () => {
     }
     const first = hubBrowser({ binding: "STALE_BROWSER" })
     const second = hubBrowser({ binding: "CURRENT_BROWSER", remote: true })
-    await (first.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
-    await (first.buildStart as unknown as () => void)()
-    await (first.buildEnd as unknown as () => void)()
+    await runHook(first.configResolved, config)
+    await runHook(first.buildStart)
+    await runHook(first.buildEnd)
 
-    await (second.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
-    await (second.buildStart as unknown as () => void)()
-    await (second.buildEnd as unknown as () => void)()
-    await (second.closeBundle as { handler(): Promise<void> }).handler()
+    await runHook(second.configResolved, config)
+    await runHook(second.buildStart)
+    await runHook(second.buildEnd)
+    await runHook(second.closeBundle)
 
     const outputFile = join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json")
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
@@ -449,6 +461,7 @@ describe("hubBrowser", () => {
 
   it("validates Browser options", () => {
     expect(() => hubBrowser({ binding: "bad-binding" })).toThrow("valid Cloudflare binding name")
+    // SAFETY: This test intentionally passes an invalid engine to exercise runtime validation.
     expect(() => hubBrowser({ engine: "webkit" as "kitesurf" })).toThrow("Browser engine")
   })
 })
