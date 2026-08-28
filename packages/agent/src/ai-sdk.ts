@@ -2359,6 +2359,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         abortListener = undefined
       }
       let started: Promise<StreamTextResult<ToolSet, never, never>> | undefined
+      let result: StreamTextResult<ToolSet, never, never>
       const start = (allowExpiredDeadline = false) => {
         if (started) return started
         // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
@@ -2372,11 +2373,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           onStepEnd: captureStep,
         } as never) as Promise<StreamTextResult<ToolSet, never, never>>).then((streamed) => {
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-          return withResolvedModelMetadata(withCapturedStreamUsage(
+          const resolved = withResolvedModelMetadata(withCapturedStreamUsage(
             // SAFETY: withCapturedUsage preserves the streamed result object and only replaces its usage accessors.
             withCapturedUsage(streamed, usageCaptures, usageReady) as StreamTextResult<ToolSet, never, never>,
             usageCaptures,
           ), model) as StreamTextResult<ToolSet, never, never>
+          const overrides = Object.getOwnPropertyDescriptors(result)
+          const resolvedDescriptors = Object.getOwnPropertyDescriptors(resolved)
+          for (const key of Reflect.ownKeys(overrides)) delete resolvedDescriptors[key]
+          Object.setPrototypeOf(result, Object.getPrototypeOf(resolved))
+          Object.defineProperties(result, resolvedDescriptors)
+          return resolved
         })
         return started
       }
@@ -2385,7 +2392,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         usageDriven ??= start().then(async (streamed) => {
           if (outputUsageLifecycle.drive) await outputUsageLifecycle.drive()
           else if (usageCapture.isStarted) await usageCapture.drive()
-          else for await (const _chunk of streamed.fullStream) {}
+          else {
+            const source = streamed.fullStream ?? streamed.stream ?? streamed.textStream
+              ?? (isAsyncIterable(streamed) ? streamed : undefined)
+            if (!source) throw new TypeError("[vitehub] AI SDK stream result did not expose an iterable stream.")
+            for await (const _chunk of source) {}
+          }
           return streamed
         })
         return usageDriven
@@ -2466,9 +2478,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           },
           async cancel(reason) {
             cancelled = true
-            cancelProvider(reason)
             try {
-              await (await getReader()).cancel(reason).catch(() => undefined)
+              const sourceReader = await getReader()
+              cancelProvider(reason)
+              await sourceReader.cancel(reason).catch(() => undefined)
             }
             finally {
               detachAbortListener()
@@ -2479,7 +2492,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         return stream
       }
       // SAFETY: The lazy facade implements the StreamTextResult members consumed by the adapter.
-      const result = asUnknownBoundary({
+      result = asUnknownBoundary({
         fullStream: lazyStream("fullStream"),
         stream: lazyStream("stream"),
         get textStream() {
@@ -2490,6 +2503,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         },
         get totalUsage() {
           return lazyUsage(streamed => streamed.totalUsage)
+        },
+        [Symbol.asyncIterator]() {
+          return lazyStream("fullStream")[Symbol.asyncIterator]()
         },
         toUIMessageStream(...args: unknown[]) {
           let reader: ReadableStreamDefaultReader<unknown> | undefined
@@ -2513,10 +2529,10 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
               }
             },
             async cancel(reason) {
-              cancelProvider(reason)
               try {
                 // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
                 reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
+                cancelProvider(reason)
                 const reading = reader.read()
                 await reader.cancel(reason)
                 await reading.catch(() => undefined)
