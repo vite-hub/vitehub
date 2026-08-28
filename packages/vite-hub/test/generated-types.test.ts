@@ -8,10 +8,14 @@ import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createEvent } from "h3-v1"
 
-const generatedHandlerReadGate = vi.hoisted(() => ({
-  path: undefined as string | undefined,
-  started: undefined as (() => void) | undefined,
-  wait: undefined as Promise<void> | undefined,
+const generatedHandlerReadGate = vi.hoisted<{
+  path: string | undefined
+  started: (() => void) | undefined
+  wait: Promise<void> | undefined
+}>(() => ({
+  path: undefined,
+  started: undefined,
+  wait: undefined,
 }))
 
 vi.mock("node:fs/promises", async (importOriginal) => {
