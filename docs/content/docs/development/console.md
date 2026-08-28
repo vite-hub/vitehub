@@ -164,7 +164,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Agents is absent from the Console home | Configure `agent`. The Console only lists primitives active in the same ViteHub configuration. |
 | KV is absent from the Console home | Configure `kv`. KV inspection is currently a read-only placeholder. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
-| A production build rejects `console: true` | Use `console: { access: 'auth' }` with callback-backed policies for both route groups, or acknowledge host middleware with `console: { exposure: 'host-managed' }`. Production also requires the Node preset. |
+| A production build rejects `console: true` | Configure an explicit production access contract: use `console: { access: 'auth' }` with callback-backed policies for both route groups, or acknowledge host middleware with `console: { exposure: 'host-managed' }`. The Node preset is required only while Agents are exposed; a KV-only Console may use another supported preset. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the host's `authorize` callback and the current user's role or permission. |
 
