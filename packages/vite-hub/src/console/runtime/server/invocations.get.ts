@@ -176,7 +176,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     }
     if (await recheckLaterGroups(backfillBudget)) {
       const refillLimit = await refillEarlierGroup()
-      await recheckLaterGroups(refillLimit)
+      if (await recheckLaterGroups(refillLimit)) await refillEarlierGroup()
     }
     const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
     remainingLimit = Math.max(0, pageLimit - returnedIds.size)
