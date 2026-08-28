@@ -4,8 +4,16 @@ import type { Import } from 'unimport'
 import type ts from 'typescript'
 
 const require = createRequire(import.meta.url)
-const typescript = require('typescript') as typeof import('typescript')
-const filesystemModuleSpecifiers = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises'])
+const typescript: typeof import('typescript') = require('typescript')
+const filesystemModuleSpecifiers = new Set([
+  'child_process',
+  'fs',
+  'fs/promises',
+  'node:child_process',
+  'node:fs',
+  'node:fs/promises',
+  'node:sqlite',
+])
 
 export interface FilesystemPathReference {
   path: string
@@ -17,6 +25,7 @@ export function resolveImportLocalName(entry: Import) {
 }
 
 function getScriptKind(id: string) {
+  // SAFETY: older supported TypeScript releases may omit the MTS and CTS enum members.
   const scriptKind = typescript.ScriptKind as typeof typescript.ScriptKind & {
     MTS?: typeof typescript.ScriptKind.TS
     CTS?: typeof typescript.ScriptKind.TS
@@ -176,12 +185,12 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
   }
 
   function visit(node: ts.Node) {
-    if (typescript.isCallExpression(node)) {
+    if (typescript.isCallExpression(node) || typescript.isNewExpression(node)) {
       const direct = typescript.isIdentifier(node.expression) && directBindings.has(node.expression.text)
       const root = propertyAccessRoot(node.expression).current
       const namespaced = typescript.isIdentifier(root) && namespaceBindings.has(root.text)
       if (direct || namespaced) {
-        const reference = readFilesystemPathReference(node.arguments[0])
+        const reference = readFilesystemPathReference(node.arguments?.[0])
         if (reference)
           references.push(reference)
       }
@@ -273,10 +282,9 @@ function isExecutableIdentifierReference(node: ts.Identifier) {
     typescript.isContinueStatement(parent)
   )
     return false
-  const namedParent = parent as ts.Node & { name?: ts.Node }
-  if (!typescript.isShorthandPropertyAssignment(parent) && namedParent.name === node) return false
-  const propertyParent = parent as ts.Node & { propertyName?: ts.Node }
-  return propertyParent.propertyName !== node
+  if (!typescript.isShorthandPropertyAssignment(parent) && 'name' in parent && parent.name === node)
+    return false
+  return !('propertyName' in parent) || parent.propertyName !== node
 }
 
 export function findExecutableCommonJSModuleSpecifiers(sources: ReadonlyMap<string, string>) {

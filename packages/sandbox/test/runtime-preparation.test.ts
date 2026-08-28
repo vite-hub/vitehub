@@ -249,11 +249,12 @@ describe("Sandbox runtime preparation", () => {
   it("marks a lock released when filesystem cleanup fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)
+    const removeLock: typeof rm = async () => {
+      throw Object.assign(new Error("busy"), { code: "EBUSY" })
+    }
 
     await expect(withSandboxRuntimeGenerationLock(root, async () => "generated", {
-      removeLock: (async () => {
-        throw Object.assign(new Error("busy"), { code: "EBUSY" })
-      }) as typeof rm,
+      removeLock,
     })).resolves.toBe("generated")
     await expect(withSandboxRuntimeGenerationLock(root, async () => "recovered")).resolves.toBe("recovered")
   })
@@ -275,19 +276,21 @@ describe("Sandbox runtime preparation", () => {
     const successorStarted = new Promise<void>((resolve) => { markSuccessorStarted = resolve })
     const successorReleased = new Promise<void>((resolve) => { releaseSuccessor = resolve })
 
+    const removeLock: typeof rm = async (path, options) => {
+      expect(path).not.toBe(lockDir)
+      markRemovalStarted()
+      await removalContinued
+      await rm(path, options)
+    }
+    const retireLock: typeof rename = async (from, to) => {
+      expect(from).toBe(lockDir)
+      markRetirementStarted()
+      await retirementContinued
+      await rename(from, to)
+    }
     const first = withSandboxRuntimeGenerationLock(root, async () => "first", {
-      removeLock: (async (path, options) => {
-        expect(path).not.toBe(lockDir)
-        markRemovalStarted()
-        await removalContinued
-        await rm(path, options)
-      }) as typeof rm,
-      retireLock: (async (from, to) => {
-        expect(from).toBe(lockDir)
-        markRetirementStarted()
-        await retirementContinued
-        await rename(from, to)
-      }) as typeof rename,
+      removeLock,
+      retireLock,
     })
     await retirementStarted
     let successorDidStart = false
@@ -387,6 +390,20 @@ describe("Sandbox runtime preparation", () => {
     await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")
   })
 
+  it("reclaims an abandoned uninitialized lock before the wait deadline", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    await mkdir(lockDir)
+    const abandoned = new Date(Date.now() - 6_000)
+    await utimes(lockDir, abandoned, abandoned)
+
+    await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed", {
+      pollMs: 5,
+      waitMs: 250,
+    })).resolves.toBe("reclaimed")
+  })
+
   it("reclaims an aged generation lock owned on another host", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)
@@ -444,6 +461,43 @@ describe("Sandbox runtime preparation", () => {
     expect(order).toEqual(["first-start", "first-end", "second"])
   })
 
+  it("does not reclaim a remote writer during runtime publication", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    let releasePublication!: () => void
+    let markPublicationStarted!: () => void
+    const publicationStarted = new Promise<void>((resolve) => { markPublicationStarted = resolve })
+    const publicationReleased = new Promise<void>((resolve) => { releasePublication = resolve })
+    const lockOptions = {
+      heartbeatMs: 60_000,
+      host: "remote-host",
+      pollMs: 5,
+      staleMs: 10,
+      waitMs: 1_000,
+    }
+
+    const first = withSandboxRuntimeGenerationLock(root, async (lease) => {
+      await lease.publish(async () => {
+        const stale = new Date(Date.now() - 1_000)
+        await utimes(join(root, ".runtime-generation.lock/lease"), stale, stale)
+        markPublicationStarted()
+        await publicationReleased
+      })
+    }, lockOptions)
+    await publicationStarted
+
+    let successorStarted = false
+    const successor = withSandboxRuntimeGenerationLock(root, async () => {
+      successorStarted = true
+    }, lockOptions)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(successorStarted).toBe(false)
+
+    releasePublication()
+    await Promise.all([first, successor])
+    expect(successorStarted).toBe(true)
+  })
+
   it("recovers an aged malformed generation lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)
@@ -480,14 +534,14 @@ describe("Sandbox runtime preparation", () => {
   it("makes a lock reclaimable when release removal fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)
-    const removeLock = vi.fn(async () => {
+    const removeLock = vi.fn<typeof rm>(async () => {
       throw Object.assign(new Error("busy"), { code: "EBUSY" })
     })
 
     await expect(withSandboxRuntimeGenerationLock(
       root,
       async () => "released",
-      { removeLock: removeLock as typeof rm },
+      { removeLock },
     )).resolves.toBe("released")
     expect(removeLock).toHaveBeenCalledOnce()
     await expect(withSandboxRuntimeGenerationLock(root, async () => "reclaimed")).resolves.toBe("reclaimed")

@@ -129,6 +129,7 @@ function diagnosticText(value: unknown, secrets: readonly string[]) {
       text = JSON.stringify(value, (_key, nested) =>
         typeof nested === "string" ? redactDiagnosticString(nested, patterns) : nested
       );
+      text = redactDiagnosticJson(text, patterns);
     } catch {}
   }
   text ||= String(value);
@@ -141,5 +142,13 @@ function diagnosticText(value: unknown, secrets: readonly string[]) {
 
 function redactDiagnosticString(value: string, patterns: readonly string[]) {
   for (const secret of patterns) value = value.replaceAll(secret, "[redacted]");
+  return value;
+}
+
+function redactDiagnosticJson(value: string, patterns: readonly string[]) {
+  for (const secret of patterns) {
+    const encoded = JSON.stringify(secret).slice(1, -1);
+    value = value.replaceAll(encoded, "[redacted]");
+  }
   return value;
 }

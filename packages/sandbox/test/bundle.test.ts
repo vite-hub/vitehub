@@ -45,6 +45,35 @@ describe("bundleSandboxDefinition assets", () => {
     expect(bundle.modules[bundle.entry]).toContain('from "node:fs/promises"')
   })
 
+  it.each([
+    [
+      "child process executable",
+      "import { execFile } from 'node:child_process'\nexport default { run: async () => execFile('./scripts/task.sh') }\n",
+    ],
+    [
+      "SQLite database",
+      "import { DatabaseSync } from 'node:sqlite'\nexport default { run: async () => new DatabaseSync('./data/app.db').close() }\n",
+    ],
+  ])("keeps project assets used as a %s", async (_name, source) => {
+    const project: SandboxProject = {
+      digest: "builtin-asset-fixture",
+      files: {
+        "data/app.db": { contents: "", encoding: "base64" },
+        "scripts/task.sh": { contents: "", encoding: "base64" },
+      },
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+
+    const bundle = await bundleSandboxDefinition(source, "/fixture/run.sandbox.ts", {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project?.files).toEqual(project.files)
+    expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
   it("keeps project assets used through the Node filesystem API", async () => {
     const project: SandboxProject = {
       digest: "fixture",

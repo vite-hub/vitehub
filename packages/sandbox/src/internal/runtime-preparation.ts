@@ -308,78 +308,82 @@ async function writeSandboxArtifactsLocked(
     )
     await lease.assertOwned()
     if (platform === 'win32') {
-      await lease.assertOwned()
-      await mkdir(runtimeDir, { recursive: true })
-      const stableDefinitions = [...emitted.values()].filter(artifact => artifact.key.startsWith('sandbox-definition:'))
-      for (const artifact of stableDefinitions) {
+      await lease.publish(async () => {
         await lease.assertOwned()
-        await mkdir(dirname(artifact.stableDst), { recursive: true })
-        const stagedDefinition = resolve(
-          generatedDir,
-          `.runtime-definition-${generationDir.slice(generationsDir.length + 1)}-${basename(artifact.stableDst)}`,
-        )
-        await activateSandboxRuntimeFile(artifact.dst, artifact.stableDst, stagedDefinition)
-      }
-      if (typeTemplate) {
-        await lease.assertOwned()
-        const relativePath = typeTemplate.filename.replace(/^runtime\//, '')
-        const stagedType = resolve(generatedDir, `.runtime-types-${generationDir.slice(generationsDir.length + 1)}.d.ts`)
-        await activateSandboxRuntimeFile(
-          resolve(generationDir, relativePath),
-          resolve(runtimeDir, relativePath),
-          stagedType,
-        )
-      }
-      await lease.assertOwned()
-      const stagedFacade = resolve(generatedDir, `.runtime-facade-${generationDir.slice(generationsDir.length + 1)}.mjs`)
-      await activateSandboxRuntimeFile(generationFacadeFile, resolve(runtimeDir, 'sandbox.mjs'), stagedFacade)
-      activated = true
-      const stableDefinitionDir = resolve(runtimeDir, 'sandbox-definitions')
-      const retainedDefinitions = new Set(stableDefinitions.map(artifact => artifact.stableDst))
-      for (const entry of await readdir(stableDefinitionDir).catch(() => [])) {
-        const path = resolve(stableDefinitionDir, entry)
-        if (!retainedDefinitions.has(path)) {
+        await mkdir(runtimeDir, { recursive: true })
+        const stableDefinitions = [...emitted.values()].filter(artifact => artifact.key.startsWith('sandbox-definition:'))
+        for (const artifact of stableDefinitions) {
           await lease.assertOwned()
-          await pruneSandboxRuntimeGeneration(path)
+          await mkdir(dirname(artifact.stableDst), { recursive: true })
+          const stagedDefinition = resolve(
+            generatedDir,
+            `.runtime-definition-${generationDir.slice(generationsDir.length + 1)}-${basename(artifact.stableDst)}`,
+          )
+          await activateSandboxRuntimeFile(artifact.dst, artifact.stableDst, stagedDefinition)
         }
-      }
+        if (typeTemplate) {
+          await lease.assertOwned()
+          const relativePath = typeTemplate.filename.replace(/^runtime\//, '')
+          const stagedType = resolve(generatedDir, `.runtime-types-${generationDir.slice(generationsDir.length + 1)}.d.ts`)
+          await activateSandboxRuntimeFile(
+            resolve(generationDir, relativePath),
+            resolve(runtimeDir, relativePath),
+            stagedType,
+          )
+        }
+        await lease.assertOwned()
+        const stagedFacade = resolve(generatedDir, `.runtime-facade-${generationDir.slice(generationsDir.length + 1)}.mjs`)
+        await activateSandboxRuntimeFile(generationFacadeFile, resolve(runtimeDir, 'sandbox.mjs'), stagedFacade)
+        activated = true
+        const stableDefinitionDir = resolve(runtimeDir, 'sandbox-definitions')
+        const retainedDefinitions = new Set(stableDefinitions.map(artifact => artifact.stableDst))
+        for (const entry of await readdir(stableDefinitionDir).catch(() => [])) {
+          const path = resolve(stableDefinitionDir, entry)
+          if (!retainedDefinitions.has(path)) {
+            await lease.assertOwned()
+            await pruneSandboxRuntimeGeneration(path)
+          }
+        }
+      })
     }
     else {
-      await lease.assertOwned()
-      await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(platform))
-      await lease.assertOwned()
-
-      try {
-        await rename(stagedLink, runtimeDir)
-        activated = true
-      }
-      catch (error) {
-        const code = readNodeErrorCode(error)
-        if (code !== 'EEXIST' && code !== 'EISDIR' && code !== 'ENOTEMPTY')
-          throw error
-
+      await lease.publish(async () => {
         await lease.assertOwned()
-        await rename(runtimeDir, legacyRuntimeDir)
+        await symlink(generationDir, stagedLink, resolveSandboxRuntimeLinkType(platform))
+        await lease.assertOwned()
+
         try {
-          await lease.assertOwned()
           await rename(stagedLink, runtimeDir)
           activated = true
         }
-        catch (activationError) {
+        catch (error) {
+          const code = readNodeErrorCode(error)
+          if (code !== 'EEXIST' && code !== 'EISDIR' && code !== 'ENOTEMPTY')
+            throw error
+
+          await lease.assertOwned()
+          await rename(runtimeDir, legacyRuntimeDir)
           try {
-            await restoreSandboxRuntimeGeneration(legacyRuntimeDir, runtimeDir, lease)
+            await lease.assertOwned()
+            await rename(stagedLink, runtimeDir)
+            activated = true
           }
-          catch (rollbackError) {
-            throw new AggregateError(
-              [activationError, rollbackError],
-              `[vitehub] Sandbox runtime activation failed; the previous runtime is retained at ${legacyRuntimeDir}.`,
-            )
+          catch (activationError) {
+            try {
+              await restoreSandboxRuntimeGeneration(legacyRuntimeDir, runtimeDir, lease)
+            }
+            catch (rollbackError) {
+              throw new AggregateError(
+                [activationError, rollbackError],
+                `[vitehub] Sandbox runtime activation failed; the previous runtime is retained at ${legacyRuntimeDir}.`,
+              )
+            }
+            throw activationError
           }
-          throw activationError
+          await lease.assertOwned()
+          await pruneSandboxRuntimeGeneration(legacyRuntimeDir)
         }
-        await lease.assertOwned()
-        await pruneSandboxRuntimeGeneration(legacyRuntimeDir)
-      }
+      })
     }
   }
   finally {
@@ -393,14 +397,16 @@ async function writeSandboxArtifactsLocked(
     previousGeneration && resolve(generatedDir, previousGeneration),
     previousWindowsGeneration,
   ].filter(Boolean))
-  await lease.assertOwned()
-  for (const entry of await readdir(generationsDir)) {
-    const path = resolve(generationsDir, entry)
-    if (!retained.has(path)) {
-      await lease.assertOwned()
-      await pruneSandboxRuntimeGeneration(path)
+  await lease.publish(async () => {
+    await lease.assertOwned()
+    for (const entry of await readdir(generationsDir)) {
+      const path = resolve(generationsDir, entry)
+      if (!retained.has(path)) {
+        await lease.assertOwned()
+        await pruneSandboxRuntimeGeneration(path)
+      }
     }
-  }
+  })
 
   return emitted
 }
