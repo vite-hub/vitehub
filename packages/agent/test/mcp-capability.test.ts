@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { Mock } from "vitest"
-import type { MCPClient } from "@ai-sdk/mcp"
+import type { JSONRPCMessage, MCPClient, MCPTransport } from "@ai-sdk/mcp"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -126,7 +126,7 @@ describe("mcp capability", () => {
       }, runtime(), {})
 
       expect(createMCPClient).toHaveBeenCalledWith(expect.objectContaining({
-        initializationOptions: { protocolVersionDiscovery: false },
+        protocolVersionDiscovery: false,
         transport: expect.objectContaining({ type: "http", url: "https://example.com/mcp" }),
       }))
       expect(resolved.tools?.mcp_github_search.metadata).toMatchObject({
@@ -165,7 +165,7 @@ describe("mcp capability", () => {
       }, runtime(), {})
 
       expect(createMCPClient).toHaveBeenCalledWith({
-        initializationOptions: { protocolVersionDiscovery: false },
+        protocolVersionDiscovery: false,
         transport: { type: "http", url: endpoint },
       })
       expect(resolved.tools?.mcp_private_search.metadata).toMatchObject({
@@ -192,7 +192,7 @@ describe("mcp capability", () => {
         capabilities: [mcp({
           servers: {
             discovery: {
-              initializationOptions: { protocolVersionDiscovery: true },
+              protocolVersionDiscovery: true,
               transport: { type: "http", url: "https://modern.example.com/mcp" },
             },
             legacy: { transport: { type: "http", url: "https://legacy.example.com/mcp" } },
@@ -201,11 +201,11 @@ describe("mcp capability", () => {
       }, runtime(), {})
 
       expect(createMCPClient).toHaveBeenNthCalledWith(1, {
-        initializationOptions: { protocolVersionDiscovery: true },
+        protocolVersionDiscovery: true,
         transport: { type: "http", url: "https://modern.example.com/mcp" },
       })
       expect(createMCPClient).toHaveBeenNthCalledWith(2, {
-        initializationOptions: { protocolVersionDiscovery: false },
+        protocolVersionDiscovery: false,
         transport: { type: "http", url: "https://legacy.example.com/mcp" },
       })
       await resolved.close()
@@ -213,6 +213,52 @@ describe("mcp capability", () => {
     finally {
       vi.doUnmock("@ai-sdk/mcp")
     }
+  })
+
+  it.each([
+    { firstMethod: "initialize", protocolVersionDiscovery: undefined },
+    { firstMethod: "server/discover", protocolVersionDiscovery: true },
+  ])("sends $firstMethod first with the shipped MCP client", async ({ firstMethod, protocolVersionDiscovery }) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const methods: string[] = []
+    let protocolVersion = "2025-11-25"
+    const transport: MCPTransport = {
+      close: vi.fn(async () => undefined),
+      send: vi.fn(async (message) => {
+        if (!("method" in message)) return
+        methods.push(message.method)
+        if (!("id" in message)) return
+        const result = message.method === "server/discover"
+          ? { capabilities: {}, supportedVersions: [protocolVersion] }
+          : message.method === "initialize"
+            ? {
+                capabilities: { tools: {} },
+                protocolVersion,
+                serverInfo: { name: "test", version: "1.0.0" },
+              }
+            : { tools: [] }
+        const response: JSONRPCMessage = { id: message.id, jsonrpc: "2.0", result }
+        queueMicrotask(() => transport.onmessage?.(response))
+      }),
+      setProtocolVersion(version) {
+        protocolVersion = version
+      },
+      start: vi.fn(async () => undefined),
+      supportsProtocolVersionDiscovery: true,
+    }
+    const connection: { protocolVersionDiscovery?: boolean, transport: MCPTransport } = { transport }
+    if (protocolVersionDiscovery !== undefined) connection.protocolVersionDiscovery = protocolVersionDiscovery
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          test: connection,
+        },
+      })],
+    }, runtime(), {})
+
+    expect(methods[0]).toBe(firstMethod)
+    await resolved.close()
   })
 
   it("resolves server factories that return clients or config objects", async () => {

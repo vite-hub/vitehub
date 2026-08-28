@@ -1,4 +1,5 @@
 import { defineMcpToolCapability, sanitizeMcpMetadata } from "../internal/mcp-tool-capability.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -6,7 +7,7 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
-import type { McpToolFingerprints } from "../mcp/types.ts"
+import type { McpClientConfig, McpToolFingerprints } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 export type ExecutorCredential = string | { unseal: () => string }
@@ -30,12 +31,8 @@ export type ExecutorCapabilityOptions<
 
 const defaultExecutorConnectionTimeout = 30_000
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 function executorUrl(value: unknown): URL {
-  if (typeof value !== "string" && !(value instanceof URL)) {
+  if (!hasRuntimeType(value, "string") && !(value instanceof URL)) {
     throw new TypeError("[vitehub] executor({ url }) requires an HTTP MCP endpoint URL.")
   }
   let url: URL
@@ -56,27 +53,27 @@ function executorUrl(value: unknown): URL {
 
 function assertExecutorIntegrity(value: unknown): asserts value is McpToolFingerprints | undefined {
   if (value === undefined) return
-  if (!isRecord(value) || Object.values(value).some(fingerprint => typeof fingerprint !== "string")) {
+  if (!isRuntimeRecord(value) || Object.values(value).some(fingerprint => !hasRuntimeType(fingerprint, "string"))) {
     throw new TypeError("[vitehub] executor({ integrity }) requires a tool fingerprint map.")
   }
 }
 
 function assertExecutorCredential(value: unknown): asserts value is ExecutorCredential {
-  if (typeof value === "string") {
+  if (hasRuntimeType(value, "string")) {
     if (value.trim()) return
     throw new TypeError("[vitehub] executor({ apiKey }) must not be empty when provided.")
   }
-  if (isRecord(value) && typeof value.unseal === "function") return
+  if (isRuntimeRecord(value) && hasRuntimeType(value.unseal, "function")) return
   throw new TypeError("[vitehub] executor({ apiKey }) requires a string or sealed Server Env value when provided.")
 }
 
 function assertExecutorConnectionOptions(value: unknown): asserts value is ExecutorConnectionOptions {
-  if (!isRecord(value)) {
+  if (!isRuntimeRecord(value)) {
     throw new TypeError("[vitehub] executor() requires connection options or a connection resolver.")
   }
   const url = executorUrl(value.url)
   assertExecutorIntegrity(value.integrity)
-  if (value.timeout !== undefined && (typeof value.timeout !== "number" || !Number.isFinite(value.timeout) || value.timeout <= 0)) {
+  if (value.timeout !== undefined && (!hasRuntimeType(value.timeout, "number") || !Number.isFinite(value.timeout) || value.timeout <= 0)) {
     throw new TypeError("[vitehub] executor({ timeout }) requires a positive number of milliseconds.")
   }
   if (Object.hasOwn(value, "apiKey")) {
@@ -88,8 +85,8 @@ function assertExecutorConnectionOptions(value: unknown): asserts value is Execu
 }
 
 function resolveExecutorCredential(value: ExecutorCredential): string {
-  const credential = typeof value === "string" ? value : value.unseal()
-  if (typeof credential !== "string" || !credential.trim()) {
+  const credential = hasRuntimeType(value, "string") ? value : value.unseal()
+  if (!hasRuntimeType(credential, "string") || !credential.trim()) {
     throw new TypeError("[vitehub] executor({ apiKey }) must resolve to a non-empty string.")
   }
   return credential
@@ -104,7 +101,7 @@ export function executor<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(options: ExecutorCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
-  if (typeof options !== "function" && options !== false && options !== null && options !== undefined) {
+  if (!hasRuntimeType(options, "function") && options !== false && options !== null && options !== undefined) {
     assertExecutorConnectionOptions(options)
   }
 
@@ -118,11 +115,11 @@ export function executor<
     servers: [{
       name: "executor",
       async resolve(context) {
-        const resolved = typeof options === "function" ? await options(context) : options
+        const resolved = hasRuntimeType(options, "function") ? await options(context) : options
         if (resolved === false || resolved === null || resolved === undefined) return
         assertExecutorConnectionOptions(resolved)
         const url = executorUrl(resolved.url)
-        const transport: Record<string, unknown> = {
+        const transport: McpClientConfig["transport"] = {
           type: "http",
           url: url.href,
         }

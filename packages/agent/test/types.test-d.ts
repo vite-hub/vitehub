@@ -71,7 +71,7 @@ describe("agent public types", () => {
     }
 
     executor(connection)
-    const enabled = false as boolean
+    const enabled: boolean = false
     executor(enabled ? connection : false)
     executor(null)
     executor(undefined)

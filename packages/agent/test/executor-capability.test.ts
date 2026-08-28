@@ -16,11 +16,13 @@ type MockMcpClient = MCPClient & {
 }
 
 function createClient(tools: Record<string, unknown>): MockMcpClient {
-  return {
+  const client = {
     close: vi.fn(async () => undefined),
     serverInfo: { name: "executor", version: "1.0.0" },
     tools: vi.fn(async () => tools),
-  } as unknown as MockMcpClient
+  }
+  // SAFETY: This focused fixture implements the MCP client members used by the Capability boundary.
+  return client as MockMcpClient
 }
 
 async function createTools(descriptions: Record<string, string>) {
@@ -34,6 +36,7 @@ async function createTools(descriptions: Record<string, string>) {
 
 async function fingerprintTools(tools: Record<string, unknown>) {
   const aiSdk = await import("ai")
+  // SAFETY: createTools constructs AI SDK tool definitions, while the helper keeps their generic shape opaque.
   return await aiSdk.fingerprintTools(tools as never)
 }
 
@@ -212,8 +215,8 @@ describe("executor capability", () => {
       createClient({ execute: { execute: vi.fn() } }),
       createClient({ execute: { execute: vi.fn() } }),
     ]
-    const createdConfigs: unknown[] = []
-    const createMCPClient = vi.fn(async (config: unknown) => {
+    const createdConfigs: Array<{ transport: { headers: { Authorization: string } } }> = []
+    const createMCPClient = vi.fn(async (config: { transport: { headers: { Authorization: string } } }) => {
       createdConfigs.push(config)
       const client = clients.shift()
       if (!client) throw new Error("Unexpected Executor connection")
@@ -233,9 +236,7 @@ describe("executor capability", () => {
       const second = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {})
       await second.close()
 
-      expect(createdConfigs.map(config => (config as {
-        transport: { headers: { Authorization: string } }
-      }).transport.headers.Authorization)).toEqual([
+      expect(createdConfigs.map(config => config.transport.headers.Authorization)).toEqual([
         "Bearer first",
         "Bearer second",
       ])

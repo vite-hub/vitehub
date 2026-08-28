@@ -1,4 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { loadAiSdk } from "./ai-sdk-runtime.ts"
 
@@ -11,7 +12,6 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { McpClient, McpClientConfig, McpToolFingerprints } from "../mcp/types.ts"
-import type { MCPClientConfig as AiSdkMcpClientConfig } from "@ai-sdk/mcp"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 interface McpToolDrift {
@@ -63,15 +63,13 @@ function mcpToolDefinitionDriftError(server: string, drift: McpToolDrift, integr
 }
 
 function isMcpClient(value: unknown): value is McpClient {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as { tools?: unknown }).tools === "function"
-    && typeof (value as { close?: unknown }).close === "function"
+  return isRuntimeRecord(value)
+    && hasRuntimeType(value.tools, "function")
+    && hasRuntimeType(value.close, "function")
 }
 
 function isMcpClientConfig(value: unknown): value is McpClientConfig {
-  return typeof value === "object"
-    && value !== null
+  return isRuntimeObject(value)
     && "transport" in value
 }
 
@@ -93,15 +91,15 @@ function sanitizeMetadataUrl(value: string | URL): string {
 }
 
 export function sanitizeMcpMetadata(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (typeof value === "function") return "[function]"
-  if (typeof value === "string") return sanitizeMetadataUrl(value)
-  if (!value || typeof value !== "object") return value
+  if (hasRuntimeType(value, "function")) return "[function]"
+  if (hasRuntimeType(value, "string")) return sanitizeMetadataUrl(value)
+  if (!isRuntimeObject(value)) return value
   if (value instanceof URL) return sanitizeMetadataUrl(value)
   if (seen.has(value)) return "[circular]"
   seen.add(value)
   if (Array.isArray(value)) return value.map(item => sanitizeMcpMetadata(item, seen))
   const output: Record<string, unknown> = {}
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, item] of Object.entries(value)) {
     output[key] = secretKeyPattern.test(key) ? "[redacted]" : sanitizeMcpMetadata(item, seen)
   }
   return output
@@ -109,14 +107,15 @@ export function sanitizeMcpMetadata(value: unknown, seen = new WeakSet<object>()
 
 async function createMcpClient(config: McpClientConfig): Promise<McpClient> {
   const runtime = await import("@ai-sdk/mcp")
-  return await runtime.createMCPClient(config as AiSdkMcpClientConfig)
+  return await runtime.createMCPClient(config)
 }
 
 async function assertMcpToolIntegrity(server: string, tools: Record<string, unknown>, baseline: McpToolFingerprints, integrityLabel: string): Promise<void> {
   const aiSdk = await loadAiSdk()
-  if (typeof aiSdk.fingerprintTools !== "function" || typeof aiSdk.detectToolDrift !== "function") {
+  if (!hasRuntimeType(aiSdk.fingerprintTools, "function") || !hasRuntimeType(aiSdk.detectToolDrift, "function")) {
     throw new TypeError(`[vitehub] ${integrityLabel} requires ai 7.0.19 or newer.`)
   }
+  // SAFETY: MCP client tool discovery returns AI SDK tool definitions, while the public adapter keeps their generic shape opaque.
   const current = await aiSdk.fingerprintTools(tools as never)
   const drift = aiSdk.detectToolDrift(current, baseline)
   if (drift.added.length || drift.changed.length) {
@@ -170,6 +169,7 @@ export function defineMcpToolCapability<
           await assertMcpToolIntegrity(server.name, serverTools, serverDefinition.integrity, options.integrityLabel)
         }
         for (const [toolName, tool] of Object.entries(serverTools || {})) {
+          // SAFETY: McpClient.tools() establishes that each discovered entry is an Agent tool definition.
           const definition = tool as AgentToolDefinition & { metadata?: Record<string, unknown> }
           const name = options.toolName(server.name, toolName)
           if (tools[name]) {

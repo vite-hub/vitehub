@@ -25,10 +25,7 @@ function withMcpInitializationCompatibility(connection: McpClient | McpClientCon
   if (!isMcpClientConfig(connection)) return connection
   return {
     ...connection,
-    initializationOptions: {
-      protocolVersionDiscovery: false,
-      ...connection.initializationOptions,
-    },
+    protocolVersionDiscovery: connection.protocolVersionDiscovery ?? false,
   }
 }
 

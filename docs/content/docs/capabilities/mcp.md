@@ -74,7 +74,7 @@ Pass a resolver or client config for an invocation-owned connection, or a static
 An absent entry contributes no tools and creates no MCP client. Other configured servers still resolve.
 Thrown resolver errors and connection, authentication, discovery, integrity, and cleanup failures remain errors; ViteHub does not mistake a broken configured server for optional setup.
 
-Generic MCP client configurations default `initializationOptions.protocolVersionDiscovery` to `false` so existing initialize-first servers remain compatible. Set it to `true` on a client configuration when the server supports protocol-version discovery.
+Generic MCP client configurations default top-level `protocolVersionDiscovery` to `false` so existing initialize-first servers remain compatible. Set it to `true` on a client configuration when the server supports protocol-version discovery.
 
 The Capability redacts secret-shaped metadata keys before exposing MCP metadata.
 
