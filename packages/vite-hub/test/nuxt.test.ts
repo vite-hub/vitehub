@@ -464,10 +464,10 @@ describe("ViteHub Nuxt integration", () => {
       await development.runBuilderWatchHook()
       await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
 
-      const invocationRootPlugin = development.nuxt.options.vite.plugins
+      const invocationRootPlugin = (development.nuxt.options.vite.plugins as unknown[])
         .flat(Infinity)
         .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")
-      if (!invocationRootPlugin) throw new TypeError("Expected the Console invocation root plugin.")
+      if (!isTestRecord(invocationRootPlugin)) throw new TypeError("Expected the Console invocation root plugin.")
       const closeBundle = invocationRootPlugin.closeBundle
       const closeBundleHandler = isTestRecord(closeBundle) ? closeBundle.handler : closeBundle
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
