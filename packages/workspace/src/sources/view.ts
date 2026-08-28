@@ -9,6 +9,7 @@ import {
   hasFreshSourceSnapshot,
   materializesCompleteSource,
   materializeWorkspaceSources,
+  readCurrentSourceSnapshot,
   readResolvedSourceFile,
   searchMaterializedStore,
   statVirtualSourcePath,
@@ -544,7 +545,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         let shouldRefreshCachedLazy = false
         if (resolution.source.materialize === "lazy" && Number.isFinite(cacheMaxAge)) {
           shouldRefreshCachedLazy = materializedSources.has(resolution.sourceKey)
-            || await hasCurrentSourceSnapshot(store, resolution.source)
+            || Boolean(await readCurrentSourceSnapshot(store, resolution.source))
         }
         if (shouldRefreshCachedLazy) {
           await ensureMaterialized(resolution.sourceKey)
