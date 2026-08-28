@@ -278,6 +278,12 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     }
   }
 
+  async function resolvePublishWorkspace() {
+    const workspace = await resolveWorkspace()
+    const sync = await workspaceDefinitionSyncState(workspace)
+    return sync.promise ? await resolveSyncedWorkspace() : workspace
+  }
+
   const workspace = {
     async [workspaceMetadataTarget]() {
       const resolved = await resolveWorkspace()
@@ -343,7 +349,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       return await materializeWorkspaceSources(await resolveSyncedWorkspace(options?.abortSignal), options)
     },
     async publish(options) {
-      await (await resolveSyncedWorkspace()).publish(options)
+      await (await resolvePublishWorkspace()).publish(options)
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
