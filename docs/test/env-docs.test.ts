@@ -126,7 +126,7 @@ function envCalls(source: string) {
   return { calls, sourceFile };
 }
 
-function sectionObjects(sourceFile: Node) {
+function sectionObjects(sourceFile: Node, declarations: ReadonlySet<Node>) {
   const bindings = new Map<Node, Map<string, Expression | FunctionDeclaration>>();
   const configBindings = new Set(["defineConfig"]);
   const configCombinators = new Set(["mergeConfig"]);
@@ -358,13 +358,19 @@ function sectionObjects(sourceFile: Node) {
     });
   }
 
+  type DeepProperty = {
+    path?: readonly string[];
+    property: Node;
+  };
+  type DeepProperties = Map<string | Node, DeepProperty>;
+
   function deepEffectiveProperties(
     expression: Expression,
     prefix: readonly (string | Node)[] = [],
     seen = new Set<ObjectLiteralExpression>(),
-  ): EffectiveProperties[] {
+  ): DeepProperties[] {
     return effectiveProperties(expression, seen).flatMap((properties) => {
-      let alternatives: EffectiveProperties[] = [new Map()];
+      let alternatives: DeepProperties[] = [new Map()];
       for (const [name, property] of properties) {
         const value = propertyValue(property);
         const nested = value ? deepEffectiveProperties(value, [...prefix, name], seen) : [];
@@ -374,12 +380,15 @@ function sectionObjects(sourceFile: Node) {
           );
         } else {
           for (const effective of alternatives) {
-            effective.set(
-              [...prefix, name].every((segment) => typeof segment === "string")
-                ? JSON.stringify([...prefix, name])
-                : property,
+            const segments = [...prefix, name];
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- propertyName returns strings while unresolved computed names retain their AST node identity.
+            const hasCompletePath = segments.every((segment) => typeof segment === "string");
+            // SAFETY: hasCompletePath verifies every segment before this array is used as a string path.
+            const completePath = hasCompletePath ? (segments as string[]) : undefined;
+            effective.set(completePath ? JSON.stringify(completePath) : property, {
+              path: completePath,
               property,
-            );
+            });
           }
         }
       }
@@ -392,29 +401,37 @@ function sectionObjects(sourceFile: Node) {
     if (isShorthandPropertyAssignment(property)) return property.name;
   }
 
-  type ConfigSections = Map<"define" | "public", EffectiveProperties>;
+  type ConfigSections = Map<"define" | "public", DeepProperties>;
 
   function mergeProperties(
-    earlier: EffectiveProperties | undefined,
-    later: EffectiveProperties,
-  ): EffectiveProperties {
+    earlier: DeepProperties | undefined,
+    later: DeepProperties,
+  ): DeepProperties {
     const merged = new Map(earlier);
-    for (const [name, property] of later) {
-      if (typeof name === "string") {
-        const laterPath = JSON.parse(name) as string[];
-        for (const earlierName of merged.keys()) {
-          if (typeof earlierName !== "string") continue;
-          const earlierPath = JSON.parse(earlierName) as string[];
+    for (const [name, laterEntry] of later) {
+      if (laterEntry.path) {
+        for (const [earlierName, earlierEntry] of merged) {
+          if (!earlierEntry.path) continue;
+          const earlierPath = earlierEntry.path;
+          const laterPath = laterEntry.path;
           const sharedLength = Math.min(earlierPath.length, laterPath.length);
           const sameBranch = earlierPath
             .slice(0, sharedLength)
             .every((segment, index) => segment === laterPath[index]);
           if (sameBranch && earlierPath.length !== laterPath.length) {
+            const earlierValue = propertyValue(earlierEntry.property);
+            if (
+              earlierPath.length < laterPath.length &&
+              earlierValue &&
+              declarations.has(earlierValue)
+            ) {
+              continue;
+            }
             merged.delete(earlierName);
           }
         }
       }
-      merged.set(name, property);
+      merged.set(name, laterEntry);
     }
     return merged;
   }
@@ -468,7 +485,7 @@ function sectionObjects(sourceFile: Node) {
       for (let current: Node | undefined = expression; current; current = current.parent) {
         if (!isBlock(current) && !isSourceFile(current)) continue;
         const factory = bindings.get(current)?.get(expression.expression.text);
-        if (factory) return configAlternativesFromResolved(factory);
+        if (factory) return configAlternativesFromResolved(factory, expression.arguments);
       }
     }
     if (isIdentifier(expression)) {
@@ -511,6 +528,7 @@ function sectionObjects(sourceFile: Node) {
 
   function configAlternativesFromResolved(
     expression: Expression | FunctionDeclaration,
+    arguments_: readonly Expression[] = [],
   ): ConfigSections[] {
     if (
       isArrowFunction(expression) ||
@@ -518,11 +536,29 @@ function sectionObjects(sourceFile: Node) {
       isFunctionDeclaration(expression)
     ) {
       if (!expression.body) return [];
-      if (!isBlock(expression.body)) return configSectionAlternatives(expression.body);
+      const body = expression.body;
+      const parameterScope = isBlock(body) ? body : expression;
+      const scopeBindings =
+        bindings.get(parameterScope) ?? new Map<string, Expression | FunctionDeclaration>();
+      const previousBindings = new Map<string, Expression | FunctionDeclaration | undefined>();
+      expression.parameters.forEach((parameter, index) => {
+        if (!isIdentifier(parameter.name) || !arguments_[index]) return;
+        previousBindings.set(parameter.name.text, scopeBindings.get(parameter.name.text));
+        scopeBindings.set(parameter.name.text, arguments_[index]);
+      });
+      bindings.set(parameterScope, scopeBindings);
+      if (!isBlock(body)) {
+        const result = configSectionAlternatives(body);
+        for (const [name, previous] of previousBindings) {
+          if (previous) scopeBindings.set(name, previous);
+          else scopeBindings.delete(name);
+        }
+        return result;
+      }
       const alternatives: ConfigSections[] = [];
       function collectReturns(node: Node) {
         if (
-          node !== expression.body &&
+          node !== body &&
           (isArrowFunction(node) || isFunctionExpression(node) || isFunctionDeclaration(node))
         ) {
           return;
@@ -533,7 +569,11 @@ function sectionObjects(sourceFile: Node) {
         }
         forEachChild(node, collectReturns);
       }
-      collectReturns(expression.body);
+      collectReturns(body);
+      for (const [name, previous] of previousBindings) {
+        if (previous) scopeBindings.set(name, previous);
+        else scopeBindings.delete(name);
+      }
       return alternatives;
     }
     return configSectionAlternatives(expression);
@@ -572,7 +612,7 @@ function sectionObjects(sourceFile: Node) {
   function collectConfig(expression: Expression | FunctionDeclaration) {
     for (const configSections of configAlternativesFromResolved(expression)) {
       for (const [section, properties] of configSections) {
-        for (const property of properties.values()) {
+        for (const { property } of properties.values()) {
           sections.set(property, section);
           const value = propertyValue(property);
           if (value) markSectionValue(value, section);
@@ -718,7 +758,10 @@ function buildEnvCalls(source: string) {
 
   return codeBlocks.flatMap((code) => {
     const { calls, sourceFile } = envCalls(code);
-    const { resolveObjectsDetailed, resolveString, sections } = sectionObjects(sourceFile);
+    const { resolveObjectsDetailed, resolveString, sections } = sectionObjects(
+      sourceFile,
+      new Set(calls),
+    );
     return calls.flatMap((call) => {
       const section = declarationSection(call, sections);
       const argument = call.arguments[0];
@@ -1122,6 +1165,21 @@ defineConfig(mergeConfig(
     expect(calls.map(({ options }) => hasBuildMode(options))).toEqual([false, true]);
   });
 
+  it("preserves Env declarations recursively merged with plain objects", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+import { defineConfig, mergeConfig } from "vite"
+defineConfig(mergeConfig(
+  { env: { define: { target: env({ mode: "runtime" }) } } },
+  { env: { define: { target: { label: "x" } } } },
+))
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
   it("keeps dotted and nested Define Env paths distinct", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
@@ -1196,6 +1254,20 @@ defineConfig(<UserConfig>{
 export default function config() {
   return { env: { public: { appName: env({ mode: "runtime" }) } } }
 }
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("binds invoked configuration factory parameters", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+function config(publicEnv) {
+  return { env: { public: publicEnv } }
+}
+defineConfig(config({ appName: env({ mode: "runtime" }) }))
 \`\`\`
     `);
 
