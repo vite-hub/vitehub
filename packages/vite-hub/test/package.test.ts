@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import * as ownerAgentEve from "@vite-hub/agent/eve"
+import * as ownerAgentMcp from "@vite-hub/agent/mcp"
 import * as ownerAgentVue from "@vite-hub/agent/vue"
 import ownerAuthHandler from "@vite-hub/auth/server"
 import * as ownerAuthVue from "@vite-hub/auth/vue"
@@ -22,6 +23,7 @@ import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
+import * as frameworkAgentMcp from "vite-hub/agent/mcp"
 import * as frameworkAgentVue from "vite-hub/agent/vue"
 import frameworkAuthHandler from "vite-hub/auth/server"
 import * as frameworkAuthVue from "vite-hub/auth/vue"
@@ -65,7 +67,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/eve",
-  "@vite-hub/agent/mcp",
   "@vite-hub/agent/mcp/stdio",
   "@vite-hub/agent/messages",
   "@vite-hub/agent/output",
@@ -163,6 +164,7 @@ describe("framework package contract", () => {
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
+    expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer)
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent)
     expect(frameworkAgentVue.useChat).toBe(ownerAgentVue.useChat)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
