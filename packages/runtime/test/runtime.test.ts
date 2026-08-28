@@ -471,6 +471,22 @@ describe("@vite-hub/runtime", () => {
     expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
   })
 
+  it("falls back to private when a public payload has symbol-keyed fields", async () => {
+    const hidden = Symbol("hidden")
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: { nested: { [hidden]: "must not disappear", visible: "kept" } }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+  })
+
   it("accepts unsupported values in ordinary trace attributes", async () => {
     const callback = () => "ok"
     const log = createTraceEventLog()

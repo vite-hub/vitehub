@@ -745,7 +745,8 @@ function journalTraceLog(
           if (!attributes) continue
           const descriptor = Object.getOwnPropertyDescriptor(attributes, key)
           if (descriptor && "value" in descriptor) {
-            metadataContentValues.set(key, structuredClone(descriptor.value))
+            const snapshot = structuredClone(descriptor.value)
+            if (snapshot !== undefined) metadataContentValues.set(key, snapshot)
           }
         }
         catch {}

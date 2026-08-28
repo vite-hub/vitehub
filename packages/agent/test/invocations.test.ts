@@ -274,10 +274,15 @@ describe("Agent Invocations", () => {
       name: "uncloneable",
       type: "run",
     })
+    await journal.context.traceLog?.append({
+      attributes: { "message.content": undefined },
+      name: "undefined",
+      type: "run",
+    })
     await journal.finish("completed")
 
     const observations = (await invocations.getByRunId("uncaptured-metadata-content"))?.observations
-    for (const name of ["accessor", "uncloneable"]) {
+    for (const name of ["accessor", "uncloneable", "undefined"]) {
       const observation = observations?.find(entry => entry.name === name)
       expect(observation?.attributes?.["content.omitted"]).toEqual(["message.content"])
       expect(observation?.attributes).not.toHaveProperty("message.content")

@@ -444,6 +444,25 @@ function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): bo
   })
 }
 
+function containsEnumerableSymbol(value: unknown, seen = new Set<object>()): boolean {
+  if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
+  seen.add(value)
+  const keys = Reflect.ownKeys(value)
+  if (keys.some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor?.enumerable === true && hasRuntimeType(key, "symbol")
+  })) return true
+  if (value instanceof Map) {
+    return [...value].some(([key, entry]) => containsEnumerableSymbol(key, seen) || containsEnumerableSymbol(entry, seen))
+  }
+  if (value instanceof Set) return [...value].some(entry => containsEnumerableSymbol(entry, seen))
+  return keys.some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (!descriptor?.enumerable) return false
+    return "value" in descriptor && containsEnumerableSymbol(descriptor.value, seen)
+  })
+}
+
 function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
   if (payload === undefined) return
   if (!payload || !hasRuntimeType(payload, "object")) return { visibility: "private" }
@@ -453,7 +472,7 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
     if (!visibility || !("value" in visibility)) return { visibility: "private" }
     if (visibility.value === "public") {
       const value = Object.getOwnPropertyDescriptor(payload, "value")
-      if (value && "value" in value) {
+      if (value && "value" in value && !containsEnumerableSymbol(value.value)) {
         const snapshot = structuredClone(value.value)
         if (!containsSharedArrayBuffer(snapshot)) return { value: snapshot, visibility: "public" }
       }
