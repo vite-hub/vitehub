@@ -388,6 +388,16 @@ function sectionObjects(sourceFile: Node) {
         ...configSectionAlternatives(expression.whenFalse),
       ];
     }
+    if (
+      isCallExpression(expression) &&
+      isPropertyAccessExpression(expression.expression) &&
+      isIdentifier(expression.expression.expression) &&
+      expression.expression.expression.text === "Promise" &&
+      expression.expression.name.text === "resolve" &&
+      expression.arguments[0]
+    ) {
+      return configSectionAlternatives(expression.arguments[0]);
+    }
     if (isConfigCombinatorCall(expression)) {
       return expression.arguments.reduce<ConfigSections[]>(
         (configs, argument) => {
@@ -480,7 +490,22 @@ function sectionObjects(sourceFile: Node) {
     return configSectionAlternatives(expression);
   }
 
-  function markDefineValue(expression: Expression, seen = new Set<ObjectLiteralExpression>()) {
+  function markDefineValue(
+    expression: Expression,
+    seen = new Set<ObjectLiteralExpression>(),
+    seenBindings = new Set<string>(),
+  ) {
+    sections.set(expression, "define");
+    if (isIdentifier(expression) && !seenBindings.has(expression.text)) {
+      for (let current: Node | undefined = expression; current; current = current.parent) {
+        if (!isBlock(current) && !isSourceFile(current)) continue;
+        const value = bindings.get(current)?.get(expression.text);
+        if (value && !isFunctionDeclaration(value)) {
+          markDefineValue(value, seen, new Set(seenBindings).add(expression.text));
+          break;
+        }
+      }
+    }
     for (const object of resolveObjects(expression)) {
       if (seen.has(object)) continue;
       const nextSeen = new Set(seen).add(object);
@@ -488,7 +513,7 @@ function sectionObjects(sourceFile: Node) {
         for (const property of properties.values()) {
           sections.set(property, "define");
           const value = propertyValue(property);
-          if (value) markDefineValue(value, nextSeen);
+          if (value) markDefineValue(value, nextSeen, seenBindings);
         }
       }
     }
@@ -553,7 +578,7 @@ function declarationSection(
   call: CallExpression,
   sections: ReadonlyMap<Node, "define" | "public">,
 ) {
-  for (let node: Node | undefined = call.parent; node; node = node.parent) {
+  for (let node: Node | undefined = call; node; node = node.parent) {
     const section = sections.get(node);
     if (section) return section;
   }
@@ -1060,6 +1085,19 @@ defineConfig(<UserConfig>{
 \`\`\`ts
 const group = { target: env({ mode: "runtime" }) }
 defineConfig({ env: { define: { group } } })
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["define"]);
+    expect(hasBuildMode(calls[0]!.options)).toBe(false);
+  });
+
+  it("follows Promise-wrapped configs and shorthand Define Env values", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+const target = env({ mode: "runtime" })
+const group = { target }
+defineConfig(Promise.resolve({ env: { define: { group } } }))
 \`\`\`
     `);
 
