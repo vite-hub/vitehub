@@ -44,9 +44,10 @@ describe("types", () => {
         return {}
       },
     })
-    const loaded = loadServerEnv<{ nested: { values: string[] } }>({}, undefined, { providers: { secrets: provider } })
-    expectTypeOf(loaded).toMatchTypeOf<Promise<{ readonly nested: { readonly values: readonly string[] } }>>()
+    const loaded = loadServerEnv<{ nested: { values: string[] }, token: SecretEnv<string> }>({}, undefined, { providers: { secrets: provider } })
+    expectTypeOf(loaded).toMatchTypeOf<Promise<{ readonly nested: { readonly values: readonly string[] }, readonly token: SecretEnv<string> }>>()
     void loaded.then((snapshot) => {
+      expectTypeOf(snapshot.token).toEqualTypeOf<SecretEnv<string>>()
       // @ts-expect-error loaded snapshots are recursively readonly
       snapshot.nested.values[0] = "changed"
     })

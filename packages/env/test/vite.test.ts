@@ -514,6 +514,11 @@ describe("Vite plugin", () => {
     expect(virtualModule).toContain(`from ${JSON.stringify(join(root, "server", "env", "provider.mjs").replace(/\\/g, "/"))}`)
   })
 
+  it("rejects namespaced Windows provider paths", async () => {
+    await expect(hubEnv({ providers: { secrets: "\\\\?\\C:\\shared\\provider.mjs" } }).api.prepareTypes(undefined, process.cwd()))
+      .rejects.toThrow("unsupported namespaced Windows module path")
+  })
+
   it("keeps provider modules scoped to each Vite configuration", async () => {
     const firstRoot = await mkdtemp(join(tmpdir(), "vitehub-env-provider-first-"))
     const secondRoot = await mkdtemp(join(tmpdir(), "vitehub-env-provider-second-"))
@@ -561,6 +566,13 @@ describe("Vite plugin", () => {
 
     const generated = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
     expect(generated.includes("FIRST_TOKEN")).not.toBe(generated.includes("SECOND_TOKEN"))
+
+    const fulfilled = results.find(result => result.status === "fulfilled")
+    const resolvedConfig = fulfilled?.status === "fulfilled" ? fulfilled.value : undefined
+    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const virtualModule = loadHook.call({ environment: { config: resolvedConfig } }, "\0#vitehub/env/server")
+    expect(virtualModule.includes("FIRST_TOKEN")).toBe(generated.includes("FIRST_TOKEN"))
+    expect(virtualModule.includes("SECOND_TOKEN")).toBe(generated.includes("SECOND_TOKEN"))
   })
 
   it("applies prefixes to inferred Vite env names", async () => {

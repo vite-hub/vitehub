@@ -60,6 +60,7 @@ export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
 
 interface ResolvedEnvState {
   diagnosticsText: string | undefined
+  projectRoot: string
   providerModules: Record<string, string>
   publicConfig: Record<string, unknown>
   serverRegistry: EnvRuntimeRegistry
@@ -116,6 +117,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         projectRoot,
         state: {
           diagnosticsText: undefined,
+          projectRoot,
           providerModules,
           publicConfig: {},
           serverRegistry: {},
@@ -151,6 +153,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       projectRoot,
       state: {
         diagnosticsText: formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics),
+        projectRoot,
         providerModules,
         publicConfig,
         serverRegistry: registry,
@@ -170,10 +173,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
-      const { defineValues, projectRoot, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode)
+      const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode)
       buildPublicConfig = state.publicConfig
       serverRegistry = state.serverRegistry
-      resolvedStates.set(projectRoot, state)
       const configStateId = String(++configStateSequence)
       pendingConfigStates.set(configStateId, state)
       for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
@@ -213,7 +215,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const viteConfig = this?.environment?.config
       const state = (viteConfig ? resolvedConfigStates.get(viteConfig) : undefined)
         ?? (viteConfig?.root ? resolvedStates.get(resolveProjectRoot(viteConfig.root)) : undefined)
+        ?? (viteConfig?.root ? Array.from(pendingConfigStates.values()).findLast(state => state.projectRoot === resolveProjectRoot(viteConfig.root)) : undefined)
         ?? Array.from(resolvedStates.values()).at(-1)
+        ?? Array.from(pendingConfigStates.values()).at(-1)
       const publicConfig = state?.publicConfig ?? buildPublicConfig
       const registry = state?.serverRegistry ?? serverRegistry
       const providerModules = state?.providerModules ?? {}
@@ -307,6 +311,9 @@ function resolveProviderModules(providers: Record<string, string> | undefined, r
       throw new TypeError(`[vitehub] Env provider ${JSON.stringify(name)} requires a non-empty module specifier.`)
     }
     const normalized = specifier.trim()
+    if (/^(?:\\\\[?.]\\|\/\/[?.]\/)/.test(normalized)) {
+      throw new TypeError(`[vitehub] Env provider ${JSON.stringify(name)} uses an unsupported namespaced Windows module path.`)
+    }
     output[name] = normalized.startsWith(".") ? resolve(root, normalized) : normalized
   }
   return output
@@ -498,7 +505,7 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeI
     ...createServerTypeFields(serverRegistry, 2),
     "}",
     "export function useServerEnv(event?: unknown): ServerEnv",
-    ...createReadonlyServerEnvTypes(0),
+    ...createReadonlyServerEnvTypes(0, "SecretEnv"),
     "export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ReadonlyServerEnv>",
     "export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ServerEnvInspection>",
     "export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>",
@@ -525,7 +532,7 @@ function createViteTypes(
     ...createServerTypeFields(serverRegistry, 4, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
-    ...createReadonlyServerEnvTypes(2),
+    ...createReadonlyServerEnvTypes(2, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ReadonlyServerEnv>",
     "  export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal }): Promise<ServerEnvInspection>",
     "  export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>",
@@ -549,11 +556,13 @@ function createServerEnvInspectionTypes(indent: number): string[] {
   ]
 }
 
-function createReadonlyServerEnvTypes(indent: number): string[] {
+function createReadonlyServerEnvTypes(indent: number, secretType: string): string[] {
   const prefix = " ".repeat(indent)
   return [
     `${prefix}export type ReadonlyServerEnv = DeepReadonly<ServerEnv>`,
-    `${prefix}type DeepReadonly<T> = T extends (...args: infer TArguments) => infer TResult`,
+    `${prefix}type DeepReadonly<T> = T extends ${secretType}<unknown>`,
+    `${prefix}  ? T`,
+    `${prefix}  : T extends (...args: infer TArguments) => infer TResult`,
     `${prefix}  ? (...args: TArguments) => TResult`,
     `${prefix}  : T extends object`,
     `${prefix}    ? { readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }`,

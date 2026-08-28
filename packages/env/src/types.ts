@@ -1,3 +1,5 @@
+import type { SecretEnv } from "./secret.ts"
+
 export type EnvDiagnostics = "off" | "summary" | "trace"
 export type EnvMode = "build" | "runtime"
 
@@ -212,7 +214,9 @@ export interface LoadServerEnvOptions {
   signal?: AbortSignal
 }
 
-export type DeepReadonly<T> = T extends (...args: infer TArguments) => infer TResult
+export type DeepReadonly<T> = T extends SecretEnv<unknown>
+  ? T
+  : T extends (...args: infer TArguments) => infer TResult
   ? (...args: TArguments) => TResult
   : T extends object
     ? { readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }
