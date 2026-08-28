@@ -37,6 +37,23 @@ const scope = globalThis as ConsoleGlobal
 // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This test double only needs identity; no journal method is invoked through it.
 const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocations
 
+function isPluginHookObject(value: unknown): value is { handler: unknown } {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin hooks are functions or hook objects at this test boundary.
+  return Boolean(value) && typeof value === "object" && "handler" in value
+}
+
+function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[] = []): unknown {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin hooks are functions or hook objects at this test boundary.
+  const candidate = typeof hook === "function"
+    ? hook
+    : isPluginHookObject(hook)
+      ? hook.handler
+      : undefined
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The structural Vite hook boundary is validated before invocation.
+  if (typeof candidate !== "function") throw new TypeError("Expected a callable Vite plugin hook.")
+  return Reflect.apply(candidate, context, args)
+}
+
 function fixtureDocument(id?: string) {
   return {
     invocations: id
@@ -289,6 +306,29 @@ describe("Agent invocation console", () => {
       }],
       version: 1,
     })).toThrow('invocations[0]["metadata"]["score"] must be a finite number')
+    for (const observation of [
+      { metadata: { score: Number.POSITIVE_INFINITY } },
+      { trace: { id: "trace", metadata: { score: Number.POSITIVE_INFINITY } } },
+    ]) {
+      expect(() => parseConsoleFixture({
+        invocations: [{
+          agentName: "support",
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id: "invalid-observation-extension",
+          observations: [{
+            name: "agent.message",
+            sequence: 0,
+            timestamp: "2026-08-27T10:00:00.000Z",
+            type: "run",
+            ...observation,
+          }],
+          status: "completed",
+          traceId: "trace",
+          updatedAt: "2026-08-27T10:00:00.000Z",
+        }],
+        version: 1,
+      })).toThrow("must be a finite number")
+    }
   })
 
   it("serializes generated Agent registry refreshes", async () => {
@@ -639,21 +679,13 @@ describe("Agent invocation console", () => {
     updateConsoleInvocationRootState(secondState, projectRoot, secondIdentity)
     const secondPlugin = consoleInvocationRootPlugin(projectRoot, secondIdentity, secondState)
     const resolved = { id: "/agent.ts" }
-    // SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const firstBuildStart = firstPlugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
-    // SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const secondBuildStart = secondPlugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
-    // SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const firstTransform = firstPlugin.transform as unknown as (code: string, id: string) => string
-    // SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const secondTransform = secondPlugin.transform as unknown as (code: string, id: string) => string
-    await Reflect.apply(firstBuildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
-    await Reflect.apply(secondBuildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
+    await callPluginHook(firstPlugin.buildStart, { resolve: vi.fn().mockResolvedValue(resolved) })
+    await callPluginHook(secondPlugin.buildStart, { resolve: vi.fn().mockResolvedValue(resolved) })
 
     // SAFETY: Each generated script returns the isolated realm used by this focused binding test.
-    const firstRealm = runInNewContext(`${firstTransform("", resolved.id)}\nglobalThis`, { process }) as object
+    const firstRealm = runInNewContext(`${callPluginHook(firstPlugin.transform, {}, ["", resolved.id])}\nglobalThis`, { process }) as object
     // SAFETY: Each generated script returns the isolated realm used by this focused binding test.
-    const secondRealm = runInNewContext(`${secondTransform("", resolved.id)}\nglobalThis`, { process }) as object
+    const secondRealm = runInNewContext(`${callPluginHook(secondPlugin.transform, {}, ["", resolved.id])}\nglobalThis`, { process }) as object
 
     expect(resolveConsoleInvocations(firstRealm)).toBe(first)
     expect(resolveConsoleInvocations(secondRealm)).toBe(second)
@@ -663,6 +695,13 @@ describe("Agent invocation console", () => {
 
     expect(resolveConsoleInvocations(firstRealm)).toBe(third)
     expect(resolveConsoleInvocations(secondRealm)).toBe(second)
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(firstIdentity)).toBe(false)
+    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(firstIdentity)).toBe(false)
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(true)
+
+    await callPluginHook(secondPlugin.closeBundle, {})
+    expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
+    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(secondIdentity)).toBe(false)
   })
 
   it("keeps persisted Agent names alongside discovered definitions", async () => {

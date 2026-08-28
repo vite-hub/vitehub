@@ -14,7 +14,7 @@ import type { Plugin } from "vite"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
-import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity } from "./internal.ts"
+import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { installConsoleFixtureInvocations } from "./runtime/server/invocations.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
@@ -315,6 +315,9 @@ export function consoleInvocationRootPlugin(
         revision,
       )
       updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
+    },
+    closeBundle() {
+      if (state.binding) releaseConsoleInvocationsBinding(state.binding)
     },
     async buildStart() {
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })

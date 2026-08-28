@@ -190,6 +190,7 @@ function observation(value: unknown, path: string): TraceEventLogEntry {
       throw new TypeError(`[vitehub] Console fixture ${path}.trace.sampled must be a boolean.`)
     }
   }
+  assertJsonValue(input, path)
   // SAFETY: Every TraceEventLogEntry field is validated above before the fixture value is returned.
   return value as TraceEventLogEntry
 }

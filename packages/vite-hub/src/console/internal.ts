@@ -12,6 +12,7 @@ export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.f
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 
 type ConsoleInvocationsByRoot = {
+  delete(key: string): boolean
   get(key: string): AgentInvocations | undefined
   set(key: string, value: AgentInvocations): unknown
   readonly size: number
@@ -20,8 +21,10 @@ type ConsoleInvocationsByRoot = {
 type ConsoleInvocationRegistry = Record<symbol, AgentInvocations | string | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | undefined>
 
 type ConsoleInvocationIdentitiesByRoot = {
+  delete(key: string): boolean
   get(key: string): string | undefined
   set(key: string, value: string): unknown
+  values(): IterableIterator<string>
 }
 
 export type ConsoleInvocationScope = {
@@ -58,11 +61,26 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
   const registry = value as Partial<ConsoleInvocationsByRoot>
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
   return typeof registry.get === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+    && typeof registry.delete === "function"
     && typeof registry.set === "function"
     && Number.isInteger(registry.size)
     // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
     ? registry as ConsoleInvocationsByRoot
     : undefined
+}
+
+function retireConsoleInvocationsIdentity(registry: ConsoleInvocationRegistry, identity: string): void {
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  if (bindings && [...bindings.values()].includes(identity)) return
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const roots = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  if (roots && [...roots.values()].includes(identity)) return
+  invocationsByRoot(registry[consoleInvocationsRegistryKey])?.delete(identity)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const revisions = registry[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  revisions?.delete(identity)
 }
 
 function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegistry | undefined {
@@ -82,8 +100,26 @@ export function bindConsoleInvocationsIdentity(
   // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
   const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
     ?? new Map<string, string>()
+  const previousIdentity = bindings.get(binding)
   bindings.set(binding, identity)
   registry[consoleInvocationsBindingRegistryKey] = bindings
+  if (previousIdentity && previousIdentity !== identity) {
+    retireConsoleInvocationsIdentity(registry, previousIdentity)
+  }
+}
+
+export function releaseConsoleInvocationsBinding(
+  binding: string,
+  scope: ConsoleInvocationScope = globalThis,
+): void {
+  const registry = processRegistry(scope)
+  if (!registry) return
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const identity = bindings?.get(binding)
+  if (!identity) return
+  bindings?.delete(binding)
+  retireConsoleInvocationsIdentity(registry, identity)
 }
 
 export function resolveConsoleInvocations(scope: ConsoleInvocationScope = globalThis as ConsoleInvocationScope): AgentInvocations | undefined {
