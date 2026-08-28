@@ -2380,7 +2380,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           ), model) as StreamTextResult<ToolSet, never, never>
           const overrides = Object.getOwnPropertyDescriptors(result)
           const resolvedDescriptors = Object.getOwnPropertyDescriptors(resolved)
-          for (const key of Reflect.ownKeys(overrides)) delete resolvedDescriptors[key]
+          for (const key of Reflect.ownKeys(overrides)) Reflect.deleteProperty(resolvedDescriptors, key)
           Object.setPrototypeOf(result, Object.getPrototypeOf(resolved))
           Object.defineProperties(result, resolvedDescriptors)
           return resolved
@@ -2479,9 +2479,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           async cancel(reason) {
             cancelled = true
             try {
-              const sourceReader = await getReader()
+              const sourceReader = getReader()
               cancelProvider(reason)
-              await sourceReader.cancel(reason).catch(() => undefined)
+              await (await sourceReader).cancel(reason).catch(() => undefined)
             }
             finally {
               detachAbortListener()
@@ -2531,8 +2531,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             async cancel(reason) {
               try {
                 // SAFETY: toUIMessageStream forwards the AI SDK method's argument tuple unchanged.
-                reader ??= (await start()).toUIMessageStream(...args as never[]).getReader()
+                const sourceReader = reader
+                  ? Promise.resolve(reader)
+                  : start().then(streamed => streamed.toUIMessageStream(...args as never[]).getReader())
                 cancelProvider(reason)
+                reader ??= await sourceReader
                 const reading = reader.read()
                 await reader.cancel(reason)
                 await reading.catch(() => undefined)
