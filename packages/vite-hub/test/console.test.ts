@@ -607,7 +607,9 @@ describe("Agent invocation console", () => {
     const secondIdentity = "fixture:/project:/fixture.json:second"
     const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity)
     const resolved = { id: "/agent.ts" }
+    // SAFETY: This focused test invokes Vite hooks with structural arguments.
     const buildStart = plugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
+    // SAFETY: This focused test invokes Vite hooks with structural arguments.
     const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
     await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
     installConsoleInvocationFallback(fakeInvocations("second"), projectRoot, globalThis, secondIdentity, "second")

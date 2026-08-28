@@ -477,6 +477,31 @@ describe("ViteHub CLI", () => {
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 
+  it("marks standalone Vite config loading as CLI discovery", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "vite.config.ts"), `
+export default {
+  plugins: [{
+    config(config) {
+      if (config.vitehubCliDiscovery !== true) throw new Error("fixture state was consumed during CLI discovery")
+    },
+    name: "fixture-discovery-test",
+    vitehub: {
+      cli: {
+        namespaces: [{ features: [{ name: "run", run: () => 0 }], name: "test" }],
+      },
+    },
+  }],
+}
+`)
+
+    await expect(runViteHubCli({
+      args: ["test", "run"],
+      cwd: rootDir,
+      stdout: stream(),
+    })).resolves.toBe(0)
+  })
+
   it("fails closed when provision credentials are missing", async () => {
     const rootDir = await createTempDir()
     const apply = vi.fn(async () => ({}))

@@ -259,7 +259,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
 }
 
 function normalizeModuleId(id: string): string {
-  return id.replace(/\\/g, "/").split("?", 1)[0]!
+  const queryIndex = id.indexOf("?")
+  const path = queryIndex === -1 ? id : id.slice(0, queryIndex)
+  return path.replace(/\\/g, "/")
 }
 
 export function consoleInvocationRootPlugin(
@@ -285,6 +287,7 @@ export function consoleInvocationRootPlugin(
     },
     configResolved(config) {
       projectRoot ||= resolveViteHubProjectRoot(config.root)
+      // SAFETY: ViteHub extends Vite's resolved config with its CLI discovery marker.
       const configuredFixture = (config as typeof config & { vitehubCliDiscovery?: true }).vitehubCliDiscovery
         ? undefined
         : process.env[consoleFixtureEnvironmentVariable]

@@ -82,13 +82,15 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly 
   try {
     const { resolveConfig } = await import("vite")
     const viteRoot = nuxt.options.vite.root
-    const config = await resolveConfig({
+    const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
       ...nuxt.options.vite,
       configFile: false,
       root: viteRoot
         ? resolve(nuxt.options.rootDir || rootDir, viteRoot)
         : nuxt.options.rootDir || rootDir,
-    }, "serve", "development")
+      vitehubCliDiscovery: true,
+    }
+    const config = await resolveConfig(inlineConfig, "serve", "development")
     return {
       plugins: config.plugins,
       root: config.root,
@@ -145,7 +147,10 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
 
 async function loadViteConfig(rootDir: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
-  const inlineConfig: InlineConfig = { root: rootDir }
+  const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
+    root: rootDir,
+    vitehubCliDiscovery: true,
+  }
   return await resolveConfig(inlineConfig, "serve", "development")
 }
 
