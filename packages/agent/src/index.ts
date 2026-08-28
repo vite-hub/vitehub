@@ -3681,7 +3681,9 @@ function assignResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecor
   }
 }
 
-function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): ReturnType<typeof cancellableAsyncIterableSource> {
+function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): ReturnType<typeof cancellableAsyncIterableSource> & {
+  settleCancellation: (reason?: unknown) => Promise<void>
+} {
   const iterator = stream[Symbol.asyncIterator]()
   let cancelTask: Promise<void> | undefined
   let completed = false
@@ -3693,6 +3695,10 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
       void cancelTask.catch(() => {})
       return
     }
+    await cancelTask
+  }
+  const settleCancellation = async (reason?: unknown) => {
+    await cancel(reason)
     await cancelTask
   }
   return {
@@ -3721,6 +3727,7 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
         }
       },
     },
+    settleCancellation,
   }
 }
 
@@ -5248,7 +5255,7 @@ async function executeAgentInvocationWithCapacityLease<
     ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "")).usageRecord
     : undefined
   let renderedResult = false
-  let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
+  let rendererSource: ReturnType<typeof nonBlockingPendingAsyncIterableSource> | undefined
   const resolveRawDriverUsageRecord = async (resolveUsage: boolean) => {
     rawDriverUsageRecord = toAgentRunResult(await resultWithStreamedTextAndUsage(
       rawDriverResult,
@@ -5270,7 +5277,7 @@ async function executeAgentInvocationWithCapacityLease<
         : undefined
       result = await applyOutputRenderers(rendererSource?.stream ?? result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
       if (rendererSource && !isAsyncIterable(result) && !hasTraceableStreamResult(result) && !isUIMessageStreamResult(result)) {
-        await rendererSource.cancel()
+        await rendererSource.settleCancellation()
       }
       renderedResult = true
       if (rendererSource?.completed) {
@@ -5279,7 +5286,7 @@ async function executeAgentInvocationWithCapacityLease<
     }
   }
   catch (error) {
-    await Promise.allSettled(rendererSource ? [rendererSource.cancel(error)] : [])
+    await Promise.allSettled(rendererSource ? [rendererSource.settleCancellation(error)] : [])
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
@@ -5382,7 +5389,7 @@ async function executeAgentInvocationWithCapacityLease<
                 if (uiMessageStreamCreated) throw new Error("[vitehub] Agent Invocation UI-message stream has already been created.")
                 uiMessageStreamCreated = true
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-                let source: ReturnType<typeof cancellableAsyncIterableSource>
+                let source: ReturnType<typeof nonBlockingPendingAsyncIterableSource>
                 try {
                   source = nonBlockingPendingAsyncIterableSource(toUIMessageStream.apply(rendered, args))
                   const normalizedStream = normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))
@@ -5396,7 +5403,10 @@ async function executeAgentInvocationWithCapacityLease<
                     : enrichedStream
                   return withReadableStreamCleanup(
                     toReadableAsyncIterableStream(renderedStream),
-                    finishPreserved,
+                    async (outcome) => {
+                      await source.settleCancellation(outcome.failed ? outcome.error : undefined)
+                      await finishPreserved(outcome)
+                    },
                     {
                       abortSignal: invocation.input.abortSignal,
                       cancelOnAbort: source.cancel,

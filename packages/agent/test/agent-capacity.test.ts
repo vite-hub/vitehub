@@ -1415,7 +1415,7 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
-  it("awaits lazy UI-message stream cancellation before releasing capacity", async () => {
+  it("awaits pending lazy UI-message stream cancellation before releasing capacity", async () => {
     const starts: string[] = []
     const controller = new AbortController()
     const cancelGate = deferred()
@@ -1427,6 +1427,7 @@ describe("Agent Driver capacity", () => {
           starts.push(input.prompt as string)
           return {
             toUIMessageStream: () => new ReadableStream({
+              pull: () => new Promise<void>(() => {}),
               async cancel() {
                 cancelled = true
                 await cancelGate.promise
@@ -1439,7 +1440,8 @@ describe("Agent Driver capacity", () => {
     })
 
     const first = await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }) as { toUIMessageStream: () => ReadableStream<unknown> }
-    first.toUIMessageStream()
+    const reader = first.toUIMessageStream().getReader()
+    void reader.read().catch(() => {})
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     controller.abort(new DOMException("stop", "AbortError"))
     await vi.waitFor(() => expect(cancelled).toBe(true))
