@@ -6719,6 +6719,47 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
   })
 
+  it("finishes direct UI cancellation after source cleanup without blocking the caller", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let releaseCancel!: () => void
+    const cancelGate = new Promise<void>((resolve) => {
+      releaseCancel = resolve
+    })
+    const cancelStarted = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ messageId: "assistant", type: "start" })
+            },
+            async cancel() {
+              cancelStarted()
+              await cancelGate
+            },
+          }),
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    await reader.read()
+    await expect(Promise.race([
+      reader.cancel().then(() => "cancelled"),
+      new Promise(resolve => setTimeout(() => resolve("timed out"), 100)),
+    ])).resolves.toBe("cancelled")
+
+    expect(cancelStarted).toHaveBeenCalledOnce()
+    expect(finish).not.toHaveBeenCalled()
+    releaseCancel()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
+  })
+
   it("does not re-await pending raw usage after UI message stream consumption", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()

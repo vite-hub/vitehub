@@ -5915,7 +5915,7 @@ async function executeAgentInvocationWithCapacityLease<
         const reason = outcome.failed ? outcome.error : undefined
         const uiSources = [...uiMessageSources.values()]
         await Promise.allSettled(uiSources.map(source => source.cancel(reason)))
-        const settleUiSources = outcome.failed || outcome.completed || options.holdCapacity === true
+        const settleUiSources = outcome.failed || outcome.completed || options.holdCapacity === true || !rendererSource
         const cancellations = await Promise.allSettled([
           ...(rendererSource ? [rendererSource.settleCancellation(reason)] : []),
           ...(settleUiSources ? uiSources.map(source => source.settleCancellation(reason)) : []),
@@ -5951,7 +5951,7 @@ async function executeAgentInvocationWithCapacityLease<
         }
       }
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        if (!outcome.failed && !outcome.completed && rendererSource) {
+        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
           void finishUiMessageStream(outcome, streamedText, streamedUsageRecord).catch(() => {})
           return
         }
