@@ -30,6 +30,7 @@ const sudoShortValueOptions = new Set([...sudoValueOptions]
   .map(option => option.slice(1)))
 const timeoutValueOptions = new Set(["--kill-after", "--signal", "-k", "-s"])
 const assignmentPattern = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
+const commandVariablePattern = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$/
 const redirectionPattern = /^(?:\d*|&)?(?:>>?|<<?|<>|>&|<&|>\|)(?:.*)$/
 
 function shellTokens(line) {
@@ -71,8 +72,12 @@ function shellTokens(line) {
 }
 
 function expandAnsiCQuoting(value) {
-  return value.replace(/\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|\\|a|b|e|E|f|n|r|t|v|'|")/g, (_match, escape) => {
+  return value.replace(/\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|\\|a|b|e|E|f|n|r|t|v|'|")/g, (match, escape) => {
     if (escape.startsWith("x")) return String.fromCharCode(Number.parseInt(escape.slice(1), 16))
+    if (escape.startsWith("u") || escape.startsWith("U")) {
+      const codePoint = Number.parseInt(escape.slice(1), 16)
+      return codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : match
+    }
     if (/^[0-7]/.test(escape)) return String.fromCharCode(Number.parseInt(escape, 8))
     return { "\\": "\\", a: "\u0007", b: "\b", e: "\u001B", E: "\u001B", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "'": "'", '"': '"' }[escape]
   })
@@ -297,6 +302,11 @@ function executableName(token) {
   return token.slice(token.lastIndexOf("/") + 1)
 }
 
+function resolveCommandVariable(token, environment) {
+  const variable = commandVariablePattern.exec(token)
+  return variable ? environment.get(variable[1] ?? variable[2]) ?? token : token
+}
+
 function corepackDelegateName(token) {
   const descriptor = executableName(token)
   const separator = descriptor.indexOf("@")
@@ -309,6 +319,10 @@ function runsInChildShell(tokens, commandIndex) {
   for (const token of tokens.slice(0, commandIndex)) {
     if (token === "$(" || token === "(") groups.push(token)
     else if (token === ")") groups.pop()
+    else if (token === "`") {
+      if (groups.at(-1) === "`") groups.pop()
+      else groups.push(token)
+    }
   }
   return groups.length > 0
 }
@@ -375,10 +389,16 @@ function functionScopeCounts(tokens, pendingDeclaration) {
     (tokens.at(-1) === ")" && tokens.at(-2) === "(" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens.at(-3) ?? ""))
     || (tokens.at(-2) === "function" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens.at(-1) ?? ""))
   )
+  const declarationName = declaration === -1
+    ? undefined
+    : tokens[declaration - 1] === ")" ? tokens[declaration - 3] : tokens[declaration - 1]
   return {
     closes: tokens.filter(token => token === "}").length,
+    name: declarationName ?? (opensPendingDeclaration ? pendingDeclaration : undefined),
     opens: declaration === -1 && !opensPendingDeclaration ? 0 : 1,
-    pendingDeclaration: declaresPendingFunction,
+    pendingDeclaration: declaresPendingFunction
+      ? (tokens.at(-1) === ")" ? tokens.at(-3) : tokens.at(-1))
+      : undefined,
   }
 }
 
@@ -413,22 +433,58 @@ function invalidateConditionalAssignments(tokens, environment) {
   let command = []
   const invalidateCommand = () => {
     const assignmentStart = command.findIndex(candidate => !shellCommandPrefixes.has(candidate))
-    const assignments = command.slice(assignmentStart === -1 ? command.length : assignmentStart)
-      .map(candidate => assignmentPattern.exec(candidate))
-    if (assignments.length > 0 && assignments.every(Boolean)) {
+    const candidates = command.slice(assignmentStart === -1 ? command.length : assignmentStart)
+    const leadingAssignments = []
+    for (const candidate of candidates) {
+      const assignment = assignmentPattern.exec(candidate)
+      if (!assignment) break
+      leadingAssignments.push(assignment)
+    }
+    const isAssignmentOnly = leadingAssignments.length === candidates.length
+    const preservesLeadingAssignments = candidates[leadingAssignments.length] === "export"
+    if (leadingAssignments.length > 0 && (isAssignmentOnly || preservesLeadingAssignments)) {
+      const assignments = leadingAssignments
       for (const assignment of assignments) environment.delete(assignment[1])
     }
   }
+  const childShells = []
   for (const token of tokens) {
-    if (token === ";" || token === "&&" || token === "||") {
+    if (token === "$(" || token === "(") {
+      invalidateCommand()
+      command = []
+      childShells.push(token)
+      continue
+    }
+    if (token === ")" && childShells.length > 0) {
+      command = []
+      childShells.pop()
+      continue
+    }
+    if (token === "`") {
+      invalidateCommand()
+      command = []
+      if (childShells.at(-1) === "`") childShells.pop()
+      else childShells.push(token)
+      continue
+    }
+    if (childShells.length > 0) continue
+    if (shellOperatorPattern.test(token)) {
       invalidateCommand()
       command = []
       continue
     }
-    if (shellOperatorPattern.test(token)) return
     command.push(token)
   }
   invalidateCommand()
+}
+
+function assignedVariableNames(tokens) {
+  const names = new Set()
+  for (const token of tokens) {
+    const assignment = assignmentPattern.exec(token)
+    if (assignment) names.add(assignment[1])
+  }
+  return names
 }
 
 function commandRunsUnconditionally(tokens, commandIndex) {
@@ -516,8 +572,10 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
   let dataHereDocument
   let conditionalDepth = 0
   const conditionalExecutions = []
+  const functionEffects = new Map()
   let functionDepth = 0
-  let pendingFunctionDeclaration = false
+  let activeFunctionName
+  let pendingFunctionDeclaration
   for (const line of command.replaceAll(/\\\r?\n/g, "").split("\n")) {
     if (dataHereDocument) {
       if (line.trim() === dataHereDocument.delimiter) dataHereDocument = undefined
@@ -533,14 +591,21 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const tokens = shellTokens(line)
     const executableIndexes = commandIndexes(tokens)
     const { closes: closesConditional, opens: opensConditional } = conditionalCounts(tokens)
-    const { closes: closesFunction, opens: opensFunction, pendingDeclaration }
+    const { closes: closesFunction, name: openedFunctionName, opens: opensFunction, pendingDeclaration }
       = functionScopeCounts(tokens, pendingFunctionDeclaration)
-    for (let close = 0; close < closesConditional; close++) conditionalExecutions.pop()
+    const closesExistingConditional = Math.max(0, closesConditional - opensConditional)
+    for (let close = 0; close < closesExistingConditional; close++) conditionalExecutions.pop()
     if ((tokens.includes("else") || tokens.includes("elif")) && conditionalExecutions.at(-1) === "never") {
       conditionalExecutions[conditionalExecutions.length - 1] = "maybe"
     }
-    const activeConditionalDepth = Math.max(0, conditionalDepth - closesConditional)
+    const activeConditionalDepth = Math.max(0, conditionalDepth - closesExistingConditional)
     const activeFunctionDepth = Math.max(0, functionDepth - closesFunction)
+    const functionName = activeFunctionName ?? openedFunctionName
+    if (functionName && (functionDepth > 0 || opensFunction > 0)) {
+      const effects = functionEffects.get(functionName) ?? new Set()
+      for (const name of assignedVariableNames(tokens)) effects.add(name)
+      functionEffects.set(functionName, effects)
+    }
     if (activeConditionalDepth === 0 && opensConditional === 0
       && activeFunctionDepth === 0 && opensFunction === 0) {
       applyLeadingPersistentAssignments(tokens, environment)
@@ -569,7 +634,14 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       let argumentsStart
       let acceptsPackageOptions = false
       let inspectsTerminatedCommand = false
-      const token = tokens[index]
+      const token = resolveCommandVariable(tokens[index], environment)
+      const invokedFunctionEffects = functionEffects.get(executableName(token))
+      if (invokedFunctionEffects && activeFunctionDepth === 0 && opensFunction === 0
+        && !runsInChildShell(tokens, index)
+        && conditionalCommandExecution(tokens, index) !== "never") {
+        for (const name of invokedFunctionEffects) environment.delete(name)
+        continue
+      }
       const corepackDelegate = corepackDelegateName(token)
       const executable = corepackDelegate ?? executableName(token)
 
@@ -697,11 +769,14 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
     const opensKnownUntakenConditional = (tokens[0] === "if" || tokens[0] === "while" || tokens[0] === "until")
       && tokens[1] === "false"
       || tokens[0] === "for" && tokens[2] === "in" && (tokens[3] === undefined || tokens[3] === ";")
-    for (let open = 0; open < opensConditional; open++) {
+    const opensUnclosedConditional = Math.max(0, opensConditional - closesConditional)
+    for (let open = 0; open < opensUnclosedConditional; open++) {
       conditionalExecutions.push(opensKnownUntakenConditional ? "never" : "maybe")
     }
     conditionalDepth = conditionalExecutions.length
     functionDepth = Math.max(0, functionDepth + opensFunction - closesFunction)
+    if (openedFunctionName && functionDepth > 0) activeFunctionName = openedFunctionName
+    if (functionDepth === 0) activeFunctionName = undefined
     pendingFunctionDeclaration = pendingDeclaration
   }
   return specs

@@ -478,6 +478,8 @@ jobs:
     String.raw`n\px unpinned`,
     "$'npx' unpinned",
     String.raw`$'n\x70x' unpinned`,
+    String.raw`$'\u006epx' unpinned`,
+    String.raw`$'\U0000006epx' unpinned`,
     '$"npx" unpinned',
   ])("rejects an unpinned package executor: %s", async (command) => {
     const root = await createFixture({
@@ -637,6 +639,58 @@ jobs:
     ])
   })
 
+  it("does not trust an assignment from an inline case arm", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: case x in x) VERSION=latest;; esac; npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
+  it("invalidates assignment prefixes persisted by a conditional export", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          if true; then VERSION=latest export VERSION; fi",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
+  it("balances a complete inline conditional before later assignments", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          if true; then echo ok; fi",
+        "          VERSION=1.2.3",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
   it("keeps subshell exports out of the parent environment", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": [
@@ -652,6 +706,23 @@ jobs:
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it("keeps backtick substitution exports out of the parent environment", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: 'echo `export VERSION=1.2.3`; npx tool@$VERSION'",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
   })
 
   it("tracks exact package versions in braced package words", async () => {
@@ -780,6 +851,41 @@ jobs:
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([
       expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
+  })
+
+  it("invalidates variables changed by an invoked shell function", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          set_version() {",
+        "            export VERSION=latest",
+        "          }",
+        "          set_version",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
+  it.each([
+    'EXECUTOR=npx; "$EXECUTOR" unpinned',
+    'EXECUTOR=pnpm; "$EXECUTOR" dlx unpinned',
+  ])("resolves a statically assigned package executor: %s", async (command) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": `jobs:\n  test:\n    steps:\n      - run: '${command}'\n`,
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("must use an exact version") }),
     ])
   })
 
