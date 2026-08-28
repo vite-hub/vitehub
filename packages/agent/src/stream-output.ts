@@ -128,6 +128,7 @@ export function createAgentUIMessageStreamResponse(options: {
 
 export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
   cancel: (reason?: unknown) => Promise<void>
+  readonly completed: boolean
   stream: AsyncIterable<unknown>
 } {
   const readableReader = typeof (stream as ReadableStream<unknown>).getReader === "function"
@@ -156,6 +157,9 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
   }
   return {
     cancel,
+    get completed() {
+      return completed
+    },
     stream: (async function* () {
       try {
         for (;;) {

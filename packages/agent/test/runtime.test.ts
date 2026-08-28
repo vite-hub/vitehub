@@ -6446,9 +6446,14 @@ describe("agent message protocol", () => {
   it("preserves settled raw usage when an output renderer replaces the stream", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
     const raw = Object.assign((async function* () {
       yield { text: "provider", type: "text-delta" }
-    })(), { usage: Promise.resolve({ totalTokens: 3 }) })
+      resolveUsage({ totalTokens: 3 })
+    })(), { usage })
     const replacement = (async function* () {
       yield { text: "rendered", type: "text-delta" }
     })()
@@ -6457,7 +6462,10 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "replace-stream",
           output(context) {
-            context.output.render(() => replacement)
+            context.output.render(async (source) => {
+              for await (const _event of source as AsyncIterable<unknown>) {}
+              return replacement
+            })
           },
         }),
       ],

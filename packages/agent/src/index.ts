@@ -5121,8 +5121,9 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   const outputExtensions = new Map<string, unknown>()
+  const rawDriverResult = result
   const rawDriverUsageObserved = isAsyncIterable(result)
-  const rawDriverUsageRecord = rawDriverUsageObserved
+  let rawDriverUsageRecord = rawDriverUsageObserved
     ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "")).usageRecord
     : undefined
   let renderedResult = false
@@ -5141,6 +5142,9 @@ async function executeAgentInvocationWithCapacityLease<
         await rendererSource.cancel()
       }
       renderedResult = true
+      if (rendererSource?.completed) {
+        rawDriverUsageRecord = toAgentRunResult(await resultWithStreamedTextAndUsage(rawDriverResult, "")).usageRecord
+      }
     }
   }
   catch (error) {
@@ -5471,7 +5475,13 @@ async function executeAgentInvocationWithCapacityLease<
                   ? traceUiMessageStream(toReadableAsyncIterableStream(streamed!.stream), invocation)
                   : streamed!.stream
                 const source = existingSource
-                  ? { cancel: existingSource.cancel, stream: tracedStream }
+                  ? {
+                      cancel: existingSource.cancel,
+                      get completed() {
+                        return existingSource.completed
+                      },
+                      stream: tracedStream,
+                    }
                   : cancellableAsyncIterableSource(tracedStream)
                 if (!existingSource) preservedSources.set(renderedStream, source)
                 const stream = withReadableStreamCleanup(
