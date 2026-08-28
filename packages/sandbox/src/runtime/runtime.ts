@@ -58,6 +58,8 @@ function isRetriableCloudflareSandboxError(error: unknown) {
   const provider = metadata?.provider
   if (provider && provider !== 'cloudflare')
     return false
+  if (metadata?.code === 'SANDBOX_TIMEOUT')
+    return false
 
   const extraMessage = metadata?.cause instanceof Error ? metadata.cause.message : ''
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error, extraMessage))
@@ -102,35 +104,57 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
 
         return await serializeCloudflareRun(cloudflareSandboxId, async () => {
           for (let attempt = 0; attempt < attempts; attempt++) {
-          let sandbox: SandboxExecutionBox | undefined
-          try {
-            const session = await box.open({ id: cloudflareSandboxId })
-            sandbox = createSandboxExecutionBox(session, provider.provider)
-            const result = await executeSandboxDefinition<TPayload, TResult>(
-              sandbox,
-              context.name,
-              context.definition.options,
-              context.definition.bundle,
-              payload,
-              options.context,
-            )
-            return result
-          }
-          catch (error) {
-            const sandboxError = toSandboxError(error)
-            const shouldRetry = provider.provider === 'cloudflare'
-              && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
-              && isRetriableCloudflareSandboxError(sandboxError)
+            let sandbox: SandboxExecutionBox | undefined
+            let handlerMayHaveStarted = false
+            let runError: Error | undefined
+            try {
+              const session = await box.open({ id: cloudflareSandboxId })
+              sandbox = createSandboxExecutionBox(session, provider.provider)
+              const result = await executeSandboxDefinition<TPayload>(
+                sandbox,
+                context.name,
+                context.definition.options,
+                context.definition.bundle,
+                payload,
+                options.context,
+                {
+                  onHandlerStart() {
+                    handlerMayHaveStarted = true
+                  },
+                },
+              )
+              // SAFETY: The generated registry binds this runtime Definition to its public result contract.
+              return result as TResult
+            }
+            catch (error) {
+              const sandboxError = toSandboxError(error)
+              runError = sandboxError
+              const shouldRetry = !handlerMayHaveStarted
+                && provider.provider === 'cloudflare'
+                && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
+                && isRetriableCloudflareSandboxError(sandboxError)
 
-            if (!shouldRetry)
-              throw sandboxError
+              if (!shouldRetry)
+                throw sandboxError
 
-            await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
-          }
-          finally {
-            if (provider.closeAfterRun !== false)
-              await sandbox?.close().catch(() => {})
-          }
+              await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
+            }
+            finally {
+              if (provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
+                try {
+                  await sandbox?.close()
+                }
+                catch (cleanupError) {
+                  if (runError) {
+                    throw new AggregateError(
+                      [runError, cleanupError],
+                      `${runError.message} Cleanup failed: ${toSandboxError(cleanupError).message}`,
+                    )
+                  }
+                  throw toSandboxError(cleanupError)
+                }
+              }
+            }
           }
 
           throw sandboxError('Cloudflare sandbox retries exhausted.', {

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -14,6 +15,7 @@ const globSource = glob
 const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 
 const tempDirs: string[] = []
 
@@ -499,6 +501,76 @@ describe("lazy sources", () => {
     expect(getItems).not.toHaveBeenCalled()
   })
 
+  it("uses bulk item metadata without a second metadata request", async () => {
+    const getMeta = vi.fn(async () => {
+      throw new Error("bulk items already own their metadata")
+    })
+    const view = createWorkspaceSourceView({
+      name: "bulk-item-metadata",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          getItem: async key => ({ content: "# Ready\n", key }),
+          getItems: async () => [{ content: "# Ready\n", key: "ready.md", metadata: { revision: "bulk" } }],
+          getKeys: async () => ["ready.md"],
+          getMeta,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    await expect(view.stat("docs/ready.md")).resolves.toMatchObject({ metadata: { revision: "bulk" } })
+    expect(getMeta).not.toHaveBeenCalled()
+  })
+
+  it("falls back to source metadata when a bulk item omits it", async () => {
+    const getMeta = vi.fn(async () => ({ digest: "fallback" }))
+    const view = createWorkspaceSourceView({
+      name: "bulk-item-metadata-fallback",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          getItem: async key => ({ content: "# Ready\n", key }),
+          getItems: async () => [{ content: "# Ready\n", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          getMeta,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    await expect(view.stat("docs/ready.md")).resolves.toMatchObject({ metadata: { digest: "fallback" } })
+    expect(getMeta).toHaveBeenCalledOnce()
+  })
+
+  it("completes metadata for inferred bulk source items", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "ready.md"), "# Ready\n")
+
+    registerWorkspace("inferred-bulk-item-metadata", defineWorkspace({
+      rootDir: root,
+      store: { provider: "memory" },
+      sources: {
+        docs: globSource({ cwd: "docs", include: "*.md", materialize: "lazy" }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("inferred-bulk-item-metadata")
+    await workspace.materializeSources?.({ sources: ["docs"] })
+
+    await expect(workspace.stat("docs/ready.md")).resolves.toMatchObject({
+      metadata: {
+        digest: expect.any(String),
+        mtime: expect.any(Number),
+      },
+    })
+  })
+
   it("lets sources read existing workspace files while materializing", async () => {
     let previousReport = ""
     const store = createMemoryWorkspaceStore()
@@ -563,6 +635,36 @@ describe("lazy sources", () => {
       content: "# acme/models/orders.sql\n",
     })
     await expect(store.readFile("ingestion/globex/models/orders.sql")).resolves.toBeUndefined()
+  })
+
+  it("preserves files beneath a child mount during an explicit parent refresh", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/generated/result.md", {
+      path: "docs/generated/result.md",
+      content: "# Generated\n",
+    })
+    const view = createWorkspaceSourceView({
+      name: "explicit-parent-refresh",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+          sync: { stale: "remove" },
+        }),
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          files: [{ path: "result.md", content: "# Generated\n" }],
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+
+    await expect(store.readFile("docs/generated/result.md")).resolves.toMatchObject({
+      content: "# Generated\n",
+    })
   })
 
   it("rejects keyed lazy source items that escape the source mount", async () => {
@@ -800,6 +902,277 @@ describe("lazy sources", () => {
         "docs/b.md": expect.any(Object),
       },
     })
+  })
+
+  it("cancels materialization queued behind another view", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const getItems = vi.fn(async () => {
+      started()
+      await blocked
+      return [{ key: "a.md", content: "# A\n" }]
+    })
+    const definition = {
+      name: "lazy-queued-cancel",
+      sources: {
+        docs: custom({
+          materialize: "lazy" as const,
+          getItems,
+          async getItem(key) {
+            return { key, content: "# A\n" }
+          },
+          async getKeys() {
+            return ["a.md"]
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store)
+    const second = createWorkspaceSourceView(definition, store)
+    const active = first.materializeSources({ sources: ["docs"] })
+    await materializing
+
+    const abort = new AbortController()
+    const queued = second.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })
+    abort.abort(new DOMException("Canceled", "AbortError"))
+    await expect(queued).rejects.toThrow("Canceled")
+
+    const third = createWorkspaceSourceView(definition, store)
+    const later = third.materializeSources({ sources: ["docs"] })
+    await Promise.resolve()
+    expect(getItems).toHaveBeenCalledOnce()
+
+    release()
+    await active
+    await later
+    expect(getItems).toHaveBeenCalledTimes(2)
+  })
+
+  it("treats a Source mount request as complete across views", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => { started = resolve })
+    const getItems = vi.fn(async () => {
+      started()
+      await blocked
+      return [{ key: "a.md", content: "# A\n" }]
+    })
+    const definition = {
+      name: "startup-mount-wide-coordination",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          getItems,
+          async getItem(key: string) { return { key, content: "# A\n" } },
+          async getKeys() { return ["a.md"] },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store)
+    const second = createWorkspaceSourceView(definition, store)
+    const active = first.materializeSources({ path: "docs" })
+    await materializing
+    const read = second.readFile("docs/a.md", { encoding: "utf8" })
+    await Promise.resolve()
+    expect(getItems).toHaveBeenCalledOnce()
+
+    release()
+    await active
+    await expect(read).resolves.toBe("# A\n")
+    const third = createWorkspaceSourceView(definition, store)
+    await expect(third.glob("docs/**")).resolves.toEqual([expect.objectContaining({ path: "docs/a.md" })])
+    expect(getItems).toHaveBeenCalledOnce()
+  })
+
+  it("serializes path-scoped materialization only with matching Sources", async () => {
+    let releaseAssets!: () => void
+    const assetsBlocked = new Promise<void>((resolve) => {
+      releaseAssets = resolve
+    })
+    let assetsStarted!: () => void
+    const assetsMaterializing = new Promise<void>((resolve) => {
+      assetsStarted = resolve
+    })
+    const docsItem = vi.fn(async (key: string) => ({ key, content: "# Guide\n" }))
+    const definition = {
+      name: "lazy-path-coordination",
+      sources: {
+        assets: custom({
+          materialize: "lazy" as const,
+          async getKeys() {
+            assetsStarted()
+            await assetsBlocked
+            return ["logo.svg"]
+          },
+          async getItem(key) {
+            assetsStarted()
+            await assetsBlocked
+            return { key, content: "<svg />" }
+          },
+        }),
+        docs: custom({
+          materialize: "lazy" as const,
+          async getKeys() {
+            return ["guide.md"]
+          },
+          getItem: docsItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store)
+    const second = createWorkspaceSourceView(definition, store)
+    const assets = first.materializeSources({ path: "assets/logo.svg" })
+    await assetsMaterializing
+
+    await second.materializeSources({ sources: ["docs"] })
+    expect(docsItem).toHaveBeenCalledOnce()
+
+    releaseAssets()
+    await assets
+  })
+
+  it("serializes path-scoped build Source materialization across views", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let firstStarted!: () => void
+    const started = new Promise<void>((resolve) => { firstStarted = resolve })
+    let active = 0
+    let maxActive = 0
+    const getItem = vi.fn(async (key: string) => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      if (getItem.mock.calls.length === 1) {
+        firstStarted()
+        await blocked
+      }
+      active--
+      return { key, content: key }
+    })
+    const definition = {
+      name: "build-path-coordination",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          async getKeys() { return ["a.md", "b.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/a.md" })
+    await started
+    const second = createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/b.md" })
+    await Promise.resolve()
+    expect(getItem).toHaveBeenCalledOnce()
+
+    release()
+    await Promise.all([first, second])
+    expect(maxActive).toBe(1)
+  })
+
+  it("does not share pending materialization across Workspace Definitions", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const firstStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const store = createMemoryWorkspaceStore()
+    const first = createWorkspaceSourceView({
+      name: "first-shared-store",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getItem(key) {
+            return { key, content: "# First\n" }
+          },
+          async getItems() {
+            started()
+            await blocked
+            return [{ key: "first.md", content: "# First\n" }]
+          },
+          async getKeys() {
+            return ["first.md"]
+          },
+        }),
+      },
+    }, store)
+    const secondItems = vi.fn(async () => [{ key: "second.md", content: "# Second\n" }])
+    const second = createWorkspaceSourceView({
+      name: "second-shared-store",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getItem(key) {
+            return { key, content: "# Second\n" }
+          },
+          getItems: secondItems,
+          async getKeys() {
+            return ["second.md"]
+          },
+        }),
+      },
+    }, store)
+
+    const firstMaterialization = first.materializeSources({ sources: ["docs"] })
+    await firstStarted
+    await second.materializeSources({ sources: ["docs"] })
+
+    expect(secondItems).toHaveBeenCalledOnce()
+    await expect(second.readFile("docs/second.md", { encoding: "utf8" })).resolves.toBe("# Second\n")
+    release()
+    await firstMaterialization
+  })
+
+  it("fully materializes a lazy Source after joining a scoped request", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "a.md") {
+        started()
+        await blocked
+      }
+      return { key, content: `# ${key}\n` }
+    })
+    const view = createWorkspaceSourceView({
+      name: "lazy-scoped-join",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          getItem,
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const scoped = view.materializeSources({ path: "docs/a.md", sources: ["docs"] })
+    await materializing
+    const reading = view.readFile("docs/b.md", { encoding: "utf8" })
+    release()
+
+    await scoped
+    await expect(reading).resolves.toBe("# b.md\n")
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "a.md", "b.md"])
   })
 
   it("persists complete source metadata at lifecycle boundaries", async () => {
@@ -1145,5 +1518,434 @@ describe("lazy sources", () => {
     vi.setSystemTime(new Date("2026-05-05T12:30:00Z"))
     await expect(workspace.readFile("docs/foo.md")).resolves.toBe("version 1\n")
     expect(getItem).toHaveBeenCalledTimes(1)
+  })
+
+  it("refreshes expired cached materialization across Workspace facades", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-05T12:00:00Z"))
+    const getItem = vi.fn(async (key: string) => ({
+      key,
+      content: `version ${getItem.mock.calls.length}\n`,
+    }))
+    const definition = {
+      name: "lazy-cache-expiry",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 60 },
+          materialize: "lazy",
+          async getKeys() { return ["foo.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+
+    await expect(createWorkspaceSourceView(definition, store).readFile("docs/foo.md"))
+      .resolves.toBe("version 1\n")
+    vi.setSystemTime(new Date("2026-05-05T12:02:00Z"))
+    await expect(createWorkspaceSourceView(definition, store).readFile("docs/foo.md"))
+      .resolves.toBe("version 2\n")
+    expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries a failed expired cache refresh before serving its partial snapshot", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-05T12:00:00Z"))
+    let version = 1
+    let failRefresh = false
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "b.md" && failRefresh) throw new Error("refresh failed")
+      return { key, content: `version ${version}\n` }
+    })
+    const definition = {
+      name: "lazy-cache-failed-refresh",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 60 },
+          materialize: "lazy",
+          async getKeys() { return ["a.md", "b.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await expect(view.readFile("docs/a.md")).resolves.toBe("version 1\n")
+    vi.setSystemTime(new Date("2026-05-05T12:02:00Z"))
+    version = 2
+    failRefresh = true
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+
+    version = 3
+    failRefresh = false
+    await expect(view.readFile("docs/a.md")).resolves.toBe("version 3\n")
+    expect(getItem).toHaveBeenCalledTimes(6)
+  })
+
+  it("serves prepared startup live Sources from their snapshot", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
+    const source = markLiveWorkspaceSource(custom({
+      materialize: "startup",
+      async getKeys() {
+        return ["status.txt"]
+      },
+      getItem,
+    }), { "status.txt": "status.txt" })
+    const definition = { name: "startup-live-snapshot", sources: { status: source } }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["status"] })
+    await expect(createWorkspaceSourceView(definition, store).readFile("status/status.txt")).resolves.toBe("version 1\n")
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("bypasses provider preparation for completed startup snapshots", async () => {
+    const prepare = vi.fn(async () => {})
+    const source = custom({
+      materialize: "startup",
+      prepare,
+      async getKeys() {
+        return ["ready.md"]
+      },
+      async getItem(key) {
+        return { key, content: "# Ready\n" }
+      },
+    })
+    const definition = { name: "startup-prepared-snapshot", sources: { docs: source } }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["docs"] })
+    prepare.mockRejectedValue(new Error("provider unavailable"))
+
+    await expect(createWorkspaceSourceView(definition, store).readFile("docs/ready.md")).resolves.toBe("# Ready\n")
+    expect(prepare).toHaveBeenCalledOnce()
+  })
+
+  it("materializes startup Sources before stat and exists trust stored paths", async () => {
+    const getKeys = vi.fn(async (): Promise<string[]> => [])
+    const definition = {
+      name: "startup-stale-stat",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          getKeys,
+          async getItem(key) { return { key, content: "unused" } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/stale.md", { content: "stale", path: "docs/stale.md" })
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    getKeys.mockRejectedValue(new Error("provider unavailable"))
+    await expect(view.exists("docs/stale.md")).resolves.toBe(false)
+    await expect(view.stat("docs/stale.md")).rejects.toThrow("Workspace path does not exist")
+    expect(getKeys).toHaveBeenCalledOnce()
+  })
+
+  it("rematerializes a nested startup Source after build synchronization resets its mount", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
+    const definition = {
+      name: "startup-nested-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "docs/generated",
+          async getKeys() {
+            return ["result.md"]
+          },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["generated"] })
+    await syncWorkspaceDefinition(definition, store, new AbortController().signal)
+
+    await expect(view.readFile("docs/generated/result.md")).resolves.toBe("version 2\n")
+    expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
+  it("invalidates an empty startup snapshot before build synchronization removes its mount", async () => {
+    const prepare = vi.fn(async () => {})
+    const definition = {
+      name: "startup-empty-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "docs/generated",
+          prepare,
+          async getKeys(): Promise<string[]> { return [] },
+          async getItem(key) { return { key, content: "unused" } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["generated"] })
+    await syncWorkspaceDefinition(definition, store)
+    await view.materializeSources({ sources: ["generated"] })
+
+    expect(prepare).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves a disjoint root startup snapshot during root build cleanup", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: "# Startup\n" }))
+    const definition = {
+      name: "startup-disjoint-root-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "",
+          files: [{ path: "build.md", content: "# Build\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "",
+          async getKeys() { return ["startup.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["generated"] })
+    getItem.mockRejectedValue(new Error("provider unavailable"))
+    await syncWorkspaceDefinition(definition, store)
+
+    await expect(view.readFile("startup.md")).resolves.toBe("# Startup\n")
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("preserves a disjoint root startup snapshot during nested build cleanup", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: "# Startup\n" }))
+    const definition = {
+      name: "startup-disjoint-nested-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Build\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "",
+          async getKeys() { return ["startup.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["generated"] })
+    getItem.mockRejectedValue(new Error("provider unavailable"))
+    await syncWorkspaceDefinition(definition, store)
+
+    await expect(view.readFile("startup.md")).resolves.toBe("# Startup\n")
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
+  it("fences pending startup materialization before build synchronization resets its mount", async () => {
+    let releaseFirst!: () => void
+    const blocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let firstStarted!: () => void
+    const started = new Promise<void>((resolve) => { firstStarted = resolve })
+    const getItem = vi.fn(async (key: string) => {
+      if (getItem.mock.calls.length === 1) {
+        firstStarted()
+        await blocked
+      }
+      return { key, content: `version ${getItem.mock.calls.length}\n` }
+    })
+    const definition = {
+      name: "startup-pending-build-reset",
+      sources: {
+        docs: custom({
+          materialize: "build" as const,
+          mount: "docs",
+          files: [{ path: "index.md", content: "# Docs\n" }],
+        }),
+        generated: custom({
+          materialize: "startup" as const,
+          mount: "docs/generated",
+          async getKeys() { return ["result.md"] },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    const materializing = view.materializeSources({ sources: ["generated"] })
+    await started
+    const synchronizing = syncWorkspaceDefinition(definition, store)
+    await expect(Promise.race([synchronizing.then(() => "synced"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseFirst()
+    await expect(materializing).resolves.toMatchObject({
+      sources: [expect.objectContaining({ source: "generated", status: "error" })],
+    })
+    await synchronizing
+
+    await expect(view.readFile("docs/generated/result.md")).resolves.toBe("version 2\n")
+    expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries a startup Source after a failed full refresh", async () => {
+    let version = 1
+    let failRefresh = false
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "b.md" && failRefresh) throw new Error("refresh failed")
+      return { key, content: `version ${version}\n` }
+    })
+    const source = custom({
+      materialize: "startup",
+      async getKeys() {
+        return ["a.md", "b.md"]
+      },
+      getItem,
+      async getMeta() {
+        return { ref: String(version) }
+      },
+    })
+    const definition = { name: "startup-failed-refresh", sources: { docs: source } }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    version = 2
+    failRefresh = true
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+
+    version = 3
+    failRefresh = false
+    await expect(view.readFile("docs/a.md")).resolves.toBe("version 3\n")
+    expect(getItem).toHaveBeenCalledTimes(6)
+  })
+
+  it("refreshes uncached lazy Sources across Workspace views", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
+    const definition = {
+      name: "lazy-uncached-refresh",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy" as const,
+          async getKeys() {
+            return ["status.txt"]
+          },
+          getItem,
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).glob("docs/*.txt")
+    await createWorkspaceSourceView(definition, store).glob("docs/*.txt")
+    expect(getItem).toHaveBeenCalledTimes(2)
+  })
+
+  it("waits for an active uncached Source refresh before reading its Store", async () => {
+    let releaseSecondFile!: () => void
+    let markSecondFileStarted!: () => void
+    const secondFileStarted = new Promise<void>((resolve) => { markSecondFileStarted = resolve })
+    const secondFileReleased = new Promise<void>((resolve) => { releaseSecondFile = resolve })
+    let version = 1
+    const definition = {
+      name: "lazy-uncached-refresh-boundary",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy" as const,
+          async getKeys() { return ["a.md", "b.md"] },
+          async getItem(key) {
+            if (version === 2 && key === "b.md") {
+              markSecondFileStarted()
+              await secondFileReleased
+            }
+            return { key, content: `version ${version}\n` }
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const priorView = createWorkspaceSourceView(definition, store)
+    await priorView.glob("docs/*.md")
+
+    version = 2
+    const refresh = createWorkspaceSourceView(definition, store).materializeSources({ sources: ["docs"] })
+    await secondFileStarted
+    let readSettled = false
+    const read = priorView.search({ pattern: "version 2", paths: ["docs"] }).then((hits) => {
+      readSettled = true
+      return hits
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(readSettled).toBe(false)
+
+    releaseSecondFile()
+    await refresh
+    await expect(read).resolves.toEqual([
+      expect.objectContaining({ path: "docs/a.md" }),
+      expect.objectContaining({ path: "docs/b.md" }),
+    ])
+  })
+
+  it("retries a lazy fallback after joined preparation is cancelled", async () => {
+    let releaseStarted!: () => void
+    const started = new Promise<void>((resolve) => { releaseStarted = resolve })
+    const getKeys = vi.fn(async (context) => {
+      if (getKeys.mock.calls.length === 1) {
+        releaseStarted()
+        await new Promise<never>((_resolve, reject) => {
+          context.abortSignal?.addEventListener("abort", () => reject(context.abortSignal?.reason), { once: true })
+        })
+      }
+      return ["ready.txt"]
+    })
+    const definition = {
+      name: "lazy-cancelled-join",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          getKeys,
+          async getItem(key) {
+            return { key, content: "ready\n" }
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const preparing = createWorkspaceSourceView(definition, store)
+    const controller = new AbortController()
+    const preparation = preparing.materializeSources({ abortSignal: controller.signal, sources: ["docs"] })
+    await started
+
+    const read = createWorkspaceSourceView(definition, store).readFile("docs/ready.txt")
+    controller.abort(new Error("preparation stopped"))
+
+    await expect(preparation).rejects.toThrow("preparation stopped")
+    await expect(read).resolves.toBe("ready\n")
+    expect(getKeys).toHaveBeenCalledTimes(2)
   })
 })

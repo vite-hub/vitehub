@@ -77,6 +77,8 @@ export interface SandboxProjectOptions {
 
 export interface SandboxDefinitionInput<TPayload = unknown, TResult = unknown>
   extends SandboxDefinitionOptions {
+  /** Force project packaging on or off. Omit to detect project use automatically. */
+  project?: boolean
   run: SandboxDefinitionHandler<TPayload, TResult>
 }
 
