@@ -1,5 +1,5 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { captureProviderDeploymentOutputGeneration, composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -157,7 +157,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let nuxtServerQueueDirs: string[] = []
   let nuxtOwnsCloudflareWorker = false
   let providerOutput: ProviderOutputCatalog | undefined
-  let providerOutputGeneration: number | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let validatesNitroDefinitions = false
 
   return {
@@ -236,7 +236,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, resolveNuxtDefinitions?.(), localDevelopment)
     },
     buildStart() {
-      providerOutputGeneration = captureProviderDeploymentOutputGeneration(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
     },
     async buildEnd(error) {
       if (error) {
@@ -280,7 +280,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
               signal,
             }, write)
           },
-        }, providerOutputGeneration)
+        }, providerOutputGenerations.get(this))
       }
       catch (error) {
         await resetProviderDeploymentOutputs(providerOutput, error)

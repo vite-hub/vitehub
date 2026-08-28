@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
-import { captureProviderDeploymentOutputGeneration, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -499,7 +499,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
   let providerOutput: ProviderOutputCatalog | undefined
-  let providerOutputGeneration: number | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
@@ -614,7 +614,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       }
     },
     buildStart() {
-      providerOutputGeneration = captureProviderDeploymentOutputGeneration(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
     },
     async buildEnd(error) {
       if (error) {
@@ -627,6 +627,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const config = resolved
       const rootDir = projectRoot ?? config.root
       const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
+      const crons = await readDefinitionCrons(definitions)
       const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
         .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
         ?.vitehub?.workflow?.prepareScheduleRuntime
@@ -647,6 +648,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
             clientOutDir: resolve(config.root, config.build.outDir),
             definitions,
+            crons,
             rootDir,
             runtimeImport: internalOptions.runtimeImport,
             signal,
@@ -654,7 +656,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             workflow,
           })
         },
-      }, providerOutputGeneration)
+      }, providerOutputGenerations.get(this))
     },
     async renderError(error) {
       await resetProviderDeploymentOutputs(providerOutput, error)

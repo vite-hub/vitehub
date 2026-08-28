@@ -56,6 +56,7 @@ interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
   bundleExternal?: string[]
   clientOutDir: string
+  crons?: Map<string, string>
   definitions?: DiscoveredScheduleDefinition[]
   rootDir: string
   runtimeImport?: string
@@ -382,13 +383,14 @@ export async function writeVercelScheduleFunctions(options: {
     throw error
   })
   let installedFunctionRoot = false
+  let publicationCompleted = false
   rmSync(backupFunctionRoot, { force: true, recursive: true })
   try {
     try {
       renameSync(functionRoot, backupFunctionRoot)
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
     }
     try {
       if (definitions.length) {
@@ -408,10 +410,11 @@ export async function writeVercelScheduleFunctions(options: {
       options.signal?.throwIfAborted()
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
       if (!definitions.length) {
         await removeEmptyDirectories(functionRoot, options.rootDir)
         options.signal?.throwIfAborted()
+        publicationCompleted = true
         return
       }
       vercelConfig = createVercelConfigJson()
@@ -434,6 +437,7 @@ export async function writeVercelScheduleFunctions(options: {
           }
         }
       }
+      publicationCompleted = true
       return
     }
     const nextCrons = [...existingCrons, ...definitions.map(definition => ({
@@ -455,12 +459,16 @@ export async function writeVercelScheduleFunctions(options: {
         await rm(configFile, { force: true })
         options.signal?.throwIfAborted()
         await removeEmptyDirectories(outputRoot, options.rootDir)
+        publicationCompleted = true
         return
       }
     }
     options.signal?.throwIfAborted()
     await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
     options.signal?.throwIfAborted()
+    await removeEmptyDirectories(outputRoot, options.rootDir)
+    options.signal?.throwIfAborted()
+    publicationCompleted = true
   }
   catch (error) {
     if (installedFunctionRoot) rmSync(functionRoot, { force: true, recursive: true })
@@ -470,11 +478,12 @@ export async function writeVercelScheduleFunctions(options: {
     throw error
   }
   finally {
-    try {
-      rmSync(backupFunctionRoot, { force: true, recursive: true })
+    if (publicationCompleted) {
+      try {
+        rmSync(backupFunctionRoot, { force: true, recursive: true })
+      }
+      catch {}
     }
-    catch {}
-    await removeEmptyDirectories(outputRoot, options.rootDir)
   }
 }
 
@@ -675,7 +684,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
   options.signal?.throwIfAborted()
-  const crons = await readDefinitionCrons(artifacts.definitions)
+  const crons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
   options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
     await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")

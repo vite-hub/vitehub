@@ -1,6 +1,6 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { captureProviderDeploymentOutputGeneration, composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -247,7 +247,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let cloudflareOwnedByNitro = false
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let providerOutput: ProviderOutputCatalog | undefined
-  let providerOutputGeneration: number | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   let resolved: ResolvedConfig | undefined
@@ -317,7 +317,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       }
     },
     buildStart() {
-      providerOutputGeneration = captureProviderDeploymentOutputGeneration(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
       resetProviderOutputRuntime(providerOutput)
     },
     async buildEnd(error) {
@@ -350,7 +350,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
               signal,
             }, write)
           },
-        }, providerOutputGeneration)
+        }, providerOutputGenerations.get(this))
       }
       catch (error) {
         await resetProviderDeploymentOutputs(providerOutput, error)

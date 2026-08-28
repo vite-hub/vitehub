@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { captureProviderDeploymentOutputGeneration, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
@@ -74,7 +74,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
-  let providerOutputGeneration: number | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
@@ -177,7 +177,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       },
     },
     buildStart() {
-      providerOutputGeneration = captureProviderDeploymentOutputGeneration(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
     },
     async buildEnd(error) {
       if (error) {
@@ -218,7 +218,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               ?.vitehub?.agent?.transformWorkflowRegistry,
           }, write)
         },
-      }, providerOutputGeneration)
+      }, providerOutputGenerations.get(this))
     },
     async renderError(error) {
       await resetProviderDeploymentOutputs(providerOutput, error)

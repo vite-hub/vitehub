@@ -9,6 +9,7 @@ import {
   captureProviderDeploymentOutputGeneration,
   contributeProviderDeploymentOutput,
   createDefaultCloudflareOutputRoot,
+  createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
   resetProviderDeploymentOutputs,
 } from "../src/build/deployment-output.ts"
@@ -27,6 +28,19 @@ afterEach(async () => {
 })
 
 describe("Provider Output finalizer", () => {
+  it("keeps build generations local to each Vite environment", async () => {
+    const catalog = createProviderOutputCatalog()
+    const generations = createProviderDeploymentOutputGenerationState()
+    const environmentA = {}
+    const environmentB = {}
+    generations.capture({ environment: environmentA }, catalog)
+    await resetProviderDeploymentOutputs(catalog, new Error("build A failed"))
+    generations.capture({ environment: environmentB }, catalog)
+
+    expect(generations.get({ environment: environmentA })).toBe(0)
+    expect(generations.get({ environment: environmentB })).toBe(1)
+  })
+
   it("settles contributions in stable owner order and replaces duplicates", async () => {
     const catalog = createProviderOutputCatalog()
     const writes: string[] = []
@@ -62,6 +76,28 @@ describe("Provider Output finalizer", () => {
     await finalizeProviderDeploymentOutputs(catalog)
 
     expect(write).toHaveBeenCalledTimes(2)
+  })
+
+  it("rolls back earlier owners when a later owner fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const outputFile = join(outputRoot, "index.js")
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(outputFile, "previous\n")
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => await writeFile(outputFile, "replacement\n"),
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "database",
+      rootDir,
+      write: async () => { throw new Error("database failed") },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("database failed")
+    await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
   })
 
   it("drains contributions registered during active finalization", async () => {
@@ -348,6 +384,24 @@ describe("Provider Output finalizer", () => {
     releaseNewWrite()
     await newReset
     await expect(newFinalization).rejects.toThrow("Provider Output finalization reset")
+  })
+
+  it("deduplicates an old failure after a successful replacement", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const oldFailure = new Error("old build failed")
+    await resetProviderDeploymentOutputs(catalog, oldFailure)
+    const replacementWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir, write: replacementWrite })
+    await finalizeProviderDeploymentOutputs(catalog)
+    const laterWrite = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: laterWrite })
+
+    await resetProviderDeploymentOutputs(catalog, oldFailure)
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(replacementWrite).toHaveBeenCalledOnce()
+    expect(laterWrite).toHaveBeenCalledOnce()
   })
 
   it("clears the next build's contributions when it fails after reset teardown", async () => {

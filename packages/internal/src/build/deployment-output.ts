@@ -1,5 +1,6 @@
 import { existsSync, renameSync, rmSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -376,7 +377,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
       await cp(outputRoot, stagedOutputRoot, { recursive: true })
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
     }
     await mkdir(serverDir, { recursive: true })
     await rm(serverDir, { force: true, recursive: true })
@@ -385,7 +386,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
       await cp(resolve(outputRoot, "functions", serverFunctionName, "node_modules"), resolve(serverDir, "node_modules"), { recursive: true })
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
     }
     await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
     await writeFile(
@@ -625,6 +626,35 @@ async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operatio
   }
 }
 
+async function withProviderDeploymentOutputRootTransaction<T>(rootDir: string, operation: () => Promise<T>): Promise<T> {
+  const roots = [
+    createDefaultCloudflareOutputRoot(rootDir),
+    createDefaultCloudflareStaticOutputDir(rootDir),
+    createDefaultNetlifyOutputRoot(rootDir),
+    createDefaultVercelOutputRoot(rootDir),
+  ]
+  const transactionRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-output-"))
+  const snapshots = roots.map((path, index) => ({ backup: resolve(transactionRoot, String(index)), path, present: existsSync(path) }))
+  try {
+    await Promise.all(snapshots.filter(snapshot => snapshot.present).map(snapshot => cp(snapshot.path, snapshot.backup, { recursive: true })))
+    const result = await operation()
+    await rm(transactionRoot, { force: true, recursive: true })
+    return result
+  }
+  catch (error) {
+    const restorations = await Promise.allSettled(snapshots.map(async (snapshot) => {
+      await rm(snapshot.path, { force: true, recursive: true })
+      if (snapshot.present) await rename(snapshot.backup, snapshot.path)
+    }))
+    if (restorations.every(result => result.status === "fulfilled")) {
+      await rm(transactionRoot, { force: true, recursive: true })
+    }
+    const restorationFailure = restorations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+    if (restorationFailure) throw new AggregateError([error, restorationFailure.reason], "Provider Output rollback failed")
+    throw error
+  }
+}
+
 export function contributeProviderDeploymentOutput(
   catalog: ProviderOutputCatalogType | undefined,
   contribution: ProviderDeploymentOutputContribution,
@@ -635,6 +665,29 @@ export function contributeProviderDeploymentOutput(
 
 export function captureProviderDeploymentOutputGeneration(catalog: ProviderOutputCatalogType | undefined): number | undefined {
   return catalog?.deploymentGeneration()
+}
+
+interface ProviderDeploymentOutputPluginContext {
+  environment?: object
+}
+
+export function createProviderDeploymentOutputGenerationState(): {
+  capture: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined) => void
+  get: (context: ProviderDeploymentOutputPluginContext | undefined) => number | undefined
+} {
+  const generations = new WeakMap<object, number | undefined>()
+  const fallback = {}
+  const environment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context
+    ? context.environment ?? context
+    : fallback
+  return {
+    capture(context, catalog) {
+      generations.set(environment(context), captureProviderDeploymentOutputGeneration(catalog))
+    },
+    get(context) {
+      return generations.get(environment(context))
+    },
+  }
 }
 
 export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined, failure?: unknown): Promise<void> {
@@ -722,23 +775,25 @@ export async function finalizeProviderDeploymentOutputs(
         }
         await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
           await withProviderDeploymentOutputRootLock(rootDir, async () => {
-            for (const contribution of rootContributions) {
-              throwIfProviderOutputAborted(controller.signal)
-              try {
-                await contribution.write({
-                  signal: controller.signal,
-                  write: async (writeOptions) => {
-                    throwIfProviderOutputAborted(controller.signal)
-                    await writeProviderDeploymentOutputsNow(writeOptions, controller.signal)
-                  },
-                })
+            await withProviderDeploymentOutputRootTransaction(rootDir, async () => {
+              for (const contribution of rootContributions) {
+                throwIfProviderOutputAborted(controller.signal)
+                try {
+                  await contribution.write({
+                    signal: controller.signal,
+                    write: async (writeOptions) => {
+                      throwIfProviderOutputAborted(controller.signal)
+                      await writeProviderDeploymentOutputsNow(writeOptions, controller.signal)
+                    },
+                  })
+                }
+                catch (error) {
+                  controller.abort(error)
+                  throw error
+                }
+                throwIfProviderOutputAborted(controller.signal)
               }
-              catch (error) {
-                controller.abort(error)
-                throw error
-              }
-              throwIfProviderOutputAborted(controller.signal)
-            }
+            })
           })
         }))
       }
@@ -751,7 +806,6 @@ export async function finalizeProviderDeploymentOutputs(
   providerDeploymentOutputFinalizations.set(catalog, active)
   try {
     await finalization
-    providerDeploymentOutputCompletedResets.delete(catalog)
   }
   finally {
     if (providerDeploymentOutputFinalizations.get(catalog) === active) {
