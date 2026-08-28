@@ -250,7 +250,7 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "overrides:",
     // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
-    // Optional workflow peers must stay on one Nest major under strict peer validation.
+    // Keep Workflow's broad Nest peer pair on the same major in isolated installs.
     "  \"@nestjs/common\": \"11.2.3\"",
     "  \"@nestjs/core\": \"11.2.3\"",
     ...overrides,
