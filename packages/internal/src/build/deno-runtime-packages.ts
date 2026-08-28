@@ -606,12 +606,14 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   const stagedKey = packageKey + "\0" + targetDir
   if (staged.has(stagedKey)) return
   copied.add(packageKey)
-  await rm(targetDir, { force: true, recursive: true })
-  await cp(packageDir, targetDir, {
-    dereference: true,
-    filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
-    recursive: true,
-  })
+  if (resolve(packageDir) !== resolve(targetDir)) {
+    await rm(targetDir, { force: true, recursive: true })
+    await cp(packageDir, targetDir, {
+      dereference: true,
+      filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
+      recursive: true,
+    })
+  }
   staged.add(stagedKey)
   stagedTargets.add(targetDir)
   const packageRequire = createRequire(resolvedPackageJsonPath)
