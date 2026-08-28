@@ -271,14 +271,35 @@ async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
   })
 }
 
-async function materializeCodexCredentialOverlay(home: string, sharedHome: string): Promise<void> {
+async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> {
+  if (providerHostPlatform === "win32") return true
+  if (providerHostPlatform !== "darwin") return false
+  const probe = await mkdtemp(join(sharedHome, ".vitehub-case-probe-"))
+  const alternate = join(dirname(probe), basename(probe).toUpperCase())
+  try {
+    const [probeEntry, alternateEntry] = await Promise.all([
+      stat(probe),
+      stat(alternate).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      }),
+    ])
+    return alternateEntry?.dev === probeEntry.dev && alternateEntry.ino === probeEntry.ino
+  }
+  finally {
+    await rm(probe, { force: true, recursive: true })
+  }
+}
+
+async function materializeCodexCredentialOverlay(home: string, sharedHome: string, caseInsensitive: boolean): Promise<void> {
   await mkdir(sharedHome, { recursive: true })
   await Promise.all([
     ...codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })),
     ...codexSharedHomeFiles.map(file => writeFile(join(sharedHome, file), "", { flag: "a" })),
   ])
   const discoveredEntries = await readdir(sharedHome)
-  const entries = process.platform === "win32" || process.platform === "darwin"
+  const entries = caseInsensitive
     ? new Map([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries].map(entry => [entry.toLowerCase(), entry])).values()
     : new Set([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries])
   await Promise.all([...entries]
@@ -1408,19 +1429,21 @@ async function* runProvider<
     }
     if (credentialHome) {
       const configuredSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
-      credentialSharedHome = await waitForProviderOperation(
+      const sharedHome = await waitForProviderOperation(
         (async () => {
           await mkdir(configuredSharedHome, { recursive: true })
-          return await realpath(configuredSharedHome)
+          const canonicalHome = await realpath(configuredSharedHome)
+          return { caseInsensitive: await isCaseInsensitiveCodexHome(canonicalHome), home: canonicalHome }
         })(),
         effectiveSignal,
         () => undefined,
         observeLateCleanup,
       )
-      const sharedHomeKey = providerHostPlatform === "win32" || providerHostPlatform === "darwin" ? credentialSharedHome.toLowerCase() : credentialSharedHome
+      credentialSharedHome = sharedHome.home
+      const sharedHomeKey = sharedHome.caseInsensitive ? credentialSharedHome.toLowerCase() : credentialSharedHome
       releaseCredentialHomeLock = await acquireProviderSessionLock(codexSharedHomeLocks, sharedHomeKey, effectiveSignal)
       await waitForProviderOperation(
-        materializeCodexCredentialOverlay(credentialHome, credentialSharedHome),
+        materializeCodexCredentialOverlay(credentialHome, credentialSharedHome, sharedHome.caseInsensitive),
         effectiveSignal,
         () => undefined,
         (cleanup) => {

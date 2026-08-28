@@ -402,7 +402,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
-  it("excludes private Codex home entries case-insensitively on macOS", async () => {
+  it("preserves case-distinct Codex home entries on case-sensitive macOS volumes", async () => {
     const threadId = "thread-macos-credentials"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
@@ -418,10 +418,9 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
       expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
       await expect(access(join(shadowHome, "Auth.json"))).rejects.toMatchObject({ code: "ENOENT" })
-      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions")
-      expect(sessionEntries).toHaveLength(1)
-      const sessionEntry = sessionEntries[0]!
-      expect(await readlink(join(shadowHome, sessionEntry))).toBe(join(sharedHome, sessionEntry))
+      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions").sort()
+      expect(sessionEntries).toEqual(["Sessions", "sessions"])
+      await Promise.all(sessionEntries.map(async entry => expect(await readlink(join(String(shadowHome), entry))).toBe(join(sharedHome, entry))))
       return providerRuntimes.shift()
     })
 
@@ -662,9 +661,13 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
-  it.runIf(process.platform === "darwin")("serializes case-equivalent Codex homes on macOS", async () => {
+  it.runIf(process.platform === "darwin")("serializes case-equivalent Codex homes on case-insensitive macOS volumes", async () => {
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const equivalentHome = sharedHome.toUpperCase()
+    if (!await access(equivalentHome).then(() => true, () => false)) {
+      await rm(sharedHome, { force: true, recursive: true })
+      return
+    }
     let releaseFirst!: () => void
     const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
     const first = runtime("thread-macos-home-first", [event("turn.completed", "thread-macos-home-first", { state: "completed" }, { turnId: "turn-1" })], {
@@ -2484,6 +2487,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     const connect = vi.spyOn(McpServer.prototype, "connect").mockImplementationOnce(() => new Promise<void>(resolve => finishConnect = resolve))
     const close = vi.spyOn(McpServer.prototype, "close")
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
     const result = Promise.resolve(adapter.generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
       tools: { search: { execute: vi.fn(), name: "search" } },
