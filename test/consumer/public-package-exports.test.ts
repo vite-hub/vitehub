@@ -193,6 +193,47 @@ async function importPackagesWithoutRootFallback(
   }
 }
 
+async function importPackagesWithoutDeclarationPeer(
+  appDir: string,
+  omittedPeer: string,
+  installedOptionalPeers: readonly string[],
+) {
+  const contractsByPackage = Map.groupBy(
+    declarationPeerAbsentRuntimeContracts(omittedPeer),
+    contract => contract.packageName,
+  )
+
+  for (const [packageName, contracts] of contractsByPackage) {
+    const packageRoot = await realpath(join(appDir, "node_modules", ...packageName.split("/")))
+    const manifest = await readManifest(join(packageRoot, "package.json"))
+    const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
+      !manifest.peerDependenciesMeta?.[name]?.optional,
+    )
+    await withoutRootDependencies(appDir, new Set([
+      packageName,
+      ...(packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+      ...requiredPeers,
+      ...installedOptionalPeers.filter(peer => peer !== omittedPeer),
+    ]), async () => {
+      const runnerDir = join(appDir, ".isolated", `${packageName.replaceAll("/", "-")}-without-${omittedPeer.replaceAll("/", "-")}`)
+      const packageNameParts = packageName.split("/")
+      const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
+      await rm(runnerDir, { recursive: true, force: true })
+      await mkdir(linkDir, { recursive: true })
+      await symlink(packageRoot, join(linkDir, packageNameParts.at(-1)!), "dir")
+      await importSpecifiers(runnerDir, contracts.map(contract => contract.specifier))
+    })
+  }
+}
+
+function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
+  return publicPackageExportContracts.filter(contract =>
+    isJavaScriptModule(contract.target)
+    && contract.optionalDeclarationPeers.includes(omittedPeer)
+    && !contract.optionalRuntimePeers.includes(omittedPeer),
+  )
+}
+
 async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
   const requiredPeerSpecs: Record<string, string> = {
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
@@ -390,6 +431,14 @@ function declarationDiagnostics(program: ts.Program) {
 }
 
 describe("published declaration diagnostics", () => {
+  it("keeps other runtime peers while omitting a declaration-only peer", () => {
+    const withoutVite = declarationPeerAbsentRuntimeContracts("vite")
+    const withoutNuxtUi = declarationPeerAbsentRuntimeContracts("@nuxt/ui")
+
+    expect(withoutVite.map(contract => contract.specifier)).toContain("@vite-hub/ui/vite")
+    expect(withoutNuxtUi.map(contract => contract.specifier)).not.toContain("@vite-hub/ui/vite")
+  })
+
   it("imports runtime contracts in isolated processes", async () => {
     const guardedModule = (id: number) => `data:text/javascript,${encodeURIComponent([
       "if (globalThis.__vitehubPublicExportLoaded) throw new Error('shared process')",
@@ -477,6 +526,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
 
       expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
+      for (const optionalPeer of optionalPeers) {
+        await importPackagesWithoutDeclarationPeer(appDir, optionalPeer, optionalPeers)
+      }
       const presentPeerContracts = publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target))
       const presentCloudflareContracts = presentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
