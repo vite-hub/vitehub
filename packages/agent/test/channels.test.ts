@@ -557,6 +557,12 @@ describe("agent channels", () => {
       pullRequest: { number: 42 },
       repository: { fullName: "acme/app" },
     })
+    expect(result.run?.annotations).toEqual({
+      "github.pullRequest": 42,
+      "github.repository": "acme/app",
+      "github.title": "Improve app",
+      "github.url": "https://github.test/acme/app/pull/42",
+    })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const withEmptyFacts = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review generated route"), github: {} })
@@ -729,7 +735,13 @@ describe("agent channels", () => {
         source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
       },
       repository: { fullName: "acme/app", name: "app", owner: "acme" },
-      run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
+      run: {
+        annotations: { "custom.display": "preserved" },
+        messageId: "99",
+        origin: "github-pull-request-comment",
+        runId: "github:acme/app#42:comment:99",
+        threadId: "pr-42",
+      },
       trigger: {
         action: "created",
         actor: { login: "mona" },
@@ -759,6 +771,11 @@ describe("agent channels", () => {
       prompt: "/review docs",
     })
     expect(fromContext.run).toMatchObject({
+      annotations: {
+        "custom.display": "preserved",
+        "github.pullRequest": 42,
+        "github.repository": "acme/app",
+      },
       channelId: "github",
       origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
@@ -787,6 +804,12 @@ describe("agent channels", () => {
       repository: { fullName: "acme/app" },
     })
     expect(fromPayload.run).toMatchObject({
+      annotations: {
+        "github.pullRequest": 42,
+        "github.repository": "acme/app",
+        "github.title": "Improve app",
+        "github.url": "https://github.test/acme/app/pull/42",
+      },
       channelId: "github",
       origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",

@@ -34,6 +34,7 @@ import type {
   AgentChannelWebhookRegistrationDefinition,
   AgentFinishEvent,
   AgentRunInput,
+  AgentRunMetadata,
   AgentTriggerDefinition,
   AgentMessageChannelSettings,
   AgentTriggerInvokeResult,
@@ -261,10 +262,9 @@ export interface GitHubPullRequestRunContext {
     name: string
     owner: string
   }
-  run: {
+  run: AgentRunMetadata & {
     messageId: string
     origin: string
-    runId: string
     threadId: string
   }
   trigger: {
@@ -785,6 +785,23 @@ function pullRequestCommandInput(
       pullRequest,
     },
     prompt: command.body,
+  }
+}
+
+function githubPullRequestRunMetadata(
+  pullRequest: GitHubPullRequestRunContext,
+  channelId: string | undefined,
+): AgentRunMetadata {
+  return {
+    ...pullRequest.run,
+    annotations: {
+      ...pullRequest.run.annotations,
+      "github.pullRequest": pullRequest.pullRequest.number,
+      "github.repository": pullRequest.repository.fullName,
+      ...(pullRequest.pullRequest.title ? { "github.title": pullRequest.pullRequest.title } : {}),
+      ...(pullRequest.pullRequest.htmlUrl ? { "github.url": pullRequest.pullRequest.htmlUrl } : {}),
+    },
+    ...(channelId ? { channelId } : {}),
   }
 }
 
@@ -1933,10 +1950,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         return {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
           input: pullRequestCommandInput(command, pullRequest),
-          run: {
-            ...pullRequest.run,
-            channelId: context.trigger.channelId,
-          },
+          run: githubPullRequestRunMetadata(pullRequest, context.trigger.channelId),
         }
       },
     },
@@ -1965,10 +1979,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               },
               prompt: githubPullRequestDevPrompt(inputRecord, existingPullRequest),
             },
-            run: {
-              ...existingPullRequest.run,
-              channelId: context.trigger.channelId,
-            },
+            run: githubPullRequestRunMetadata(existingPullRequest, context.trigger.channelId),
           }
         }
 
@@ -1992,10 +2003,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             },
             prompt: maybeString(inputRecord.prompt) || command.body,
           },
-          run: {
-            ...pullRequest.run,
-            channelId: context.trigger.channelId,
-          },
+          run: githubPullRequestRunMetadata(pullRequest, context.trigger.channelId),
         }
       },
     },
