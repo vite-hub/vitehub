@@ -165,6 +165,7 @@ describe("Provider Agent Driver", () => {
       stdout: new EventEmitter(),
     })
     spawnProviderProcess.mockImplementation((_command, _args, options) => {
+      // SAFETY: The production helper always supplies an AbortSignal to the spawned process.
       const signal = options.signal as AbortSignal
       signal.addEventListener("abort", () => child.emit("error", signal.reason), { once: true })
       return child
@@ -358,6 +359,36 @@ describe("Provider Agent Driver", () => {
     }
     finally {
       platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("makes existing Codex memories available and persists new memories", async () => {
+    const threadId = "thread-codex-memories"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await mkdir(join(sharedHome, "memories"))
+    await writeFile(join(sharedHome, "memories", "existing.md"), "existing memory\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const memories = join(String(options.settings?.homePath), "memories")
+      expect(await readFile(join(memories, "existing.md"), "utf8")).toBe("existing memory\n")
+      await writeFile(join(memories, "new.md"), "new memory\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(await readFile(join(sharedHome, "memories", "existing.md"), "utf8")).toBe("existing memory\n")
+      expect(await readFile(join(sharedHome, "memories", "new.md"), "utf8")).toBe("new memory\n")
+    }
+    finally {
       await rm(sharedHome, { force: true, recursive: true })
     }
   })

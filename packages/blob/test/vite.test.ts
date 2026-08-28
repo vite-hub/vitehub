@@ -10,6 +10,7 @@ import { build as bundle } from "esbuild"
 import { H3Event, toResponse } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -151,9 +152,27 @@ describe("hubBlob", () => {
     expect(driverImports(nitroRuntime)[0]).toContain("/drivers/fs")
   })
 
+  it("resolves generated paths while a framework replays Blob config", () => {
+    const root = process.cwd()
+    const plugin = hubBlob({ driver: "fs" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const userConfig = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      nitro: {},
+      root,
+    }
+
+    config(userConfig, { command: "build" })
+
+    expect(userConfig.nitro).toMatchObject({
+      plugins: [resolve(root, ".vitehub/nitro/blob/plugin.ts")],
+    })
+  })
+
   it("resolves generated Nitro registrations from the final Vite root", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-root-"))
     const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-stale-root-"))
+    await writeFile(join(root, "package.json"), "{}\n")
     const plugin = hubBlob({
       bucketName: "assets",
       driver: "cloudflare-r2",
@@ -444,14 +463,14 @@ describe("hubBlob", () => {
     })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
-    const userConfig = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
+    const userConfig = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }], root }
 
     config(userConfig, { command: "build" })
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
       { binding: "ASSETS", bucket_name: "assets" },
     ])
     expect(userConfig).toHaveProperty("nitro.handlers", [{
-      handler: ".vitehub/nitro/blob/middleware.ts",
+      handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"),
       middleware: true,
       route: "/**",
     }])

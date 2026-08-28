@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { glob, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, matchesGlob, relative, resolve } from 'node:path'
+import { parse as parseYaml } from 'yaml'
 import type { SandboxProjectOptions } from './module-types'
 
 export type SandboxPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
@@ -23,6 +24,12 @@ export interface SandboxProject {
   packagePath: string
 }
 
+const sandboxProjectSourceFiles = new WeakMap<SandboxProject, string[]>()
+
+export function getSandboxProjectSourceFiles(project: SandboxProject): string[] {
+  return sandboxProjectSourceFiles.get(project) || []
+}
+
 type PackageManifest = {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
@@ -30,6 +37,7 @@ type PackageManifest = {
   optionalDependencies?: Record<string, string>
   packageManager?: unknown
   peerDependencies?: Record<string, string>
+  pnpm?: unknown
   vitehub?: unknown
 }
 
@@ -133,15 +141,31 @@ function parseSandboxProjectOptions(manifest: PackageManifest, path: string): Sa
   }
 
   const timeout = sandbox.timeout
-  if (typeof timeout === 'undefined')
+  if (timeout === undefined)
     return undefined
-  if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout <= 0 || timeout > maxTimeout) {
+  const numericTimeout = Number(timeout)
+  if (numericTimeout !== timeout || !Number.isInteger(numericTimeout) || numericTimeout <= 0 || numericTimeout > maxTimeout) {
     throw new Error(
       `[vitehub] Sandbox package manifest "vitehub.sandbox.timeout" must be a positive integer no greater than ${maxTimeout}.`,
     )
   }
 
-  return { timeout }
+  return { timeout: numericTimeout }
+}
+
+function pnpmPatchPaths(manifest: PackageManifest) {
+  if (!isPlainObject(manifest.pnpm) || !isPlainObject(manifest.pnpm.patchedDependencies))
+    return []
+  return Object.values(manifest.pnpm.patchedDependencies).filter((value): value is string => typeof value === 'string')
+}
+
+export function parsePnpmWorkspacePatchPaths(source: string) {
+  const workspace: unknown = parseYaml(source)
+  const patchedDependencies = isPlainObject(workspace) ? Reflect.get(workspace, 'patchedDependencies') : undefined
+  if (!isPlainObject(patchedDependencies)) return []
+  return Object.values(patchedDependencies)
+    .filter(value => value === String(value))
+    .map(String)
 }
 
 export function parsePnpmWorkspacePackages(source: string) {
@@ -282,11 +306,35 @@ export async function resolveSandboxProject(
     await addProjectFile(files, installRoot, workspace.file, root)
     await addPnpmWorkspaceDependencies(files, installRoot, root, parsePnpmWorkspacePackages(workspace.source), manifest)
   }
+  const installManifestPath = resolve(installRoot, 'package.json')
+  const installManifest = installRoot === packageRoot
+    ? manifest
+    : await isFile(installManifestPath, root)
+      ? parseManifest(await readFile(installManifestPath, 'utf8'), installManifestPath)
+      : undefined
+  for (const patchPath of pnpmPatchPaths(installManifest || {})) {
+    if (!isInside(installRoot, resolve(installRoot, patchPath))) {
+      throw new Error(
+        `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}`,
+      )
+    }
+    await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+  }
+  if (workspace) {
+    for (const patchPath of parsePnpmWorkspacePatchPaths(workspace.source)) {
+      if (!isInside(installRoot, resolve(installRoot, patchPath))) {
+        throw new Error(
+          `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}`,
+        )
+      }
+      await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+    }
+  }
   if (lock) await addProjectFile(files, installRoot, lock.path, root)
 
   const packagePath = relative(installRoot, packageRoot).replaceAll('\\', '/') || '.'
   const identity = JSON.stringify({ files, manager, packagePath })
-  return {
+  const project: SandboxProject = {
     digest: createHash('sha256').update(identity).digest('hex'),
     files,
     install: {
@@ -297,6 +345,11 @@ export async function resolveSandboxProject(
     ...(sandboxOptions ? { options: sandboxOptions } : {}),
     packagePath,
   }
+  sandboxProjectSourceFiles.set(
+    project,
+    Object.keys(files).map(path => resolve(installRoot, path)),
+  )
+  return project
 }
 
 async function firstDirectoryWithFile(directories: string[], file: string, root: string) {

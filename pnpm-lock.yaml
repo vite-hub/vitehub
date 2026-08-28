@@ -119,6 +119,10 @@ catalogs:
     nuxt-schema-org:
       specifier: ^6.3.0
       version: 6.3.0
+  nuxt-compat:
+    nuxt:
+      specifier: ^4.5.2 || >=5.0.0-0
+      version: 4.5.2
   realtime:
     '@tiptap/core':
       specifier: ^3.29.2
@@ -957,6 +961,9 @@ importers:
 
   packages/browser:
     dependencies:
+      '@cloudflare/playwright':
+        specifier: catalog:browser
+        version: 1.3.5(playwright-core@1.61.1)
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -964,9 +971,6 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
     devDependencies:
-      '@cloudflare/playwright':
-        specifier: catalog:browser
-        version: 1.3.5(playwright-core@1.61.1)
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
@@ -1020,7 +1024,7 @@ importers:
   packages/cli:
     dependencies:
       nuxt:
-        specifier: catalog:nuxt
+        specifier: catalog:nuxt-compat
         version: 4.5.2(e52c6d82d693e85b3ec376bb83944580)
       pathe:
         specifier: catalog:unjs
@@ -1592,6 +1596,9 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@26.1.1)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.0
     devDependencies:
       '@vite-hub/internal':
         specifier: workspace:*

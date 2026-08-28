@@ -416,20 +416,30 @@ describe("ViteHub CLI", () => {
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 
-  it("keeps explicit Vite config ownership in the standalone loader", async () => {
+  it("loads Nuxt plugins when a Nuxt app also has a Vite config", async () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, "vite.config.ts"), "export default {}\n")
     await writeFile(join(rootDir, "nuxt.config.ts"), "export default {}\n")
-    const loadNuxtViteConfig = vi.fn()
+    const stdout = stream()
+    const namespacePlugin = (name: string) => ({
+      vitehub: { cli: { namespaces: [{ features: [], name }] } },
+    })
+    const loadNuxtViteConfig = vi.fn(async () => ({
+      plugins: [namespacePlugin("nuxt-only")],
+      root: join(rootDir, "app"),
+    }))
 
     await runViteHubCli({
       args: ["--help"],
       cwd: rootDir,
+      loadConfig: async () => ({ plugins: [namespacePlugin("vite-only")], root: rootDir }),
       loadNuxtViteConfig,
-      stdout: stream(),
+      stdout,
     })
 
-    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
+    expect(loadNuxtViteConfig).toHaveBeenCalledOnce()
+    expect(stdout.output()).toContain("nuxt-only")
+    expect(stdout.output()).not.toContain("vite-only")
   })
 
   it("fails closed when provision credentials are missing", async () => {

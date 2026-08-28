@@ -170,7 +170,7 @@ const codexSharedHomeDirectories = [
 ] as const
 const codexSharedHomeFiles = ["history.jsonl"] as const
 const codexPrivateHomeEntries = new Set(["auth.json", "models_cache.json"])
-const codexLocalHomeEntries = new Set(["log", "memories", "tmp"])
+const codexLocalHomeEntries = new Set(["log", "tmp"])
 interface CodexSharedHomeLockWaiter {
   abort?: () => void
   exclusive: boolean

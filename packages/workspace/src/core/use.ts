@@ -17,6 +17,7 @@ import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { forwardWorkspaceMetadataTarget, workspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
 import type { Tool, ToolSet } from "ai"
@@ -55,7 +56,51 @@ import type {
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
 
 type WorkspaceWithDefinitionSync = Workspace & {
-  __syncWorkspaceDefinition?: () => Promise<void>
+  __workspaceDefinitionSyncKey?: object
+  __syncWorkspaceDefinition?: (abortSignal?: AbortSignal) => Promise<void>
+}
+
+interface WorkspaceDefinitionSyncState {
+  abortSignal?: AbortSignal
+  explicitPromise?: Promise<void>
+  promise?: Promise<void>
+}
+
+const workspaceDefinitionSyncStates = new WeakMap<object, WeakMap<object, WorkspaceDefinitionSyncState>>()
+
+async function workspaceDefinitionSyncState(workspace: Workspace): Promise<WorkspaceDefinitionSyncState> {
+  // SAFETY: Workspace metadata forwarding owns the private target accessor attached to Workspace facades.
+  const target = await (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
+  const owner = target ?? workspace
+  // SAFETY: Workspace creation owns the private synchronization key attached to Workspace facades.
+  const key = (workspace as WorkspaceWithDefinitionSync).__workspaceDefinitionSyncKey ?? workspace
+  let states = workspaceDefinitionSyncStates.get(owner)
+  if (!states) {
+    states = new WeakMap()
+    workspaceDefinitionSyncStates.set(owner, states)
+  }
+  let state = states.get(key)
+  if (!state) {
+    state = {}
+    states.set(key, state)
+  }
+  return state
+}
+
+async function waitForWorkspaceSync(pending: Promise<void>, signal?: AbortSignal) {
+  if (!signal) return await pending
+  signal.throwIfAborted()
+  let onAbort!: () => void
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([pending, aborted])
+  }
+  finally {
+    signal.removeEventListener("abort", onAbort)
+  }
 }
 
 export interface UseWorkspaceOptions {
@@ -131,6 +176,7 @@ export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName>
 
 export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   fs: ReadonlyWorkspaceFs<Name>
+  getMeta?(key: string): Promise<unknown>
   tools: WorkspaceReadToolSet
 }
 
@@ -189,25 +235,68 @@ async function materializeWorkspaceSources(workspace: Workspace, options?: Works
 
 function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition): Workspace {
   let workspacePromise: Promise<Workspace> | undefined
-  let syncPromise: Promise<void> | undefined
 
   async function resolveWorkspace() {
     workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition)) : useRegisteredWorkspace(name)
     return await workspacePromise
   }
 
-  async function resolveSyncedWorkspace() {
+  async function resolveSyncedWorkspace(abortSignal?: AbortSignal) {
     const workspace = await resolveWorkspace()
-    if (!syncPromise) {
-      const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.() ?? Promise.resolve()
-      syncPromise = next
-      next.catch(() => { syncPromise = undefined })
+    const sync = await workspaceDefinitionSyncState(workspace)
+    while (true) {
+      if (sync.explicitPromise) {
+        const explicit = sync.explicitPromise
+        await waitForWorkspaceSync(explicit, abortSignal)
+        if (sync.explicitPromise === explicit) sync.explicitPromise = undefined
+        continue
+      }
+      if (!sync.promise) {
+        const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.(abortSignal) ?? Promise.resolve()
+        sync.promise = next
+        sync.abortSignal = abortSignal
+        next.catch(() => {
+          if (sync.promise === next) {
+            sync.promise = undefined
+            sync.abortSignal = undefined
+          }
+        })
+      }
+      const current = sync.promise
+      const currentAbortSignal = sync.abortSignal
+      try {
+        await waitForWorkspaceSync(current, abortSignal)
+        return workspace
+      }
+      catch (error) {
+        if (abortSignal?.aborted) {
+          // The caller that started synchronization owns its abort fence. Wait
+          // for accepted mutations to settle before allowing that caller to
+          // discard this facade and restart against the same Store.
+          if (abortSignal === currentAbortSignal) await current.catch(() => {})
+          throw error
+        }
+        if (!currentAbortSignal?.aborted) throw error
+        if (sync.promise === current) {
+          sync.promise = undefined
+          sync.abortSignal = undefined
+        }
+      }
     }
-    await syncPromise
-    return workspace
+  }
+
+  async function resolvePublishWorkspace() {
+    const workspace = await resolveWorkspace()
+    const sync = await workspaceDefinitionSyncState(workspace)
+    if (sync.explicitPromise) await waitForWorkspaceSync(sync.explicitPromise)
+    return sync.promise ? await resolveSyncedWorkspace() : workspace
   }
 
   const workspace = {
+    async [workspaceMetadataTarget]() {
+      const resolved = await resolveWorkspace()
+      return (resolved as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
+    },
     name,
     async capabilities() {
       const resolved = await resolveWorkspace()
@@ -219,12 +308,17 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     },
     async sync(options) {
       const resolved = await resolveWorkspace()
+      const sync = await workspaceDefinitionSyncState(resolved)
       const next = resolved.sync(options)
-      syncPromise = next.then(() => undefined)
-      next.catch(() => { syncPromise = undefined })
+      const pending = next.then(() => undefined)
+      sync.explicitPromise = pending
+      void pending.finally(() => {
+        if (sync.explicitPromise === pending) sync.explicitPromise = undefined
+      }).catch(() => undefined)
       return await next
     },
     async readFile(path, options) {
+      // SAFETY: The facade preserves the readFile overload selected by its caller.
       return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)
     },
     async writeFile(path, content, options) {
@@ -256,11 +350,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       await (await resolveSyncedWorkspace()).rm(normalizePath(path), options)
     },
     async materializeSources(options) {
-      return await materializeWorkspaceSources(await resolveSyncedWorkspace(), options)
+      return await materializeWorkspaceSources(await resolveSyncedWorkspace(options?.abortSignal), options)
     },
     async publish(options) {
-      if (syncPromise) await syncPromise
-      await (await resolveWorkspace()).publish(options)
+      await (await resolvePublishWorkspace()).publish(options)
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
@@ -295,7 +388,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   })
 }
 
-function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): WritableWorkspaceFs<Name> {
+function createWritableFs<Name extends WorkspaceName>(name: Name, workspace: Workspace): WritableWorkspaceFs<Name> {
   return attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => await workspace.readFile(normalizePath(path), options as never),
     writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(path), content, options),
@@ -448,6 +541,26 @@ function createReadonlyFs<Name extends WorkspaceName>(
       return await createHostedWorkspaceSession(overlay, { ...options, host: options.host })
     },
   }, getWorkspaceSourceRequestExecution(workspace))
+  // SAFETY: Workspace metadata forwarding probes only the private symbol member owned by the Workspace package.
+  const resolveMetadata = (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]
+  if (resolveMetadata) {
+    // SAFETY: This attaches the private metadata resolver to the newly created read-only facade.
+    ;(readonlyFs as ReadonlyWorkspaceFs<Name> & WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget] = async () => {
+      const metadata = await ignoreMissingWorkspace(async () => await resolveMetadata.call(workspace))
+      if (!metadata && !assets) return
+      return {
+        getMeta: metadata?.getMeta?.bind(metadata),
+        list: async (path, options) => {
+          // SAFETY: The read-only facade's path belongs to this named Workspace's asset path contract.
+          const assetPath = path as WorkspaceAssetPath<Name>
+          return mergeEntries(
+            assets ? await assets.list(assetPath, options) : [],
+            await metadata?.list?.(path, options) ?? [],
+          )
+        },
+      }
+    }
+  }
   return readonlyFs
 }
 
@@ -514,7 +627,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       },
       capabilities: async () => await workspace.capabilities!(),
       diff: async options => await workspace.diff(options),
-      fs: createWritableFs<Name>(workspace),
+      fs: createWritableFs(name, workspace),
       history: {
         checkpoint: async options => await workspace.snapshot({ name: options?.message }),
         rebase: async options => await workspace.rebase(options),
@@ -530,7 +643,8 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     } as WritableWorkspaceFacade<Name> & WorkspaceStoreTargetCarrier
   }
 
-  const fs = createReadonlyFs(name, createLazyWorkspace(name, options?.definition))
+  const workspace = createLazyWorkspace(name, options?.definition)
+  const fs = createReadonlyFs(name, workspace)
   const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: opts?.broadSearchPaths,
     cwd: opts?.cwd,
@@ -545,8 +659,11 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
   >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
   tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
   tools.none = emptyTools
-  return {
+  const facade = {
     fs,
+    getMeta: async (key: string) => await workspace.getMeta?.(key),
     tools,
   }
+  forwardWorkspaceMetadataTarget(fs, facade)
+  return facade
 }
