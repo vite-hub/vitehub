@@ -5,14 +5,17 @@ import {
   createSourceFile,
   forEachChild,
   isArrowFunction,
+  isAsExpression,
   isBlock,
   isCallExpression,
   isConditionalExpression,
+  isExportAssignment,
   isFunctionExpression,
   isIdentifier,
   isImportDeclaration,
   isNamedImports,
   isNamespaceImport,
+  isNonNullExpression,
   isObjectLiteralExpression,
   isParenthesizedExpression,
   isPropertyAccessExpression,
@@ -21,6 +24,7 @@ import {
   isShorthandPropertyAssignment,
   isSpreadAssignment,
   isStringLiteralLike,
+  isSatisfiesExpression,
   isVariableDeclaration,
   type CallExpression,
   type Expression,
@@ -135,7 +139,14 @@ function sectionObjects(sourceFile: Node) {
     expression: Expression,
     seen = new Set<string>(),
   ): ObjectLiteralExpression[] {
-    if (isParenthesizedExpression(expression)) return resolveObjects(expression.expression, seen);
+    if (
+      isParenthesizedExpression(expression) ||
+      isAsExpression(expression) ||
+      isSatisfiesExpression(expression) ||
+      isNonNullExpression(expression)
+    ) {
+      return resolveObjects(expression.expression, seen);
+    }
     if (isConditionalExpression(expression)) {
       return [
         ...resolveObjects(expression.whenTrue, new Set(seen)),
@@ -197,24 +208,29 @@ function sectionObjects(sourceFile: Node) {
   }
 
   collectBindings(sourceFile);
+  function collectConfig(expression: Expression) {
+    for (const config of resolveSpreadObjects(expression)) {
+      const env = propertyValue(config, "env");
+      const envConfigs = env ? resolveSpreadObjects(env) : [];
+      for (const envConfig of envConfigs) {
+        for (const section of ["define", "public"] as const) {
+          const value = propertyValue(envConfig, section);
+          const objects = value ? resolveSpreadObjects(value) : [];
+          for (const object of objects) sections.set(object, section);
+        }
+      }
+    }
+  }
+
   function collectSections(node: Node) {
     if (
       isCallExpression(node) &&
       isIdentifier(node.expression) &&
       configBindings.has(node.expression.text)
     ) {
-      const configs = node.arguments[0] ? resolveSpreadObjects(node.arguments[0]) : [];
-      for (const config of configs) {
-        const env = propertyValue(config, "env");
-        const envConfigs = env ? resolveSpreadObjects(env) : [];
-        for (const envConfig of envConfigs) {
-          for (const section of ["define", "public"] as const) {
-            const value = propertyValue(envConfig, section);
-            const objects = value ? resolveSpreadObjects(value) : [];
-            for (const object of objects) sections.set(object, section);
-          }
-        }
-      }
+      if (node.arguments[0]) collectConfig(node.arguments[0]);
+    } else if (isExportAssignment(node)) {
+      collectConfig(node.expression);
     }
     forEachChild(node, collectSections);
   }
@@ -398,6 +414,25 @@ viteConfig({ env: { public: { appName: env({ mode: "runtime" }) } } })
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
     expect(hasBuildMode(calls[0]!.call)).toBe(false);
+  });
+
+  it("follows directly exported and TypeScript-wrapped configs", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+export default {
+  env: { public: { direct: env({ mode: "runtime" }) } },
+}
+defineConfig({
+  env: { public: { satisfies: env({ mode: "runtime" }) } },
+} satisfies UserConfig)
+defineConfig(({ env: {
+  define: { __CAST__: env({ mode: "runtime" }) },
+} } as UserConfig)!)
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public", "public", "define"]);
+    expect(calls.every(({ call }) => !hasBuildMode(call))).toBe(true);
   });
 
   it("requires the last effective top-level mode to be build", () => {
