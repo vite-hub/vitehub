@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { filesSdkDriverPeers, getFilesSdkPeerInstall } from "../src/internal/files-sdk-peers.ts"
 import { importOptionalPeer } from "../src/internal/optional-peer.ts"
 import isBuffer from "../src/internal/vercel-is-buffer.ts"
 import retry from "../src/internal/vercel-retry.ts"
+import throttle from "../src/internal/vercel-throttle.ts"
 
 async function readLocalClosure(entry: URL, seen = new Set<string>()): Promise<string[]> {
   if (seen.has(entry.href)) return []
@@ -115,6 +116,26 @@ describe("optional peer imports", () => {
     await expect(retry((_, attempt) => {
       throw attempt === 1 ? first : latest
     }, { minTimeout: 0, randomize: false, retries: 1 })).rejects.toBe(latest)
+  })
+
+  it("throttles Vercel callbacks with a leading call and the latest trailing call", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const calls: string[] = []
+      const throttled = throttle((value: string) => calls.push(value), 100)
+
+      throttled("first")
+      throttled("stale")
+      throttled("latest")
+      expect(calls).toEqual(["first"])
+
+      vi.advanceTimersByTime(100)
+      expect(calls).toEqual(["first", "latest"])
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("ships the patched Vercel Blob runtime through the public driver", async () => {
