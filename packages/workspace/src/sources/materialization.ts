@@ -443,9 +443,10 @@ export async function materializeWorkspaceSources(
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
-    const ctx = getSourceContext?.(source) || createSourceContext(definition, source, store)
-    const previousAbortSignal = ctx.abortSignal
-    ctx.abortSignal = options.abortSignal
+    const persistentCtx = getSourceContext?.(source) || createSourceContext(definition, source, store)
+    const ctx = options.abortSignal
+      ? { ...persistentCtx, abortSignal: options.abortSignal }
+      : persistentCtx
     try {
       if (completeSource) {
         await writeSourceSnapshotMetadata(store, {
@@ -640,9 +641,6 @@ export async function materializeWorkspaceSources(
         status: "failed",
       })
       if (options.abortSignal?.aborted) throw error
-    }
-    finally {
-      ctx.abortSignal = previousAbortSignal
     }
   }
 

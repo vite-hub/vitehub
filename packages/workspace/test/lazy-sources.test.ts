@@ -636,6 +636,48 @@ describe("lazy sources", () => {
     await expect(materialization).rejects.toThrow("cancel cached materialization")
   })
 
+  it("does not expose materialization cancellation to concurrent Source preparation", async () => {
+    let releaseMaterialization!: () => void
+    let observeMaterialization!: () => void
+    const materializationPending = new Promise<void>((resolve) => {
+      releaseMaterialization = resolve
+    })
+    const materializationObserved = new Promise<void>((resolve) => {
+      observeMaterialization = resolve
+    })
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      async getKeys(context) {
+        if (context.abortSignal) {
+          observeMaterialization()
+          await materializationPending
+          context.abortSignal.throwIfAborted()
+        }
+        return ["guide.md"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "# Guide\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({
+      name: "materialization-cancellation-isolation",
+      sources: { docs: source },
+    }, createMemoryWorkspaceStore())
+    const abort = new AbortController()
+
+    const materialization = view.materializeSources({ abortSignal: abort.signal, sources: ["docs"] })
+    await materializationObserved
+    const listing = view.list("docs", { recursive: true })
+    abort.abort(new DOMException("Canceled", "AbortError"))
+    releaseMaterialization()
+
+    await expect(materialization).rejects.toThrow("Canceled")
+    await expect(listing).resolves.toEqual([
+      { path: "docs/guide.md", type: "file" },
+    ])
+  })
+
   it("prepares a live Source after a cache hit in a fresh view", async () => {
     const store = createMemoryWorkspaceStore()
     const client = {
