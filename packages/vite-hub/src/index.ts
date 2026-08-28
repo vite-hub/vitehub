@@ -666,6 +666,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       resolveKVStores: (kv) => {
         if (kv === false) return false
         const resolved = resolveKVViteConfig(
+          // SAFETY: The Console plugin passes ViteHub's documented top-level `kv` config extension.
           (kv ?? configuredKV) as KVModuleOptions | undefined,
           { hosting: plan.nitroPreset },
         ).kv
