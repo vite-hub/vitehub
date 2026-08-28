@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, w
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readDocsArtifactsManifest, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
+import { readDocsArtifactsManifest, recoverAbandonedLock, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
 import { toRawMarkdown } from "../modules/vitehub-docs/artifacts/raw-markdown";
 
 function writeText(filePath: string, contents: string) {
@@ -114,6 +114,24 @@ describe("writeDocsArtifacts", () => {
       "<custom-tag>",
       "[rendered](/docs/rendered)",
     ].join("\n"))).toContain("[rendered](https://vitehub.dev/docs/rendered)");
+  });
+
+  it("does not start type-7 HTML blocks inside list-item paragraphs", () => {
+    expect(toRawMarkdown([
+      "- Paragraph",
+      "  <custom-tag>",
+      "  [rendered](/docs/rendered)",
+      "",
+      "<custom-block>",
+      "[literal](/docs/literal)",
+    ].join("\n"))).toContain([
+      "- Paragraph",
+      "  <custom-tag>",
+      "  [rendered](https://vitehub.dev/docs/rendered)",
+      "",
+      "<custom-block>",
+      "[literal](/docs/literal)",
+    ].join("\n"));
   });
 
   it("keeps contextual setext-like and malformed definition lines in paragraphs", () => {
@@ -444,6 +462,22 @@ describe("writeDocsArtifacts", () => {
 
       expect(readFileSync(resolve(outputDir, "raw/docs.md"), "utf8")).toBe("# Recovered\n");
       expect(existsSync(lockDir)).toBe(false);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not recover an old lock whose owner is still running", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-live-lock-"));
+    const lockDir = resolve(rootDir, ".raw-artifacts.lock");
+
+    try {
+      mkdirSync(lockDir);
+      writeText(resolve(lockDir, "owner.json"), JSON.stringify({ pid: process.pid, token: "live" }));
+      utimesSync(lockDir, new Date(0), new Date(0));
+
+      expect(recoverAbandonedLock(lockDir)).toBe(false);
+      expect(readFileSync(resolve(lockDir, "owner.json"), "utf8")).toContain('"token":"live"');
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }

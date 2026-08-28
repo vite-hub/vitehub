@@ -314,7 +314,6 @@ function htmlBlockContinues(end: RegExp, openingLine: string) {
 
 function startsParagraph(line: string, paragraphOpen: boolean) {
   const container = referenceContainer(line);
-  if (/(?:^|[ \t])(?:[-+*]|\d{1,9}[.)])[ \t]+/.test(container)) return false;
   const content = line.slice(container.length);
   if (/^[ \t]{0,3}#{1,6}(?:[ \t]+|$)/.test(content)) return false;
   if (/^[ \t]{0,3}(?:=+|-+)[ \t]*$/.test(content)) return !paragraphOpen;
@@ -374,6 +373,7 @@ function rewriteLinks(source: string) {
   let listIndent: number | null = null;
   let listQuotePrefix = "";
   let paragraphOpen = false;
+  let paragraphListIndent: number | null = null;
   let paragraphQuoteDepth = 0;
   const protectedLines: string[] = [];
   const rewriteOutside = () => rewriteReferenceDefinitions(rewriteInlineLinks(outsideFence)).replace(
@@ -406,6 +406,10 @@ function rewriteLinks(source: string) {
     const nextHtmlEnd = rawHtmlBlockEnd(htmlLine);
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
     const quoteDepth = leadingQuoteDepth(referenceContainer(line));
+    if (paragraphOpen && exitsMarkdownContainer(line, paragraphListIndent, paragraphQuoteDepth)) {
+      paragraphOpen = false;
+      paragraphListIndent = null;
+    }
     if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth === paragraphQuoteDepth)) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
@@ -416,6 +420,7 @@ function rewriteLinks(source: string) {
         htmlQuoteDepth = htmlContainer.quoteDepth;
       }
       paragraphOpen = false;
+      paragraphListIndent = null;
       continue;
     }
 
@@ -423,6 +428,7 @@ function rewriteLinks(source: string) {
       output.push(rewriteOutside(), lineWithEnding);
       outsideFence = "";
       paragraphOpen = false;
+      paragraphListIndent = null;
       fence = {
         length: parsedFence.run.length,
         listIndent: parsedFence.listIndent,
@@ -450,6 +456,7 @@ function rewriteLinks(source: string) {
       output.push(rewriteOutside());
       outsideFence = "";
       paragraphOpen = false;
+      paragraphListIndent = null;
       continue;
     }
 
@@ -475,7 +482,13 @@ function rewriteLinks(source: string) {
     }
 
     outsideFence += lineWithEnding;
-    paragraphOpen = startsParagraph(line, paragraphOpen);
+    const nextParagraphOpen = startsParagraph(line, paragraphOpen);
+    if (nextParagraphOpen && (!paragraphOpen || quoteDepth !== paragraphQuoteDepth)) {
+      paragraphListIndent = markdownContainer(line).listIndent;
+    } else if (!nextParagraphOpen) {
+      paragraphListIndent = null;
+    }
+    paragraphOpen = nextParagraphOpen;
     paragraphQuoteDepth = quoteDepth;
   }
 

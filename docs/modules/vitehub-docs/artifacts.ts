@@ -46,23 +46,68 @@ function processIsRunning(pid: number) {
   }
 }
 
-function recoverAbandonedLock(lockDir: string) {
+function hasRecoveryClaim(lockDir: string) {
   try {
-    if (Date.now() - statSync(lockDir).mtimeMs >= lockStaleAfterMs) {
-      rmSync(lockDir, { recursive: true });
-      return true;
-    }
+    return readdirSync(lockDir).some(entry => entry.startsWith(".recovery-"));
+  } catch (error) {
+    if (fileSystemErrorCode(error) === "ENOENT") return true;
+    throw error;
+  }
+}
 
+export function recoverAbandonedLock(lockDir: string) {
+  try {
     let owner: unknown;
     try {
       owner = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
     } catch (error) {
-      if (fileSystemErrorCode(error) === "ENOENT") return !existsSync(lockDir);
-      if (error instanceof SyntaxError) return false;
+      if (fileSystemErrorCode(error) === "ENOENT" || error instanceof SyntaxError) {
+        if (Date.now() - statSync(lockDir).mtimeMs < lockStaleAfterMs) return false;
+        const claimPath = resolve(lockDir, `.recovery-${randomUUID()}`);
+        try {
+          mkdirSync(claimPath);
+        } catch (claimError) {
+          if (fileSystemErrorCode(claimError) === "ENOENT") return true;
+          if (fileSystemErrorCode(claimError) === "EEXIST") return false;
+          throw claimError;
+        }
+
+        try {
+          const currentOwner: unknown = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
+          const parsedCurrentOwner = safeParse(lockOwnerSchema, currentOwner);
+          if (parsedCurrentOwner.success && processIsRunning(parsedCurrentOwner.output.pid)) return false;
+        } catch (ownerError) {
+          if (fileSystemErrorCode(ownerError) !== "ENOENT" && !(ownerError instanceof SyntaxError)) throw ownerError;
+        } finally {
+          if (existsSync(claimPath)) rmSync(claimPath, { recursive: true });
+        }
+
+        rmSync(lockDir, { recursive: true });
+        return true;
+      }
       throw error;
     }
     const parsedOwner = safeParse(lockOwnerSchema, owner);
     if (!parsedOwner.success || processIsRunning(parsedOwner.output.pid)) return false;
+
+    const claimedOwnerPath = resolve(lockDir, `.recovery-${randomUUID()}.json`);
+    try {
+      renameSync(resolve(lockDir, "owner.json"), claimedOwnerPath);
+    } catch (error) {
+      if (fileSystemErrorCode(error) === "ENOENT") return !existsSync(lockDir);
+      throw error;
+    }
+    const claimedOwner: unknown = JSON.parse(readFileSync(claimedOwnerPath, "utf8"));
+    const parsedClaimedOwner = safeParse(lockOwnerSchema, claimedOwner);
+    if (
+      !parsedClaimedOwner.success
+      || parsedClaimedOwner.output.pid !== parsedOwner.output.pid
+      || parsedClaimedOwner.output.token !== parsedOwner.output.token
+    ) {
+      if (!existsSync(resolve(lockDir, "owner.json"))) renameSync(claimedOwnerPath, resolve(lockDir, "owner.json"));
+      return false;
+    }
+
     rmSync(lockDir, { recursive: true });
     return true;
   } catch (error) {
@@ -93,8 +138,7 @@ function rawPagePath(contentRoot: string, absolutePath: string, prefix: string) 
   return `${route}.md`;
 }
 
-function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
-  const rawOutputDir = resolve(outputDir, "raw");
+function withArtifactLock<T>(outputDir: string, callback: () => T) {
   const lockDir = resolve(outputDir, ".raw-artifacts.lock");
   const lockToken = randomUUID();
   mkdirSync(outputDir, { recursive: true });
@@ -103,6 +147,10 @@ function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
     try {
       mkdirSync(lockDir);
       writeFileSync(resolve(lockDir, "owner.json"), JSON.stringify({ pid: process.pid, token: lockToken }));
+      if (hasRecoveryClaim(lockDir) || !ownsLock(lockDir, lockToken)) {
+        if (ownsLock(lockDir, lockToken)) rmSync(lockDir, { recursive: true });
+        continue;
+      }
       break;
     } catch (error) {
       if (fileSystemErrorCode(error) !== "EEXIST") throw error;
@@ -113,28 +161,33 @@ function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
   }
 
   try {
-    const expectedPaths = new Set<string>();
-    for (const [directory, prefix] of [["docs", "docs"], ["blog", "blog"], ["trust", ""]] as const) {
-      const contentRoot = resolve(docsRoot, "content", directory);
-      for (const absolutePath of listFiles(contentRoot, ".md")) {
-        const destination = resolve(rawOutputDir, rawPagePath(contentRoot, absolutePath, prefix));
-        expectedPaths.add(destination);
-        mkdirSync(resolve(destination, ".."), { recursive: true });
-        const temporaryPath = `${destination}.${process.pid}.${randomUUID()}.tmp`;
-        try {
-          writeFileSync(temporaryPath, toRawMarkdown(readFileSync(absolutePath, "utf8")));
-          renameSync(temporaryPath, destination);
-        } finally {
-          rmSync(temporaryPath, { force: true });
-        }
-      }
-    }
-
-    for (const existingPath of listFiles(rawOutputDir, ".md")) {
-      if (!expectedPaths.has(existingPath)) rmSync(existingPath, { force: true });
-    }
+    return callback();
   } finally {
     if (ownsLock(lockDir, lockToken)) rmSync(lockDir, { recursive: true });
+  }
+}
+
+function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
+  const rawOutputDir = resolve(outputDir, "raw");
+  const expectedPaths = new Set<string>();
+  for (const [directory, prefix] of [["docs", "docs"], ["blog", "blog"], ["trust", ""]] as const) {
+    const contentRoot = resolve(docsRoot, "content", directory);
+    for (const absolutePath of listFiles(contentRoot, ".md")) {
+      const destination = resolve(rawOutputDir, rawPagePath(contentRoot, absolutePath, prefix));
+      expectedPaths.add(destination);
+      mkdirSync(resolve(destination, ".."), { recursive: true });
+      const temporaryPath = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+      try {
+        writeFileSync(temporaryPath, toRawMarkdown(readFileSync(absolutePath, "utf8")));
+        renameSync(temporaryPath, destination);
+      } finally {
+        rmSync(temporaryPath, { force: true });
+      }
+    }
+  }
+
+  for (const existingPath of listFiles(rawOutputDir, ".md")) {
+    if (!expectedPaths.has(existingPath)) rmSync(existingPath, { force: true });
   }
 }
 
@@ -314,33 +367,29 @@ function collectSections(localDocsRoot: string) {
 }
 
 export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions) {
-  const localDocsRoot = resolve(docsRoot, "content", "docs");
-  const rootPage = collectRootPage(localDocsRoot);
-  const sections = collectSections(localDocsRoot);
+  return withArtifactLock(outputDir, () => {
+    const localDocsRoot = resolve(docsRoot, "content", "docs");
+    const rootPage = collectRootPage(localDocsRoot);
+    const sections = collectSections(localDocsRoot);
+    const manifest = { version: docsManifestVersion, rootPage, sections };
 
-  const manifest = {
-    version: docsManifestVersion,
-    rootPage,
-    sections,
-  };
+    writeRawMarkdownArtifacts(docsRoot, outputDir);
+    mkdirSync(outputDir, { recursive: true });
 
-  writeRawMarkdownArtifacts(docsRoot, outputDir);
-
-  mkdirSync(outputDir, { recursive: true });
-
-  const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;
-  const manifestPath = resolve(outputDir, "docs-manifest.mjs");
-  if (!existsSync(manifestPath) || readFileSync(manifestPath, "utf8") !== manifestSource) {
-    const temporaryPath = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      writeFileSync(temporaryPath, manifestSource);
-      renameSync(temporaryPath, manifestPath);
-    } finally {
-      rmSync(temporaryPath, { force: true });
+    const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;
+    const manifestPath = resolve(outputDir, "docs-manifest.mjs");
+    if (!existsSync(manifestPath) || readFileSync(manifestPath, "utf8") !== manifestSource) {
+      const temporaryPath = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
+      try {
+        writeFileSync(temporaryPath, manifestSource);
+        renameSync(temporaryPath, manifestPath);
+      } finally {
+        rmSync(temporaryPath, { force: true });
+      }
     }
-  }
 
-  return manifest;
+    return manifest;
+  });
 }
 
 export function readDocsArtifactsManifest(outputDir: string) {
