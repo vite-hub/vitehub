@@ -923,6 +923,7 @@ function createUsageCapture() {
   let isStarted = false
   let capturedUsage: unknown
   let metadataSource: unknown
+  const languageModelCallSources: unknown[] = []
   let start!: () => void
   let publish!: () => void
   let complete!: () => void
@@ -965,6 +966,7 @@ function createUsageCapture() {
     },
     async onLanguageModelCallEnd(event: unknown) {
       capture(event)
+      if (recordFrom(event)?.usage !== undefined) languageModelCallSources.push(event)
     },
     get captured() {
       return captured
@@ -989,6 +991,9 @@ function createUsageCapture() {
     get usageSource() {
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return captured ? { ...(metadataSource as Record<string, unknown>), usage: capturedUsage } : undefined
+    },
+    get languageModelCallSources() {
+      return languageModelCallSources
     },
   }
 }
@@ -1323,9 +1328,12 @@ async function combinedUsageRecord(
   calls: Array<{ capture: ReturnType<typeof createUsageCapture>, result?: unknown }>,
   usage: unknown,
 ): Promise<AgentUsageRecord | undefined> {
-  const records = (await Promise.all(calls.map(({ capture, result }) => resolveAgentUsageRecord(
-    result === undefined ? capture.usageSource : withCapturedUsage(result, capture),
-  )))).filter((record): record is AgentUsageRecord => Boolean(record))
+  const records = (await Promise.all(calls.flatMap(({ capture, result }) => {
+    if (capture.languageModelCallSources.length > 1) {
+      return capture.languageModelCallSources.map(source => resolveAgentUsageRecord(source))
+    }
+    return [resolveAgentUsageRecord(result === undefined ? capture.usageSource : withCapturedUsage(result, capture))]
+  }))).filter((record): record is AgentUsageRecord => Boolean(record))
   if (!records.length) return
   if (records.length === 1) return records[0]
   const shared = <K extends "credentialSource" | "model" | "transport">(key: K): AgentUsageRecord[K] | undefined => {

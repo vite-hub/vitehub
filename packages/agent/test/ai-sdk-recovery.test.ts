@@ -1151,11 +1151,12 @@ describe("AI SDK recovery", () => {
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({
         usage: expect.objectContaining({
-          calls: expect.arrayContaining([
+          calls: [
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
             expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
             expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
-          ]),
-          cost: expect.objectContaining({ usd: "0.3" }),
+          ],
+          cost: expect.objectContaining({ usd: "0.4" }),
           usage: expect.objectContaining({ totalTokens: 6 }),
         }),
       }),
@@ -1462,11 +1463,12 @@ describe("AI SDK recovery", () => {
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       invocation: expect.objectContaining({
         usage: expect.objectContaining({
-          calls: expect.arrayContaining([
+          calls: [
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
             expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
             expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
-          ]),
-          cost: expect.objectContaining({ usd: "0.3" }),
+          ],
+          cost: expect.objectContaining({ usd: "0.4" }),
           usage: expect.objectContaining({ totalTokens: 6 }),
         }),
       }),
