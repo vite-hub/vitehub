@@ -23,7 +23,9 @@ export interface PublicPackageBinContract {
 }
 
 const optionalPeerExports = new Map<string, readonly string[]>([
+  ["@vite-hub/agent", ["@vite-hub/workflow"]],
   ["@vite-hub/agent/eval", ["evalite", "vitest"]],
+  ["@vite-hub/agent/runtime/workflow", ["@vite-hub/workflow"]],
   ["@vite-hub/auth/nuxt", ["vite"]],
   ["@vite-hub/browser/controllers/playwright", ["playwright-core"]],
   ["@vite-hub/blob/drivers/files-sdk", ["files-sdk"]],

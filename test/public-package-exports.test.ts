@@ -29,6 +29,8 @@ describe("public package export contracts", () => {
 
   it("marks eager exports as optional-peer consumers", () => {
     const eagerPeerExports = new Map<string, string>([
+      ["@vite-hub/agent", "@vite-hub/workflow"],
+      ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
       ["@vite-hub/auth/nuxt", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
       ["@vite-hub/blob/drivers/files-sdk", "files-sdk"],
