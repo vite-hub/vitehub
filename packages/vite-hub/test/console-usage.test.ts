@@ -1,13 +1,14 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { invocationUsage } from "../src/console/runtime/server/usage.ts"
+import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
-function invocationRecord(usage: Record<string, unknown>) {
+function invocationRecordFromUsageRecord(usageRecord: Record<string, unknown>) {
   return {
+    completedAt: "2026-08-27T10:00:00.000Z",
     createdAt: "2026-08-27T10:00:00.000Z",
     id: "usage-invocation",
     observations: [{
-      attributes: { "usage.record": { usage } },
+      attributes: { "usage.record": usageRecord },
       name: "agent.invocation.finish",
       sequence: 1,
       timestamp: "2026-08-27T10:00:00.000Z",
@@ -17,6 +18,10 @@ function invocationRecord(usage: Record<string, unknown>) {
     traceId: "usage-trace",
     updatedAt: "2026-08-27T10:00:00.000Z",
   } satisfies Parameters<typeof invocationUsage>[0]
+}
+
+function invocationRecord(usage: Record<string, unknown>) {
+  return invocationRecordFromUsageRecord({ usage })
 }
 
 describe("Console usage projection", () => {
@@ -33,5 +38,47 @@ describe("Console usage projection", () => {
       outputTokenDetails: { reasoningTokens: 0 },
       totalTokens: 10,
     }))).toEqual({ reasoningTokens: 0, totalTokens: 10 })
+  })
+
+  it("inherits the nearest compound model while flattening calls", () => {
+    expect(invocationUsage(invocationRecordFromUsageRecord({
+      calls: [{
+        calls: [
+          { usage: { totalTokens: 4 } },
+          { model: "leaf-model", usage: { totalTokens: 6 } },
+        ],
+        model: "compound-model",
+      }],
+    }))).toMatchObject({
+      calls: [
+        { model: "compound-model", totalTokens: 4 },
+        { model: "leaf-model", totalTokens: 6 },
+      ],
+      totalTokens: 10,
+    })
+  })
+
+  it("filters completed invocations before applying the scan limit", async () => {
+    const record = invocationRecord({ totalTokens: 10 })
+    const { observations: _observations, ...summary } = record
+    const list = vi.fn(async (options?: { status?: string }) => options?.status === "completed"
+      ? { invocations: [summary] }
+      : { cursor: "pending-page", invocations: [] })
+    const invocations = {
+      get: vi.fn(async () => record),
+      getByRunId: vi.fn(async () => record),
+      list,
+    }
+
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This fixture supplies the three read methods used by the usage summary.
+    await expect(createUsageSummary(invocations as unknown as Parameters<typeof createUsageSummary>[0], {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      available: true,
+      partial: false,
+      totals: { invocations: 1, totalTokens: 10 },
+    })
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }))
   })
 })

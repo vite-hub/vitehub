@@ -166,7 +166,7 @@ function sumCost(values: Array<ConsoleUsageCost | undefined>): ConsoleUsageCost 
   }
 }
 
-function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage | undefined {
+function usageNode(value: unknown, includeCalls = true, inheritedModel?: string): ConsoleInvocationUsage | undefined {
   const record = object(value)
   if (!record) return
   const usage = object(record.usage)
@@ -184,14 +184,14 @@ function usageNode(value: unknown, includeCalls = true): ConsoleInvocationUsage 
         source: stringValue(cost?.source) ?? "provider",
         usd: costUsd,
       }
+  const model = stringValue(record.model)?.trim() || inheritedModel
   const rawCalls = includeCalls && Array.isArray(record.calls) ? record.calls : []
-  const directCalls = rawCalls.map(call => usageNode(call, true))
+  const directCalls = rawCalls.map(call => usageNode(call, true, model))
   const calls = directCalls.flatMap(projected => projected?.calls?.length ? projected.calls : projected ? [projected] : [])
   const inputTokens = finiteNumber(usage?.inputTokens)
   const outputTokens = finiteNumber(usage?.outputTokens)
   const reasoningTokens = detailNumber(outputDetails, "reasoningTokens", "reasoningOutputTokens", "reasoning")
     ?? detailNumber(usageDetails, "reasoningOutputTokens")
-  const model = stringValue(record.model)?.trim()
   const projected: ConsoleInvocationUsage = {
     ...(model ? { model } : {}),
     ...(inputTokens !== undefined ? { inputTokens } : {}),
@@ -370,6 +370,7 @@ export async function createUsageSummary(
       ...(options.agentName ? { agentName: options.agentName } : {}),
       ...(cursor ? { cursor } : {}),
       limit: Math.min(100, maximumUsageRecords - scanned),
+      status: "completed",
     })
     scanned += page.invocations.length
     const summaries = page.invocations.filter((summary) => {
