@@ -104,6 +104,7 @@ vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
 vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
+import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
@@ -484,6 +485,38 @@ describe("ViteHub Nuxt integration", () => {
       vi.unstubAllEnvs()
       await rm(fixture, { force: true })
       await rm("/tmp/vitehub-nuxt/package.json", { force: true })
+    }
+  })
+
+  it("defers Console fixture installation until later Nuxt setup succeeds", async () => {
+    const root = "/tmp/vitehub-nuxt-fixture-failure"
+    const fixture = resolve(root, "console.fixture.json")
+    await rm(root, { force: true, recursive: true })
+    await mkdir(root, { recursive: true })
+    await writeFile(resolve(root, "package.json"), "{}\n")
+    await writeFile(fixture, JSON.stringify(fixtureDocument("failed-startup")))
+    vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+    const installed = mocks.vitehub()
+    const envPlugin = installed.flat(Infinity).find(
+      (candidate: unknown) => isTestRecord(candidate) && candidate.name === "@vite-hub/env/vite",
+    )
+    if (!isTestRecord(envPlugin) || !isTestRecord(envPlugin.api)) throw new TypeError("Expected the Env plugin fixture.")
+    envPlugin.api.prepareTypes = vi.fn().mockRejectedValue(new Error("type preparation failed"))
+    mocks.vitehub.mockReturnValue(installed)
+    const development = createNuxt(true)
+    development.nuxt.options.rootDir = root
+    development.nuxt.options.buildDir = resolve(root, ".nuxt")
+    development.nuxt.options.serverDir = resolve(root, "server")
+
+    try {
+      await expect(viteHubNuxtModule({ console: true, preset: "node" }, development.nuxt))
+        .rejects.toThrow("type preparation failed")
+      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
+      expect(nitroOptions(development.nuxt).plugins).toBeUndefined()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
     }
   })
 

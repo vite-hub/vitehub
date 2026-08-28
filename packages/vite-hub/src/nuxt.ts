@@ -18,7 +18,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleProductionAccess, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleProductionAccess, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -516,7 +516,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
-  const consoleInvocationRootState: ConsoleInvocationRootState = {}
+  const consoleInvocationRootState = createConsoleInvocationRootState()
+  let resolvedConsoleFixture: string | undefined
   if (options.console) {
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
@@ -538,18 +539,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ? undefined
       : process.env[consoleFixtureEnvironmentVariable]
     if (fixture && !nuxt.options.dev) throw new Error("[vitehub] Console fixture mode is development-only.")
-    const resolvedFixture = fixture ? resolve(projectRoot, fixture) : undefined
-    if (resolvedFixture) readConsoleFixture(resolvedFixture)
-    await installConsole(
-      nuxt,
-      projectRoot,
-      viteRoot,
-      resolvedFixture,
-      nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
-      !nuxt.options.vitehubCliDiscovery,
-      !nuxt.options.vitehubCliDiscovery,
-      consoleInvocationRootState,
-    )
+    resolvedConsoleFixture = fixture ? resolve(projectRoot, fixture) : undefined
+    if (resolvedConsoleFixture) readConsoleFixture(resolvedConsoleFixture)
   }
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
@@ -598,10 +589,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !options.console || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
-  const consoleFixture = nuxt.options.vitehubCliDiscovery
-    ? undefined
-    : process.env[consoleFixtureEnvironmentVariable]
-  const resolvedConsoleFixture = consoleFixture ? resolve(projectRoot, consoleFixture) : undefined
   const consoleFixtureSnapshot = resolvedConsoleFixture ? readConsoleFixture(resolvedConsoleFixture) : undefined
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
@@ -780,6 +767,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           ??= nuxtAlias["@vite-hub/database/runtime/state"]
       })
     }
+  }
+  if (options.console) {
+    await installConsole(
+      nuxt,
+      projectRoot,
+      viteRoot,
+      resolvedConsoleFixture,
+      nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      !nuxt.options.vitehubCliDiscovery,
+      !nuxt.options.vitehubCliDiscovery,
+      consoleInvocationRootState,
+    )
   }
 }
 

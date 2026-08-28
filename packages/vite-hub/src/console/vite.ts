@@ -72,6 +72,10 @@ export interface ConsoleInvocationRootState {
   projectRoot?: string
 }
 
+export function createConsoleInvocationRootState(): ConsoleInvocationRootState {
+  return { binding: randomUUID() }
+}
+
 export function configureConsoleFixtureLifecycle(
   state: ConsoleInvocationRootState,
   generatedPlugin: string,
