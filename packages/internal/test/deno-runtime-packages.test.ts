@@ -47,9 +47,13 @@ interface DeployInvocation {
 
 function parseDeployInvocation(source: string): DeployInvocation {
   const value: unknown = JSON.parse(source)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This test helper parses the deployment process's untrusted JSON output.
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected a deployment invocation object.")
+  // SAFETY: The preceding runtime validation proves the parsed value is a non-null, non-array object.
   const record = value as Record<string, unknown>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates every argument and cwd before returning the fixture contract.
   if (!Array.isArray(record.args) || !record.args.every(argument => typeof argument === "string") || typeof record.cwd !== "string") throw new Error("Expected deployment invocation arguments and cwd.")
+  // SAFETY: The preceding validation proves the required DeployInvocation fields have their declared runtime types.
   return { ...record, args: record.args, cwd: record.cwd } as DeployInvocation
 }
 

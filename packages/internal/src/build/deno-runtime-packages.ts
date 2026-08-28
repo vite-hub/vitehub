@@ -571,22 +571,29 @@ interface RuntimePackageJson {
 
 function parseRuntimePackageJson(source: string): RuntimePackageJson {
   const value: unknown = JSON.parse(source)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for untrusted JSON input.
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected package.json to contain an object.")
+  // SAFETY: The preceding runtime validation proves the parsed value is a non-null, non-array object.
   const record = value as Record<string, unknown>
   const stringArray = (key: string): string[] | undefined => {
     const property = record[key]
     if (property === undefined) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates every unknown package.json array item before returning it.
     if (!Array.isArray(property) || !property.every(item => typeof item === "string")) throw new Error(`Expected package.json ${key} to contain strings.`)
     return property
   }
   const stringRecord = (key: string): Record<string, string> | undefined => {
     const property = record[key]
     if (property === undefined) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates the unknown package.json record and each value before returning it.
     if (!property || typeof property !== "object" || Array.isArray(property) || !Object.values(property).every(item => typeof item === "string")) throw new Error(`Expected package.json ${key} to contain string values.`)
+    // SAFETY: The preceding validation proves every property value is a string.
     return property as Record<string, string>
   }
   const peerMeta = record.peerDependenciesMeta
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for unknown peer metadata.
   if (peerMeta !== undefined && (!peerMeta || typeof peerMeta !== "object" || Array.isArray(peerMeta))) throw new Error("Expected package.json peerDependenciesMeta to contain an object.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown name field.
   if (record.name !== undefined && typeof record.name !== "string") throw new Error("Expected package.json name to contain a string.")
   return {
     cpu: stringArray("cpu"),
@@ -596,6 +603,7 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
     optionalDependencies: stringRecord("optionalDependencies"),
     os: stringArray("os"),
     peerDependencies: stringRecord("peerDependencies"),
+    // SAFETY: The parser above establishes that peer dependency metadata is object-shaped when present.
     peerDependenciesMeta: peerMeta as RuntimePackageJson["peerDependenciesMeta"],
   }
 }
@@ -628,6 +636,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     try {
       await access(packageJsonPath)
     } catch (error) {
+      // SAFETY: Node filesystem failures expose their stable code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       packageJsonPath = undefined
     }
@@ -725,6 +734,7 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
         const packageJson = parseRuntimePackageJson(await readFile(candidate, "utf8"))
         if (packageJson.name === name) return candidate
       } catch (error) {
+        // SAFETY: Node filesystem failures expose their stable code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       }
       current = dirname(current)
@@ -739,6 +749,7 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
       await access(candidate)
       return candidate
     } catch (error) {
+      // SAFETY: Node filesystem failures expose their stable code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     current = dirname(current)
@@ -746,6 +757,7 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
 }
 
 function isPackageResolutionMiss(error: unknown): boolean {
+  // SAFETY: Node module-resolution failures expose their stable code through ErrnoException.
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
 }

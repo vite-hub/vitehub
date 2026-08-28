@@ -48,6 +48,7 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[resolvingAlias]) return
         const alias = aliases.find(({ find }) => {
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
           if (typeof find === "string") return args.path === find || args.path.startsWith(`${find}/`)
           find.lastIndex = 0
           return find.test(args.path)
@@ -59,6 +60,7 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
           }
         }
         if (alias.find instanceof RegExp) alias.find.lastIndex = 0
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
         const replacement = typeof alias.find === "string"
           ? `${alias.replacement}${args.path.slice(alias.find.length)}`
           : args.path.replace(alias.find, alias.replacement)
@@ -66,10 +68,11 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
-          pluginData: {
-            ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
-            [resolvingAlias]: true,
-          },
+          pluginData: Object.assign(
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- esbuild exposes pluginData as unknown, and this boundary preserves only object-shaped metadata.
+            args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {},
+            { [resolvingAlias]: true },
+          ),
           resolveDir: args.resolveDir,
           with: args.with,
         })
@@ -290,6 +293,7 @@ export async function bundleEsmEntry(
   const aliases = resolveEsbuildAliases(options.alias)
   const viteAliasPlugin = createViteAliasPlugin(options.alias)
   const aliasSpecifiers = Array.isArray(options.alias)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
     ? options.alias.flatMap(alias => typeof alias.find === "string" ? [alias.find] : [])
     : Object.keys(aliases || {})
   const frameworkRuntime = aliasSpecifiers.some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))

@@ -625,12 +625,15 @@ describe("agent Vite plugin", () => {
     const hook = plugin.configEnvironment
     const result = isRuntimeFunction(hook)
       ? hook.call(
+          // SAFETY: This hook fixture does not read the Vite plugin context.
           {} as never,
           "ssr",
+          // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The fixture supplies the server environment fields exercised by the hook.
           {
             build: { rolldownOptions: { external: ["existing", () => true, /^node:/] } },
             consumer: "server",
           } as never,
+          // SAFETY: This hook fixture does not read the environment options argument.
           {} as never,
         )
       : undefined

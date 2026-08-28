@@ -35,6 +35,8 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(rawEntry, outfile, { format: "esm", platform: "node" })
 
+    // SAFETY: The fixture module exports the string imported from its Markdown source.
+    // SAFETY: The fixture module exports the string imported through its root-relative raw specifier.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("# Repository context\n\nUse **trusted** Markdown.\n")
     await expect(bundleEsmEntry(plainEntry, outfile, { format: "esm", platform: "node" }))
@@ -63,6 +65,7 @@ describe("bundleEsmEntry", () => {
     })
     await Promise.all([rm(template), rm(partial)])
 
+    // SAFETY: The fixture module exports the async renderer defined in entry.mjs.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
   })
@@ -157,7 +160,8 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
-    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: object) => Promise<string> }
+    // SAFETY: The fixture module exports the Markdown template renderer defined in entry.mjs.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: Record<string, unknown>) => Promise<string> }
     await expect(loaded.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub!")
   })
 
@@ -275,6 +279,7 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "neutral" })
 
+    // SAFETY: The fixture module exports the string selected by the package's import condition.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("neutral-main")
   })
@@ -360,6 +365,7 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("node")
 
     await bundleEsmEntry(requireEntry, requireOutfile, { format: "esm", platform: "node" })
+    // SAFETY: The fixture module exports the string selected by the package's require condition.
     const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
     expect(requireLoaded.default).toBe("require")
   })
