@@ -104,10 +104,12 @@ function envOptionTokens(source: string): EnvOptionToken[] {
       continue;
     }
     const previousToken = tokens.at(-1);
-    if (character === "/" && (!previousToken || (
-      previousToken.kind === "punctuation" &&
-      ["(", "[", "{", ",", ":", "=", "!", "?", ";"].includes(previousToken.value)
-    ))) {
+    if (
+      character === "/" &&
+      (!previousToken ||
+        (previousToken.kind === "punctuation" &&
+          ["(", "[", "{", ",", ":", "=", ">", "!", "?", ";"].includes(previousToken.value)))
+    ) {
       let characterClass = false;
       for (index += 1; index < source.length; index++) {
         const patternCharacter = source[index] || "";
@@ -237,6 +239,7 @@ describe("Env documentation", () => {
     expect(hasBuildMode("{ default: \"mode: 'build'\" }")).toBe(false);
     expect(hasBuildMode("{ default: 'preview' /* mode: 'build' */ }")).toBe(false);
     expect(hasBuildMode("{ default: /mode: 'build'/ }")).toBe(false);
+    expect(hasBuildMode("{ default: () => /mode: 'build'/ }")).toBe(false);
     expect(hasBuildMode("{ default: /mode: 'build'/, mode: 'build' }")).toBe(true);
     expect(hasBuildMode("{ defaults: { mode: 'build' } }")).toBe(false);
     expect(hasBuildMode("{ mode: 'build', mode: 'runtime' }")).toBe(false);
