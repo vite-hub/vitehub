@@ -751,11 +751,13 @@ async function readRuntimePackages(
       packageJsonPath ??= bundledPaths.size === 1 ? bundledPaths.values().next().value : undefined
       packageJsonPath ??= resolvedPackageJsonPaths.get(name)
       packageJsonPath ??= await resolvePackageJson(name, createRequire(join(rootDir, "package.json")), rootDir)
-      packageJsonPath = packageJsonPath ? await realpath(packageJsonPath) : candidates[0]!
-      bundledPaths.add(packageJsonPath)
-      bundledPackageJsonPaths.set(name, bundledPaths)
-      if (bundledPaths.size > 1) {
-        throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+      if (packageJsonPath) {
+        packageJsonPath = await realpath(packageJsonPath)
+        bundledPaths.add(packageJsonPath)
+        bundledPackageJsonPaths.set(name, bundledPaths)
+        if (bundledPaths.size > 1) {
+          throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+        }
       }
       const existing = packages.get(name)
       packages.set(name, {
@@ -766,7 +768,7 @@ async function readRuntimePackages(
         name,
         onlyIfOptionalDependencies: existing?.onlyIfOptionalDependencies ?? true,
         optional: existing?.optional ?? true,
-        packageJsonPath,
+        packageJsonPath: packageJsonPath ?? existing?.packageJsonPath,
       })
     }
     for (const name of collectImportedPackageNames(source)) {
@@ -777,7 +779,7 @@ async function readRuntimePackages(
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
-        optional: false,
+        optional: existing?.packageJsonPath ? false : existing?.optional ?? false,
         packageJsonPath: resolvedPackageJsonPaths.get(name) ?? existing?.packageJsonPath,
       })
     }

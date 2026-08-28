@@ -896,6 +896,21 @@ load("aliased-runtime")
     await expect(readFile(join(root, ".output/node_modules/aliased-runtime/marker"), "utf8")).resolves.toBe("aliased-runtime")
   })
 
+  it("skips unresolved bundled packages loaded as optional createRequire probes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-optional-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), `
+//#region node_modules/.pnpm/@img+sharp-linux-x64@9.9.9/node_modules/@img/sharp-linux-x64/lib/sharp.js
+import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+try { load("@img/sharp-linux-x64/sharp.node") } catch {}
+`)
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+    expect(existsSync(join(root, ".output/node_modules/@img/sharp-linux-x64"))).toBe(false)
+  })
+
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-cycle-"))
     const plainDir = join(root, "node_modules/plain")
