@@ -162,7 +162,7 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig)
     const configResolved = pluginConfigResolvedHandler(plugin)
     if (!configResolved) continue
     // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
-    await configResolved.call({} as never, config as ResolvedConfig)
+    await configResolved.call({} as never, config as unknown as ResolvedConfig)
   }
 }
 
