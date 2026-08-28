@@ -91,6 +91,10 @@ describe("GitHub CI input policy", () => {
         "      - run: command npx tool@1.2.3",
         "      - run: command -v npx",
         "      - run: command -V pnpm",
+        "      - run: nohup npx tool@1.2.3",
+        "      - run: nohup -- npx tool@1.2.3",
+        "      - run: nohup --help npx unpinned",
+        "      - run: nohup --version npx unpinned",
         "      - run: sudo -l npx unpinned",
         "      - run: sudo --list npx unpinned",
         "      - run: sudo -ln npx unpinned",
@@ -441,6 +445,8 @@ jobs:
     "2<&0 npx unpinned",
     "exec npx unpinned",
     "exec -a tool npx unpinned",
+    "nohup npx unpinned",
+    "nohup -- npx unpinned",
     "echo ${FOO:-$(npx unpinned)}",
     "sudo npx unpinned",
     "sudo -pl npx unpinned",
@@ -523,6 +529,25 @@ jobs:
     })
 
     await expect(checkGitHubCIInputs(root)).resolves.toEqual([])
+  })
+
+  it.each(["false &&", "true ||"])("does not persist an export after %s", async (condition) => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: latest",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: |",
+        "          " + condition + " export VERSION=1.2.3",
+        "          npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@latest") }),
+    ])
   })
 
   it("tracks exact package versions in braced package words", async () => {

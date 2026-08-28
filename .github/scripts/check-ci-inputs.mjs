@@ -152,6 +152,14 @@ function commandIndexes(tokens) {
           if (queriesOnly) executableIndex = tokens.length
           continue
         }
+        if (wrapper === "nohup") {
+          executableIndex++
+          if (tokens[executableIndex] === "--") executableIndex++
+          else if (tokens[executableIndex] === "--help" || tokens[executableIndex] === "--version") {
+            executableIndex = tokens.length
+          }
+          continue
+        }
         if (wrapper === "timeout") {
           executableIndex++
           while (executableIndex < tokens.length) {
@@ -312,6 +320,25 @@ function applyLeadingPersistentAssignments(tokens, environment) {
   }
 }
 
+function commandRunsUnconditionally(tokens, commandIndex) {
+  const conditionalScopes = [false]
+  for (const token of tokens.slice(0, commandIndex)) {
+    if (token === "$(" || token === "(" || token === "{") {
+      conditionalScopes.push(conditionalScopes.at(-1))
+    }
+    else if (token === ")" || token === "}") {
+      if (conditionalScopes.length > 1) conditionalScopes.pop()
+    }
+    else if (token === ";") {
+      conditionalScopes[conditionalScopes.length - 1] = conditionalScopes.at(-2) ?? false
+    }
+    else if (token === "&&" || token === "||") {
+      conditionalScopes[conditionalScopes.length - 1] = true
+    }
+  }
+  return conditionalScopes.at(-1) === false
+}
+
 function pipedShellSource(tokens, shellIndex) {
   if (tokens[shellIndex - 1] !== "|") return
   let start = shellIndex - 2
@@ -411,7 +438,9 @@ function findExecutablePackageSpecs(command, inheritedEnvironment = new Map()) {
       const executable = executableName(token)
 
       if (executable === "export") {
-        if (activeConditionalDepth === 0 && opensConditional === 0 && activeFunctionDepth === 0 && opensFunction === 0) {
+        if (activeConditionalDepth === 0 && opensConditional === 0
+          && activeFunctionDepth === 0 && opensFunction === 0
+          && commandRunsUnconditionally(tokens, index)) {
           for (const argument of tokens.slice(index + 1)) {
             if (shellOperatorPattern.test(argument)) break
             if (argument === "--" || argument.startsWith("-")) continue
