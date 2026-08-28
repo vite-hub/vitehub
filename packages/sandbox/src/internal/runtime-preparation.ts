@@ -16,6 +16,7 @@ import {
   markSandboxRuntimeGeneration,
   pruneSandboxRuntimeGeneration,
   readSandboxRuntimeGeneration,
+  resolveSandboxRuntimeFacadeImportBase,
   resolveSandboxRuntimeLinkType,
 } from './runtime-generation'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
@@ -273,6 +274,7 @@ async function writeSandboxArtifacts(
     for (const artifact of emitted.values())
       await writeFileIfChanged(artifact.dst, artifact.contents)
     const generationFacadeFile = resolve(generationDir, 'sandbox.mjs')
+    const activeFacadeFile = resolveSandboxRuntimeFacadeImportBase(runtimeDir, generationFacadeFile, platform)
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     if (!registryArtifact)
       throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
@@ -280,7 +282,7 @@ async function writeSandboxArtifacts(
     await writeFileIfChanged(
       generationFacadeFile,
       markSandboxRuntimeGeneration(
-        createFacadeContents(generationFacadeFile, registryArtifact.dst, providerLoaderArtifact?.dst),
+        createFacadeContents(activeFacadeFile, registryArtifact.dst, providerLoaderArtifact?.dst),
         generationDir,
       ),
     )

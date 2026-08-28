@@ -9,6 +9,7 @@ import {
   markSandboxRuntimeGeneration,
   pruneSandboxRuntimeGeneration,
   readSandboxRuntimeGeneration,
+  resolveSandboxRuntimeFacadeImportBase,
   resolveSandboxRuntimeLinkType,
 } from "../src/internal/runtime-generation.ts"
 
@@ -22,6 +23,16 @@ describe("Sandbox runtime preparation", () => {
   it("uses directory links only where they can be replaced atomically", () => {
     expect(resolveSandboxRuntimeLinkType("win32")).toBe("junction")
     expect(resolveSandboxRuntimeLinkType("linux")).toBe("dir")
+  })
+
+  it("renders copied Windows facade imports from the active location", () => {
+    const generatedDir = join(tmpdir(), "generated")
+    const runtimeDir = join(generatedDir, "runtime")
+    const generationFacade = join(generatedDir, ".runtime-generations", "runtime-next", "sandbox.mjs")
+
+    expect(resolveSandboxRuntimeFacadeImportBase(runtimeDir, generationFacade, "win32"))
+      .toBe(join(runtimeDir, "sandbox.mjs"))
+    expect(resolveSandboxRuntimeFacadeImportBase(runtimeDir, generationFacade, "linux")).toBe(generationFacade)
   })
 
   it("retains the active Windows runtime when file replacement fails", async () => {

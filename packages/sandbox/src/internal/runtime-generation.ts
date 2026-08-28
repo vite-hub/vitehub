@@ -41,6 +41,14 @@ export function resolveSandboxRuntimeLinkType(platform: NodeJS.Platform): 'dir' 
   return platform === 'win32' ? 'junction' : 'dir'
 }
 
+export function resolveSandboxRuntimeFacadeImportBase(
+  runtimeDir: string,
+  generationFacadeFile: string,
+  platform: NodeJS.Platform,
+): string {
+  return platform === 'win32' ? resolve(runtimeDir, 'sandbox.mjs') : generationFacadeFile
+}
+
 export async function pruneSandboxRuntimeGeneration(
   path: string,
   remove: typeof rm = rm,
