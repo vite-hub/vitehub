@@ -808,9 +808,6 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.700.0
         version: 3.1088.0
-      '@azure/storage-blob':
-        specifier: catalog:storage
-        version: 12.31.0
       '@google-cloud/storage':
         specifier: catalog:storage
         version: 7.19.0
@@ -860,6 +857,9 @@ importers:
       '@azure/identity':
         specifier: catalog:storage
         version: 4.13.1
+      '@azure/storage-blob':
+        specifier: catalog:storage
+        version: 12.31.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3

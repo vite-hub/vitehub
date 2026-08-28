@@ -13,6 +13,7 @@ interface BundleEsmEntryOptions {
   mainFields?: string[]
   minifyIdentifiers?: boolean
   minifyWhitespace?: boolean
+  packages?: "bundle" | "external"
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
   rootDir?: string
@@ -259,6 +260,7 @@ export async function bundleEsmEntry(
     minifyIdentifiers: options.minifyIdentifiers,
     minifyWhitespace: options.minifyWhitespace,
     outfile,
+    packages: options.packages,
     platform,
     plugins: [...(options.plugins ?? []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
     sourcemap: false,

@@ -534,6 +534,7 @@ function createVercelOutput(
         "#vitehub/blob/config",
       ],
       format: "esm",
+      packages: "bundle",
       platform: "node",
     },
     ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),

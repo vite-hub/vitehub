@@ -1033,7 +1033,7 @@ describe("Vite provider outputs", () => {
 
     const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
     const serverContents = await readFile(join(functionRoot, "index.mjs"), "utf8")
-    expect(serverContents).not.toMatch(/from ["']@azure\/storage-blob["']/)
+    expect(serverContents).not.toMatch(/(?:from\s*|import\()\s*["']@azure\//)
     expect(existsSync(join(functionRoot, "node_modules", "@azure", "storage-blob"))).toBe(false)
   })
 

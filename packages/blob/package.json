@@ -119,6 +119,7 @@
   },
   "devDependencies": {
     "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.0.1",
