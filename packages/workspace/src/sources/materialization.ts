@@ -381,6 +381,7 @@ export async function materializeWorkspaceSources(
   options: WorkspaceMaterializeSourcesOptions = {},
   lifecycle?: {
     getContext(source: ResolvedWorkspaceSource): SourceContext
+    isCompleted(source: ResolvedWorkspaceSource): boolean
     onCompleted(source: ResolvedWorkspaceSource): void
     isPrepared(source: ResolvedWorkspaceSource): boolean
     onPrepared(source: ResolvedWorkspaceSource): void
@@ -396,6 +397,7 @@ export async function materializeWorkspaceSources(
 
   for (const source of sources) {
     throwIfAborted(options.abortSignal)
+    if (lifecycle?.isCompleted(source)) continue
     lifecycle?.onStarted(source)
     const sourceStarted = Date.now()
     await reportMaterializationProgress(options, source, { status: "started" })
