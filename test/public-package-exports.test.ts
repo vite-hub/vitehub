@@ -81,7 +81,8 @@ describe("public package export contracts", () => {
       expect(manifest.dependencies?.[dependency], `auth should install ${dependency}`).toEqual(expect.any(String))
     }
     const hostDeclarations = readFileSync(join(packageDir("auth"), "src/host-declarations.d.ts"), "utf8")
-    expect(hostDeclarations).not.toMatch(/interface Timer/)
+    expect(hostDeclarations).toContain("interface Timer")
+    expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })
 
   it("keeps Blob declarations independent from H3 host declarations", () => {
