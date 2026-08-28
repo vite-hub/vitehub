@@ -1,5 +1,7 @@
-import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
+import { hostname, tmpdir } from "node:os"
+import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -8,7 +10,7 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string> }) => providerRuntimes.shift()))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
 const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
@@ -120,6 +122,210 @@ describe("Provider Agent Driver", () => {
     expect(lastRuntimeCall).toBeDefined()
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
+  })
+
+  it("projects rotating Codex credentials into one protected profile Home", async () => {
+    const profile = `provider-test-${crypto.randomUUID()}`
+    let source = JSON.stringify({ OPENAI_API_KEY: "first" })
+    const credentials = vi.fn((_context: unknown) => ({ unseal: () => source }))
+    const adapter = createProviderAgentAdapter({
+      credentialProfile: profile,
+      credentials,
+      provider: "codex",
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
+    for (const threadId of ["thread-credentials-first", "thread-credentials-preserved", "thread-credentials-rotated"]) {
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context(threadId) as never)
+      if (threadId === "thread-credentials-first") {
+        const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        await writeFile(`${homePath}/auth.json`, '{"refreshed":true}\n', { mode: 0o600 })
+      }
+      if (threadId === "thread-credentials-preserved") {
+        const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        await expect(readFile(`${homePath}/auth.json`, "utf8")).resolves.toBe('{"refreshed":true}\n')
+        source = JSON.stringify({ OPENAI_API_KEY: "rotated" })
+      }
+    }
+
+    const calls = createProviderRuntime.mock.calls.slice(-3)
+    const homes = calls.map(call => (call[0].settings as { homePath: string }).homePath)
+    expect(new Set(homes).size).toBe(1)
+    expect(credentials).toHaveBeenCalledTimes(3)
+    expect(credentials.mock.calls[0]?.[0]).toMatchObject({ abortSignal: undefined, actor: { id: "actor" }, invoker: { id: "invoker" } })
+    await expect(readFile(`${homes[0]}/auth.json`, "utf8")).resolves.toBe('{"OPENAI_API_KEY":"rotated"}\n')
+    await expect(readFile(`${homes[0]}/config.toml`, "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\n')
+    expect((await stat(homes[0])).mode & 0o777).toBe(0o700)
+    expect((await stat(`${homes[0]}/auth.json`)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${homes[0]}/config.toml`)).mode & 0o777).toBe(0o600)
+    expect(calls[0]?.[0]).toMatchObject({
+      settings: {
+        homePath: homes[0],
+        launchArgs: '-c "model_reasoning_effort=\\"high\\"" -c "model_reasoning_summary=\\"detailed\\""',
+      },
+    })
+    expect(calls[0]?.[0].environment).not.toHaveProperty("OPENAI_API_KEY")
+    await rm(homes[0], { force: true, recursive: true })
+  })
+
+  it("serializes a named Codex credential profile across Agent Drivers", async () => {
+    const profile = `provider-shared-${crypto.randomUUID()}`
+    const credentials = () => JSON.stringify({ tokens: { access_token: "shared" } })
+    const primary = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex", reasoningEffort: "high" })
+    const auxiliary = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex", reasoningEffort: "low" })
+    const invocations = [[primary, "thread-profile-primary"], [auxiliary, "thread-profile-auxiliary"]] as const
+    let releasePrimary!: () => void
+    const primaryBlocked = new Promise<void>(resolve => releasePrimary = resolve)
+    let primaryStarted!: () => void
+    const primaryRunning = new Promise<void>(resolve => primaryStarted = resolve)
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    runtime(invocations[0][1], [event("turn.completed", invocations[0][1], { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        primaryStarted()
+        await primaryBlocked
+      },
+    })
+    runtime(invocations[1][1], [event("turn.completed", invocations[1][1], { state: "completed" }, { turnId: "turn-1" })])
+    const primaryInvocation = primary.generate(context(invocations[0][1]) as never)
+    await primaryRunning
+    const auxiliaryInvocation = auxiliary.generate(context(invocations[1][1]) as never)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+    releasePrimary()
+    await Promise.all([primaryInvocation, auxiliaryInvocation])
+
+    const calls = createProviderRuntime.mock.calls.slice(-2)
+    const settings = calls.map(call => call[0].settings as { homePath: string, launchArgs: string })
+    expect(new Set(settings.map(value => value.homePath)).size).toBe(1)
+    expect(settings.map(value => value.launchArgs)).toEqual(expect.arrayContaining([
+      expect.stringContaining('model_reasoning_effort=\\"high\\"'),
+      expect.stringContaining('model_reasoning_effort=\\"low\\"'),
+    ]))
+    await rm(settings[0].homePath, { force: true, recursive: true })
+  })
+
+  it("removes an invocation-private Codex credential Home after runtime cleanup", async () => {
+    const threadId = "thread-private-credentials"
+    let homePath: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        await expect(readFile(`${homePath}/auth.json`, "utf8")).resolves.toBe('{"OPENAI_API_KEY":"private"}\n')
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({
+      credentials: () => JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+    }).generate(context(threadId) as never)
+
+    expect(homePath).toBeDefined()
+    await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes an invocation-private Codex credential Home after a failed turn", async () => {
+    const threadId = "thread-private-credentials-failed"
+    let homePath: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { errorMessage: "provider failed", state: "failed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+      },
+    })
+
+    await expect(createProviderAgentAdapter({
+      credentials: () => JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context(threadId) as never)).rejects.toThrow("provider failed")
+
+    expect(homePath).toBeDefined()
+    await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes an invocation-private Codex credential Home after cancellation", async () => {
+    const threadId = "thread-private-credentials-aborted"
+    const controller = new AbortController()
+    const deferredCleanup: Promise<unknown>[] = []
+    let homePath: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        controller.abort(new DOMException("cancelled", "AbortError"))
+      },
+    })
+
+    const runContext = context(threadId, { input: { abortSignal: controller.signal, prompt: "hello" } })
+    runContext.runtime.waitUntil = ((cleanup: Promise<unknown>) => {
+      deferredCleanup.push(cleanup)
+    }) as never
+    await expect(createProviderAgentAdapter({
+      credentials: () => JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(runContext as never)).rejects.toThrow("cancelled")
+
+    expect(homePath).toBeDefined()
+    await Promise.allSettled(deferredCleanup)
+    await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges an invocation-private credential root abandoned by a dead process", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      startedAt: 1,
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    const threadId = "thread-scavenge-private-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+    await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("ignores an abandoned credential root not owned by the current OS user", async () => {
+    if (!process.getuid) return
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      startedAt: 1,
+    })}\n`, { mode: 0o600 })
+    const getuid = vi.spyOn(process, "getuid").mockReturnValue(process.getuid() + 1)
+    try {
+      const threadId = "thread-foreign-private-credentials"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(staleRoot)).resolves.toBeUndefined()
+    }
+    finally {
+      getuid.mockRestore()
+      await rm(staleRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("fails closed before creating a named Codex Home for invalid credentials", async () => {
+    const credentialProfile = `provider-invalid-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${credentialProfile}`
+    const calls = createProviderRuntime.mock.calls.length
+
+    await expect(createProviderAgentAdapter({
+      credentialProfile,
+      credentials: () => "not-json",
+      provider: "codex",
+    }).generate(context("thread-invalid-credentials") as never)).rejects.toThrow("must be valid JSON")
+
+    expect(createProviderRuntime).toHaveBeenCalledTimes(calls)
+    await expect(access(homePath)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("keeps the host Codex executable fallback when the package is absent", async () => {
@@ -1915,28 +2121,47 @@ describe("Provider Agent Driver", () => {
     expect(provider.close).not.toHaveBeenCalled()
   })
 
-  it("retains the Workspace root until late runtime creation is closed", async () => {
+  it("retains a named credential profile lock until late runtime creation is closed", async () => {
     const threadId = "thread-late-runtime"
+    const nextThreadId = "thread-after-late-runtime"
+    const credentialProfile = `provider-late-${crypto.randomUUID()}`
+    const controller = new AbortController()
     const lateRuntime = runtime(threadId, [])
     providerRuntimes.pop()
     let resolveRuntime!: (value: typeof lateRuntime) => void
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => resolveRuntime = resolve) as never)
+    const adapter = createProviderAgentAdapter({
+      credentialProfile,
+      credentials: () => JSON.stringify({ tokens: { access_token: "shared" } }),
+      provider: "codex",
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
-      input: { prompt: "hello", timeout: 20 },
+    const result = adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
 
-    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
-    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
     const runtimeCall = createProviderRuntime.mock.lastCall
     expect(runtimeCall).toBeDefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const root = (runtimeCall![0] as { cwd: string }).cwd
+    const homePath = (runtimeCall![0].settings as { homePath: string }).homePath
     await expect(access(root)).resolves.toBeUndefined()
+    runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const next = adapter.generate(context(nextThreadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
     resolveRuntime(lateRuntime)
     await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
+    await expect(next).resolves.toBeDefined()
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
     await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+    await rm(homePath, { force: true, recursive: true })
   })
 
   it("preserves cancellation when waitUntil rejects late cleanup registration", async () => {

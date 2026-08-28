@@ -30,7 +30,7 @@ The built-in `"codex"` and `"claude-code"` drivers use ViteHub's pinned T3 provi
 pnpm add @openai/codex@0.149.1
 ```
 
-ViteHub resolves that project dependency directly. Production self-hosted Node builds on macOS and Linux copy only the build host's OS/CPU payload, so build on the same OS and CPU architecture as the deployment host. Without the dependency, the Codex Driver keeps using `codex` from the host `PATH`. Claude Code continues to use its host executable. Provider credentials must be available to the host process in either case.
+ViteHub resolves that project dependency directly. Production self-hosted Node builds on macOS and Linux copy only the build host's OS/CPU payload, so build on the same OS and CPU architecture as the deployment host. Without the dependency, the Codex Driver keeps using `codex` from the host `PATH`. Claude Code continues to use its host executable. Claude Code credentials and Codex credentials without an explicit `driver.credentials` resolver must be available to the host process.
 
 Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` because the pinned runtime is an exact pkg.pr.new tarball.
 
@@ -67,19 +67,24 @@ export default defineAgent({
 
 ## Coding provider drivers
 
-Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes provider-neutral model, environment, instruction, permission, output, and capacity options.
+Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options.
 
 ```ts
 // server/agents/codex/agent.ts
 import { defineAgent } from "@vite-hub/agent";
 import { file } from "@vite-hub/workspace";
+import { loadServerEnv } from "#vitehub/env/server";
 
 export default defineAgent({
   driver: {
+    credentialProfile: "support",
+    credentials: async ({ abortSignal }) => (await loadServerEnv(undefined, { signal: abortSignal })).codexAuthJson,
     kind: "codex",
     instructions: "Review the exact pull request head before changing code.",
     model: "gpt-5.5",
     permissions: "ask",
+    reasoningEffort: "high",
+    reasoningSummary: "detailed",
   },
   workspace: {
     mode: "write",
@@ -89,6 +94,10 @@ export default defineAgent({
   },
 });
 ```
+
+`credentials` accepts Codex `auth.json` as a string, a sealed Server Env value, or an invocation-time resolver. ViteHub never puts it in the provider environment. It writes the value to a `0600` file under a `0700` ViteHub-owned Codex Home and forces file-based Codex credential storage. A named `credentialProfile` keeps that writable Home at `.vitehub/data/codex/<credentialProfile>`, so Codex token refreshes survive process restarts when that directory uses durable storage. ViteHub serializes Codex runtime access to the profile, preserves a refreshed file while the resolver returns the same seed, and replaces it on the next invocation when the source rotates. Without `credentialProfile`, each invocation receives an isolated temporary Home that ViteHub removes after the Codex runtime stops.
+
+The resolver remains the external source of truth, but ViteHub does not write Codex refreshes back to it. A persisted profile is a complete Codex Home, including auth, configuration, session state, and logs, so treat the whole volume as sensitive. Give each Kubernetes replica its own persistent volume; profiles do not coordinate a shared multi-writer volume across processes or pods. Agent inspection reports only that a credential source is configured and never resolves, checks, or prints it.
 
 Provider Drivers require a local Node.js host and don't accept `box`; Cloudflare Agents and Deno fail explicitly. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` or `CLAUDE.md`, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active; provider cursors are not durable across process restarts or workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
 

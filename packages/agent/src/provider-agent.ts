@@ -1,9 +1,10 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
-import { tmpdir } from "node:os"
+import { hostname, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
@@ -42,8 +43,12 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
+  AgentProviderCredentialContext,
+  AgentProviderCredentialResolver,
   AgentProviderPermissions,
   AgentRuntimeConfig,
+  CodexReasoningEffort,
+  CodexReasoningSummary,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
@@ -60,14 +65,18 @@ import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
+  _CALL_OPTIONS = unknown,
 > {
+  credentialProfile?: string
+  credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
   env?: Record<string, string | undefined>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   permissions?: AgentProviderPermissions
   provider: "claude-code" | "codex"
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
 }
 
 interface GeneratedProviderFile {
@@ -176,6 +185,220 @@ const providerHostEnvironmentKeys = [
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+}
+
+interface CodexCredentialHome {
+  homePath: string
+  release(): Promise<void>
+}
+
+const codexCredentialProfileLocks = new Map<string, Promise<void>>()
+const codexCredentialProcessStartedAt = Date.now() - Math.round(process.uptime() * 1_000)
+const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
+let codexCredentialScavenging = Promise.resolve()
+
+function normalizeCodexCredentials(value: unknown): string {
+  const unsealed = value && hasRuntimeType(value, "object") && hasRuntimeType((value as { unseal?: unknown }).unseal, "function")
+    ? (value as { unseal: () => unknown }).unseal()
+    : value
+  if (!hasRuntimeType(unsealed, "string") || !unsealed.trim()) {
+    throw new Error("[vitehub] Codex Driver credentials are missing.")
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(unsealed)
+  }
+  catch {
+    throw new Error("[vitehub] Codex Driver credentials must be valid JSON.")
+  }
+  if (!parsed || !hasRuntimeType(parsed, "object") || Array.isArray(parsed)) {
+    throw new Error("[vitehub] Codex Driver credentials must contain a JSON object.")
+  }
+  return `${JSON.stringify(parsed)}\n`
+}
+
+function codexCredentialSeedHash(credentials: string): string {
+  return createHash("sha256").update(credentials).digest("hex")
+}
+
+async function writeProtectedCodexFile(homePath: string, name: string, contents: string): Promise<void> {
+  const nextPath = join(homePath, `.${name}-${crypto.randomUUID()}.next`)
+  try {
+    await writeFile(nextPath, contents, { mode: 0o600 })
+    await chmod(nextPath, 0o600)
+    await rename(nextPath, join(homePath, name))
+  }
+  catch (error) {
+    await rm(nextPath, { force: true })
+    throw error
+  }
+}
+
+async function writeCodexCredentials(homePath: string, credentials: string): Promise<void> {
+  const seedHash = codexCredentialSeedHash(credentials)
+  await writeProtectedCodexFile(homePath, "auth.json", credentials)
+  await writeProtectedCodexFile(homePath, ".vitehub-seed.sha256", `${seedHash}\n`)
+}
+
+async function configureCodexCredentialHome(homePath: string): Promise<void> {
+  await chmod(homePath, 0o700)
+  await writeProtectedCodexFile(homePath, "config.toml", 'cli_auth_credentials_store = "file"\n')
+}
+
+function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, startedAt: number }): boolean {
+  if (owner.hostname !== hostname()) return true
+  if (owner.pid === process.pid) return owner.startedAt === codexCredentialProcessStartedAt
+  try {
+    process.kill(owner.pid, 0)
+    return true
+  }
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH"
+  }
+}
+
+async function scavengeCodexCredentialHomes(): Promise<void> {
+  const entries = await readdir(tmpdir(), { withFileTypes: true }).catch(() => [])
+  await Promise.all(entries
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(codexCredentialTemporaryPrefix))
+    .map(async (entry) => {
+      const root = join(tmpdir(), entry.name)
+      const rootEntry = await lstat(root).catch(() => undefined)
+      if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return
+      if (process.getuid && rootEntry.uid !== process.getuid()) return
+      const owner = await readFile(join(root, ".vitehub-owner.json"), "utf8")
+        .then(value => JSON.parse(value) as { hostname?: unknown, pid?: unknown, startedAt?: unknown })
+        .catch(() => undefined)
+      if (!owner
+        || !hasRuntimeType(owner.hostname, "string")
+        || !hasRuntimeType(owner.pid, "number")
+        || !Number.isSafeInteger(owner.pid)
+        || owner.pid < 1
+        || !hasRuntimeType(owner.startedAt, "number")
+        || !Number.isFinite(owner.startedAt)
+        || codexCredentialOwnerIsRunning(owner as { hostname: string, pid: number, startedAt: number })) return
+      await rm(root, { force: true, recursive: true }).catch(() => undefined)
+    }))
+}
+
+async function createTemporaryCodexCredentialHome(credentials: string): Promise<CodexCredentialHome> {
+  const scavenging = codexCredentialScavenging.then(scavengeCodexCredentialHomes, scavengeCodexCredentialHomes)
+  codexCredentialScavenging = scavenging.then(() => undefined, () => undefined)
+  await scavenging
+  const root = await mkdtemp(join(tmpdir(), codexCredentialTemporaryPrefix))
+  const homePath = join(root, "home")
+  try {
+    await chmod(root, 0o700)
+    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, startedAt: codexCredentialProcessStartedAt })}\n`)
+    await mkdir(homePath, { mode: 0o700 })
+    await configureCodexCredentialHome(homePath)
+    await writeCodexCredentials(homePath, credentials)
+    return {
+      homePath,
+      async release() {
+        if (dirname(root) !== tmpdir() || !basename(root).startsWith(codexCredentialTemporaryPrefix)) {
+          throw new Error(`[vitehub] Refusing to remove unexpected Codex credential root: ${root}`)
+        }
+        await rm(root, { force: true, recursive: true })
+      },
+    }
+  }
+  catch (error) {
+    await rm(root, { force: true, recursive: true })
+    throw error
+  }
+}
+
+async function ensureCodexProfileHome(profile: string): Promise<string> {
+  const dataRoot = resolve(process.cwd(), ".vitehub", "data", "codex")
+  let current = process.cwd()
+  for (const segment of relative(current, join(dataRoot, profile)).split(/[\\/]/).filter(Boolean)) {
+    current = join(current, segment)
+    const entry = await lstat(current).catch(() => undefined)
+    if (entry?.isSymbolicLink()) throw new Error(`[vitehub] Codex Driver profile directory must not be a symbolic link: ${current}`)
+    if (entry && !entry.isDirectory()) throw new Error(`[vitehub] Codex Driver profile path must contain only directories: ${current}`)
+    if (!entry) {
+      await mkdir(current, { mode: 0o700 }).catch(async (error) => {
+        const raced = await lstat(current).catch(() => undefined)
+        if (!raced?.isDirectory() || raced.isSymbolicLink()) throw error
+      })
+    }
+  }
+  await configureCodexCredentialHome(current)
+  return current
+}
+
+async function openCodexProfileHome(profile: string, credentials: string): Promise<string> {
+  const homePath = await ensureCodexProfileHome(profile)
+  const seedHash = (await readFile(join(homePath, ".vitehub-seed.sha256"), "utf8").catch(() => "")).trim()
+  const auth = await lstat(join(homePath, "auth.json")).catch(() => undefined)
+  if (seedHash === codexCredentialSeedHash(credentials) && auth?.isFile() && !auth.isSymbolicLink()) {
+    await chmod(join(homePath, "auth.json"), 0o600)
+    return homePath
+  }
+  await writeCodexCredentials(homePath, credentials)
+  return homePath
+}
+
+function providerMetadataContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  return {
+    ...agentInvocationCallbackContextValues(context.context),
+    ...runtime,
+    actor: context.actor,
+    context: context.context,
+    fs: context.workspace?.fs,
+    invoker: context.invoker,
+    workspace: context.workspace,
+  } as AgentAdapterMetadataContext<TRuntimeConfig>
+}
+
+async function prepareCodexCredentialHome<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<CodexCredentialHome | undefined> {
+  if (options.provider !== "codex" || options.credentials === undefined) return
+  const profile = options.credentialProfile?.trim()
+  const resolveCredentials = async () => {
+    context.input.abortSignal?.throwIfAborted()
+    const credentialContext = {
+      ...providerMetadataContext(context),
+      abortSignal: context.input.abortSignal,
+    } as AgentProviderCredentialContext<TRuntimeConfig>
+    const resolved = hasRuntimeType(options.credentials, "function")
+      ? await options.credentials(credentialContext)
+      : options.credentials
+    context.input.abortSignal?.throwIfAborted()
+    return normalizeCodexCredentials(resolved)
+  }
+  if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
+
+  const key = `${process.cwd()}:${profile}`
+  const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.input.abortSignal)
+  try {
+    const homePath = await openCodexProfileHome(profile, await resolveCredentials())
+    return { homePath, release: async () => release() }
+  }
+  catch (error) {
+    release()
+    throw error
+  }
+}
+
+function codexLaunchArgs(options: ProviderAgentAdapterOptions): string | undefined {
+  const values = [
+    options.reasoningEffort && ["model_reasoning_effort", options.reasoningEffort],
+    options.reasoningSummary && ["model_reasoning_summary", options.reasoningSummary],
+  ].filter((value): value is [string, string] => Boolean(value))
+  return values.length
+    ? values.map(([key, value]) => {
+        const config = `${key}=${JSON.stringify(value)}`
+        return `-c "${config.replace(/["\\$`]/g, "\\$&")}"`
+      }).join(" ")
+    : undefined
 }
 
 async function waitForProviderOperation<T>(
@@ -643,17 +866,7 @@ async function resolveInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
-  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  const metadataContext = {
-    ...agentInvocationCallbackContextValues(context.context),
-    ...runtime,
-    actor: context.actor,
-    context: context.context,
-    fs: context.workspace?.fs,
-    invoker: context.invoker,
-    workspace: context.workspace,
-  } as AgentAdapterMetadataContext
+  const metadataContext = providerMetadataContext(context)
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
   const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
   const content = [
@@ -978,6 +1191,7 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
+  let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
@@ -1031,6 +1245,11 @@ async function* runProvider<
     workspaceCleanupDeferred = true
     deferredWorkspaceCleanup = cleanup
     observeLateCleanup(cleanup)
+  }
+  const releaseCodexCredentialHome = async () => {
+    const home = codexCredentialHome
+    codexCredentialHome = undefined
+    await home?.release()
   }
   const finalizeDeferredRuntime = async (sessionThreadId?: ThreadId, turnId?: TurnId) => {
     try {
@@ -1122,6 +1341,12 @@ async function* runProvider<
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     effectiveSignal?.throwIfAborted()
+    codexCredentialHome = await waitForProviderOperation(
+      prepareCodexCredentialHome(options, context),
+      effectiveSignal,
+      home => home?.release(),
+      observeLateCleanup,
+    )
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
@@ -1129,16 +1354,20 @@ async function* runProvider<
       await cleanupRoot()
     }
     const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
+    const launchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
+    const settings = Object.fromEntries(Object.entries({
+      binaryPath: codexExecutable,
+      homePath: codexCredentialHome?.homePath,
+      launchArgs,
+    }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
       environment: providerEnvironment(providerEnvironmentOverrides),
       provider: options.provider,
+      ...(Object.keys(settings).length ? { settings } : {}),
     }
-    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = codexExecutable
-      ? { ...runtimeOptions, settings: { binaryPath: codexExecutable } }
-      : runtimeOptions
     runtime = await waitForProviderOperation(
-      createProviderRuntime(configuredRuntimeOptions),
+      createProviderRuntime(runtimeOptions),
       effectiveSignal,
       async lateRuntime => {
         try {
@@ -1282,6 +1511,17 @@ async function* runProvider<
           && result.status === "rejected"
           && (result.reason === caught || result.reason === effectiveSignal?.reason)
         if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
+      }
+      if (runtimeCleanupDeferred) {
+        observeLateCleanup(deferredRuntimeStopped.then(releaseCodexCredentialHome))
+      }
+      else {
+        try {
+          await releaseCodexCredentialHome()
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
       }
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)

@@ -1204,7 +1204,34 @@ export interface AgentProviderDriverOptions<
   permissions?: AgentProviderPermissions
 }
 
-export type CodexDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export interface AgentProviderSealedCredential {
+  unseal(): string
+}
+
+export type AgentProviderCredentialValue = string | AgentProviderSealedCredential
+
+export interface AgentProviderCredentialContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentAdapterMetadataContext<TRuntimeConfig> {
+  abortSignal?: AbortSignal
+}
+
+export type AgentProviderCredentialResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> = MaybeResolvable<AgentProviderCredentialValue, AgentProviderCredentialContext<TRuntimeConfig>>
+
+type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+/** A non-empty reasoning effort advertised by the selected Codex model. */
+export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
+export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
+
+export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
+  credentialProfile?: string
+  credentials?: AgentProviderCredentialResolver
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
+}
+
 export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"

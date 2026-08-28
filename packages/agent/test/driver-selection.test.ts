@@ -1,6 +1,6 @@
 import { runInNewContext } from "node:vm";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts";
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
@@ -78,6 +78,40 @@ describe("built-in Agent Driver selection", () => {
     });
   });
 
+  it("reports explicit Codex credentials as provisioned without resolving them", async () => {
+    const credentials = vi.fn(() => "{}")
+    const agent = defineAgent({ driver: { credentialProfile: "support", credentials, kind: "codex" } })
+
+    expect(createAgentInspectionMetadata(agent).config?.driver.executionAuthority.credentials).toBe("provisioned")
+    expect((await resolveAgentInspectionMetadata(agent)).config?.driver.executionAuthority.credentials).toBe("provisioned")
+    expect(credentials).not.toHaveBeenCalled()
+  })
+
+  it("rejects Codex-only options on Claude Code and conflicting Codex Home inputs", () => {
+    expect(() => defineAgent({
+      // SAFETY: This fixture deliberately supplies a Codex-only option to Claude Code.
+      driver: { credentials: () => "{}", kind: "claude-code" } as never,
+    })).toThrow("does not support Codex option: credentials")
+    expect(() => defineAgent({
+      driver: { credentials: () => "{}", env: { CODEX_HOME: "/tmp/codex" }, kind: "codex" },
+    })).toThrow("owns CODEX_HOME")
+    expect(() => defineAgent({
+      // SAFETY: This fixture deliberately omits the credential source required by a profile.
+      driver: { credentialProfile: "support", kind: "codex" } as never,
+    })).toThrow("requires driver.credentials")
+    expect(() => defineAgent({
+      driver: { credentialProfile: "../support", credentials: () => "{}", kind: "codex" },
+    })).toThrow("must start with a lowercase letter or number")
+    expect(() => defineAgent({
+      driver: { credentialProfile: "Support", credentials: () => "{}", kind: "codex" },
+    })).toThrow("must start with a lowercase letter or number")
+    expect(() => defineAgent({
+      // SAFETY: This fixture deliberately supplies a string-coercible object.
+      driver: { kind: "codex", reasoningEffort: { toString: () => "high" } } as never,
+    })).toThrow("must be a non-empty model-advertised value")
+    expect(normalizeAgentDriver({ driver: { kind: "codex", reasoningEffort: "ultra" } })).toMatchObject({ reasoningEffort: "ultra" })
+  })
+
   it("preserves provider environment keys that overlap object prototype accessors", () => {
     const env = { ["__proto__"]: "literal" };
 
@@ -87,6 +121,18 @@ describe("built-in Agent Driver selection", () => {
 
     expect(driver.env).toHaveProperty("__proto__", "literal");
   });
+
+  it("accepts a sealed credential object without requiring an Env package dependency", () => {
+    class SealedCredential {
+      unseal() {
+        return "{}"
+      }
+    }
+    const credentials = new SealedCredential()
+    const driver = normalizeAgentDriver({ driver: { credentials, kind: "codex" } })
+
+    expect(driver).toMatchObject({ credentials, kind: "provider", provider: "codex" })
+  })
 
   it.each([
     ["execution", "invalid", "driver.execution }) must be an object"],

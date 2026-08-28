@@ -555,10 +555,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && hasRuntimeType(value, "object") && !Array.isArray(value)
 }
 
-function staticDriverExecutionAuthority(driver: { kind: AgentDriverKind }): ExecutionAuthority {
+function staticDriverExecutionAuthority(driver: { credentials?: unknown, kind: AgentDriverKind }): ExecutionAuthority {
   if (driver.kind !== "provider") return noExecutionAuthority
   return normalizeExecutionAuthority({
-    credentials: "ambient",
+    credentials: driver.credentials === undefined ? "ambient" : "provisioned",
     environment: "selected",
     filesystem: { access: "read-write", scope: "host" },
     isolation: "none",
