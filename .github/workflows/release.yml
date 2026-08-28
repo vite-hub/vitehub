@@ -11,6 +11,7 @@ permissions: {}
 concurrency:
   group: npm-release
   cancel-in-progress: false
+  queue: max
 
 env:
   NODE_VERSION: 24
@@ -202,7 +203,7 @@ jobs:
     needs: verify
     if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 360
     # Configure required reviewers and release-tag protection for this environment in repository settings.
     environment: npm-release
     permissions:
@@ -238,7 +239,7 @@ jobs:
         run: |
           node <<'NODE'
           const { readFileSync } = require("node:fs")
-          const metadata = JSON.parse(readFileSync(".release/release-metadata.json", "utf8"))
+          const metadata = JSON.parse(readFileSync("release-metadata.json", "utf8"))
 
           if (!/^[a-f0-9]{64}$/.test(process.env.EXPECTED_ARTIFACT_DIGEST || "")) {
             throw new Error("Missing verified release artifact digest")
@@ -258,7 +259,7 @@ jobs:
         run: |
           test "$(git -C trusted-source rev-parse HEAD)" = "$GITHUB_SHA"
           node trusted-source/.github/scripts/release-packages.mjs verify \
-            --manifest release-data/.release/npm/release-manifest.json \
+            --manifest release-data/npm/release-manifest.json \
             --source-sha "$GITHUB_SHA" \
             --workspace trusted-source \
             --workspace-version "$EXPECTED_VERSION"
@@ -281,7 +282,7 @@ jobs:
           NPM_TAG: ${{ needs.verify.outputs.npm_tag }}
         run: |
           node trusted-source/.github/scripts/release-packages.mjs publish \
-            --manifest release-data/.release/npm/release-manifest.json \
+            --manifest release-data/npm/release-manifest.json \
             --tag "$NPM_TAG" \
             --source-sha "$GITHUB_SHA" \
             --source-ref "$GITHUB_REF"
@@ -310,7 +311,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          metadata=.release/release-metadata.json
+          metadata=release-metadata.json
           artifact_commit="$(node -p "require('./${metadata}').commit")"
           artifact_name="$(node -p "require('./${metadata}').artifactName")"
           artifact_publish="$(node -p "require('./${metadata}').publish")"

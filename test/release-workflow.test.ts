@@ -20,7 +20,7 @@ const githubRelease = job("github-release")
 
 describe("release workflow authority", () => {
   it("serializes every npm-mutating release", () => {
-    expect(workflow).toContain("concurrency:\n  group: npm-release\n  cancel-in-progress: false")
+    expect(workflow).toContain("concurrency:\n  group: npm-release\n  cancel-in-progress: false\n  queue: max")
     expect(workflow).not.toContain("release-${{ github.ref }}")
   })
 
@@ -67,6 +67,16 @@ describe("release workflow artifact handoff", () => {
   })
 
   it("feeds the same verified artifact through npm publication to the GitHub release", () => {
+    const uploadPathBlock = verify.match(/- name: Upload verified release workspace[\s\S]*?\n          path: \|\n((?:            \S.*\n)+)/)?.[1]
+    if (!uploadPathBlock) throw new Error("Missing release artifact upload paths")
+    const uploadPaths = uploadPathBlock.trim().split("\n").map(path => path.trim())
+    const uploadRoot = uploadPaths
+      .map(path => path.split("/"))
+      .reduce((root, path) => root.filter((part, index) => path[index] === part))
+      .join("/")
+    const downloadedPath = (path: string) => `release-data/${path.slice(uploadRoot.length + 1)}`
+
+    expect(uploadRoot).toBe(".release")
     for (const downstream of [publishNpm, githubRelease]) {
       expect(downstream).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1")
       expect(downstream).toContain("name: ${{ needs.verify.outputs.artifact_name }}")
@@ -84,11 +94,14 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain("--workspace trusted-source")
     expect(publishNpm).toContain('--workspace-version "$EXPECTED_VERSION"')
     expect(publishNpm).toContain("trusted-source/.github/scripts/release-packages.mjs publish")
+    expect(publishNpm).toContain(`--manifest ${downloadedPath(".release/npm")}/release-manifest.json`)
+    expect(publishNpm).toContain('readFileSync("release-metadata.json", "utf8")')
     expect(publishNpm).not.toContain("release-data/.github/scripts")
     expect(publishNpm).not.toContain("vp install")
     expect(publishNpm).not.toContain("package-release-order.mjs")
     expect(publishNpm).not.toContain("vp pm publish")
-    expect(publishNpm).toContain("timeout-minutes: 15")
+    expect(publishNpm).toContain("timeout-minutes: 360")
+    expect(githubRelease).toContain(`metadata=${downloadedPath(".release/release-metadata.json").replace("release-data/", "")}`)
   })
 
   it("retains safe resume behavior", () => {
