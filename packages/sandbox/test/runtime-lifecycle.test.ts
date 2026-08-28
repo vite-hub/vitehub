@@ -169,6 +169,22 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
+  it("does not replay Cloudflare definitions whose handler message looks transient", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxDefinition.mockRejectedValue(sandboxError("container is starting", {
+      code: "SANDBOX_HANDLER_ERROR",
+      provider: "cloudflare",
+    }))
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result[0]).toMatchObject({ code: "SANDBOX_HANDLER_ERROR" })
+    expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.open).toHaveBeenCalledOnce()
+    expect(runtimeMocks.close).toHaveBeenCalledOnce()
+  })
+
   it("closes Cloudflare when keepAlive disables idle shutdown", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare", keepAlive: true })
     setSandboxRuntimeRegistry({ example: definition })

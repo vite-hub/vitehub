@@ -11,6 +11,7 @@ import {
   readSandboxRuntimeGeneration,
   resolveSandboxRuntimeFacadeImportBase,
   resolveSandboxRuntimeLinkType,
+  withSandboxRuntimeGenerationLock,
 } from "../src/internal/runtime-generation.ts"
 
 const tempDirs: string[] = []
@@ -81,5 +82,32 @@ describe("Sandbox runtime preparation", () => {
       await writeFile(facade, markSandboxRuntimeGeneration("export default {}\n", join(generationsDir, generation)))
       await expect(readSandboxRuntimeGeneration(facade, generationsDir)).resolves.toBe(join(generationsDir, generation))
     }
+  })
+
+  it("serializes generation activation and pruning across writers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    let releaseFirst!: () => void
+    let observeFirst!: () => void
+    const firstPending = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve })
+    const order: string[] = []
+
+    const first = withSandboxRuntimeGenerationLock(root, async () => {
+      order.push("first:start")
+      observeFirst()
+      await firstPending
+      order.push("first:end")
+    })
+    await firstObserved
+    const second = withSandboxRuntimeGenerationLock(root, async () => {
+      order.push("second")
+    })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(order).toEqual(["first:start"])
+
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(["first:start", "first:end", "second"])
   })
 })

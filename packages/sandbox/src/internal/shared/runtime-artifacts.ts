@@ -28,6 +28,7 @@ export interface GeneratedArtifact {
 export interface EmittedArtifact extends GeneratedArtifact {
   contents: string
   dst: string
+  stableDst: string
 }
 
 export interface FeatureAliasRegistration {

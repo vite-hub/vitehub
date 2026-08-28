@@ -18,6 +18,7 @@ import {
   readSandboxRuntimeGeneration,
   resolveSandboxRuntimeFacadeImportBase,
   resolveSandboxRuntimeLinkType,
+  withSandboxRuntimeGenerationLock,
 } from './runtime-generation'
 import { resolveFeatureRuntimePath } from './shared/feature-runtime-path'
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
@@ -241,6 +242,21 @@ async function writeSandboxArtifacts(
   platform = process.platform,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
+  await mkdir(generatedDir, { recursive: true })
+  return await withSandboxRuntimeGenerationLock(generatedDir, async () => await writeSandboxArtifactsLocked(
+    plan,
+    createFacadeContents,
+    generatedDir,
+    platform,
+  ))
+}
+
+async function writeSandboxArtifactsLocked(
+  plan: FeatureRuntimePlan,
+  createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
+  generatedDir: string,
+  platform: NodeJS.Platform,
+) {
   const generationsDir = resolve(generatedDir, '.runtime-generations')
   await mkdir(generationsDir, { recursive: true })
   const existingGenerations = (await readdir(generationsDir))
@@ -266,7 +282,7 @@ async function writeSandboxArtifacts(
       if (typeof contents !== 'string')
         throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
 
-      emitted.set(artifact.key, { ...artifact, contents, dst })
+      emitted.set(artifact.key, { ...artifact, contents, dst, stableDst })
     }
 
     if (typeTemplate)

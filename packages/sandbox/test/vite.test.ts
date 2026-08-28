@@ -178,6 +178,25 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
   })
 
+  it("loads only the selected generated Definition payload", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "src/tools/unrelated.sandbox.ts"), "export default { run: async () => ({ unrelated: true }) }\n")
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const unrelatedArtifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__unrelated.mjs")
+    await writeFile(unrelatedArtifact, 'throw new Error("unrelated Definition loaded")\n')
+    const registryFile = await realpath(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"))
+    const registry: { default: Record<string, () => Promise<{ default?: unknown }>> } = await import(pathToFileURL(registryFile).href)
+
+    await expect(registry.default["tools/release-notes"]?.()).resolves.toMatchObject({ default: expect.any(Object) })
+    await expect(registry.default["tools/unrelated"]?.()).rejects.toThrow("unrelated Definition loaded")
+  })
+
   it("accepts direct integration options", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")

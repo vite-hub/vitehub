@@ -121,13 +121,21 @@ async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefin
 }
 
 function createSandboxRegistryContents(
-  definitions: Array<{ name: string, definitionModulePath: string }>,
+  definitions: Array<{ name: string, definitionModulePath: string, stableDefinitionModulePath: string }>,
+  runtimeStatePath: string,
+  scope: string,
 ) {
   return [
-    'const registry = {',
-    ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(definition.definitionModulePath)}),`),
-    '}',
-    'await Promise.all(Object.values(registry).map(load => load()))',
+    `import { createGeneratedSandboxRuntimeRegistry } from ${JSON.stringify(runtimeStatePath)}`,
+    '',
+    `const registry = createGeneratedSandboxRuntimeRegistry(${JSON.stringify(scope)}, {`,
+    ...definitions.map(definition => [
+      `  ${JSON.stringify(definition.name)}: {`,
+      `    load: async () => import(${JSON.stringify(definition.definitionModulePath)}),`,
+      `    stablePath: ${JSON.stringify(definition.stableDefinitionModulePath)},`,
+      '  },',
+    ].join('\n')),
+    '})',
     'export default registry',
     '',
   ].join('\n')
@@ -233,6 +241,12 @@ export async function createSandboxFeaturePlan(
   })
   const defaultProvider = getSandboxFeatureProvider(resolvedConfig)
   const defaultProviderName = defaultProvider?.provider
+  const runtimeStatePath = resolveFeatureRuntimePath(
+    import.meta.url,
+    '@vite-hub/sandbox',
+    './runtime/state',
+    'runtime/state.js',
+  )
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
     key: definition.definitionArtifactKey,
     filename: definition.definitionFilename,
@@ -279,8 +293,9 @@ export async function createSandboxFeaturePlan(
             return {
               name: definition.name,
               definitionModulePath: artifact.dst,
+              stableDefinitionModulePath: artifact.stableDst,
             }
-          }))
+          }), runtimeStatePath, paths.aliasPath)
         },
       },
       ...(providerLoaderTarget
