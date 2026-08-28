@@ -343,6 +343,17 @@ describe("writeDocsArtifacts", () => {
     ].join("\n"));
   });
 
+  it("preserves invalid bare link destinations containing angle brackets", () => {
+    expect(toRawMarkdown([
+      "[literal](/docs/<x>)",
+      "[escaped](/docs/\\<x\\>)",
+    ].join("\n"))).toBe([
+      "[literal](/docs/<x>)",
+      "[escaped](https://vitehub.dev/docs/\\<x\\>)",
+      "",
+    ].join("\n"));
+  });
+
   it("keeps list-prefixed fence markers literal inside fenced examples", () => {
     expect(toRawMarkdown([
       "```md",
@@ -593,6 +604,29 @@ describe("writeDocsArtifacts", () => {
       expect(recoverAbandonedLock(lockDir)).toBe(false);
       expect(existsSync(lockDir)).toBe(true);
       expect(existsSync(resolve(lockDir, ".recovery-claim"))).toBe(true);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not quarantine a valid lock while another recovery owns its claim", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-valid-claimed-lock-"));
+    const lockDir = resolve(rootDir, ".raw-artifacts.lock");
+
+    try {
+      writeText(resolve(lockDir, "owner.json"), JSON.stringify({
+        identity: "abandoned-process",
+        pid: process.pid,
+        token: "abandoned-owner",
+      }));
+      writeText(resolve(lockDir, ".recovery-claim"), JSON.stringify({
+        pid: process.pid,
+        token: "live-recovery",
+      }));
+
+      expect(recoverAbandonedLock(lockDir)).toBe(false);
+      expect(readFileSync(resolve(lockDir, "owner.json"), "utf8")).toContain('"token":"abandoned-owner"');
+      expect(readFileSync(resolve(lockDir, ".recovery-claim"), "utf8")).toContain('"token":"live-recovery"');
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }

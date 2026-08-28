@@ -102,7 +102,7 @@ function absoluteUrl(value: string) {
   return value.startsWith("/") && !value.startsWith("//") ? `${siteOrigin}${value}` : value;
 }
 
-function rewriteInlineMarkdownLinks(line: string) {
+function rewriteInlineMarkdownLinks(line: string, protectedHtmlMarker?: string) {
   let cursor = 0;
   let output = "";
 
@@ -127,6 +127,7 @@ function rewriteInlineMarkdownLinks(line: string) {
       if (line[targetEnd] !== ">") continue;
     } else {
       let parentheses = 0;
+      let invalidDestination = false;
       while (targetEnd < line.length) {
         const character = line[targetEnd]!;
         if (character === "(" && !isEscaped(line, targetEnd)) parentheses += 1;
@@ -134,8 +135,16 @@ function rewriteInlineMarkdownLinks(line: string) {
           if (parentheses === 0) break;
           parentheses -= 1;
         } else if (/\s/.test(character) && parentheses === 0) break;
+        else if (
+          ((character === "<" || character === ">") && !isEscaped(line, targetEnd))
+          || (protectedHtmlMarker && line.startsWith(protectedHtmlMarker, targetEnd))
+        ) {
+          invalidDestination = true;
+          break;
+        }
         targetEnd += 1;
       }
+      if (invalidDestination) continue;
     }
     const suffixStart = targetEnd + (angleDestination ? 1 : 0);
     const linkClosing = inlineLinkClosing(line, suffixStart);
@@ -174,8 +183,8 @@ function inlineLinkClosing(line: string, suffixStart: number) {
   return line[cursor] === ")" ? cursor : null;
 }
 
-function rewriteMarkdownLinks(line: string) {
-  return rewriteInlineMarkdownLinks(line);
+function rewriteMarkdownLinks(line: string, protectedHtmlMarker?: string) {
+  return rewriteInlineMarkdownLinks(line, protectedHtmlMarker);
 }
 
 function referenceContainer(line: string) {
@@ -363,10 +372,12 @@ function rewriteInlineLinks(source: string) {
   while (protectedSource.includes(htmlPlaceholderPrefix)) htmlPlaceholderPrefix += "_";
   protectedSource = protectedSource.replace(
     /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<![A-Z][^>]*>|<!\[CDATA\[[\s\S]*?\]\]>|<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t\n]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t\n]*=[ \t\n]*(?:[^ \t\n"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t\n]*\/?>/g,
-    (tag) => `${htmlPlaceholderPrefix}${htmlTags.push(tag) - 1}__`,
+    (tag, offset: number) => isEscaped(protectedSource, offset)
+      ? tag
+      : `${htmlPlaceholderPrefix}${htmlTags.push(tag) - 1}__`,
   );
 
-  return rewriteMarkdownLinks(protectedSource).replace(
+  return rewriteMarkdownLinks(protectedSource, htmlPlaceholderPrefix).replace(
     new RegExp(`${htmlPlaceholderPrefix}(\\d+)__`, "g"),
     (_match, index: string) => htmlTags[Number(index)]!,
   ).replace(

@@ -77,7 +77,7 @@ function hasRecoveryClaim(lockDir: string) {
   }
 }
 
-function claimMalformedLock(lockDir: string) {
+function claimLockRecovery(lockDir: string) {
   const claimPath = resolve(lockDir, ".recovery-claim");
   while (true) {
     const owner = {
@@ -131,7 +131,7 @@ function restoreQuarantinedLock(lockDir: string, quarantinePath: string) {
 
 function recoverMalformedLock(lockDir: string) {
   if (Date.now() - statSync(lockDir).mtimeMs < lockStaleAfterMs) return false;
-  const claimToken = claimMalformedLock(lockDir);
+  const claimToken = claimLockRecovery(lockDir);
   if (claimToken === null) return true;
   if (claimToken === false) return false;
 
@@ -173,29 +173,47 @@ export function recoverAbandonedLock(lockDir: string) {
     if (!parsedOwner.success) return recoverMalformedLock(lockDir);
     if (lockOwnerIsRunning(parsedOwner.output, resolve(lockDir, "owner.json"))) return false;
 
-    const quarantinePath = `${lockDir}.recovery-${randomUUID()}`;
-    try {
-      renameSync(lockDir, quarantinePath);
-    } catch (error) {
-      if (fileSystemErrorCode(error) === "ENOENT") return !existsSync(lockDir);
-      throw error;
-    }
-    const claimedOwner: unknown = JSON.parse(readFileSync(resolve(quarantinePath, "owner.json"), "utf8"));
-    const parsedClaimedOwner = safeParse(lockOwnerSchema, claimedOwner);
-    if (
-      !parsedClaimedOwner.success
-      || parsedClaimedOwner.output.pid !== parsedOwner.output.pid
-      || parsedClaimedOwner.output.identity !== parsedOwner.output.identity
-      || parsedClaimedOwner.output.token !== parsedOwner.output.token
-    ) {
-      restoreQuarantinedLock(lockDir, quarantinePath);
-      return false;
-    }
+    const claimToken = claimLockRecovery(lockDir);
+    if (claimToken === null) return true;
+    if (claimToken === false) return false;
 
-    rmSync(quarantinePath, { recursive: true });
-    return true;
+    try {
+      const currentOwner: unknown = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
+      const parsedCurrentOwner = safeParse(lockOwnerSchema, currentOwner);
+      if (
+        !parsedCurrentOwner.success
+        || parsedCurrentOwner.output.pid !== parsedOwner.output.pid
+        || parsedCurrentOwner.output.identity !== parsedOwner.output.identity
+        || parsedCurrentOwner.output.token !== parsedOwner.output.token
+        || lockOwnerIsRunning(parsedCurrentOwner.output, resolve(lockDir, "owner.json"))
+      ) return false;
+
+      const quarantinePath = `${lockDir}.recovery-${claimToken}`;
+      try {
+        renameSync(lockDir, quarantinePath);
+      } catch (error) {
+        if (fileSystemErrorCode(error) === "ENOENT") return !existsSync(lockDir);
+        throw error;
+      }
+
+      rmSync(quarantinePath, { recursive: true });
+      return true;
+    } finally {
+      if (ownsLockRecovery(lockDir, claimToken)) rmSync(resolve(lockDir, ".recovery-claim"), { force: true });
+    }
   } catch (error) {
     if (fileSystemErrorCode(error) === "ENOENT") return true;
+    throw error;
+  }
+}
+
+function ownsLockRecovery(lockDir: string, token: string) {
+  try {
+    const claim: unknown = JSON.parse(readFileSync(resolve(lockDir, ".recovery-claim"), "utf8"));
+    const parsedClaim = safeParse(lockOwnerSchema, claim);
+    return parsedClaim.success && parsedClaim.output.token === token;
+  } catch (error) {
+    if (fileSystemErrorCode(error) === "ENOENT") return false;
     throw error;
   }
 }
