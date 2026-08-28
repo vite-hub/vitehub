@@ -1153,6 +1153,45 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("classifies pre-start delivery failures as Agent delivery", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const deliveryFailure = new Error("initial delivery failed")
+    const traceLog = createTraceEventLog()
+    const run = vi.fn(() => "unreachable")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "failed-initial-delivery",
+        prepare(context) {
+          let armed = false
+          const intent = { intent: "started" }
+          Object.defineProperty(intent, "kind", {
+            get() {
+              if (armed) throw deliveryFailure
+              return "reaction"
+            },
+          })
+          // SAFETY: This test fixture intentionally exercises rejection while reading an initial delivery intent.
+          context.delivery.effect(intent as never)
+          queueMicrotask(() => { armed = true })
+        },
+      })],
+      driver: { run },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(deliveryFailure)
+
+    expect(run).not.toHaveBeenCalled()
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "agent", phase: "delivery" },
+      attributes: { "error.message": "initial delivery failed" },
+    }])
+  })
+
   it("attributes input-hook failures to Agent execution", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -6014,6 +6053,93 @@ describe("agent message protocol", () => {
       activity: { owner: "vitehub", phase: "teardown" },
       attributes: { "error.message": "commit failed" },
     }])
+  })
+
+  it("classifies Capability finish extension failures as ViteHub teardown", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const extensionFailure = new Error("finish extension failed")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [{
+        id: "failed-finish-extension",
+        output(context) {
+          context.finish.provide(() => { throw extensionFailure })
+        },
+      }],
+      hooks: { "agent:finish": vi.fn() },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(extensionFailure)
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "vitehub", phase: "teardown" },
+      attributes: { "error.message": "finish extension failed" },
+    }])
+  })
+
+  it("classifies durable finish extension timeouts as ViteHub teardown", async () => {
+    vi.useFakeTimers()
+    try {
+      const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+      const executionFailure = new Error("provider failed")
+      const postMessage = vi.fn(async () => undefined)
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "stalled-finish-extension",
+          prepare(context) {
+            context.finish.provide(() => new Promise(() => undefined))
+          },
+        })],
+        channels: {
+          telegram: telegram({
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => { throw executionFailure } },
+        messages: { errorFallbackText: "Please try again.", timeout: 10 },
+      })
+      const result = runAgent(agent, {
+        [agentWorkflowExecutionContextKey]: true,
+        memo: vi.fn(),
+        run: { channelId: "telegram", origin: "telegram", threadId: "telegram:123" },
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      }, {
+        context: { channel: { message: { text: "Hello" } } },
+        prompt: "Hello",
+      }).catch(error => error)
+
+      await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10)
+      await expect(result).resolves.toBeInstanceOf(AggregateError)
+      expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+        {
+          activity: { owner: "agent", phase: "execution" },
+          attributes: { "error.message": "provider failed" },
+        },
+        {
+          activity: { owner: "vitehub", phase: "teardown" },
+          attributes: { "error.message": "Durable chat error fallback delivery timed out after 10ms." },
+        },
+      ])
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("does not rerun finish lifecycle when a finish hook fails", async () => {

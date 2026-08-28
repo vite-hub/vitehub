@@ -3363,7 +3363,13 @@ async function createAgentInvocationContext<
       await traceConfiguration()
     }
     await traceAgentInvocationStart(toTraceContext(invocation))
-    await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
+    try {
+      await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
+    }
+    catch (error) {
+      failureActivity = { owner: "agent", phase: "delivery" }
+      throw error
+    }
     const startCapabilities = capabilities.start
     if (!invocation.handledResponse && startCapabilities) {
       try {
@@ -4370,9 +4376,15 @@ async function finishAgentInvocation<
           )
         }
         const extensions = hasDurableFailureDelivery
-          ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!)
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
+          ? await runFinishActivity(
+              teardownActivity,
+              () => resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!),
+            )
+          : await runFinishActivity(
+              teardownActivity,
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+              () => createAgentInvocationExtensions(eventBase as never, finishExtensionProviders),
+            )
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = await runFinishActivity(
           deliveryActivity,
