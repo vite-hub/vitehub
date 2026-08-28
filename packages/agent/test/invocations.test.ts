@@ -82,6 +82,58 @@ describe("Agent Invocations", () => {
     expect(record.observations).toHaveLength(2)
   })
 
+  it("retains every identified priority outcome that fits before ordinary history", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const ordinary = Array.from({ length: 254 }, (_, index) => ({
+      name: `ordinary-${index}`,
+      sequence: index,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const streamError = {
+      attributes: { "error.message": "stream failed", "vitehub.observation.id": "journal:stream-error" },
+      name: "agent.stream.error",
+      sequence: 254,
+      timestamp: createdAt,
+      type: "error" as const,
+    }
+    const runError = {
+      attributes: { "error.message": "run failed", "vitehub.observation.id": "journal:run-error" },
+      name: "run.error",
+      sequence: 255,
+      timestamp: createdAt,
+      type: "error" as const,
+    }
+    const invocationError = {
+      attributes: { "vitehub.observation.id": "journal:invocation-error" },
+      name: "agent.invocation.error",
+      sequence: 256,
+      timestamp: createdAt,
+      type: "error" as const,
+    }
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "priority-outcomes-at-capacity",
+      observations: [...ordinary, streamError, runError],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: invocationError,
+      timestamp: createdAt,
+    })
+
+    expect(record).toMatchObject({ observationsTruncated: true })
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.slice(-3).map(observation => observation.name)).toEqual([
+      "agent.stream.error",
+      "run.error",
+      "agent.invocation.error",
+    ])
+    expect(record.observations.slice(-3).every(observation => observation.attributes?.["vitehub.trace.truncated"] === true)).toBe(true)
+  })
+
   it("keeps unidentified observations that share a locally assigned sequence", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const record = applyAgentInvocationStoreUpdate({
@@ -1383,13 +1435,19 @@ describe("Agent Invocations", () => {
     expect(observationWrites).toBeLessThanOrEqual(256)
     expect(record?.observations.length).toBeLessThanOrEqual(256)
     expect(record?.observations[1]).toMatchObject({
-      attributes: { "error.message": "provider stream failed 0" },
+      attributes: {
+        "error.message": "provider stream failed 258",
+        "vitehub.trace.truncated": true,
+      },
       name: "agent.stream.error",
     })
-    expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
+    expect(record?.observations.at(-1)).toMatchObject({
+      attributes: { "vitehub.trace.truncated": true },
+      name: "agent.invocation.finish",
+    })
   })
 
-  it("keeps the earliest fatal evidence before the latest terminal outcome", async () => {
+  it("keeps every identified priority outcome that fits before ordinary history", async () => {
     let releaseActive!: () => void
     let reportActiveStarted!: () => void
     let observationWrites = 0
@@ -1440,11 +1498,11 @@ describe("Agent Invocations", () => {
     const record = await invocations.getByRunId("ordered-outcome-observations")
     expect(observationWrites).toBeLessThanOrEqual(256)
     expect(record?.observations.length).toBeLessThanOrEqual(256)
-    expect(record?.observations.slice(-2)).toMatchObject([
+    expect(record?.observations.slice(-3)).toMatchObject([
       { attributes: { "error.message": "fatal run error" }, name: "run.error" },
+      { attributes: { generation: "older" }, name: "agent.invocation.finish" },
       { attributes: { generation: "latest" }, name: "agent.invocation.finish" },
     ])
-    expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { generation: "older" } }))
   })
 
   it("requeues an in-flight earliest fatal observation when its write fails", async () => {
@@ -1493,11 +1551,11 @@ describe("Agent Invocations", () => {
 
     const record = await invocations.getByRunId("retried-earliest-fatal")
     expect(record?.observations).toHaveLength(256)
-    expect(record?.observations.slice(-2)).toMatchObject([
+    expect(record?.observations.slice(-3)).toMatchObject([
       { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
+      { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
       { name: "agent.invocation.finish" },
     ])
-    expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { "error.message": "later fatal" } }))
   })
 
   it("requeues an in-flight earliest fatal observation after its write times out", async () => {
@@ -1552,11 +1610,11 @@ describe("Agent Invocations", () => {
 
       const record = await invocations.getByRunId("timed-out-earliest-fatal")
       expect(record?.observations).toHaveLength(256)
-      expect(record?.observations.slice(-2)).toMatchObject([
+      expect(record?.observations.slice(-3)).toMatchObject([
         { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
+        { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
         { name: "agent.invocation.finish" },
       ])
-      expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { "error.message": "later fatal" } }))
     }
     finally {
       vi.useRealTimers()

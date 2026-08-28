@@ -792,14 +792,18 @@ function githubPullRequestRunMetadata(
   pullRequest: GitHubPullRequestRunContext,
   channelId: string | undefined,
 ): AgentRunMetadata {
+  const githubAnnotations = {
+    "github.pullRequest": pullRequest.pullRequest.number,
+    "github.repository": pullRequest.repository.fullName,
+    ...(pullRequest.pullRequest.title ? { "github.title": pullRequest.pullRequest.title } : {}),
+    ...(pullRequest.pullRequest.htmlUrl ? { "github.url": pullRequest.pullRequest.htmlUrl } : {}),
+  }
   return {
     ...pullRequest.run,
     annotations: {
+      ...githubAnnotations,
       ...pullRequest.run.annotations,
-      "github.pullRequest": pullRequest.pullRequest.number,
-      "github.repository": pullRequest.repository.fullName,
-      ...(pullRequest.pullRequest.title ? { "github.title": pullRequest.pullRequest.title } : {}),
-      ...(pullRequest.pullRequest.htmlUrl ? { "github.url": pullRequest.pullRequest.htmlUrl } : {}),
+      ...githubAnnotations,
     },
     ...(channelId ? { channelId } : {}),
   }

@@ -731,12 +731,20 @@ describe("agent channels", () => {
     const pullRequest = {
       pullRequest: {
         apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        htmlUrl: "https://github.test/acme/app/pull/42",
         number: 42,
         source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+        title: "Improve app",
       },
       repository: { fullName: "acme/app", name: "app", owner: "acme" },
       run: {
-        annotations: { "custom.display": "preserved" },
+        annotations: {
+          ...Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`custom.${index}`, `value-${index}`])),
+          "github.pullRequest": 999,
+          "github.repository": "spoofed/repository",
+          "github.title": "Spoofed title",
+          "github.url": "https://example.test/spoofed",
+        },
         messageId: "99",
         origin: "github-pull-request-comment",
         runId: "github:acme/app#42:comment:99",
@@ -757,6 +765,7 @@ describe("agent channels", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const fromContext = await trigger.invoke(context as never, { pullRequest, run: devRun })
     if (fromContext instanceof Response) throw new Error("Expected GitHub context invocation.")
+    if (!fromContext.run) throw new Error("Expected GitHub run metadata.")
     expect(fromContext.input).toMatchObject({
       context: {
         github: {
@@ -772,14 +781,48 @@ describe("agent channels", () => {
     })
     expect(fromContext.run).toMatchObject({
       annotations: {
-        "custom.display": "preserved",
+        "custom.0": "value-0",
         "github.pullRequest": 42,
         "github.repository": "acme/app",
+        "github.title": "Improve app",
+        "github.url": "https://github.test/acme/app/pull/42",
       },
       channelId: "github",
       origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
       threadId: "pr-42",
+    })
+    expect(Object.keys(fromContext.run.annotations ?? {}).slice(0, 4)).toEqual([
+      "github.pullRequest",
+      "github.repository",
+      "github.title",
+      "github.url",
+    ])
+
+    const { bindAgentInvocations } = await import("../src/invocations.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, {
+      memo: vi.fn(),
+      run: fromContext.run,
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.finish("completed")
+    const annotations = (await invocations.getByRunId(fromContext.run.runId))?.annotations
+    expect(Object.keys(annotations ?? {})).toHaveLength(32)
+    expect(Object.keys(annotations ?? {}).slice(0, 4)).toEqual([
+      "github.pullRequest",
+      "github.repository",
+      "github.title",
+      "github.url",
+    ])
+    expect(annotations).toMatchObject({
+      "github.pullRequest": 42,
+      "github.repository": "acme/app",
+      "github.title": "Improve app",
+      "github.url": "https://github.test/acme/app/pull/42",
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.

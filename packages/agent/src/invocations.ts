@@ -411,36 +411,33 @@ function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEnt
   }
 }
 
+function retainedPriorityOutcomes(
+  observations: readonly TraceEventLogEntry[],
+  limit: number,
+): TraceEventLogEntry[] {
+  if (limit <= 0) return []
+  const identified = new Map<string, TraceEventLogEntry>()
+  const unidentified: TraceEventLogEntry[] = []
+  for (const observation of observations) {
+    if (outcomeObservationPriority(observation) === undefined) continue
+    const identity = observationIdentity(observation)
+    if (identity === undefined) unidentified.push(observation)
+    else identified.set(identity, observation)
+  }
+  const retainedIdentified = [...identified.values()].slice(-limit)
+  const remaining = limit - retainedIdentified.length
+  return [...retainedIdentified, ...(remaining > 0 ? unidentified.slice(-remaining) : [])]
+}
+
 function prioritizePendingOutcomes(
   pending: TraceEventLogEntry[],
   incoming: TraceEventLogEntry,
   active: TraceEventLogEntry | undefined,
-  retryIncoming = false,
 ): void {
-  const activeFatal = active && failureEvidenceObservation(active)
-  const fatal = retryIncoming && failureEvidenceObservation(incoming)
-    ? incoming
-    : activeFatal
-      ? undefined
-      : pending.find(failureEvidenceObservation)
-        ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
-  const pendingTerminal = pending.findLast(terminalObservation)
-  const terminal = retryIncoming
-    ? pendingTerminal ?? (terminalObservation(incoming) ? incoming : undefined)
-    : terminalObservation(incoming)
-      ? incoming
-      : pendingTerminal
-  const deliveries = [
-    ...pending.filter(deliveryOutcomeObservation),
-    ...(deliveryOutcomeObservation(incoming) ? [incoming] : []),
-  ]
-  const outcomes: TraceEventLogEntry[] = []
-  if (fatal) outcomes.push(fatal)
-  if (terminal && terminal !== fatal) outcomes.push(terminal)
-  const deliveryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
-  outcomes.push(...deliveries.slice(-deliveryLimit))
+  const limit = MAX_OBSERVATIONS - (active ? 1 : 0)
+  const outcomes = retainedPriorityOutcomes([...pending, incoming], limit)
   const ordinary = pending.filter(observation => outcomeObservationPriority(observation) === undefined)
-  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
+  const ordinaryLimit = Math.max(0, limit - outcomes.length)
   pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
 
@@ -476,24 +473,16 @@ export function applyAgentInvocationStoreUpdate(
             : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
         })()
       : (() => {
-          const failureEvidence = record.observations.find(failureEvidenceObservation)
-            ?? (failureEvidenceObservation(input.observation) ? input.observation : undefined)
-          const terminal = terminalObservation(input.observation)
-            ? input.observation
-            : record.observations.findLast(terminalObservation)
-          const deliveries = [
-            ...record.observations.filter(deliveryOutcomeObservation),
-            ...(deliveryOutcomeObservation(input.observation) ? [input.observation] : []),
-          ]
-          const requiredOutcomes = [failureEvidence, terminal]
-            .filter((observation, index, all): observation is TraceEventLogEntry => observation !== undefined && all.indexOf(observation) === index)
-          const deliveryLimit = Math.max(0, MAX_OBSERVATIONS - requiredOutcomes.length)
-          const outcomes = [
-            ...requiredOutcomes,
-            ...deliveries.slice(-deliveryLimit),
-          ].filter((observation, index, all) => all.indexOf(observation) === index)
+          const outcomes = retainedPriorityOutcomes(
+            [...record.observations, input.observation],
+            MAX_OBSERVATIONS,
+          )
           if (outcomes.length === 0) outcomes.push(record.observations.at(-1)!)
-          const retained = record.observations.filter(observation => !outcomes.includes(observation))
+          const retainedOutcomeIdentities = new Set(outcomes.map(observationIdentity).filter(identity => identity !== undefined))
+          const retained = record.observations.filter((observation) => {
+            const identity = observationIdentity(observation)
+            return identity === undefined ? !outcomes.includes(observation) : !retainedOutcomeIdentities.has(identity)
+          })
           return [
             ...retained.slice(0, MAX_OBSERVATIONS - outcomes.length),
             ...outcomes.map(observation => cloneObservation(boundedObservation(truncatedObservation(observation)))),
@@ -920,7 +909,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               observationsTruncated = true
               const retry = truncatedObservation(observation)
               retriedObservations.add(retry)
-              prioritizePendingOutcomes(pendingObservations, retry, undefined, true)
+              prioritizePendingOutcomes(pendingObservations, retry, undefined)
             }
           }
         })().catch(() => {})
@@ -1015,12 +1004,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             .filter((observation, index, observations) => observations.findIndex(candidate => sameObservation(candidate, observation)) === index)
           const unpersistedOutcomes = outcomeObservations
             .filter(observation => !persistedObservations.has(observationPersistenceKey(observation)))
-          const pendingFailure = unpersistedOutcomes.find(failureEvidenceObservation)
-          const pendingTerminal = unpersistedOutcomes.findLast(terminalObservation)
-          const pendingDeliveries = unpersistedOutcomes.filter(deliveryOutcomeObservation)
-          const pendingOutcomes = [pendingFailure, pendingTerminal, ...pendingDeliveries]
-            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
-            .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
+          const pendingOutcomes = retainedPriorityOutcomes(unpersistedOutcomes, MAX_OBSERVATIONS)
             .map(observation => boundedObservation({
               ...observation,
               timestamp: normalizedTimestamp(observation.timestamp),
