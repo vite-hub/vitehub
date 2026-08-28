@@ -72,6 +72,7 @@
     "./agent/eval": "./dist/agent/eval.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/mcp": "./dist/agent/mcp.js",
+    "./agent/runtime/process": "./dist/agent/runtime/process.js",
     "./agent/server": "./dist/agent/server.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
     "./agent/vue": "./dist/agent/vue.js",

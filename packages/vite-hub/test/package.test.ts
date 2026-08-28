@@ -12,6 +12,7 @@ import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import * as ownerAgentEve from "@vite-hub/agent/eve"
 import * as ownerAgentMcp from "@vite-hub/agent/mcp"
+import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process"
 import * as ownerAgentVue from "@vite-hub/agent/vue"
 import ownerAuthHandler from "@vite-hub/auth/server"
 import * as ownerAuthVue from "@vite-hub/auth/vue"
@@ -24,6 +25,7 @@ import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
 import * as frameworkAgentMcp from "vite-hub/agent/mcp"
+import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process"
 import * as frameworkAgentVue from "vite-hub/agent/vue"
 import frameworkAuthHandler from "vite-hub/auth/server"
 import * as frameworkAuthVue from "vite-hub/auth/vue"
@@ -162,6 +164,7 @@ describe("framework package contract", () => {
   it("forwards feature APIs from their owner packages", () => {
     expect(frameworkAgent.defineAgent).not.toBe(ownerAgent.defineAgent)
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
+    expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(ownerAgentProcessRuntime.createProcessAgentCapacity)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer)
