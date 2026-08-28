@@ -6,7 +6,7 @@
   <img alt="Vite" src="https://img.shields.io/badge/Vite-public%20env-646cff?style=flat-square">
 </p>
 
-`@vite-hub/env` declares environment values once, then generates typed public, build-time, and server-oriented access for Vite applications.
+`@vite-hub/env` declares environment values once, then generates typed public and server-oriented access plus untyped build-time replacements for Vite applications.
 
 Most applications install `vite-hub` and enable Env through the framework preset. Install this owner package directly when a library or focused Vite integration needs Env without the rest of ViteHub.
 
@@ -21,7 +21,7 @@ pnpm add @vite-hub/env
 | Section      | Read when                 | Visible to client code | Use it for                                                      |
 | ------------ | ------------------------- | ---------------------- | --------------------------------------------------------------- |
 | `env.public` | Build time                | Yes                    | Browser-safe application configuration.                         |
-| `env.define` | Build transform           | Yes, where bundled     | Compile-time replacements such as a release identifier.         |
+| `env.define` | Build transform           | Yes, where bundled     | Untyped compile-time replacements such as a release identifier. |
 | `env.server` | Request or server runtime | By caller convention   | Host-supplied server configuration and source-only credentials. |
 
 ## First result
