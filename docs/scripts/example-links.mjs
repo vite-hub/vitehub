@@ -1,8 +1,8 @@
-import { object, safeParse, string } from "valibot";
+import { boolean, object, safeParse, string } from "valibot";
 
 const defaultTimeoutMs = 8_000;
 const defaultAttempts = 3;
-const repositoryMetadataSchema = object({ default_branch: string() });
+const repositoryMetadataSchema = object({ default_branch: string(), is_template: boolean() });
 
 function githubRepository(actionUrl) {
   let url;
@@ -78,6 +78,10 @@ export async function checkExampleLinks(examples, options = {}) {
         continue;
       }
       if (example.kind !== "template") continue;
+      if (!metadataResult.output.is_template) {
+        failures.push({ category: "template-action", name: example.name, url: apiRoot, message: "repository is not configured as a GitHub template" });
+        continue;
+      }
       const startPath = example.startPath.split("/").map(encodeURIComponent).join("/");
       await check("start-path", example.name, `${apiRoot}/contents/${startPath}?ref=${encodeURIComponent(metadataResult.output.default_branch)}`);
     } catch (error) {

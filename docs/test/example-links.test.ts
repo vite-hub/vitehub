@@ -5,7 +5,7 @@ describe("public example link checks", () => {
   it("classifies actions, default branches, and template start paths", async () => {
     const fetchImpl = vi.fn(async (input: string | URL) => new Response(
       String(input).startsWith("https://api.github.com/repos/") && !String(input).includes("/contents/")
-        ? JSON.stringify({ default_branch: "main" })
+        ? JSON.stringify({ default_branch: "main", is_template: String(input).includes("/template") })
         : "ok",
       { status: 200 },
     ));
@@ -47,7 +47,7 @@ describe("public example link checks", () => {
         Object.defineProperty(response, "url", { value: "https://github.com/vite-hub/template/generate" });
         return response;
       }
-      return new Response(JSON.stringify({ default_branch: "main" }), { status: 200 });
+      return new Response(JSON.stringify({ default_branch: "main", is_template: true }), { status: 200 });
     });
     const result = await checkExampleLinks([
       { name: "Template", kind: "template", status: "published", action: { to: "https://www.github.com/vite-hub/template/generate" }, startPath: "app/index.ts" },
@@ -68,7 +68,7 @@ describe("public example link checks", () => {
         Object.defineProperty(response, "url", { value: "https://github.com/new" });
         return response;
       }
-      return new Response(JSON.stringify({ default_branch: "main" }), { status: 200 });
+      return new Response(JSON.stringify({ default_branch: "main", is_template: true }), { status: 200 });
     });
     const result = await checkExampleLinks([
       { name: "Template", kind: "template", status: "published", action: { to: "https://github.com/vite-hub/template/generate" }, startPath: "app/index.ts" },
@@ -81,6 +81,26 @@ describe("public example link checks", () => {
       "start-path",
     ]);
     expect(result.checks[1]?.url).toBe("https://api.github.com/repos/vite-hub/template");
+  });
+
+  it("rejects published templates whose repository has template mode disabled", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => new Response(
+      String(input).startsWith("https://api.github.com/repos/") && !String(input).includes("/contents/")
+        ? JSON.stringify({ default_branch: "main", is_template: false })
+        : "ok",
+      { status: 200 },
+    ));
+    const result = await checkExampleLinks([
+      { name: "Template", kind: "template", status: "published", action: { to: "https://github.com/vite-hub/template/generate" }, startPath: "app/index.ts" },
+    ], { attempts: 1, fetchImpl });
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({ category: "template-action", message: "repository is not configured as a GitHub template" }),
+    ]);
+    expect(result.checks.map(({ category }) => category)).toEqual([
+      "template-action",
+      "default-branch",
+    ]);
   });
 
   it("continues auditing after a malformed catalog URL", async () => {
