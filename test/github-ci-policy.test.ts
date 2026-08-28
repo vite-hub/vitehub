@@ -620,6 +620,23 @@ jobs:
     ])
   })
 
+  it("does not trust an assignment after an inline branch keyword", async () => {
+    const root = await createFixture({
+      ".github/workflows/ci.yml": [
+        "env:",
+        "  VERSION: 1.2.3",
+        "jobs:",
+        "  test:",
+        "    steps:",
+        "      - run: if true; then VERSION=latest; fi; npx tool@$VERSION",
+      ].join("\n"),
+    })
+
+    await expect(checkGitHubCIInputs(root)).resolves.toEqual([
+      expect.objectContaining({ message: expect.stringContaining("tool@(unresolved)") }),
+    ])
+  })
+
   it("keeps subshell exports out of the parent environment", async () => {
     const root = await createFixture({
       ".github/workflows/ci.yml": [

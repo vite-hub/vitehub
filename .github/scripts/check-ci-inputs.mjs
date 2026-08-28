@@ -412,7 +412,9 @@ function applyLeadingPersistentAssignments(tokens, environment) {
 function invalidateConditionalAssignments(tokens, environment) {
   let command = []
   const invalidateCommand = () => {
-    const assignments = command.map(candidate => assignmentPattern.exec(candidate))
+    const assignmentStart = command.findIndex(candidate => !shellCommandPrefixes.has(candidate))
+    const assignments = command.slice(assignmentStart === -1 ? command.length : assignmentStart)
+      .map(candidate => assignmentPattern.exec(candidate))
     if (assignments.length > 0 && assignments.every(Boolean)) {
       for (const assignment of assignments) environment.delete(assignment[1])
     }
