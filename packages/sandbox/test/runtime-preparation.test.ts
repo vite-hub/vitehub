@@ -117,6 +117,55 @@ describe("Sandbox runtime preparation", () => {
     expect(order).toEqual(["first-start", "first-end", "second"])
   })
 
+  it("preserves a successor when an initializing writer loses its lock directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
+    tempDirs.push(root)
+    const lockDir = join(root, ".runtime-generation.lock")
+    let continueFirst!: () => void
+    let markFirstPaused!: () => void
+    let markSecondStarted!: () => void
+    let releaseSecond!: () => void
+    const firstPaused = new Promise<void>((resolve) => { markFirstPaused = resolve })
+    const firstContinued = new Promise<void>((resolve) => { continueFirst = resolve })
+    const secondStarted = new Promise<void>((resolve) => { markSecondStarted = resolve })
+    const secondReleased = new Promise<void>((resolve) => { releaseSecond = resolve })
+    const lockOptions = { pollMs: 5, staleMs: -1, waitMs: 1_000 }
+
+    const first = withSandboxRuntimeGenerationLock(root, async () => "first", {
+      ...lockOptions,
+      beforeInitializeLock: async () => {
+        markFirstPaused()
+        await firstContinued
+      },
+    })
+    await firstPaused
+    const second = withSandboxRuntimeGenerationLock(root, async (lease) => {
+      markSecondStarted()
+      await secondReleased
+      await expect(lease.assertOwned()).resolves.toBeUndefined()
+      return "second"
+    }, lockOptions)
+    await secondStarted
+    const secondOwner = await readFile(join(lockDir, "owner.json"), "utf8")
+
+    const firstRejected = expect(first).rejects.toThrow()
+    continueFirst()
+    await firstRejected
+
+    let thirdStarted = false
+    const third = withSandboxRuntimeGenerationLock(root, async () => {
+      thirdStarted = true
+      return "third"
+    }, lockOptions)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(thirdStarted).toBe(false)
+    await expect(readFile(join(lockDir, "owner.json"), "utf8")).resolves.toBe(secondOwner)
+
+    releaseSecond()
+    await expect(second).resolves.toBe("second")
+    await expect(third).resolves.toBe("third")
+  })
+
   it("renews a remote writer lease before a contender can reclaim it", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-"))
     tempDirs.push(root)

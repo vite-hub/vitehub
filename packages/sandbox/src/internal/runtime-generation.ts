@@ -34,6 +34,7 @@ export interface SandboxRuntimeGenerationLease {
 }
 
 interface SandboxRuntimeGenerationLockOptions {
+  beforeInitializeLock?: () => Promise<void>
   heartbeatMs?: number
   host?: string
   pollMs?: number
@@ -140,6 +141,13 @@ function isSameSandboxRuntimeGenerationLock(
     && left.leaseIno === right.leaseIno
     && (typeof left.leaseIno === 'undefined' || left.leaseMtimeMs === right.leaseMtimeMs)
     && left.ownerValue === right.ownerValue
+}
+
+function isSameSandboxRuntimeGenerationLockDirectory(
+  left: SandboxRuntimeGenerationLockObservation,
+  right: SandboxRuntimeGenerationLockObservation | undefined,
+): boolean {
+  return !!right && left.dev === right.dev && left.ino === right.ino
 }
 
 async function reclaimSandboxRuntimeGenerationLock(
@@ -263,6 +271,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
   const owner = JSON.stringify(ownerRecord)
   const deadline = Date.now() + (options.waitMs ?? generationLockWaitMs)
   let ownedLock: SandboxRuntimeGenerationLockObservation | undefined
+  let createdLock: SandboxRuntimeGenerationLockObservation | undefined
   let leaseFile: Awaited<ReturnType<typeof open>> | undefined
   let ownerFile: Awaited<ReturnType<typeof open>> | undefined
   await mkdir(generatedDir, { recursive: true })
@@ -287,6 +296,11 @@ export async function withSandboxRuntimeGenerationLock<T>(
     }
 
     try {
+      const created = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+      if (!created || typeof created.ownerValue !== 'undefined' || typeof created.leaseIno !== 'undefined')
+        throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`)
+      createdLock = created
+      await options.beforeInitializeLock?.()
       ownerFile = await open(ownerPath, 'wx')
       await ownerFile.writeFile(owner)
       leaseFile = await open(leasePath, 'wx')
@@ -301,7 +315,24 @@ export async function withSandboxRuntimeGenerationLock<T>(
       leaseFile = undefined
       await ownerFile?.close().catch(() => {})
       ownerFile = undefined
-      await rm(lockDir, { recursive: true, force: true }).catch(() => {})
+      const failed = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath)
+      const failedOwnerBelongsToAttempt = failed?.ownerValue === owner
+        || (typeof failed?.ownerValue === 'undefined' && typeof failed?.leaseIno === 'undefined')
+      if (createdLock
+        && isSameSandboxRuntimeGenerationLockDirectory(createdLock, failed)
+        && failed
+        && failedOwnerBelongsToAttempt) {
+        const retiredDir = await retireSandboxRuntimeGenerationLock(
+          lockDir,
+          ownerPath,
+          leasePath,
+          failed,
+          async () => {},
+          rename,
+        ).catch(() => undefined)
+        if (retiredDir)
+          await rm(retiredDir, { recursive: true, force: true }).catch(() => {})
+      }
       throw error
     }
   }
