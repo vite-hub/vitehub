@@ -442,11 +442,14 @@ describe("ViteHub Nuxt integration", () => {
         .find(candidate => isTestRecord(candidate) && candidate.name === "vite-hub/console-invocation-root")
       if (!isTestRecord(invocationRootPlugin)) throw new TypeError("Expected the Console invocation root plugin.")
       const configResolved = invocationRootPlugin.configResolved
-      const configResolvedHandler = isTestRecord(configResolved) ? configResolved.handler : configResolved
+      const configResolvedHandler = typeof configResolved === "function"
+        ? configResolved
+        : isTestRecord(configResolved) ? configResolved.handler : undefined
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
       if (typeof configResolvedHandler !== "function") throw new TypeError("Expected a Console configResolved hook.")
       await Reflect.apply(configResolvedHandler, {}, [{ root: "/tmp/vitehub-nuxt" }])
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("vite-startup")
+      const startupRefreshed = await readFile(generatedPlugin, "utf8")
+      expect(startupRefreshed).toContain("vite-startup")
 
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
 
@@ -454,7 +457,7 @@ describe("ViteHub Nuxt integration", () => {
       await viteHubNuxtModule({ console: true, preset: "node" }, concurrent.nuxt)
       const concurrentGeneratedPlugin = nitroPlugins(concurrent.nuxt)[0] ?? ""
       expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(generated)
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(startupRefreshed)
       await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
 
       await development.runBuilderWatchHook()
