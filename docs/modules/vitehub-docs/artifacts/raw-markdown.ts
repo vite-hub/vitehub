@@ -118,7 +118,8 @@ function rewriteInlineMarkdownLinks(line: string) {
     }
     if (depth !== 0 || line[closing] !== "(") continue;
 
-    const targetStart = closing + 1;
+    let targetStart = closing + 1;
+    while (targetStart < line.length && /[ \t\n]/.test(line[targetStart]!)) targetStart += 1;
     const angleDestination = line[targetStart] === "<";
     let targetEnd = targetStart + (angleDestination ? 1 : 0);
     if (angleDestination) {

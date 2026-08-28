@@ -107,9 +107,11 @@ describe("writeDocsArtifacts", () => {
   it("handles inline destination and code-span grammar boundaries", () => {
     expect(toRawMarkdown([
       "[Guide](</docs/getting started>)",
+      "[Spaced]( /docs/spaced)",
       "`[literal](/docs/literal)\\` [rendered](/docs/rendered)",
     ].join("\n"))).toBe([
       "[Guide](<https://vitehub.dev/docs/getting started>)",
+      "[Spaced]( https://vitehub.dev/docs/spaced)",
       "`[literal](/docs/literal)\\` [rendered](https://vitehub.dev/docs/rendered)",
       "",
     ].join("\n"));
@@ -525,6 +527,23 @@ describe("writeDocsArtifacts", () => {
 
       expect(recoverAbandonedLock(lockDir)).toBe(false);
       expect(readFileSync(resolve(lockDir, "owner.json"), "utf8")).toContain('"token":"live"');
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("lets only one process recover a malformed lock", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-claimed-lock-"));
+    const lockDir = resolve(rootDir, ".raw-artifacts.lock");
+
+    try {
+      writeText(resolve(lockDir, "owner.json"), "{");
+      mkdirSync(resolve(lockDir, ".recovery-claim"));
+      utimesSync(lockDir, new Date(0), new Date(0));
+
+      expect(recoverAbandonedLock(lockDir)).toBe(false);
+      expect(existsSync(lockDir)).toBe(true);
+      expect(existsSync(resolve(lockDir, ".recovery-claim"))).toBe(true);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }

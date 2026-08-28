@@ -84,7 +84,7 @@ export function recoverAbandonedLock(lockDir: string) {
     } catch (error) {
       if (fileSystemErrorCode(error) === "ENOENT" || error instanceof SyntaxError) {
         if (Date.now() - statSync(lockDir).mtimeMs < lockStaleAfterMs) return false;
-        const claimPath = resolve(lockDir, `.recovery-${randomUUID()}`);
+        const claimPath = resolve(lockDir, ".recovery-claim");
         try {
           mkdirSync(claimPath);
         } catch (claimError) {
@@ -93,18 +93,29 @@ export function recoverAbandonedLock(lockDir: string) {
           throw claimError;
         }
 
+        let liveOwner = false;
         try {
           const currentOwner: unknown = JSON.parse(readFileSync(resolve(lockDir, "owner.json"), "utf8"));
           const parsedCurrentOwner = safeParse(lockOwnerSchema, currentOwner);
-          if (parsedCurrentOwner.success && lockOwnerIsRunning(parsedCurrentOwner.output)) return false;
+          liveOwner = parsedCurrentOwner.success && lockOwnerIsRunning(parsedCurrentOwner.output);
         } catch (ownerError) {
-          if (fileSystemErrorCode(ownerError) !== "ENOENT" && !(ownerError instanceof SyntaxError)) throw ownerError;
-        } finally {
-          if (existsSync(claimPath)) rmSync(claimPath, { recursive: true });
+          if (fileSystemErrorCode(ownerError) !== "ENOENT" && !(ownerError instanceof SyntaxError)) {
+            rmSync(claimPath, { force: true, recursive: true });
+            throw ownerError;
+          }
+        }
+        if (liveOwner) {
+          rmSync(claimPath, { force: true, recursive: true });
+          return false;
         }
 
-        rmSync(lockDir, { recursive: true });
-        return true;
+        try {
+          rmSync(lockDir, { recursive: true });
+          return true;
+        } catch (recoveryError) {
+          rmSync(claimPath, { force: true, recursive: true });
+          throw recoveryError;
+        }
       }
       throw error;
     }
