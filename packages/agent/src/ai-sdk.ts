@@ -477,6 +477,27 @@ async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdk
   }
 }
 
+interface AiSdkInvocationDeadline {
+  expiresAt: number
+  timeout: number
+}
+
+function createAiSdkInvocationDeadline(timeout: number | undefined): AiSdkInvocationDeadline | undefined {
+  return timeout === undefined ? undefined : { expiresAt: Date.now() + timeout, timeout }
+}
+
+function withRemainingInvocationTimeout<T extends Record<string, unknown>>(
+  input: T,
+  deadline: AiSdkInvocationDeadline | undefined,
+): T {
+  if (!deadline) return input
+  const timeout = deadline.expiresAt - Date.now()
+  if (timeout <= 0) {
+    throw new DOMException(`[vitehub] Agent Invocation timed out after ${deadline.timeout}ms.`, "TimeoutError")
+  }
+  return { ...input, timeout }
+}
+
 function getFallbackOptions(fallback: AiSdkModelExecutionOptions["workspaceFallback"]): Required<AiSdkWorkspaceFallbackOptions> {
   if (fallback === false) return { enabled: false, maxToolResults: 0 }
   if (fallback === true || fallback === undefined) return { enabled: true, maxToolResults: 8 }
@@ -1571,6 +1592,7 @@ async function createAgent(
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
   streamUsageCapture?: ReturnType<typeof createUsageCapture>,
+  invocationDeadline?: AiSdkInvocationDeadline,
 ) {
   const aiSdk = await loadAiSdk()
   const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
@@ -1698,15 +1720,14 @@ async function createAgent(
             stopWhen: isStepCount(1),
           } as never)
           // SAFETY: The one-step repair agent returns the asserted generated result contract.
-          const result = await toolRepairAgent.generate({
+          const result = await toolRepairAgent.generate(withRemainingInvocationTimeout({
             ...(abortSignal ? { abortSignal } : {}),
-            ...(context.input.timeout === undefined ? {} : { timeout: context.input.timeout }),
             ...("options" in context.input ? { options: context.input.options } : {}),
             onEnd: usageCapture.onEnd,
             onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
             onStepEnd: usageCapture.onStepEnd,
             prompt: toolCallRepairPrompt(toolCall, schema, error),
-          } as never)
+          }, invocationDeadline) as never)
           return { ...toolCall, input: JSON.stringify(result.output) }
         }
         catch (error) {
@@ -1804,6 +1825,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     : undefined
   return markMessageChannelInstructionConsumer({
     async generate(context) {
+      const invocationDeadline = createAiSdkInvocationDeadline(context.input.timeout)
       const execution = options.execution
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
@@ -1811,7 +1833,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture, undefined, invocationDeadline)
       if (context.workspace && tools && "materialize_sources" in tools) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
@@ -1831,7 +1853,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         const usageCapture = createUsageCapture()
         repairUsageCaptures.push(usageCapture)
         return {
-          ...callInput,
+          ...withRemainingInvocationTimeout(callInput, invocationDeadline),
           onEnd: usageCapture.onEnd,
           onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
           onStepEnd: usageCapture.onStepEnd,
@@ -1842,7 +1864,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         fallbackCapture?.collect(event)
       }
       const originalCallInput = {
-        ...callInput,
+        ...withRemainingInvocationTimeout(callInput, invocationDeadline),
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureOriginalStep,
@@ -1993,13 +2015,14 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     name: "ai-sdk",
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
+      const invocationDeadline = createAiSdkInvocationDeadline(context.input.timeout)
       const usageCapture = createUsageCapture()
       const execution = options.execution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture)
+      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await createAgent(options, context, fallbackCapture, usageCapture, invocationDeadline)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
@@ -2011,7 +2034,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         const repairUsageCapture = createUsageCapture()
         repairUsageCaptures.push(repairUsageCapture)
         return {
-          ...callInput,
+          ...withRemainingInvocationTimeout(callInput, invocationDeadline),
           onEnd: repairUsageCapture.onEnd,
           onLanguageModelCallEnd: repairUsageCapture.onLanguageModelCallEnd,
           onStepEnd: repairUsageCapture.onStepEnd,
@@ -2041,7 +2064,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         if (started) return started
         // SAFETY: createAgent returns the AI SDK Agent contract, and getCallInput returns its normalized call input.
         started = Promise.resolve(agent.stream({
-          ...callInput,
+          ...withRemainingInvocationTimeout(callInput, invocationDeadline),
           abortSignal: providerAbortSignal,
           onEnd: usageCapture.onEnd,
           onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,

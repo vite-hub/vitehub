@@ -283,6 +283,37 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(3)
   })
 
+  it("shares the invocation timeout with structured output corrections", async () => {
+    let now = 1_000
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
+    try {
+      const fakeModel = model([
+        async () => {
+          now += 80
+          return "{\"text\":1}"
+        },
+        "{\"text\":\"repaired\"}",
+      ])
+      const agent = defineAgent({
+        driver: {
+          // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+          model: fakeModel as never,
+          output: { schema: outputSchema },
+        },
+        runtime: false,
+      })
+
+      await expect(runAgentInline(agent, runtime, { prompt: "Respond", timeout: 100 })).resolves.toEqual({ text: "repaired" })
+
+      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 20])
+    }
+    finally {
+      timeoutSpy.mockRestore()
+      nowSpy.mockRestore()
+    }
+  })
+
   it("reports completed usage when structured output corrections fail", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":3}"])
     const doGenerate = fakeModel.doGenerate.bind(fakeModel)
@@ -472,6 +503,50 @@ describe("AI SDK recovery", () => {
         }),
       }),
     }))
+  })
+
+  it("shares the invocation timeout with streamed structured output corrections", async () => {
+    let now = 1_000
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
+    try {
+      const fakeModel = model(["{\"text\":\"repaired\"}"])
+      const doStream = vi.fn(async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] })
+            controller.enqueue({ id: "answer", type: "text-start" })
+            controller.enqueue({ delta: "{\"text\":1}", id: "answer", type: "text-delta" })
+            controller.enqueue({ id: "answer", type: "text-end" })
+            now += 80
+            controller.enqueue({
+              finishReason: { raw: "stop", unified: "stop" },
+              type: "finish",
+              usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+            })
+            controller.close()
+          },
+        }),
+      }))
+      const agent = defineAgent({
+        driver: {
+          // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+          model: { ...fakeModel, doStream } as never,
+          output: { schema: outputSchema },
+        },
+        runtime: false,
+      })
+
+      const result = await streamAgentInline(agent, runtime, { prompt: "Respond", timeout: 100 })
+      // SAFETY: streamAgentInline returns the documented async iterable result contract.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+
+      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 20])
+    }
+    finally {
+      timeoutSpy.mockRestore()
+      nowSpy.mockRestore()
+    }
   })
 
   it("emits all completed usage when streamed structured-output repair fails", async () => {
@@ -1057,6 +1132,33 @@ describe("AI SDK recovery", () => {
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.calls).toHaveLength(3)
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
+  })
+
+  it("shares the invocation timeout with tool-call repair", async () => {
+    let now = 1_000
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
+    try {
+      const fakeModel = model([
+        async () => {
+          now += 80
+          return [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }]
+        },
+        "{\"query\":\"fixed\"}",
+        "Finished",
+      ])
+
+      await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, {
+        prompt: "Search",
+        timeout: 100,
+      })).resolves.toMatchObject({ text: "Finished" })
+
+      expect(timeoutSpy.mock.calls.map(([timeout]) => timeout)).toEqual([100, 20])
+    }
+    finally {
+      timeoutSpy.mockRestore()
+      nowSpy.mockRestore()
+    }
   })
 
   it("keeps final-result metadata off tool-call repair usage", async () => {
