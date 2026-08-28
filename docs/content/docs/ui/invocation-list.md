@@ -19,6 +19,8 @@ icon: i-ph-list-bullets-light
   :selected-id="route.params.invocation"
   :has-more="page.hasMore"
   :loading="page.pending"
+  :remaining-statuses="page.remainingStatuses"
+  :retry-key="page.cursor"
   @select="openInvocation($event.id)"
   @end-reached="loadNextPage()"
 />
@@ -30,6 +32,8 @@ Each `AgentInvocationListItem` requires `id`, `status`, and `title`. Add project
 
 Status always appears as an icon and a label. The component does not rely on color alone.
 
+The list groups sessions by lifecycle and sorts each group by its most recent activity. Working sessions remain visible. Queued and Done use native disclosures, with Queued open and Done closed by default. Selecting a queued or terminal session opens its group.
+
 ## Props
 
 | Prop         | Type                                 | Default          | Purpose                                           |
@@ -38,12 +42,15 @@ Status always appears as an icon and a label. The component does not rely on col
 | `selectedId` | `string`                             |                  | Marks the session selected by the host.           |
 | `hasMore`    | `boolean`                            | `false`          | Enables the near-end pagination signal.           |
 | `loading`    | `boolean`                            | `false`          | Shows the loading state and pauses pagination.    |
+| `remainingStatuses` | `readonly AgentInvocationStatus[]` | `[]`         | Statuses that may appear on later cursor pages.    |
 | `retryKey`   | `string \| number`                   |                  | Retries the current page after its value changes. |
 | `now`        | `number`                             |                  | Timestamp used for deterministic relative times.  |
 | `ariaLabel`  | `string`                             | `Agent sessions` | Accessible label for the navigation region.       |
 
 ## Pagination
 
-The component emits `endReached` once per loaded item count when the viewport nears the end of the loaded sessions. Append the next cursor page to `items`. If loading fails, change `retryKey` from the retry action so the same item count can request another page.
+The component emits `endReached` when the viewport nears the end of the visible sessions. Append the next cursor page to `items` and pass the statuses that remain behind that cursor through `remainingStatuses`. The component can then continue through closed Done pages when an older Working or Queued session is still reachable, without automatically loading the entire closed Done history.
+
+Set `retryKey` from the current cursor so a new cursor can continue pagination even when a page only refreshes already-loaded sessions. If loading fails without changing the cursor, include a retry revision in the key so the same page can be requested again.
 
 Use `header`, `footer`, `empty`, and `loading` for list states. Use `projectIcon` and `harness` to replace repository and provider presentation without replacing the row behavior. Paginate large histories instead of virtualizing this navigation list.
