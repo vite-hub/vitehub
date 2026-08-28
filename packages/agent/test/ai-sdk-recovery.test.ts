@@ -1069,12 +1069,15 @@ describe("AI SDK recovery", () => {
 
   it("aborts streamed Workspace fallback synthesis when the consumer cancels", async () => {
     let fallbackSignal: AbortSignal | undefined
-    const fallbackStarted = Promise.withResolvers<void>()
+    let resolveFallbackStarted!: () => void
+    const fallbackStarted = new Promise<void>((resolve) => {
+      resolveFallbackStarted = resolve
+    })
     const fakeModel = {
       ...model([]),
       async doGenerate(options: ModelCall) {
         fallbackSignal = options.abortSignal
-        fallbackStarted.resolve()
+        resolveFallbackStarted()
         await new Promise<void>((_resolve, reject) => options.abortSignal?.addEventListener("abort", () => reject(options.abortSignal?.reason), { once: true }))
         throw new Error("Expected fallback synthesis to be aborted")
       },
@@ -1098,7 +1101,7 @@ describe("AI SDK recovery", () => {
       while (!(await reader.read()).done) {}
     })()
 
-    await fallbackStarted.promise
+    await fallbackStarted
     await reader.cancel()
 
     expect(fallbackSignal?.aborted).toBe(true)
