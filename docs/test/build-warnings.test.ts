@@ -12,6 +12,12 @@ describe("docs build warning budget", () => {
     expect(() => assertBuildWarningBudget(warnings)).not.toThrow()
   })
 
+  it("accepts timeouts for explicitly allowed icons", () => {
+    expect(() => assertBuildWarningBudget(
+      "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms",
+    )).not.toThrow()
+  })
+
   it("rejects an exceeded warning budget and an unbudgeted warning", () => {
     const timing = buildWarningBudget.find(entry => entry.name === "build plugin timings")
     if (!timing) throw new Error("missing plugin timing budget")
