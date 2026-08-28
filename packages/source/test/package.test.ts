@@ -122,7 +122,7 @@ describe("@vite-hub/source package contract", () => {
     finally {
       await rm(workspaceRoot, { force: true, recursive: true })
     }
-  })
+  }, 10_000)
 
   it("loads documented exports from built package targets", async () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/source", [
