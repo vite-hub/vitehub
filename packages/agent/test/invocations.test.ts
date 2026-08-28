@@ -110,6 +110,46 @@ describe("Agent Invocations", () => {
     expect(record.observations.map(observation => observation.name)).toEqual(["first", "second"])
   })
 
+  it("preserves observation identities through attribute bounds in memory and SQLite stores", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-observation-identity-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    try {
+      for (const [index, store] of stores.entries()) {
+        const id = `bounded-identity-${index}`
+        const observation = {
+          attributes: {
+            ...Object.fromEntries(Array.from({ length: 32 }, (_, attribute) => [`attribute-${attribute}`, attribute])),
+            "vitehub.observation.id": "journal:1",
+          },
+          name: "agent.channel.delivery.effect",
+          sequence: 1,
+          timestamp: createdAt,
+          type: "run" as const,
+        }
+        await store.create({
+          createdAt,
+          id,
+          observations: [],
+          status: "running",
+          traceId: id,
+          updatedAt: createdAt,
+        })
+        await store.update(id, { observation, timestamp: createdAt })
+        await store.update(id, { observation, timestamp: createdAt })
+
+        const record = await store.get(id)
+        expect(record?.observations).toHaveLength(1)
+        expect(record?.observations[0]?.attributes).toMatchObject({ "vitehub.observation.id": "journal:1" })
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("excludes generated cursors from memory-store search", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({

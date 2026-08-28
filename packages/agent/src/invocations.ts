@@ -137,6 +137,7 @@ function observationIdentity(observation: TraceEventLogEntry): string | undefine
 }
 
 function sameObservation(left: TraceEventLogEntry, right: TraceEventLogEntry): boolean {
+  if (left === right) return true
   const leftIdentity = observationIdentity(left)
   const rightIdentity = observationIdentity(right)
   return leftIdentity !== undefined && rightIdentity !== undefined && leftIdentity === rightIdentity
@@ -300,12 +301,20 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
     stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
     truncated: false,
   }
-  if (observation.attributes && Object.keys(observation.attributes).length > MAX_OBSERVATION_ATTRIBUTES) {
+  const identity = observationIdentity(observation)
+  const attributeEntries = observation.attributes
+    ? Object.entries(observation.attributes)
+        .filter(([key]) => identity === undefined || key !== AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE)
+    : []
+  const attributeLimit = MAX_OBSERVATION_ATTRIBUTES - (identity === undefined ? 0 : 1)
+  if (attributeEntries.length > attributeLimit) {
     budget.truncated = true
   }
   let attributes = observation.attributes
-    ? Object.fromEntries(Object.entries(observation.attributes)
-        .slice(0, MAX_OBSERVATION_ATTRIBUTES)
+    ? Object.fromEntries([
+        ...(identity === undefined ? [] : [[AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE, identity] as const]),
+        ...attributeEntries.slice(0, attributeLimit),
+      ]
         .flatMap(([key, value]) => {
           if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
           return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]
