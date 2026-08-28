@@ -260,6 +260,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   async function composeCloudflareSandbox(
     config: { nitro?: unknown, plugins?: unknown, root?: string },
     prepared: Awaited<ReturnType<typeof prepareCurrentSandboxRuntime>>,
+    finalizeWrangler = false,
   ) {
     if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
       return false
@@ -267,6 +268,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],
       prepared.rootDir,
       prepared.cloudflare,
+      finalizeWrangler,
     )
     return true
   }
@@ -315,7 +317,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       resolvedConfig = config
       const prepared = await refreshSandboxRuntime()
       selectedProvider = prepared.provider
-      const composed = await composeCloudflareSandbox(config, prepared)
+      const composed = await composeCloudflareSandbox(config, prepared, true)
       if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
         for (const key of ['cloudflare', 'rollupConfig']) {
           if (key in earlyNitroSnapshot)
@@ -335,7 +337,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
         const prepared = await refresh()
         selectedProvider = prepared.provider
         if (resolvedConfig)
-          await composeCloudflareSandbox(resolvedConfig, prepared)
+          await composeCloudflareSandbox(resolvedConfig, prepared, true)
         const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]
         const currentResolvedFiles = await resolveGeneratedSandboxModuleIds(currentFiles)
         invalidateGeneratedSandboxModules([...previousFiles, ...previousResolvedFiles, ...currentFiles, ...currentResolvedFiles], context.server.moduleGraph)

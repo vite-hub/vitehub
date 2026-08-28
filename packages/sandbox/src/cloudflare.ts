@@ -210,6 +210,7 @@ export async function configureCloudflareSandboxNitro(
   targetValue: MutableNitroCloudflareTarget | undefined,
   rootDir: string,
   options: CloudflareSandboxEntrypointOptions = {},
+  finalizeWrangler = true,
 ) {
   const target = targetValue || {}
   const serverDir = resolve(rootDir, target.output?.serverDir || '.output/server')
@@ -236,6 +237,7 @@ export async function configureCloudflareSandboxNitro(
   target.rollupConfig ||= {}
   target.rollupConfig.external = mergeRollupExternal(target.rollupConfig.external, 'cloudflare:workers')
   installCloudflareSandboxEntrypoint(target, resolvedOptions)
-  finalizeCloudflareWranglerConfig(target)
+  if (finalizeWrangler)
+    finalizeCloudflareWranglerConfig(target)
   return target
 }

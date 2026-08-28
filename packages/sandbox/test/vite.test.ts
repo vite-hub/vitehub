@@ -837,6 +837,41 @@ describe("hubSandbox", () => {
     ])
   })
 
+  it("defers migration validation until Vite config composition completes", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: { wrangler: {
+          durable_objects: { bindings: [
+            { name: "APPLICATION", class_name: "ApplicationState" },
+          ] },
+          migrations: [] as Array<{ tag: string, new_sqlite_classes: string[] }>,
+        } },
+      },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .resolves.toBeDefined()
+    userConfig.nitro.cloudflare.wrangler.migrations.unshift({
+      tag: "application-v1",
+      new_sqlite_classes: ["ApplicationState"],
+    })
+
+    await expect(configResolved({ ...userConfig, resolve: { alias: [] } }))
+      .resolves.toBeUndefined()
+    expect(userConfig.nitro.cloudflare.wrangler.migrations).toEqual([
+      { tag: "application-v1", new_sqlite_classes: ["ApplicationState"] },
+      { tag: "v1", new_sqlite_classes: ["Sandbox"] },
+    ])
+  })
+
   it("merges every operation from duplicate Cloudflare migration tags", async () => {
     const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
     const target = { cloudflare: { wrangler: { migrations: [
