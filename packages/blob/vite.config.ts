@@ -38,6 +38,7 @@ const filesSdkProviderPeers = [
 export default defineConfig({
   pack: {
     alias: {
+      "@vercel/oidc": new URL("./src/internal/vercel-oidc.ts", import.meta.url).pathname,
       "is-buffer": new URL("./src/internal/vercel-is-buffer.ts", import.meta.url).pathname,
       undici: new URL("./src/internal/vercel-fetch.ts", import.meta.url).pathname,
     },
