@@ -153,7 +153,7 @@ describe("hubSandbox", () => {
 
     expect(readAlias(alias, "@vite-hub/sandbox")).toBeUndefined()
     expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
-    expect(providerImportAliases["@vite-hub/sandbox"]).toMatch(/packages\/sandbox\/(?:src|dist)$/)
+    expect(providerImportAliases).not.toHaveProperty("@vite-hub/sandbox")
     expect(providerImportAliases["vite-hub/sandbox"]).toBe(sandboxAlias)
     expect(providerImportAliases["vitehub-sandbox-provider-loader"]).toBe(providerLoaderAlias)
 
@@ -1503,10 +1503,15 @@ describe("hubSandbox", () => {
     await expect(readFile(sandboxAlias, "utf8")).resolves.toContain("setSandboxRuntimeConfig")
   })
 
-  it.each(["cloudflare", "vercel"] as const)("bundles the generated %s runtime through stable paths", async (provider) => {
+  it.each(["cloudflare", "vercel"] as const)("bundles the generated %s runtime through stable paths with provider aliases", async (provider) => {
     const rootDir = await createViteRoot(process.cwd())
     const { hubSandbox } = await import("../src/vite.ts")
-    const plugin = hubSandbox({ provider })
+    const providerImportAliases: Record<string, string> = {}
+    const plugin = hubSandbox({
+      provider,
+      providerImportAliases,
+      providerImportSpecifier: "vite-hub/sandbox",
+    } as never)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "build", mode: "production" })
@@ -1519,6 +1524,7 @@ describe("hubSandbox", () => {
       format: "esm",
       platform: "node",
       external: provider === "cloudflare" ? ["cloudflare:*"] : [],
+      alias: providerImportAliases,
       write: false,
     })
 

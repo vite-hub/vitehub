@@ -1,7 +1,7 @@
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { realpath } from 'node:fs/promises'
-import { basename, dirname, normalize, relative } from 'pathe'
+import { basename, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
 import { sandboxProviderLoaderSpecifiers, sandboxRuntimeDependencyByProvider } from './feature'
@@ -78,10 +78,6 @@ function mergeSandboxNitroNoExternals(
 
 function sandboxProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './runtime/provider-loader', 'runtime/provider-loader.js')
-}
-
-function sandboxPackageRuntime() {
-  return dirname(resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './index', 'index.js'))
 }
 
 function toSandboxAliasEntries(aliases: AliasMap): SandboxAlias[] {
@@ -235,11 +231,9 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       const facade = generatedAliases[SANDBOX_PACKAGE_ID]
       if (facade) {
         internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
-        internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = sandboxPackageRuntime()
       }
       else {
         delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
-        delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
       }
       for (const specifier of sandboxProviderLoaderSpecifiers) {
         const providerLoader = generatedAliases[specifier]
