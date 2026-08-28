@@ -2,12 +2,12 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -74,6 +74,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
@@ -156,9 +157,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
-    },
     vitehub: {
       workflow: {
         async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry }: WorkflowNitroConfigOptions) {
@@ -178,17 +176,26 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         prepareScheduleRuntime,
       },
     },
-    buildEnd() {
+    buildStart() {
+      providerOutputGenerations.capture(this, providerOutput)
+    },
+    async buildEnd(error) {
+      if (error) {
+        await resetProviderDeploymentOutputs(providerOutput, error)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
       const config = resolved
       const rootDir = resolveViteHubProjectRoot(config.root)
+      // SAFETY: Vite plugin objects may expose ViteHub's optional agent extension, which the predicate reads defensively.
+      const plugins = config.plugins as AgentWorkflowRegistryPlugin[]
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "workflow",
         rootDir,
         write: async ({ write }) => {
-          await generateProviderOutputs({
+          await generateWorkflowProviderOutputs({
             agentImportBase: internalOptions?.agentImportBase,
             clientOutDir: resolve(config.root, config.build.outDir),
             hosting: internalOptions?.hosting,
@@ -206,12 +213,15 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
             workflow,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
             workspaceImportBase: internalOptions?.workspaceImportBase,
-            transformRegistry: (config.plugins as AgentWorkflowRegistryPlugin[])
+            transformRegistry: plugins
               .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
               ?.vitehub?.agent?.transformWorkflowRegistry,
           }, write)
         },
-      })
+      }, providerOutputGenerations.get(this))
+    },
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

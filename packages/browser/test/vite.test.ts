@@ -420,7 +420,7 @@ describe("hubBrowser", () => {
     })
   })
 
-  it("replaces duplicate Browser contributions and clears repeat-build state", async () => {
+  it("replaces Browser output after an interrupted build without closeBundle", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-repeat-"))
     roots.push(root)
     const config: BrowserBuildConfig = {
@@ -433,21 +433,15 @@ describe("hubBrowser", () => {
     const first = hubBrowser({ binding: "STALE_BROWSER" })
     const second = hubBrowser({ binding: "CURRENT_BROWSER", remote: true })
     await (first.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
-    await (second.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (first.buildStart as unknown as () => void)()
-    await (second.buildStart as unknown as () => void)()
     await (first.buildEnd as unknown as () => void)()
+
+    await (second.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await (second.buildStart as unknown as () => void)()
     await (second.buildEnd as unknown as () => void)()
-    await (first.closeBundle as { handler(): Promise<void> }).handler()
     await (second.closeBundle as { handler(): Promise<void> }).handler()
 
     const outputFile = join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json")
-    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
-      browser: { binding: "CURRENT_BROWSER", remote: true },
-    })
-
-    await (second.buildStart as unknown as () => void)()
-    await (second.closeBundle as { handler(): Promise<void> }).handler()
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
       browser: { binding: "CURRENT_BROWSER", remote: true },
     })

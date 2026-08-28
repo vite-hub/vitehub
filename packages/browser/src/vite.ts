@@ -4,6 +4,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import {
   contributeProviderDeploymentOutput,
+  createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
   resetProviderDeploymentOutputs,
   useProviderOutputCatalog,
@@ -134,6 +135,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   let resolvedOptions = resolveOptions(options)
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let projectRoot = process.cwd()
   let serverDirs: string[] | undefined
 
@@ -221,9 +223,13 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
       if (id === resolvedBrowserRuntimeId) return runtimeContents()
     },
     buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
     },
-    buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        await resetProviderDeploymentOutputs(providerOutput, error)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
       const rootDir = resolved.root
       const clientOutDir = resolved.build.outDir
@@ -252,7 +258,10 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
             },
           },
         }),
-      })
+      }, providerOutputGenerations.get(this))
+    },
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

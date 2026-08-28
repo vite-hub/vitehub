@@ -113,7 +113,7 @@ export type McpResourcesServer =
 
 export interface McpResourcesSourceOptions<TKey extends string = string> {
   cache?: false | SourceCacheOptions
-  exclude?: string | string[]
+  ignore?: string | readonly string[]
   include?: string | string[]
   path?: (resource: McpResourceDescriptor) => TKey | string | undefined
   request?: McpResourcesRequestOptions
@@ -280,9 +280,9 @@ function resourceKey<TKey extends string>(resource: McpResourceDescriptor, optio
   return normalizeSafeSourcePath(resolved) as TKey
 }
 
-function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "include" | "exclude">) {
+function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "ignore" | "include">) {
   if (options.include && !matchesAny(path, options.include)) return false
-  if (options.exclude && matchesAny(path, options.exclude)) return false
+  if (options.ignore && matchesAny(path, options.ignore)) return false
   return true
 }
 
@@ -398,7 +398,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
   return {
     cache: options.cache,
     fingerprint: {
-      exclude: options.exclude,
+      ignore: options.ignore,
       include: options.include,
       server: typeof options.server === "function"
         ? "[function]"

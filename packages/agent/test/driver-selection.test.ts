@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import { defineAgent } from "../src/index.ts";
+import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts";
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
 
 describe("built-in Agent Driver selection", () => {
@@ -31,13 +31,51 @@ describe("built-in Agent Driver selection", () => {
   });
 
   it.each([
-    ["codex", "codex"],
-    ["claude-code", "claude-code"],
-  ])("selects %s by literal name", (name, provider) => {
-    // SAFETY: The table contains only the two supported built-in driver literals.
-    const driver = normalizeAgentDriver({ driver: name } as never);
+    ["Codex literal", "codex", "codex"],
+    ["Claude Code literal", "claude-code", "claude-code"],
+    ["Codex tagged config", { kind: "codex" }, "codex"],
+    ["Claude Code tagged config", { kind: "claude-code" }, "claude-code"],
+    ["Codex helper", codexDriver(), "codex"],
+    ["Claude Code helper", claudeCodeDriver(), "claude-code"],
+  ])("defaults %s permissions to ask", (_label, input, provider) => {
+    // SAFETY: The table contains only supported built-in Driver configuration forms.
+    const driver = normalizeAgentDriver({ driver: input } as never);
 
-    expect(driver).toMatchObject({ kind: "provider", provider });
+    expect(driver).toMatchObject({ kind: "provider", permissions: "ask", provider });
+  });
+
+  it.each(["ask", "allow-edits", "allow-all"] as const)("preserves explicit %s provider permissions", (permissions) => {
+    for (const provider of ["codex", "claude-code"] as const) {
+      expect(normalizeAgentDriver({ driver: { kind: provider, permissions } })).toMatchObject({
+        kind: "provider",
+        permissions,
+        provider,
+      });
+    }
+  });
+
+  it("reports effective provider permissions in Agent inspection metadata", async () => {
+    const defaultAgent = defineAgent({ driver: { kind: "codex", model: "gpt-5.6-sol" } });
+    const fullAccessAgent = defineAgent({ driver: { kind: "claude-code", permissions: "allow-all" } });
+
+    expect(createAgentInspectionMetadata(defaultAgent).config?.driver.provider).toEqual({
+      model: "gpt-5.6-sol",
+      permissions: "ask",
+      provider: "codex",
+    });
+    expect((await resolveAgentInspectionMetadata(defaultAgent)).config?.driver.provider).toEqual({
+      model: "gpt-5.6-sol",
+      permissions: "ask",
+      provider: "codex",
+    });
+    expect(createAgentInspectionMetadata(fullAccessAgent).config?.driver.provider).toEqual({
+      permissions: "allow-all",
+      provider: "claude-code",
+    });
+    expect((await resolveAgentInspectionMetadata(fullAccessAgent)).config?.driver.provider).toEqual({
+      permissions: "allow-all",
+      provider: "claude-code",
+    });
   });
 
   it("preserves provider environment keys that overlap object prototype accessors", () => {
@@ -73,10 +111,51 @@ describe("built-in Agent Driver selection", () => {
     } as never)).toMatchObject({ execution: { attachments: { maxBytes: 1024 } } });
   });
 
+  it("normalizes adaptive driver capacity defaults", () => {
+    const sample = () => ({ concurrency: 2, reason: "host healthy" });
+
+    expect(normalizeAgentDriver({
+      driver: {
+        capacity: {
+          adaptive: { sample },
+          concurrency: 4,
+          queue: { maxPending: 20 },
+        },
+        run: () => "ok",
+      },
+    })).toMatchObject({
+      capacity: {
+        adaptive: {
+          fallbackConcurrency: 1,
+          intervalMs: 5_000,
+          rampUp: 1,
+          sample,
+          sampleTimeoutMs: 1_000,
+        },
+        concurrency: 4,
+        queue: { maxPending: 20 },
+      },
+    });
+  });
+
   it.each([
     [null, "driver.capacity }) must be an object"],
+    [{ concurrency: 1, unsupported: true }, "driver.capacity }) does not support option: unsupported"],
     [{ concurrency: 0 }, "driver.capacity.concurrency }) must be a positive integer"],
     [{ concurrency: 1.5 }, "driver.capacity.concurrency }) must be a positive integer"],
+    [{ adaptive: null, concurrency: 1 }, "driver.capacity.adaptive }) must be an object"],
+    [{ adaptive: {}, concurrency: 1 }, "driver.capacity.adaptive.sample }) must be a function"],
+    [{ adaptive: { sample: "invalid" }, concurrency: 1 }, "driver.capacity.adaptive.sample }) must be a function"],
+    [{ adaptive: { fallbackConcurrency: -1, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.fallbackConcurrency }) must be an integer between zero and concurrency"],
+    [{ adaptive: { fallbackConcurrency: 2, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.fallbackConcurrency }) must be an integer between zero and concurrency"],
+    [{ adaptive: { intervalMs: 99, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.intervalMs }) must be a finite number between 100 and 2147483647"],
+    [{ adaptive: { intervalMs: Number.POSITIVE_INFINITY, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.intervalMs }) must be a finite number between 100 and 2147483647"],
+    [{ adaptive: { rampUp: 0, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.rampUp }) must be a positive integer"],
+    [{ adaptive: { rampUp: 1.5, sample: () => ({ concurrency: 1 }) }, concurrency: 1 }, "driver.capacity.adaptive.rampUp }) must be a positive integer"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), sampleTimeoutMs: 0 }, concurrency: 1 }, "driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), sampleTimeoutMs: Number.POSITIVE_INFINITY }, concurrency: 1 }, "driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), sampleTimeoutMs: 2_147_483_648 }, concurrency: 1 }, "driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647"],
+    [{ adaptive: { sample: () => ({ concurrency: 1 }), unsupported: true }, concurrency: 1 }, "driver.capacity.adaptive }) does not support option: unsupported"],
     [{ concurrency: 1, queue: null }, "driver.capacity.queue }) must be an object"],
     [{ concurrency: 1, queue: { maxPending: 0 } }, "driver.capacity.queue.maxPending }) must be a positive integer"],
     [{ concurrency: 1, queue: { maxPending: 1, timeout: 0 } }, "driver.capacity.queue.timeout }) must be a positive finite number"],

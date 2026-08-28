@@ -49,7 +49,6 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
     "@vite-hub/auth": "workspace:*",
-    "@vite-hub/history": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
     "lib0": "catalog:realtime",

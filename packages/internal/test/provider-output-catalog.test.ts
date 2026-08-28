@@ -27,6 +27,13 @@ describe("Provider Output contribution catalog", () => {
     expect(getProviderRuntimeModule(second, "blob", "cloudflare")).toBeUndefined()
   })
 
+  it("retains a catalog when Vite copies a config between hooks", () => {
+    const config = {}
+    const catalog = useProviderOutputCatalog(config)
+
+    expect(useProviderOutputCatalog({ ...config })).toBe(catalog)
+  })
+
   it("replaces duplicate owner contributions and clears repeat-build runtime state", () => {
     const catalog = createProviderOutputCatalog()
     contributeProviderRuntime(catalog, {
@@ -70,7 +77,7 @@ describe("Provider Output contribution catalog", () => {
 
   it("rejects unknown owners and provider kinds at the type boundary", () => {
     const catalog = createProviderOutputCatalog()
-    if (false) {
+    const invalidContributions = () => {
       // @ts-expect-error Env contributions cannot claim Queue fields.
       contributeCloudflareProviderOutput(catalog, { owner: "env", queues: {} })
       // @ts-expect-error Schedule does not contribute cross-product runtime modules.
@@ -80,6 +87,6 @@ describe("Provider Output contribution catalog", () => {
       // @ts-expect-error Database has no Deno runtime module contribution.
       getProviderRuntimeModule(catalog, "database", "deno")
     }
-    expect(catalog).toBeDefined()
+    expect(invalidContributions).toBeTypeOf("function")
   })
 })

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
+  discoverAgentDefinitionEntries: vi.fn(() => []),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
@@ -28,6 +29,7 @@ const integrationMocks = vi.hoisted(() => ({
   resolveKVViteConfig: vi.fn((kv?: { driver?: string }, input?: { hosting?: string }) => ({
     kv: { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
   })),
+  resolveAuthViteConfig: vi.fn(),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
   hubRateLimit: vi.fn(() => ({ name: "@vite-hub/rate-limit/vite" })),
   hubSandbox: vi.fn(() => ({ name: "@vite-hub/sandbox/vite" })),
@@ -36,8 +38,14 @@ const integrationMocks = vi.hoisted(() => ({
   hubWorkspace: vi.fn(() => ({ name: "@vite-hub/workspace/vite" })),
 }))
 
-vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
-vi.mock("@vite-hub/auth/vite", () => ({ hubAuth: integrationMocks.hubAuth }))
+vi.mock("@vite-hub/agent/vite", () => ({
+  discoverAgentDefinitionEntries: integrationMocks.discoverAgentDefinitionEntries,
+  hubAgent: integrationMocks.hubAgent,
+}))
+vi.mock("@vite-hub/auth/vite", () => ({
+  hubAuth: integrationMocks.hubAuth,
+  resolveAuthViteConfig: integrationMocks.resolveAuthViteConfig,
+}))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
@@ -65,6 +73,7 @@ vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubW
 
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { Plugin, PluginOption } from "vite"
+import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub } from "../src/index.ts"
 
@@ -172,6 +181,26 @@ function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
 }
 
 describe("vitehub", () => {
+  it("discards Provider Output after an output-phase build failure", async () => {
+    const plugins = vitehub({ preset: "node" })
+    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
+    const config: Record<string, unknown> = {}
+    await callHook(preset.config, [config, { command: "build", mode: "production" }])
+    config.command = "build"
+    config.plugins = plugins
+    callHook(output.configResolved, [config])
+
+    const catalog = useProviderOutputCatalog(config)
+    const write = vi.fn()
+    contributeProviderDeploymentOutput(catalog, { owner: "agent", rootDir: "/app", write })
+
+    await callHook(output.renderError, [new Error("output failed")])
+    await callHook(output.closeBundle, [])
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("installs the complete console from one option", () => {
     expect(pluginNames(vitehub({ console: true, preset: "node" }))).toEqual(expect.arrayContaining([
       "vite-hub/console",
@@ -193,7 +222,51 @@ describe("vitehub", () => {
     )
 
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
-      .rejects.toThrow('console: true currently requires preset: "node" for production')
+      .rejects.toThrow('Console currently requires preset: "node" for production')
+  })
+
+  it("passes discovered Auth access policy to production Console builds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
+        access: {
+          routes: [
+            { authorize: true, route: "/_vitehub/**" },
+            { authorize: true, route: "/api/_vitehub/console/**" },
+          ],
+        },
+      })
+      const plugin = dependencyPluginByName(
+        vitehub({ auth: true, console: { access: "auth" }, preset: "node" }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root }
+
+      await callHook(plugin.config, [config, { command: "build", mode: "production" }])
+
+      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
+      expect(config.nitro).toMatchObject({
+        handlers: expect.arrayContaining([
+          expect.objectContaining({ route: "/_vitehub/**" }),
+          expect.objectContaining({ route: "/api/_vitehub/console/agents" }),
+        ]),
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects Auth-backed production Console when top-level Auth is disabled", async () => {
+    const plugin = dependencyPluginByName(
+      vitehub({ auth: true, console: { access: "auth" }, preset: "node" }),
+      "vite-hub/console",
+    )
+
+    await expect(callHook(plugin.config, [{ auth: false }, { command: "build", mode: "production" }]))
+      .rejects.toThrow("requires a discovered ViteHub Auth Definition")
+    expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(false, expect.any(String), { serverDirs: undefined })
   })
 
   it("keeps coherent defaults and opt-in integrations", () => {

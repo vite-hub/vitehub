@@ -1,6 +1,6 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -247,6 +247,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let cloudflareOwnedByNitro = false
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let providerOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   let resolved: ResolvedConfig | undefined
@@ -316,35 +317,48 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       }
     },
     buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
       resetProviderOutputRuntime(providerOutput)
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        await resetProviderDeploymentOutputs(providerOutput, error)
+        return
+      }
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
       }
-
-      providerArtifacts = await prepareProviderOutputs({
-        blob,
-        cloudflareOwnedByNitro,
-        providerOutput,
-        rootDir,
-      })
-      contributeProviderDeploymentOutput(providerOutput, {
-        owner: "blob",
-        rootDir,
-        write: async ({ write }) => {
-          await generateProviderOutputs({
-            blob,
-            clientOutDir,
-            cloudflareOwnedByNitro,
-            artifacts: providerArtifacts,
-            providerOutput,
-            rootDir,
-            serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
-          }, write)
-        },
-      })
+      try {
+        providerArtifacts = await prepareProviderOutputs({
+          blob,
+          cloudflareOwnedByNitro,
+          providerOutput,
+          rootDir,
+        })
+        contributeProviderDeploymentOutput(providerOutput, {
+          owner: "blob",
+          rootDir,
+          write: async ({ signal, write }) => {
+            await generateProviderOutputs({
+              blob,
+              clientOutDir,
+              cloudflareOwnedByNitro,
+              artifacts: providerArtifacts,
+              providerOutput,
+              rootDir,
+              serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
+              signal,
+            }, write)
+          },
+        }, providerOutputGenerations.get(this))
+      }
+      catch (error) {
+        await resetProviderDeploymentOutputs(providerOutput, error)
+        throw error
+      }
+    },
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

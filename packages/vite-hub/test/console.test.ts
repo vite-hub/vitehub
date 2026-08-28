@@ -2,7 +2,8 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { H3 } from "h3"
@@ -14,7 +15,7 @@ import { consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocation
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
-import { createConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { createConsoleInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -26,6 +27,7 @@ import { runAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
+import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | string | undefined>
@@ -59,6 +61,7 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
+  vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -88,7 +91,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
-      const plugin = consoleVitePlugin()
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -137,7 +140,81 @@ describe("Agent invocation console", () => {
     await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
       command: "build",
       mode: "production",
-    }])).rejects.toThrow('console: true currently requires preset: "node" for production')
+    }])).rejects.toThrow('Console currently requires preset: "node" for production')
+  })
+
+  it("rejects a bare production Console boolean", async () => {
+    const plugin = consoleVitePlugin({ console: true, preset: "node" })
+    const configHook = plugin.config
+    if (!configHook) throw new TypeError("Expected a console config hook.")
+    const configHandler = "handler" in configHook ? configHook.handler : configHook
+
+    await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
+      command: "build",
+      mode: "production",
+    }])).rejects.toThrow("console: true is development-only")
+  })
+
+  it("requires ViteHub Auth authorize policies for both production route groups", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-host-"))
+    const auth = (routes: ResolvedAuthViteConfig["access"]["routes"]): ResolvedAuthViteConfig => ({
+      access: { routes },
+      basePath: "/api/auth",
+      database: { mode: "default" },
+      definition: { handler: "/server/auth.ts", name: "default", source: "server-auth" },
+      rootDir: root,
+      route: "/api/auth",
+      secondaryStorage: false,
+    })
+    try {
+      const missingApi = consoleVitePlugin({
+        console: { access: "auth" },
+        preset: "node",
+        resolveAuthConfig: () => auth([{ authorize: true, route: "/_vitehub/**" }]),
+      })
+      const missingHook = missingApi.config
+      if (!missingHook) throw new TypeError("Expected a console config hook.")
+      const missingHandler = "handler" in missingHook ? missingHook.handler : missingHook
+      await expect(Reflect.apply(missingHandler, {}, [{ root }, { command: "build", mode: "production" }]))
+        .rejects.toThrow("/api/_vitehub/console/**")
+
+      const protectedConsole = consoleVitePlugin({
+        console: { access: "auth" },
+        preset: "node",
+        resolveAuthConfig: () => auth([
+          { authorize: true, route: "/_vitehub/**" },
+          { authorize: true, route: "/api/_vitehub/console/**" },
+        ]),
+      })
+      const protectedHook = protectedConsole.config
+      if (!protectedHook) throw new TypeError("Expected a console config hook.")
+      const protectedHandler = "handler" in protectedHook ? protectedHook.handler : protectedHook
+      const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
+      await Reflect.apply(protectedHandler, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: "/_vitehub/**" }),
+        expect.objectContaining({ route: "/api/_vitehub/console/agents" }),
+      ]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("accepts explicit host-managed production exposure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-managed-host-"))
+    try {
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**" }))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("keeps the local console available during development for every preset", async () => {
@@ -263,7 +340,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
-      const plugin = consoleVitePlugin()
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -657,6 +734,138 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("uses the configured Console database path relative to the project root", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-configured-project-"))
+    const unrelatedCwd = await mkdtemp(join(tmpdir(), "vitehub-console-configured-cwd-"))
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite")
+    vi.spyOn(process, "cwd").mockReturnValue(unrelatedCwd)
+    try {
+      await createConsoleInvocations(projectRoot).list()
+
+      expect(existsSync(join(projectRoot, "data/invocations.sqlite"))).toBe(true)
+      expect(existsSync(join(projectRoot, ".vitehub/data/console.sqlite"))).toBe(false)
+      expect(existsSync(join(unrelatedCwd, "data/invocations.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+      await rm(unrelatedCwd, { force: true, recursive: true })
+    }
+  })
+
+  it("decodes configured relative Console database file URLs", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-encoded-project-"))
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/my%20journal%231.sqlite")
+    try {
+      const databasePath = join(projectRoot, "data/my journal#1.sqlite")
+      expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: pathToFileURL(databasePath).href })
+      await createConsoleInvocations(projectRoot).list()
+
+      expect(existsSync(databasePath)).toBe(true)
+      expect(existsSync(join(projectRoot, "data/my%20journal%231.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves absolute Console database file URLs", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-file-url-project-"))
+    const databasePath = join(await mkdtemp(join(tmpdir(), "vitehub-console-file-url-data-")), "console #1.sqlite")
+    const databaseUrl = pathToFileURL(databasePath).href
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+    try {
+      expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: databaseUrl })
+      await createConsoleInvocations(projectRoot).list()
+
+      expect(existsSync(databasePath)).toBe(true)
+      expect(existsSync(join(projectRoot, "console.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+      await rm(dirname(databasePath), { force: true, recursive: true })
+    }
+  })
+
+  it("recognizes one-slash absolute Console database file URLs", () => {
+    const databasePath = join(tmpdir(), "vitehub-console-one-slash", "console.sqlite")
+    const databaseUrl = pathToFileURL(databasePath).href.replace("file:///", "file:/")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+
+    expect(resolveConsoleDatabaseOptions(join(tmpdir(), "vitehub-console-project"))).toEqual({
+      url: pathToFileURL(databasePath).href,
+    })
+  })
+
+  it("resolves Console database file URL schemes case-insensitively", () => {
+    const projectRoot = join(tmpdir(), "vitehub-console-uppercase-scheme-project")
+    const relativeDatabasePath = join(projectRoot, "data/invocations.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "FILE:data/invocations.sqlite")
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+      url: pathToFileURL(relativeDatabasePath).href,
+    })
+
+    const absoluteDatabasePath = join(tmpdir(), "vitehub-console-uppercase-scheme", "console.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", pathToFileURL(absoluteDatabasePath).href.replace("file:", "FILE:"))
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+      url: pathToFileURL(absoluteDatabasePath).href,
+    })
+  })
+
+  it("preserves query parameters on configured Console database file URLs", () => {
+    const projectRoot = join(tmpdir(), "vitehub-console-query-project")
+    const databasePath = join(projectRoot, "data/invocations.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc")
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+      url: `${pathToFileURL(databasePath).href}?mode=rwc`,
+    })
+  })
+
+  it("excludes fragments from configured relative Console database file paths", () => {
+    const projectRoot = join(tmpdir(), "vitehub-console-fragment-project")
+    const databasePath = join(projectRoot, "data/invocations.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc#journal")
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+      url: `${pathToFileURL(databasePath).href}?mode=rwc`,
+    })
+  })
+
+  it("preserves configured in-memory Console database URLs", async () => {
+    const databaseUrl = "file::memory:?cache=shared"
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+
+    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({ url: databaseUrl })
+    await expect(createConsoleInvocations(process.cwd()).list()).resolves.toMatchObject({ invocations: [] })
+  })
+
+  it("recognizes percent-encoded in-memory Console database URLs", () => {
+    const databaseUrl = "file:%3Amemory%3A?cache=shared"
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+
+    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({ url: databaseUrl })
+  })
+
+  it("resolves Console database paths that begin with the in-memory name", () => {
+    const projectRoot = join(tmpdir(), "vitehub-console-memory-prefix-project")
+    const databasePath = join(projectRoot, ":memory:backup.sqlite")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file::memory:backup.sqlite")
+
+    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: pathToFileURL(databasePath).href })
+  })
+
+  it("configures the Console database authentication token", () => {
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "libsql://console.example.com")
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN", "console-token")
+
+    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({
+      authToken: "console-token",
+      url: "libsql://console.example.com",
+    })
+  })
+
   it("preserves progress summaries in the console journal", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-progress-"))
     try {
@@ -679,11 +888,41 @@ describe("Agent invocation console", () => {
       const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-progress-summary")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
-          "content.omitted": expect.arrayContaining(["tool.output", "vitehub.activity.body", "vitehub.activity.title"]),
+          "content.omitted": expect.not.arrayContaining(["tool.output"]),
+          "tool.output": expect.anything(),
           "vitehub.activity.progress": "Checking Airtable for assigned tasks.",
         }),
         name: "agent.tool.finish",
       }))
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves failed tool payloads in the console journal", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-tool-error-"))
+    try {
+      installConsoleInvocations(projectRoot)
+      const agent = defineAgent({
+        driver: { run: () => (async function* () {
+            yield { id: "tool-1", input: { query: "missing" }, name: "lookup", type: "tool-call" }
+            yield { error: "Lookup failed", id: "tool-1", name: "lookup", type: "tool-result" }
+            yield { type: "finish" }
+          })() },
+        runtime: false,
+      })
+      const result = await runAgent(agent, runtime("console-tool-error"), {})
+      // SAFETY: This Driver fixture always returns the async generator defined above.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+
+      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-tool-error")
+      const observation = invocation?.observations.find(item => item.name === "agent.tool.error")
+      expect(observation).toEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "tool.error": "Lookup failed" }),
+        name: "agent.tool.error",
+      }))
+      expect(observation?.attributes?.["content.omitted"] ?? []).not.toContain("tool.error")
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })

@@ -1142,7 +1142,28 @@ export interface AgentDriverCapacityQueueOptions {
   timeout?: number
 }
 
+export interface AgentDriverCapacitySampleContext {
+  active: number
+  concurrency: number
+  pending: number
+  signal: AbortSignal
+}
+
+export interface AgentDriverCapacitySample {
+  concurrency: number
+  reason?: string
+}
+
+export interface AgentDriverAdaptiveCapacityOptions {
+  fallbackConcurrency?: number
+  intervalMs?: number
+  rampUp?: number
+  sample: (context: AgentDriverCapacitySampleContext) => MaybePromise<AgentDriverCapacitySample>
+  sampleTimeoutMs?: number
+}
+
 export interface AgentDriverCapacityOptions {
+  adaptive?: AgentDriverAdaptiveCapacityOptions
   concurrency: number
   queue?: AgentDriverCapacityQueueOptions
 }
@@ -1179,6 +1200,7 @@ export interface AgentProviderDriverOptions<
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   output?: AgentOutputDefinition<TOutput>
+  /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
 }
 
@@ -1612,6 +1634,8 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
+  meta?: StandardSchemaV1<unknown, Record<string, unknown>>
+  metaRevision?: string
   sessions?: boolean | AgentChatSessionOptions
   state?: AgentChatStateResolver<TRuntimeConfig>
   stream?: boolean
@@ -1681,6 +1705,8 @@ interface AgentChatBaseOptions<TRuntimeConfig extends AgentRuntimeConfig = Agent
 
 export interface AgentChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChatBaseOptions<TRuntimeConfig> {
+  meta?: never
+  metaRevision?: never
   platforms?: never
   webhooks?: never
 }
@@ -1788,14 +1814,17 @@ export interface AgentInspectionModelExecutionMetadata {
 
 export interface AgentInspectionProviderMetadata {
   model?: string
-  permissions?: AgentProviderPermissions
+  permissions: AgentProviderPermissions
   provider?: string
 }
 
 export interface AgentInspectionDriverMetadata {
-  capacity?: AgentDriverCapacityOptions & {
+  capacity?: Omit<AgentDriverCapacityOptions, "adaptive"> & {
     active: number
+    effectiveConcurrency?: number
+    lastSampleAt?: number
     pending: number
+    reason?: string
   }
   readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata

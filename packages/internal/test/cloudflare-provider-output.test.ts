@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { composeNitroCloudflareProviderOutput } from "../src/build/cloudflare-provider-output.ts"
 import { contributeCloudflareProviderOutput, createProviderOutputCatalog } from "../src/build/provider-output-catalog.ts"
@@ -170,6 +170,30 @@ describe("Cloudflare provider output", () => {
     contributeCloudflareProviderOutput(finalConfig, { owner: "queue" })
 
     expect(composeNitroCloudflareProviderOutput(finalConfig, copied)).not.toHaveProperty("cloudflare.wrangler.queues")
+  })
+
+  it("shares applied ownership across bundled Internal copies", async () => {
+    vi.resetModules()
+    const firstOutput = await import("../src/build/cloudflare-provider-output.ts")
+    const firstCatalog = await import("../src/build/provider-output-catalog.ts")
+    const initialCatalog = firstCatalog.createProviderOutputCatalog()
+    firstCatalog.contributeCloudflareProviderOutput(initialCatalog, { owner: "queue",
+      queues: { producers: [{ binding: "OLD", queue: "old" }] },
+    })
+    const initial = firstOutput.composeNitroCloudflareProviderOutput(initialCatalog, {})
+
+    vi.resetModules()
+    const finalOutput = await import("../src/build/cloudflare-provider-output.ts")
+    const finalCatalog = await import("../src/build/provider-output-catalog.ts")
+    const replacementCatalog = finalCatalog.createProviderOutputCatalog()
+    finalCatalog.contributeCloudflareProviderOutput(replacementCatalog, { owner: "queue",
+      queues: { producers: [{ binding: "NEW", queue: "new" }] },
+    })
+
+    expect(finalOutput.composeNitroCloudflareProviderOutput(replacementCatalog, initial)).toHaveProperty(
+      "cloudflare.wrangler.queues.producers",
+      [{ binding: "NEW", queue: "new" }],
+    )
   })
 
   it("preserves non-plain Nitro config outside Wrangler composition", () => {

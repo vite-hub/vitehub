@@ -9,6 +9,7 @@
     "docs/server/error-handler.ts"
   ],
   "toolingDependencies": [
+    "@nuxt/icon",
     "nuxt-schema-org"
   ]
 }

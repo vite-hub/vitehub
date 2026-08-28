@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs"
-import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
+import { cp, mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
@@ -56,9 +56,11 @@ interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
   bundleExternal?: string[]
   clientOutDir: string
+  crons?: Map<string, string>
   definitions?: DiscoveredScheduleDefinition[]
   rootDir: string
   runtimeImport?: string
+  signal?: AbortSignal
   source?: DiscoveredScheduleDefinition["source"]
   workflow?: ScheduleWorkflowRuntime
 }
@@ -329,12 +331,18 @@ export async function writeVercelScheduleFunctions(options: {
   outputRoot: string
   registryFile: string
   rootDir: string
+  signal?: AbortSignal
   workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
+  options.signal?.throwIfAborted()
   const definitions = staticScheduleDefinitions(options.definitions)
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
-  await rm(functionRoot, { force: true, recursive: true })
+  const stagedFunctionRoot = `${functionRoot}.pending`
+  const backupFunctionRoot = resolve(options.rootDir, ".vitehub", "schedule", "vercel-functions.previous")
+  await mkdir(dirname(backupFunctionRoot), { recursive: true })
+  await rm(stagedFunctionRoot, { force: true, recursive: true })
+  options.signal?.throwIfAborted()
 
   const emittedFunctionNames = new Map<string, string>()
   for (const definition of definitions) {
@@ -346,10 +354,11 @@ export async function writeVercelScheduleFunctions(options: {
     emittedFunctionNames.set(safeName, definition.name)
 
     const segments = safeName.split("/")
-    const functionDir = resolve(functionRoot, ...segments.slice(0, -1), `${segments.at(-1)}.func`)
+    const functionDir = resolve(stagedFunctionRoot, ...segments.slice(0, -1), `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
+    options.signal?.throwIfAborted()
     await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
@@ -358,62 +367,124 @@ export async function writeVercelScheduleFunctions(options: {
       platform: "node",
       plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.rootDir,
+      signal: options.signal,
       workingDir: options.rootDir,
     })
+    options.signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
+    options.signal?.throwIfAborted()
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
   }
 
+  options.signal?.throwIfAborted()
   const configFile = resolve(outputRoot, "config.json")
-  let vercelConfig: ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
+  const previousConfig = await readFile(configFile).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+  let installedFunctionRoot = false
+  let publicationCompleted = false
+  rmSync(backupFunctionRoot, { force: true, recursive: true })
   try {
-    vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    if (!definitions.length) {
-      await removeEmptyDirectories(functionRoot, options.rootDir)
-      return
+    try {
+      renameSync(functionRoot, backupFunctionRoot)
     }
-    vercelConfig = createVercelConfigJson()
-  }
-  const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
-  const previousCrons = vercelConfig.crons ?? []
-  const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
-  if (!definitions.length && existingCrons.length === previousCrons.length) {
-    await removeEmptyDirectories(functionRoot, options.rootDir)
-    if (previousCrons.length === 0) {
-      delete vercelConfig.crons
-      if (isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
-        const outputFiles = await readdir(outputRoot)
-        if (outputFiles.length === 1 && outputFiles[0] === "config.json") {
-          await rm(configFile, { force: true })
-          await removeEmptyDirectories(outputRoot, options.rootDir)
-        }
+    catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
+    }
+    try {
+      if (definitions.length) {
+        mkdirSync(dirname(functionRoot), { recursive: true })
+        renameSync(stagedFunctionRoot, functionRoot)
+        installedFunctionRoot = true
       }
     }
-    return
-  }
-  const nextCrons = [...existingCrons, ...definitions.map(definition => ({
-    path: getVercelSchedulePath(definition.name),
-    schedule: crons.get(definition.name)!,
-  }))]
-  if (nextCrons.length) {
-    vercelConfig.crons = nextCrons
-  }
-  else {
-    delete vercelConfig.crons
-  }
-  if (!definitions.length) {
-    await removeEmptyDirectories(functionRoot, options.rootDir)
-    const outputFiles = await readdir(outputRoot)
-    if (outputFiles.length === 1 && outputFiles[0] === "config.json" && isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
-      await rm(configFile, { force: true })
-      await removeEmptyDirectories(outputRoot, options.rootDir)
+    catch (error) {
+      if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+      throw error
+    }
+
+    let vercelConfig: ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
+    try {
+      vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
+      options.signal?.throwIfAborted()
+    }
+    catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
+      if (!definitions.length) {
+        await removeEmptyDirectories(functionRoot, options.rootDir)
+        options.signal?.throwIfAborted()
+        publicationCompleted = true
+        return
+      }
+      vercelConfig = createVercelConfigJson()
+    }
+    const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
+    const previousCrons = vercelConfig.crons ?? []
+    const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
+    if (!definitions.length && existingCrons.length === previousCrons.length) {
+      await removeEmptyDirectories(functionRoot, options.rootDir)
+      options.signal?.throwIfAborted()
+      if (previousCrons.length === 0) {
+        delete vercelConfig.crons
+        if (isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
+          const outputFiles = await readdir(outputRoot)
+          options.signal?.throwIfAborted()
+          if (outputFiles.length === 1 && outputFiles[0] === "config.json") {
+            await rm(configFile, { force: true })
+            options.signal?.throwIfAborted()
+            await removeEmptyDirectories(outputRoot, options.rootDir)
+          }
+        }
+      }
+      publicationCompleted = true
       return
     }
+    const nextCrons = [...existingCrons, ...definitions.map(definition => ({
+      path: getVercelSchedulePath(definition.name),
+      schedule: crons.get(definition.name)!,
+    }))]
+    if (nextCrons.length) {
+      vercelConfig.crons = nextCrons
+    }
+    else {
+      delete vercelConfig.crons
+    }
+    if (!definitions.length) {
+      await removeEmptyDirectories(functionRoot, options.rootDir)
+      options.signal?.throwIfAborted()
+      const outputFiles = await readdir(outputRoot)
+      options.signal?.throwIfAborted()
+      if (outputFiles.length === 1 && outputFiles[0] === "config.json" && isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
+        await rm(configFile, { force: true })
+        options.signal?.throwIfAborted()
+        await removeEmptyDirectories(outputRoot, options.rootDir)
+        publicationCompleted = true
+        return
+      }
+    }
+    options.signal?.throwIfAborted()
+    await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
+    options.signal?.throwIfAborted()
+    await removeEmptyDirectories(outputRoot, options.rootDir)
+    options.signal?.throwIfAborted()
+    publicationCompleted = true
   }
-  await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
+  catch (error) {
+    if (installedFunctionRoot) rmSync(functionRoot, { force: true, recursive: true })
+    if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+    if (previousConfig) await writeFile(configFile, previousConfig)
+    else await rm(configFile, { force: true })
+    throw error
+  }
+  finally {
+    if (publicationCompleted) {
+      try {
+        rmSync(backupFunctionRoot, { force: true, recursive: true })
+      }
+      catch {}
+    }
+  }
 }
 
 export async function createNetlifyScheduleFunctionOutputs(options: {
@@ -446,28 +517,50 @@ async function writeNetlifyScheduleFunctions(options: {
   outputRoot: string
   registryFile: string
   rootDir: string
+  signal?: AbortSignal
 }) {
+  options.signal?.throwIfAborted()
   const functionRoot = resolve(options.outputRoot, "functions")
-  const existingFiles = await readdir(functionRoot).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return []
-    throw error
+  const stagedFunctionRoot = `${functionRoot}.pending`
+  const backupFunctionRoot = `${functionRoot}.previous`
+  await rm(stagedFunctionRoot, { force: true, recursive: true })
+  await cp(functionRoot, stagedFunctionRoot, { force: true, recursive: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error
   })
-  await Promise.all(existingFiles
-    .filter(file => /^vitehub-schedule-.+\.mjs$/.test(file))
-    .map(file => rm(resolve(functionRoot, file), { force: true, recursive: true })))
+  const existingFiles = await readdir(stagedFunctionRoot).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error))
+  await Promise.all(existingFiles.filter(file => /^vitehub-schedule-.+\.mjs$/.test(file)).map(file => rm(resolve(stagedFunctionRoot, file), { force: true, recursive: true })))
 
   const outputs = await createNetlifyScheduleFunctionOutputs({
     definitions: options.definitions,
-    functionRoot,
+    functionRoot: stagedFunctionRoot,
     registryFile: options.registryFile,
   })
+  options.signal?.throwIfAborted()
   if (outputs.length === 0) {
-    await removeEmptyDirectories(functionRoot, options.rootDir)
-    return
+    await mkdir(stagedFunctionRoot, { recursive: true })
   }
-
-  await mkdir(functionRoot, { recursive: true })
-  await Promise.all(outputs.map(async output => writeFile(output.file, output.source, "utf8")))
+  else {
+    await mkdir(stagedFunctionRoot, { recursive: true })
+    options.signal?.throwIfAborted()
+    await Promise.all(outputs.map(async output => writeFile(output.file, output.source, { encoding: "utf8", signal: options.signal })))
+  }
+  options.signal?.throwIfAborted()
+  rmSync(backupFunctionRoot, { force: true, recursive: true })
+  try {
+    renameSync(functionRoot, backupFunctionRoot)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  try {
+    renameSync(stagedFunctionRoot, functionRoot)
+    rmSync(backupFunctionRoot, { force: true, recursive: true })
+  }
+  catch (error) {
+    if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
+    throw error
+  }
+  if (outputs.length === 0) await removeEmptyDirectories(functionRoot, options.rootDir)
 }
 
 async function writeCloudflareScheduleOutput(options: {
@@ -476,7 +569,9 @@ async function writeCloudflareScheduleOutput(options: {
   crons: string[]
   rootDir: string
   stateFile: string
+  signal?: AbortSignal
 }) {
+  options.signal?.throwIfAborted()
   const outputRoot = createDefaultCloudflareOutputRoot(options.rootDir)
   await mkdir(outputRoot, { recursive: true })
 
@@ -493,6 +588,7 @@ async function writeCloudflareScheduleOutput(options: {
     ? wranglerConfig.triggers as { crons?: string[] }
     : {}
   const previousState = await readCloudflareOutputState(options.stateFile)
+  options.signal?.throwIfAborted()
   const externalCrons = (existingTriggers.crons ?? []).filter(cron => !previousState?.crons.includes(cron))
   const ownedCrons = options.crons.filter(cron => !externalCrons.includes(cron))
   const main = typeof wranglerConfig.main === "string" && wranglerConfig.main
@@ -519,9 +615,10 @@ async function writeCloudflareScheduleOutput(options: {
       platform: "neutral",
       plugins: [createScheduleDefinitionAliasPlugin()],
       rootDir: options.rootDir,
+      signal: options.signal,
     }),
-    writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
-    writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, "utf8"),
+    writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
+    writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
   ])
 }
 
@@ -582,21 +679,27 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
 }
 
 export async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+  options.signal?.throwIfAborted()
   const generatedDir = ensureGeneratedDir(options.rootDir, productName)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
-  const crons = await readDefinitionCrons(artifacts.definitions)
+  options.signal?.throwIfAborted()
+  const crons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
+  options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
     await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+    options.signal?.throwIfAborted()
     await writeCloudflareScheduleOutput({
       bundleAlias: options.bundleAlias,
       bundleEntry: artifacts.cloudflareWorkerFile,
       crons: [...new Set(crons.values())],
       rootDir: options.rootDir,
       stateFile: cloudflareStateFile,
+      signal: options.signal,
     })
   }
   else {
+    options.signal?.throwIfAborted()
     await Promise.all([
       rm(artifacts.cloudflareWorkerFile, { force: true }),
       rm(artifacts.denoCronFile, { force: true }),
@@ -605,6 +708,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile),
     ])
   }
+  options.signal?.throwIfAborted()
   await writeVercelScheduleFunctions({
     bundleAlias: options.bundleAlias,
     bundleExternal: options.bundleExternal,
@@ -612,13 +716,16 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     outputRoot: createDefaultVercelOutputRoot(options.rootDir),
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
+    signal: options.signal,
     workflow: options.workflow,
   }, crons)
+  options.signal?.throwIfAborted()
   await writeNetlifyScheduleFunctions({
     definitions: artifacts.definitions,
     outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
+    signal: options.signal,
   })
   return artifacts
 }

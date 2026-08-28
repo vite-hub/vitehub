@@ -1,4 +1,5 @@
 import { hash } from "node:crypto"
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve } from "node:path"
@@ -87,6 +88,7 @@ interface GenerateProviderOutputsOptions {
   queue: QueueModuleOptions | undefined
   rootDir: string
   serverFunctionName?: string
+  signal?: AbortSignal
 }
 
 export interface CloudflareQueueConfigOptions {
@@ -501,18 +503,21 @@ async function writeVercelQueueFunctions(
   artifacts: GeneratedQueueArtifacts,
   providerOutput: ProviderOutputCatalog | undefined,
   providerImportAliases: Record<string, string> | undefined,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted()
   const outputRoot = createDefaultVercelOutputRoot(rootDir)
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
+  const stagedOutputRoot = resolve(outputRoot, ".vitehub-queue.pending")
+  const stagedQueueRoot = resolve(stagedOutputRoot, "functions", "api", "vitehub", "queues", "vercel")
+  const backupQueueRoot = `${queueRoot}.previous`
   const queueConfig = resolveOutputQueueConfig(queue, "vercel")
 
-  await rm(queueRoot, { force: true, recursive: true })
-  if (!isVercelQueueEnabled(queueConfig)) {
-    return
-  }
+  await rm(stagedOutputRoot, { force: true, recursive: true })
+  signal?.throwIfAborted()
 
   const functionDirs = new Map<string, DiscoveredQueueDefinition>()
-  for (const definition of artifacts.definitions) {
+  for (const definition of isVercelQueueEnabled(queueConfig) ? artifacts.definitions : []) {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
     const segments = safeName.split("/")
     const functionDirKey = [...segments, `${segments.at(-1)}.func`].join("/")
@@ -521,26 +526,31 @@ async function writeVercelQueueFunctions(
       throw new Error(`Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved output path: ${functionDirKey}`)
     }
     functionDirs.set(functionDirKey, definition)
-    const functionDir = resolve(queueRoot, ...segments, `${segments.at(-1)}.func`)
+    const functionDir = resolve(stagedQueueRoot, ...segments, `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
-    const functionPath = relative(resolve(outputRoot, "functions"), functionDir).replace(/\\/g, "/")
+    const functionPath = relative(resolve(stagedOutputRoot, "functions"), functionDir).replace(/\\/g, "/")
     const consumer = sanitizeVercelConsumerName(functionPath)
     await mkdir(functionDir, { recursive: true })
+    signal?.throwIfAborted()
     await writeFile(wrapperFile, createVercelQueueWrapperContents(wrapperFile, artifacts.registryFile, definition.name, queueConfig), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: createProviderRuntimeAliases(providerOutput, "vercel", providerImportAliases),
       format: "esm",
       platform: "node",
       rootDir,
+      signal,
     })
+    signal?.throwIfAborted()
     await copyVercelRuntimePackages({
-      outputRoot,
+      outputRoot: stagedOutputRoot,
       packages: getVercelRuntimePackages(providerOutput, "blob"),
       rootDir,
       serverFunctionName: functionPath,
     })
+    signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
+    signal?.throwIfAborted()
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({
       experimentalTriggers: [{
         consumer,
@@ -549,6 +559,34 @@ async function writeVercelQueueFunctions(
       }],
     }), null, 2)}\n`, "utf8")
   }
+
+  signal?.throwIfAborted()
+  if (isVercelQueueEnabled(queueConfig)) await mkdir(stagedQueueRoot, { recursive: true })
+  signal?.throwIfAborted()
+  rmSync(backupQueueRoot, { force: true, recursive: true })
+  try {
+    renameSync(queueRoot, backupQueueRoot)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  try {
+    if (isVercelQueueEnabled(queueConfig)) {
+      mkdirSync(dirname(queueRoot), { recursive: true })
+      renameSync(stagedQueueRoot, queueRoot)
+    }
+    await rm(stagedOutputRoot, { force: true, recursive: true })
+    signal?.throwIfAborted()
+  }
+  catch (error) {
+    rmSync(queueRoot, { force: true, recursive: true })
+    if (existsSync(backupQueueRoot)) renameSync(backupQueueRoot, queueRoot)
+    throw error
+  }
+  try {
+    rmSync(backupQueueRoot, { force: true, recursive: true })
+  }
+  catch {}
 }
 
 export async function generateProviderOutputs(
@@ -556,6 +594,7 @@ export async function generateProviderOutputs(
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
+  options.signal?.throwIfAborted()
   const cloudflareQueueConfig = resolveOutputQueueConfig(options.queue, "cloudflare")
   const usesCloudflare = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare"
   const cloudflareNamePrefix = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare" ? cloudflareQueueConfig.namePrefix : undefined
@@ -577,6 +616,7 @@ export async function generateProviderOutputs(
   await write({
     afterWrite: async () => {
       const previousVercelOutput = await readVercelQueueOutputState(options.rootDir)
+      options.signal?.throwIfAborted()
       const vercelFunctionCandidates = new Set(["__server.func", "__queue.func"])
       if (previousVercelOutput) vercelFunctionCandidates.add(previousVercelOutput.serverFunctionName)
       const ownedVercelFunctions: string[] = []
@@ -585,26 +625,34 @@ export async function generateProviderOutputs(
           ownedVercelFunctions.push(serverFunctionName)
         }
       }
+      options.signal?.throwIfAborted()
       await Promise.all(ownedVercelFunctions
         .filter(serverFunctionName => !createVercel || serverFunctionName !== vercelFunctionName)
         .map(serverFunctionName => rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", serverFunctionName), { force: true, recursive: true })))
       if (createVercel) {
+        options.signal?.throwIfAborted()
         const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName)
         await copyVercelRuntimePackages({
           packages: getVercelRuntimePackages(options.providerOutput, "blob"),
           rootDir: options.rootDir,
           serverFunctionName: vercelFunctionName,
+          signal: options.signal,
         })
+        options.signal?.throwIfAborted()
         const contents = await readFile(resolve(functionRoot, "index.mjs"))
+        options.signal?.throwIfAborted()
         const digest = hash("sha256", contents, "hex")
         await writeFile(resolve(functionRoot, vercelQueueFunctionMarker), `${JSON.stringify({ digest }, null, 2)}\n`, "utf8")
+        options.signal?.throwIfAborted()
         await mkdir(dirname(resolve(options.rootDir, vercelQueueOutputState)), { recursive: true })
+        options.signal?.throwIfAborted()
         await writeFile(resolve(options.rootDir, vercelQueueOutputState), `${JSON.stringify({
           digest,
           serverFunctionName: vercelFunctionName,
         }, null, 2)}\n`, "utf8")
       }
       else {
+        options.signal?.throwIfAborted()
         await rm(resolve(options.rootDir, vercelQueueOutputState), { force: true })
       }
     },
@@ -614,13 +662,15 @@ export async function generateProviderOutputs(
     vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.providerImportAliases, options.serverFunctionName) : undefined,
   })
   if (createCloudflare) {
+    options.signal?.throwIfAborted()
     const queues = createCloudflareQueueBindings(artifacts.definitions, cloudflareNamePrefix)
     await mkdir(dirname(resolve(options.rootDir, cloudflareQueueOutputState)), { recursive: true })
     await writeFile(resolve(options.rootDir, cloudflareQueueOutputState), `${JSON.stringify({ queues }, null, 2)}\n`, "utf8")
   }
   else {
+    options.signal?.throwIfAborted()
     await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
   }
-  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, options.providerOutput, options.providerImportAliases)
+  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, options.providerOutput, options.providerImportAliases, options.signal)
   return artifacts
 }

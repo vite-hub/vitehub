@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
-import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
@@ -33,6 +33,21 @@ afterAll(async () => {
 })
 
 describe("schedule provider output", () => {
+  it("does not publish Schedule output after finalization is canceled", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-canceled-")
+    const controller = new AbortController()
+    controller.abort(new Error("build canceled"))
+
+    await expect(generateProviderOutputsWithinLock({
+      clientOutDir: "dist/client",
+      rootDir,
+      signal: controller.signal,
+    })).rejects.toThrow("build canceled")
+    expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+    expect(existsSync(join(rootDir, ".netlify", "functions-internal"))).toBe(false)
+    expect(existsSync(join(rootDir, ".cloudflare", "workers"))).toBe(false)
+  })
+
   it("serializes Schedule output with other provider output writers", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-lock-")
     const configFile = join(rootDir, ".vercel", "output", "config.json")

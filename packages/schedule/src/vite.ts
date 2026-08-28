@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
-import { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -499,6 +499,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
   let providerOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
@@ -576,9 +577,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    buildStart() {
-      resetProviderDeploymentOutputs(providerOutput)
-    },
     handleHotUpdate(context) {
       const file = normalize(context.file).replace(/\\/g, "/")
       const scheduleRoots = (serverDirs ?? [resolve(projectRoot ?? resolved?.root ?? context.server.config.root, "server")])
@@ -615,21 +613,31 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return createTargetsContents()
       }
     },
-    async buildEnd() {
+    buildStart() {
+      providerOutputGenerations.capture(this, providerOutput)
+    },
+    async buildEnd(error) {
+      if (error) {
+        await resetProviderDeploymentOutputs(providerOutput, error)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
       const config = resolved
       const rootDir = projectRoot ?? config.root
+      const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
+      const crons = await readDefinitionCrons(definitions)
       const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
         .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
         ?.vitehub?.workflow?.prepareScheduleRuntime
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "schedule",
         rootDir,
-        write: async () => {
+        write: async ({ signal }) => {
           const workflow = await prepareWorkflow?.()
           const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+          signal.throwIfAborted()
           await generateProviderOutputsWithinLock({
             bundleAlias: {
               ...resolveStringAliases(config),
@@ -639,14 +647,19 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             },
             ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
             clientOutDir: resolve(config.root, config.build.outDir),
-            definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
+            definitions,
+            crons,
             rootDir,
             runtimeImport: internalOptions.runtimeImport,
+            signal,
             source: standaloneProviderSource,
             workflow,
           })
         },
-      })
+      }, providerOutputGenerations.get(this))
+    },
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

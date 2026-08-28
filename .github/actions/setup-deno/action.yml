@@ -1,0 +1,19 @@
+name: Setup Deno
+description: Install the Deno version pinned in .tool-versions
+runs:
+  using: composite
+  steps:
+    - name: Resolve Deno version
+      id: deno
+      shell: bash
+      run: |
+        version="$(awk '$1 == "deno" && NF == 2 { print $2 }' .tool-versions)"
+        if [[ -z "$version" ]]; then
+          echo ".tool-versions must declare the required Deno version" >&2
+          exit 1
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+      with:
+        deno-version: ${{ steps.deno.outputs.version }}
