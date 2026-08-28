@@ -72,15 +72,23 @@ export interface ProviderDeploymentOutputGeneration {
   valid: boolean
 }
 
+interface ProviderDeploymentOutputEntry {
+  contribution: ProviderDeploymentOutputContribution
+  generation?: ProviderDeploymentOutputGeneration
+  sequence: number
+}
+
 export class ProviderOutputCatalog {
   #appliedCloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #cloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #runtimeContributions = new Map<ProviderOutputProduct, ProviderRuntimeContribution>()
-  #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], {
-    contribution: ProviderDeploymentOutputContribution
-    generation?: ProviderDeploymentOutputGeneration
-  }>()
+  #deploymentContributionSequence = 0
+  #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], ProviderDeploymentOutputEntry[]>()
   #deploymentGenerations = new Set<ProviderDeploymentOutputGeneration>()
+  #takenDeploymentContributions = new Map<ProviderDeploymentOutputContribution, {
+    entry: ProviderDeploymentOutputEntry
+    fallbacks: ProviderDeploymentOutputEntry[]
+  }>()
 
   appliedCloudflareContributions(): IterableIterator<CloudflareProviderOutputValue> {
     return this.#appliedCloudflareContributions.values()
@@ -137,7 +145,11 @@ export class ProviderOutputCatalog {
 
   replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution, generation?: ProviderDeploymentOutputGeneration): void {
     if (generation && !generation.valid) return
-    this.#deploymentContributions.set(contribution.owner, { contribution, generation })
+    this.#restoreDeploymentContribution({
+      contribution,
+      generation,
+      sequence: this.#deploymentContributionSequence++,
+    })
   }
 
   resetDeploymentContributions(generation?: ProviderDeploymentOutputGeneration): void {
@@ -145,12 +157,21 @@ export class ProviderOutputCatalog {
       for (const current of this.#deploymentGenerations) current.valid = false
       this.#deploymentGenerations.clear()
       this.#deploymentContributions.clear()
+      this.#takenDeploymentContributions.clear()
       return
     }
     generation.valid = false
     this.#deploymentGenerations.delete(generation)
-    for (const [owner, entry] of this.#deploymentContributions) {
-      if (entry.generation === generation) this.#deploymentContributions.delete(owner)
+    for (const [owner, entries] of this.#deploymentContributions) {
+      const remaining = entries.filter(entry => entry.generation !== generation)
+      if (remaining.length) this.#deploymentContributions.set(owner, remaining)
+      else this.#deploymentContributions.delete(owner)
+    }
+    for (const [contribution, taken] of this.#takenDeploymentContributions) {
+      taken.fallbacks = taken.fallbacks.filter(entry => entry.generation !== generation)
+      if (taken.entry.generation !== generation) continue
+      this.#takenDeploymentContributions.delete(contribution)
+      for (const fallback of taken.fallbacks) this.#restoreDeploymentContribution(fallback)
     }
   }
 
@@ -159,9 +180,47 @@ export class ProviderOutputCatalog {
   }
 
   takeDeploymentContributions(): ProviderDeploymentOutputContribution[] {
-    const contributions = [...this.#deploymentContributions.values()].map(({ contribution }) => contribution)
-    this.#deploymentContributions.clear()
+    const contributions: ProviderDeploymentOutputContribution[] = []
+    for (const [owner, entries] of this.#deploymentContributions) {
+      const entry = entries.at(-1)!
+      contributions.push(entry.contribution)
+      this.#takenDeploymentContributions.set(entry.contribution, {
+        entry,
+        fallbacks: entries.slice(0, -1),
+      })
+      this.#deploymentContributions.delete(owner)
+    }
     return contributions
+  }
+
+  deploymentContributionGeneration(contribution: ProviderDeploymentOutputContribution): ProviderDeploymentOutputGeneration | undefined {
+    return this.#takenDeploymentContributions.get(contribution)?.entry.generation
+  }
+
+  completeDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): void {
+    for (const contribution of contributions) this.#takenDeploymentContributions.delete(contribution)
+  }
+
+  rollbackDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): void {
+    for (const contribution of contributions) {
+      const taken = this.#takenDeploymentContributions.get(contribution)
+      if (!taken) continue
+      this.#takenDeploymentContributions.delete(contribution)
+      for (const entry of [...taken.fallbacks, taken.entry]) this.#restoreDeploymentContribution(entry)
+    }
+  }
+
+  #restoreDeploymentContribution(entry: ProviderDeploymentOutputEntry): void {
+    if (entry.generation && !entry.generation.valid) return
+    const entries = this.#deploymentContributions.get(entry.contribution.owner) ?? []
+    const replaced = entries.findIndex(candidate => candidate.generation === entry.generation)
+    if (replaced >= 0) {
+      if (entries[replaced]!.sequence > entry.sequence) return
+      entries.splice(replaced, 1)
+    }
+    entries.push(entry)
+    entries.sort((left, right) => left.sequence - right.sequence)
+    this.#deploymentContributions.set(entry.contribution.owner, entries)
   }
 }
 

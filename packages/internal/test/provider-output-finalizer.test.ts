@@ -59,6 +59,104 @@ describe("Provider Output finalizer", () => {
     expect(writes).toEqual(["B"])
   })
 
+  it("invalidates every generation when Vite repeats one failure", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const failure = new Error("render failed")
+    const first = captureProviderDeploymentOutputGeneration(catalog)
+    const second = captureProviderDeploymentOutputGeneration(catalog)
+    const writes: string[] = []
+
+    await resetProviderDeploymentOutputs(catalog, failure, first)
+    await resetProviderDeploymentOutputs(catalog, failure, second)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("first") },
+    }, first)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async () => { writes.push("second") },
+    }, second)
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(writes).toEqual([])
+  })
+
+  it("preserves an older owner contribution when its replacement resets", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const first = captureProviderDeploymentOutputGeneration(catalog)
+    const second = captureProviderDeploymentOutputGeneration(catalog)
+    const writes: string[] = []
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("first") },
+    }, first)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => { writes.push("second") },
+    }, second)
+
+    await resetProviderDeploymentOutputs(catalog, new Error("replacement failed"), second)
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(writes).toEqual(["first"])
+  })
+
+  it("does not abort another generation's active finalization", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const failed = captureProviderDeploymentOutputGeneration(catalog)
+    const active = captureProviderDeploymentOutputGeneration(catalog)
+    let activeSignal: AbortSignal | undefined
+    let releaseWrite!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir,
+      write: async ({ signal }) => {
+        activeSignal = signal
+        await new Promise<void>(resolve => releaseWrite = resolve)
+      },
+    }, active)
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(activeSignal).toBeDefined())
+    await resetProviderDeploymentOutputs(catalog, new Error("other environment failed"), failed)
+
+    expect(activeSignal?.aborted).toBe(false)
+    releaseWrite()
+    await finalization
+  })
+
+  it("requeues valid generations when a peer resets active finalization", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const failed = captureProviderDeploymentOutputGeneration(catalog)
+    const valid = captureProviderDeploymentOutputGeneration(catalog)
+    const validWrite = vi.fn(async () => undefined)
+    let releaseFailed!: () => void
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async () => await new Promise<void>(resolve => releaseFailed = resolve),
+    }, failed)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write: validWrite }, valid)
+
+    const failedFinalization = finalizeProviderDeploymentOutputs(catalog)
+    await vi.waitFor(() => expect(releaseFailed).toBeDefined())
+    const reset = resetProviderDeploymentOutputs(catalog, new Error("agent failed"), failed)
+    releaseFailed()
+    await reset
+    await expect(failedFinalization).rejects.toThrow("Provider Output finalization reset")
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(validWrite).toHaveBeenCalledOnce()
+  })
+
   it("settles contributions in stable owner order and replaces duplicates", async () => {
     const catalog = createProviderOutputCatalog()
     const writes: string[] = []

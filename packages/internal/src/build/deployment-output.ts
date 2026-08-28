@@ -141,6 +141,10 @@ interface ProviderDeploymentOutputFinalization {
   handoff?: Promise<void>
   promise: Promise<void>
   reset?: ProviderDeploymentOutputReset
+  state: {
+    generations: Set<ProviderDeploymentOutputGeneration>
+    rollback: boolean
+  }
 }
 
 const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
@@ -806,23 +810,27 @@ export async function resetProviderDeploymentOutputs(
   if (!catalog) return
   const completedReset = providerDeploymentOutputCompletedResets.get(catalog)
   if (completedReset && failure !== undefined && completedReset.failures.has(failure)) {
+    if (generation) catalog.resetDeploymentContributions(generation)
     await completedReset.promise
     return
   }
   if (completedReset) providerDeploymentOutputCompletedResets.delete(catalog)
+  if (generation) catalog.resetDeploymentContributions(generation)
   const active = providerDeploymentOutputFinalizations.get(catalog)
   if (active?.reset) {
     if (failure !== undefined && !active.reset.failures.has(failure)) {
       active.reset.failures.add(failure)
-      catalog.resetDeploymentContributions(generation)
+      if (!generation) catalog.resetDeploymentContributions()
     }
     providerDeploymentOutputCompletedResets.set(catalog, active.reset)
     await active.reset.promise
     return
   }
-  active?.controller.abort(new Error("Provider Output finalization reset"))
-  catalog?.resetDeploymentContributions(generation)
-  if (active) {
+  if (!generation) catalog.resetDeploymentContributions()
+  const resetsActiveFinalization = active && (!generation || active.state.generations.has(generation))
+  if (resetsActiveFinalization) {
+    active.state.rollback = true
+    active.controller.abort(new Error("Provider Output finalization reset"))
     active.reset = {
       failures: new Set([failure]),
       promise: active.promise.catch(() => undefined),
@@ -868,6 +876,10 @@ export async function finalizeProviderDeploymentOutputs(
   }
 
   const controller = new AbortController()
+  const state = {
+    generations: new Set<ProviderDeploymentOutputGeneration>(),
+    rollback: false,
+  }
   const finalization = (async () => {
     const order = new Map(providerDeploymentOutputOwnerOrder.map((owner, index) => [owner, index]))
     const abort = () => controller.abort(options.signal?.reason)
@@ -877,6 +889,10 @@ export async function finalizeProviderDeploymentOutputs(
       while (true) {
         const contributions = catalog.takeDeploymentContributions()
         if (!contributions.length) return
+        for (const contribution of contributions) {
+          const generation = catalog.deploymentContributionGeneration(contribution)
+          if (generation) state.generations.add(generation)
+        }
         contributions.sort((left, right) => order.get(left.owner)! - order.get(right.owner)!)
         const grouped = new Map<string, ProviderDeploymentOutputContribution[]>()
         for (const contribution of contributions) {
@@ -885,36 +901,47 @@ export async function finalizeProviderDeploymentOutputs(
           rootContributions.push(contribution)
           grouped.set(rootDir, rootContributions)
         }
-        await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
-          await withProviderDeploymentOutputRootLock(rootDir, async () => {
-            await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
-              for (const contribution of rootContributions) {
-                throwIfProviderOutputAborted(controller.signal)
-                try {
-                  await contribution.write({
-                    signal: controller.signal,
-                    write: async (writeOptions) => {
-                      throwIfProviderOutputAborted(controller.signal)
-                      await writeProviderDeploymentOutputsNow(writeOptions, controller.signal, transaction)
-                    },
-                  })
+        try {
+          await settleWrites([...grouped.entries()].map(async ([rootDir, rootContributions]) => {
+            await withProviderDeploymentOutputRootLock(rootDir, async () => {
+              await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
+                for (const contribution of rootContributions) {
+                  throwIfProviderOutputAborted(controller.signal)
+                  try {
+                    await contribution.write({
+                      signal: controller.signal,
+                      write: async (writeOptions) => {
+                        throwIfProviderOutputAborted(controller.signal)
+                        await writeProviderDeploymentOutputsNow(writeOptions, controller.signal, transaction)
+                      },
+                    })
+                  }
+                  catch (error) {
+                    controller.abort(error)
+                    throw error
+                  }
+                  throwIfProviderOutputAborted(controller.signal)
                 }
-                catch (error) {
-                  controller.abort(error)
-                  throw error
-                }
-                throwIfProviderOutputAborted(controller.signal)
-              }
+              })
             })
-          })
-        }))
+          }))
+          catalog.completeDeploymentContributions(contributions)
+        }
+        catch (error) {
+          if (state.rollback) catalog.rollbackDeploymentContributions(contributions)
+          else catalog.completeDeploymentContributions(contributions)
+          throw error
+        }
+        finally {
+          state.generations.clear()
+        }
       }
     }
     finally {
       options.signal?.removeEventListener("abort", abort)
     }
   })()
-  const active = { controller, promise: finalization }
+  const active = { controller, promise: finalization, state }
   providerDeploymentOutputFinalizations.set(catalog, active)
   try {
     await finalization
