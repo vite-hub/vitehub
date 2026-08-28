@@ -111,7 +111,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
     const promotePreparedContexts = () => {
       for (const sourceKey of operationPrepared) {
-        if (!operationCompleted.has(sourceKey)) continue
         const context = operationContexts.get(sourceKey)
         if (!context) continue
         sourceContexts.set(sourceKey, context)
@@ -198,6 +197,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of result.sources) {
       if (source.status !== "ready") {
         invalidateMaterializedPath(source.source, path)
+        preparedSources.delete(source.source)
+        sourceContexts.delete(source.source)
         continue
       }
       recordMaterializedPath(source.source, path)

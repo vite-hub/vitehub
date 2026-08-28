@@ -1074,6 +1074,41 @@ describe("lazy sources", () => {
     expect(prepare.mock.calls[1]?.[0]).not.toBe(prepare.mock.calls[0]?.[0])
   })
 
+  it("clears an earlier prepared Source context after a refresh fails", async () => {
+    const clients = new WeakMap<object, { keys: string[] }>()
+    let failRefresh = false
+    const prepare = vi.fn(async (context: SourceContext) => {
+      clients.set(context, { keys: ["current.md"] })
+    })
+    const source = custom({
+      cache: false,
+      materialize: "lazy",
+      prepare,
+      async getKeys(context: SourceContext) {
+        if (failRefresh) throw new Error("temporary refresh failure")
+        return clients.get(context)?.keys || []
+      },
+      async getItem(key: string) {
+        return { key, path: key, content: "# Current\n" }
+      },
+    })
+    const view = createWorkspaceSourceView({ name: "failed-refresh-preparation", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ status: "ready" }],
+    })
+    failRefresh = true
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ error: "temporary refresh failure", status: "error" }],
+    })
+    failRefresh = false
+    await expect(view.list("docs", { recursive: true })).resolves.toContainEqual(
+      expect.objectContaining({ path: "docs/current.md" }),
+    )
+    expect(prepare).toHaveBeenCalledTimes(3)
+    expect(new Set(prepare.mock.calls.map(([context]) => context))).toHaveProperty("size", 3)
+  })
+
   it("keeps full cache-hit aggregates after scoped materialization", async () => {
     const files = new Map([["a.md", "# A\n"]])
     const view = createWorkspaceSourceView({
