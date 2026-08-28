@@ -801,6 +801,57 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
   })
 
+  it("skips unreadable run metadata while finalizing raw streams", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageRecordFromStreamChunk } = await import("../src/agent-output.ts")
+    const finish = vi.fn()
+    const annotations = Object.defineProperties({ readable: "kept" }, {
+      unreadable: {
+        enumerable: true,
+        get() {
+          throw new Error("unreadable run annotation")
+        },
+      },
+    })
+    const run = new Proxy({ annotations, runId: "provider-run" }, {
+      get(target, key, receiver) {
+        if (key === "messageId") throw new Error("unreadable run field")
+        return Reflect.get(target, key, receiver)
+      },
+      ownKeys() {
+        throw new Error("unreadable run metadata")
+      },
+    })
+    const chunk = { type: "usage", usageRecord: { run, usage: { totalTokens: 2 } } }
+    expect(usageRecordFromStreamChunk(chunk, undefined, {
+      annotations: { invocation: "kept" },
+      messageId: "message-1",
+    })).toMatchObject({
+      run: {
+        annotations: { invocation: "kept", readable: "kept" },
+        messageId: "message-1",
+        runId: "provider-run",
+      },
+    })
+    const raw = (async function* () {
+      yield chunk
+    })()
+    const agent = defineAgent({ driver: { run: () => raw }, hooks: { "agent:finish": finish } })
+
+    // SAFETY: The driver returns the raw async iterable unchanged to the caller.
+    const stream = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: {
+        usageRecord: {
+          run: { annotations: { readable: "kept" }, runId: "provider-run" },
+          usage: { totalTokens: 2 },
+        },
+      },
+    })
+  })
+
   it("normalizes inherited usage and ignores undefined existing counters", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -1166,6 +1217,33 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(preserved).toMatchObject({
       usage: { totalTokens: 2 },
       usageRecord: { usage: { totalTokens: 2 } },
+    })
+  })
+
+  it("prefers observed usage when a preserved stream exits early", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usage } = await import("../src/capabilities/usage.ts")
+    const finish = vi.fn()
+    const result = {
+      fullStream: (async function* () {
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 2 } } }
+        yield { text: "unconsumed", type: "text-delta" }
+      })(),
+      usageRecord: { usage: { totalTokens: 1 } },
+    }
+    const agent = defineAgent({
+      capabilities: [usage()],
+      driver: { run: () => result },
+      hooks: { "agent:finish": finish },
+    })
+
+    // SAFETY: runAgent preserves this plain stream result and enriches it after consumption.
+    const preserved = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as typeof result
+    for await (const _event of preserved.fullStream) break
+
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      invocation: { usage: { usage: { totalTokens: 2 } } },
+      result: { usage: { totalTokens: 2 }, usageRecord: { usage: { totalTokens: 2 } } },
     })
   })
 

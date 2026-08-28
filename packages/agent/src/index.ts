@@ -3895,7 +3895,7 @@ async function resultWithStreamedTextAndUsage(
   resolveUsage = true,
 ): Promise<unknown> {
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
-  if (isAsyncIterable(result) && hasRuntimeType(result, "object")) {
+  if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result) || usageRecord !== undefined)) {
     const normalized = toAgentRunResultWithInheritedProperties(result)
     const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
     const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
@@ -3965,7 +3965,7 @@ async function resultWithStreamedTextAndUsage(
     const fallbackUsage = normalizedAgentUsage(fallbackUsageRecordProperties.usage)
     const streamedUsage = normalizedAgentUsage(streamedUsageRecordProperties.usage)
     const normalizedRecordUsage = normalizedAgentUsage(normalizedUsageRecordProperties.usage)
-    const usageValues = [fallbackUsage, streamedUsage, sourceUsage, normalizedRecordUsage, canonicalResolvedUsage]
+    const usageValues = [fallbackUsage, sourceUsage, normalizedRecordUsage, canonicalResolvedUsage, streamedUsage]
     const inputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.inputTokenDetails))
     const outputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.outputTokenDetails))
     const mergedUsage = usageValues.some(Boolean)
@@ -3983,7 +3983,7 @@ async function resultWithStreamedTextAndUsage(
         }
       : undefined
     const canonicalUsageRecordProperties = mergedUsageRecords(canonicalUsageRecord)
-    const usageRecordValues = [canonicalUsageRecordProperties, fallbackUsageRecordProperties, streamedUsageRecordProperties, sourceUsageRecordProperties, normalizedUsageRecordProperties]
+    const usageRecordValues = [fallbackUsageRecordProperties, sourceUsageRecordProperties, normalizedUsageRecordProperties, canonicalUsageRecordProperties, streamedUsageRecordProperties]
     const mergedUsageRecord = mergedUsage || usageRecordValues.some(value => Object.keys(value).length > 0) || hasSourceUsageRecord
       ? {
           ...mergedUsageRecords(...usageRecordValues),
@@ -4006,10 +4006,12 @@ async function resultWithStreamedTextAndUsage(
       ...(mergedUsage ? { usage: mergedUsage } : {}),
       ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
     }
-    Object.defineProperty(finishResult, Symbol.asyncIterator, {
-      configurable: true,
-      value: () => result[Symbol.asyncIterator](),
-    })
+    if (isAsyncIterable(result)) {
+      Object.defineProperty(finishResult, Symbol.asyncIterator, {
+        configurable: true,
+        value: () => result[Symbol.asyncIterator](),
+      })
+    }
     return finishResult
   }
   return resultWithUsageRecord(resultWithStreamedText(result, text), streamedUsageRecord)

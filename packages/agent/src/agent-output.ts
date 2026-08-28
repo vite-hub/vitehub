@@ -217,6 +217,62 @@ function readDetails(value: unknown): Record<string, number> | undefined {
   return Object.keys(details).length ? details : undefined
 }
 
+function readableProperty(value: unknown, key: string): unknown {
+  if (!isRecord(value)) return
+  try {
+    return Reflect.get(value, key)
+  }
+  catch {
+    return
+  }
+}
+
+function readableRunMetadata(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {}
+  const metadata: Record<string, unknown> = {}
+  let source: object | null = value
+  while (source && source !== Object.prototype) {
+    let descriptors: PropertyDescriptorMap
+    try {
+      descriptors = Object.getOwnPropertyDescriptors(source)
+    }
+    catch {
+      descriptors = {}
+    }
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (metadata[key] !== undefined || (!descriptor.enumerable && !("get" in descriptor))) continue
+      try {
+        const property = Reflect.get(value, key)
+        if (property !== undefined) metadata[key] = property
+      }
+      catch {
+        // Ignore individual run metadata getters that cannot be read.
+      }
+    }
+    try {
+      source = Object.getPrototypeOf(source)
+    }
+    catch {
+      source = null
+    }
+  }
+  for (const key of ["annotations", "channelId", "messageId", "origin", "runId", "threadId"] as const) {
+    if (metadata[key] !== undefined) continue
+    const property = readableProperty(value, key)
+    if (property !== undefined) metadata[key] = property
+  }
+  return metadata
+}
+
+function mergedRunMetadata(...values: unknown[]): Partial<AgentRunMetadata> | undefined {
+  const metadata = Object.assign({}, ...values.map(readableRunMetadata))
+  const annotations = Object.assign({}, ...values.map(value =>
+    readableRunMetadata(readableProperty(value, "annotations")),
+  ))
+  if (Object.keys(annotations).length) metadata.annotations = annotations
+  return Object.keys(metadata).length ? metadata : undefined
+}
+
 function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
   if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
   const source = metadata.credentialSource.source
@@ -373,15 +429,7 @@ function withFallbackUsageMetadata(
   const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
   const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
   const credentialSource = record.credentialSource ?? (compound ? undefined : credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource)))
-  const runMetadata = record.run && run
-    ? {
-        ...record.run,
-        ...run,
-        ...(record.run.annotations || run.annotations
-          ? { annotations: { ...record.run.annotations, ...run.annotations } }
-          : {}),
-      }
-    : record.run ?? run
+  const runMetadata = mergedRunMetadata(readableProperty(record, "run"), run)
   return model || transport || cost || response || latency || credentialSource || runMetadata
     ? {
         ...record,
