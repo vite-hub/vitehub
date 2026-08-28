@@ -58,8 +58,8 @@ export type { ConsoleOptions } from "./console/vite.ts"
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 
 function resolveServerConditions(config: ResolvedConfig): string[] {
-  const customConditions = config.resolve.conditions.filter(condition => !defaultClientConditions.includes(condition))
-  const conditions = config.environments.ssr?.resolve.conditions ?? [...defaultServerConditions, ...customConditions]
+  const customConditions = (config.resolve.conditions ?? []).filter(condition => !defaultClientConditions.includes(condition))
+  const conditions = config.environments?.ssr?.resolve.conditions ?? [...defaultServerConditions, ...customConditions]
   return conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition)
 }
 

@@ -974,9 +974,16 @@ describe("vitehub", () => {
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
     // SAFETY: The preset config hook populated Nitro modules for the Deno build above.
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
-    const resolvedConfig = await resolveConfig({
-      resolve: { conditions: ["launch"] },
-    }, "build", "staging")
+    vi.stubEnv("NODE_ENV", "production")
+    let resolvedConfig: Awaited<ReturnType<typeof resolveConfig>>
+    try {
+      resolvedConfig = await resolveConfig({
+        resolve: { conditions: ["launch"] },
+      }, "build", "staging")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
     const nitro = {

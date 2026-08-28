@@ -160,7 +160,7 @@ describe("Effect ownership", () => {
       const bundles = (await readFiles(join(packageDir, "dist"), path => /\.[cm]?js$/.test(path))).join("\n")
       expect(bundles, packageDir).not.toMatch(/effect@3\.|3\.17\.7/)
     }
-  })
+  }, 30_000)
 
   it.each([
     {

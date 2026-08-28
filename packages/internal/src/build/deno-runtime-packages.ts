@@ -327,10 +327,24 @@ function canStartRegexLiteral(output: string): boolean {
 
 function matchingOpeningDelimiter(source: string, opening: string, closing: string): number | undefined {
   if (!source.endsWith(closing)) return
-  let depth = 1
-  for (let index = source.length - 2; index >= 0; index--) {
-    if (source[index] === closing) depth++
-    else if (source[index] === opening && --depth === 0) return index
+  const openings: number[] = []
+  let quote: "\"" | "'" | "`" | undefined
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]!
+    if (quote) {
+      if (character === "\\") index++
+      else if (character === quote) quote = undefined
+      continue
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character
+      continue
+    }
+    if (character === opening) openings.push(index)
+    else if (character === closing) {
+      const match = openings.pop()
+      if (index === source.length - 1) return match
+    }
   }
 }
 

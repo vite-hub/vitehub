@@ -121,6 +121,8 @@ switch (value) {} /import\("after-switch"\)/.test(value)
 try {} catch (error) {} /import\("after-catch"\)/.test(value)
 block: {} /import("after-labeled-block")/.test(value)
 label: { if (ready) {} } /import("after-nested-labeled-block")/.test(value)
+if (import("paren-)")) /import("after-import-parenthesis")/.test(value)
+if (ready) { import("brace-}") } /import("after-import-brace")/.test(value)
 try {} catch {} /import("after-optional-catch")/.test(value)
 while (ready) /require\("after-condition"\)/.test(value)
 try {} finally {} /import\("after-finally"\)/.test(value)
@@ -129,7 +131,7 @@ class Ready {} /require\("after-class"\)/.test(value)
 export default function() {} /import\("after-anonymous-function"\)/.test(value)
 export default class {} /require\("after-anonymous-class"\)/.test(value)
 import "real"
-`)).toEqual(["real"])
+`)).toEqual(["brace-}", "paren-)", "real"])
   })
 
   it("finds imports after division by masked literals", () => {
