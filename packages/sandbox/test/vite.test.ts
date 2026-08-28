@@ -1919,4 +1919,37 @@ describe("hubSandbox", () => {
 
     await expect(readFile(artifact, "utf8")).resolves.toContain("updated")
   })
+
+  it("refreshes a Sandbox when a project asset is added", async () => {
+    const rootDir = await createViteRoot()
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    await writeFile(definition, [
+      `import { readdir } from "node:fs/promises"`,
+      `export default { run: async () => readdir("./prompts") }`,
+      ``,
+    ].join("\n"))
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const artifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const projectAsset = join(rootDir, "prompts/new.md")
+    await mkdir(dirname(projectAsset), { recursive: true })
+    await writeFile(projectAsset, "new prompt")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: projectAsset,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const generated = await readFile(artifact, "utf8")
+    expect(generated).toContain(Buffer.from("new prompt").toString("base64"))
+  })
 })

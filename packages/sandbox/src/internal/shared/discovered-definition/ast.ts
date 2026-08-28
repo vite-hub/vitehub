@@ -453,7 +453,9 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
     if (typescript.isCallExpression(node) || typescript.isNewExpression(node)) {
       const operation = filesystemOperation(node.expression)
       if (operation) {
-        const reference = resolveFilesystemPath(node.arguments?.[0])
+        const reference = operation === 'exec' || operation === 'execSync'
+          ? undefined
+          : resolveFilesystemPath(node.arguments?.[0])
         // mkdtemp creates a new runtime directory; its prefix cannot identify
         // an existing project asset that needs to be retained.
         if (operation !== 'mkdtemp' && reference !== 'runtime') {

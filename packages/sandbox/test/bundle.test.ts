@@ -96,6 +96,14 @@ describe("bundleSandboxDefinition assets", () => {
       "import { execFile } from 'node:child_process'\nimport { promisify } from 'node:util'\nconst run = promisify(execFile)\nexport default { run: async () => await run('./scripts/task.sh') }\n",
     ],
     [
+      "child process shell command",
+      "import { exec } from 'node:child_process'\nexport default { run: async () => exec('./scripts/task.sh --flag') }\n",
+    ],
+    [
+      "synchronous child process shell command",
+      "import { execSync } from 'node:child_process'\nexport default { run: async () => execSync('./scripts/task.sh --flag') }\n",
+    ],
+    [
       "SQLite database",
       "import { DatabaseSync } from 'node:sqlite'\nexport default { run: async () => new DatabaseSync('./data/app.db').close() }\n",
     ],

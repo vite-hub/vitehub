@@ -1,7 +1,7 @@
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { realpath } from 'node:fs/promises'
-import { basename, normalize, relative } from 'pathe'
+import { basename, dirname, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
 import {
@@ -156,6 +156,11 @@ function isSandboxDefinitionUpdate(
   if (isSandboxProjectManifestUpdate(changedFile, rootDir))
     return true
   if (isSandboxProjectFileUpdate(changedFile, rootDir))
+    return true
+  const projectRoots = definitions.map(definition => definition.kind === 'package-entry'
+    ? dirname(definition.handler)
+    : rootDir)
+  if (projectRoots.some(projectRoot => isLocalSourceFile(changedFile, projectRoot)))
     return true
   if (!isSandboxSourceFile(changedFile))
     return false
