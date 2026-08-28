@@ -143,6 +143,7 @@ function diagnosticError(value: unknown, path: string): RuntimeDiagnosticError {
   const stack = diagnosticString(input.stack, `${path}.stack`)
   const status = diagnosticScalar(input.status, `${path}.status`)
   const statusCode = diagnosticScalar(input.statusCode, `${path}.statusCode`)
+  assertJsonValue(input, path)
   // SAFETY: The parser validates the required diagnostic fields and reconstructs every supported nested value above.
   return {
     ...input,

@@ -363,6 +363,10 @@ describe("Console fixture CLI", () => {
       { details: { retry: { attempts: Number.POSITIVE_INFINITY } }, message: "failed" },
       'invocations[0].error.details["retry"]["attempts"] must be a finite number',
     ],
+    [
+      { message: "failed", metadata: { score: Number.POSITIVE_INFINITY } },
+      'invocations[0].error["metadata"]["score"] must be a finite number',
+    ],
   ])("rejects malformed fixture diagnostic errors %#", (error, message) => {
     expect(() =>
       parseConsoleFixture({
