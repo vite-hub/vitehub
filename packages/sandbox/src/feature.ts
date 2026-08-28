@@ -11,7 +11,7 @@ import {
   defaultCloudflareSandboxClassName,
   defaultCloudflareSandboxMigrationTag,
 } from './cloudflare'
-import { extractSandboxDefinitionOptions } from './definition-options'
+import { extractSandboxDefinitionMetadata } from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
 import { resolveSandboxProject, type SandboxProject } from './project'
@@ -85,6 +85,7 @@ type SandboxDefinitionMetadata = {
   name: string
   options?: SandboxDefinitionOptions
   project?: SandboxProject
+  projectMode?: boolean
 }
 
 type SandboxDefinitionCompilerOptions = Partial<DiscoveredDefinitionCompilerOptions> & {
@@ -107,16 +108,22 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
 
 async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefinition[], rootDir: string) {
   return await Promise.all(definitions.map(async (definition) => {
-    const project = await resolveSandboxProject(definition.handler, rootDir, {
-      readSandboxOptions: definition.kind === 'package-entry',
-    })
+    const sourceMetadata = definition.kind === 'package-entry'
+      ? undefined
+      : await extractSandboxDefinitionMetadata(definition.handler)
+    const project = sourceMetadata?.project === false
+      ? undefined
+      : await resolveSandboxProject(definition.handler, rootDir, {
+          readSandboxOptions: definition.kind === 'package-entry',
+        })
     return {
       kind: definition.kind,
       name: definition.name,
       options: definition.kind === 'package-entry'
         ? project?.options
-        : normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
+        : normalizeSandboxDefinitionOptions(definition.name, sourceMetadata?.options),
       project,
+      projectMode: sourceMetadata?.project,
     } satisfies SandboxDefinitionMetadata
   }))
 }
@@ -259,6 +266,7 @@ export async function createSandboxFeaturePlan(
       const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath, {
         alias: bundleAlias,
         execution: metadata?.kind === 'package-entry' ? 'module' : 'definition',
+        includeProject: metadata?.projectMode,
         project: metadata?.project,
       })
       return `export default ${JSON.stringify({

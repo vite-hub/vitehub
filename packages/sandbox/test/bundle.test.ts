@@ -25,10 +25,11 @@ describe("bundleSandboxDefinition assets", () => {
       "import { join } from 'node:path'",
       "import { promisify } from 'node:util'",
       "const exec = promisify(execFile)",
+      "async function inspect(path) { await access(path, constants.F_OK) }",
       "export default { run: async () => {",
       "  const workspace = await mkdtemp(join(tmpdir(), 'analysis-'))",
       "  await mkdir(join(workspace, 'repo'))",
-      "  await access('/usr/bin/git', constants.X_OK)",
+      "  await inspect(workspace)",
       "  await exec('git', ['--version'], { cwd: workspace })",
       "  await rm(workspace, { recursive: true })",
       "} }",
@@ -37,12 +38,52 @@ describe("bundleSandboxDefinition assets", () => {
 
     const bundle = await bundleSandboxDefinition(source, "/fixture/run.sandbox.ts", {
       execution: "definition",
+      includeProject: false,
       project,
     })
 
     expect(bundle).not.toHaveProperty("project")
     expect(bundle.entry).toBe("definition.js")
     expect(bundle.modules[bundle.entry]).toContain('from "node:fs/promises"')
+  })
+
+  it("forces project inclusion when the Definition declares project true", async () => {
+    const project: SandboxProject = {
+      digest: "forced-project-fixture",
+      files: {
+        "package.json": {
+          contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+          encoding: "base64",
+        },
+      },
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+
+    const bundle = await bundleSandboxDefinition(
+      "export default { run: async () => 'forced' }\n",
+      "/fixture/run.sandbox.ts",
+      { execution: "definition", includeProject: true, project },
+    )
+
+    expect(bundle.project?.files).toEqual(project.files)
+    expect(bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
+  it("rejects runtime dependencies that contradict project false", async () => {
+    const project: SandboxProject = {
+      digest: "dynamic-project-fixture",
+      files: {},
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+    const source = "export default { run: async name => await import(name) }\n"
+
+    await expect(bundleSandboxDefinition(source, "/fixture/run.sandbox.ts", {
+      execution: "definition",
+      includeProject: false,
+      project,
+    })).rejects.toThrow("declares project: false but has a runtime dependency")
   })
 
   it.each([

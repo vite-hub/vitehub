@@ -8,6 +8,11 @@ const sandboxDefinitionSyntax = '`defineSandbox({ run, ...options })`'
 
 type TypeScript = typeof import('typescript')
 
+export interface ExtractedSandboxDefinitionMetadata {
+  options?: SandboxDefinitionOptions
+  project?: boolean
+}
+
 function getTypeScript(): TypeScript {
   return require('typescript') as TypeScript
 }
@@ -81,7 +86,7 @@ function propertyName(property: ts.ObjectLiteralElementLike): string | undefined
     : undefined
 }
 
-export async function extractSandboxDefinitionOptions(file: string): Promise<SandboxDefinitionOptions | undefined> {
+export async function extractSandboxDefinitionMetadata(file: string): Promise<ExtractedSandboxDefinitionMetadata | undefined> {
   const source = await readFile(file, 'utf8')
   const ts = getTypeScript()
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
@@ -90,6 +95,7 @@ export async function extractSandboxDefinitionOptions(file: string): Promise<San
     return undefined
 
   const options: Record<string, unknown> = {}
+  let project: boolean | undefined
   let hasRun = false
   for (const property of input.properties) {
     const key = propertyName(property)
@@ -105,9 +111,23 @@ export async function extractSandboxDefinitionOptions(file: string): Promise<San
     }
     if (!ts.isPropertyAssignment(property))
       throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options must use static values.`)
-    options[key] = readStaticValue(property.initializer)
+    const value = readStaticValue(property.initializer)
+    if (key === 'project') {
+      if (typeof value !== 'boolean')
+        throw new Error(`[vitehub] ${sandboxDefinitionSyntax} project must be a boolean.`)
+      project = value
+    }
+    else {
+      options[key] = value
+    }
   }
   if (!hasRun)
     throw new Error(`[vitehub] ${sandboxDefinitionSyntax} requires a \`run\` handler.`)
-  return Object.keys(options).length ? options as SandboxDefinitionOptions : undefined
+  const runtimeOptions = Object.keys(options).length ? options as SandboxDefinitionOptions : undefined
+  return runtimeOptions || typeof project !== 'undefined'
+    ? {
+        ...(runtimeOptions ? { options: runtimeOptions } : {}),
+        ...(typeof project !== 'undefined' ? { project } : {}),
+      }
+    : undefined
 }

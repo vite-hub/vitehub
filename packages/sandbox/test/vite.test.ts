@@ -384,6 +384,67 @@ describe("hubSandbox", () => {
     expect(artifact.bundle.modules[artifact.bundle.entry]).toContain("self-contained")
   })
 
+  it.each(["cloudflare", "vercel"] as const)("honors explicit Definition project policy for the %s provider", async (provider) => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "node_modules/kleur"), { recursive: true })
+    await writeFile(join(rootDir, "node_modules/kleur/package.json"), JSON.stringify({
+      exports: "./index.js",
+      name: "kleur",
+      type: "module",
+    }))
+    await writeFile(join(rootDir, "node_modules/kleur/index.js"), `export default { green: value => \`green:\${value}\` }\n`)
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({
+      dependencies: { kleur: "^4.1.5" },
+      name: "vitehub-sandbox-vite-fixture",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(rootDir, "src/tools/self-contained.sandbox.ts"), [
+      `import { readFile } from "node:fs/promises"`,
+      `import kleur from "kleur"`,
+      `export default defineSandbox({`,
+      `  project: false,`,
+      `  async run(path: string) {`,
+      `    await readFile(path)`,
+      `    return kleur.green("ready")`,
+      `  },`,
+      `})`,
+    ].join("\n"))
+    await writeFile(join(rootDir, "src/tools/forced-project.sandbox.ts"), [
+      `export default defineSandbox({`,
+      `  project: true,`,
+      `  run: async () => "project",`,
+      `})`,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const selfContainedSource = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__self-contained.mjs"),
+      "utf8",
+    )
+    const selfContained = JSON.parse(selfContainedSource.slice("export default ".length))
+    expect(selfContained).not.toHaveProperty("options.project")
+    expect(selfContained.bundle).not.toHaveProperty("project")
+    expect(selfContained.bundle.entry).toBe("definition.js")
+    expect(selfContained.bundle.modules[selfContained.bundle.entry]).toContain("green:")
+    expect(selfContained.bundle.modules[selfContained.bundle.entry]).not.toContain('from "kleur"')
+
+    const forcedProjectSource = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__forced-project.mjs"),
+      "utf8",
+    )
+    const forcedProject = JSON.parse(forcedProjectSource.slice("export default ".length))
+    expect(forcedProject).not.toHaveProperty("options.project")
+    expect(forcedProject.bundle.project.packagePath).toBe(".")
+    expect(forcedProject.bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
   it("preserves the nearest package project for a Definition", async () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "node_modules/kleur"), { recursive: true })

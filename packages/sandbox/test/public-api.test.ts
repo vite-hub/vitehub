@@ -22,6 +22,20 @@ describe("sandbox public api", () => {
     })
   })
 
+  it("keeps the project policy out of runtime Definition options", () => {
+    const definition = defineSandbox({
+      project: false,
+      run: async () => "self-contained",
+      timeout: 1_000,
+    })
+
+    expect(definition.options).toEqual({ timeout: 1_000 })
+    expect(() => defineSandbox({
+      project: "auto",
+      run: async () => null,
+    } as never)).toThrow("project must be a boolean")
+  })
+
   it("returns an error-first tuple instead of throwing", async () => {
     const [error, value] = await runSandbox("missing")
 
