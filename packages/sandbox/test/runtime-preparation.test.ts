@@ -13,6 +13,7 @@ import {
   resolveSandboxRuntimeLinkType,
   withSandboxRuntimeGenerationLock,
 } from "../src/internal/runtime-generation.ts"
+import { createSandboxRuntimePackageImportSpecifier } from "../src/internal/runtime-preparation.ts"
 
 const tempDirs: string[] = []
 
@@ -21,6 +22,21 @@ afterEach(async () => {
 })
 
 describe("Sandbox runtime preparation", () => {
+  it("emits loadable file URLs for Windows package imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-runtime-import-"))
+    tempDirs.push(root)
+    const moduleFile = join(root, "state.mjs")
+    await writeFile(moduleFile, "export const ready = true\n")
+
+    const specifier = createSandboxRuntimePackageImportSpecifier(moduleFile, "win32")
+    expect(specifier).toMatch(/^file:\/\//)
+    await expect(import(specifier)).resolves.toMatchObject({ ready: true })
+    expect(createSandboxRuntimePackageImportSpecifier(
+      String.raw`C:\repo\node_modules\@vite-hub\sandbox\dist\runtime\state.js`,
+      "win32",
+    )).toBe("file:///C:/repo/node_modules/@vite-hub/sandbox/dist/runtime/state.js")
+  })
+
   it("uses directory links only where they can be replaced atomically", () => {
     expect(resolveSandboxRuntimeLinkType("win32")).toBe("junction")
     expect(resolveSandboxRuntimeLinkType("linux")).toBe("dir")

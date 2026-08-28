@@ -188,11 +188,19 @@ function readResolveOptions(config: unknown): { alias?: unknown } {
     : {}
 }
 
+export function createSandboxRuntimePackageImportSpecifier(
+  file: string,
+  platform: NodeJS.Platform = process.platform,
+) {
+  return pathToFileURL(file, { windows: platform === 'win32' }).href
+}
+
 function createSandboxRuntimeFacadeContents(
   file: string,
   runtimeConfig: AgentSandboxConfig | false,
   registryFile: string,
   providerLoaderFile?: string,
+  platform?: NodeJS.Platform,
 ) {
   const stateFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
   const packageIndexFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js')
@@ -202,13 +210,13 @@ function createSandboxRuntimeFacadeContents(
     ...(providerLoaderFile
       ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
       : []),
-    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(pathToFileURL(stateFile).href)}`,
+    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createSandboxRuntimePackageImportSpecifier(stateFile, platform))}`,
     '',
     `setSandboxRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
     'export default sandboxRegistry',
-    `export * from ${JSON.stringify(pathToFileURL(packageIndexFile).href)}`,
+    `export * from ${JSON.stringify(createSandboxRuntimePackageImportSpecifier(packageIndexFile, platform))}`,
     '',
   ].join('\n')
 }
@@ -476,6 +484,7 @@ export async function prepareSandboxRuntime(options: {
       context.runtimeConfig.sandbox,
       registryFile,
       providerLoaderFile,
+      options.platform,
     ),
     options.platform,
   )

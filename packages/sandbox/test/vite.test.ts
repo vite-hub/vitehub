@@ -177,8 +177,13 @@ describe("hubSandbox", () => {
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toHaveLength(2)
     expect(facadePackageImports.every(specifier => specifier.startsWith("file:"))).toBe(true)
+    const facadePaths = [sandboxAlias, await realpath(sandboxAlias)]
     await Promise.all(facadePackageImports.map(async (specifier) => {
-      await expect(realpath(fileURLToPath(specifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
+      await Promise.all(facadePaths.map(async (facadePath) => {
+        const resolved = new URL(specifier, pathToFileURL(facadePath)).href
+        expect(resolved).toBe(specifier)
+        await expect(realpath(fileURLToPath(resolved))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
+      }))
     }))
     expect(facade).toContain('from "./sandbox-registry.mjs"')
     expect(facade).toContain('from "./sandbox-provider-loader.mjs"')
@@ -1393,6 +1398,22 @@ describe("hubSandbox", () => {
     expect(invalidated).toContain(firstGenerationSandbox)
     await Promise.all([firstUpdate, secondUpdate])
     await expect(readFile(sandboxAlias, "utf8")).resolves.toContain("setSandboxRuntimeConfig")
+  })
+
+  it("bundles generated facade file URL package imports", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+
+    await build({
+      appType: "custom",
+      build: {
+        rollupOptions: { input: join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs") },
+        write: false,
+      },
+      configFile: false,
+      plugins: [hubSandbox({ provider: "vercel" })],
+      root: rootDir,
+    })
   })
 
   it("removes generated bundles for definitions that no longer exist", async () => {
