@@ -78,7 +78,12 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly 
   catch {
     throw new TypeError("[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery.")
   }
-  const nuxt = await loadNuxt({ cwd: rootDir, dev: false })
+  // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's Nuxt module during config loading.
+  const nuxt = await loadNuxt({
+    cwd: rootDir,
+    dev: false,
+    overrides: { vitehubCliDiscovery: true },
+  } as Parameters<typeof loadNuxt>[0])
   try {
     const { resolveConfig } = await import("vite")
     const viteRoot = nuxt.options.vite.root
