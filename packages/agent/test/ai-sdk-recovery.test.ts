@@ -1533,15 +1533,15 @@ describe("AI SDK recovery", () => {
     ])
   })
 
-  it("cancels a stream while its usage drain is waiting for a provider event", async () => {
+  it.each(["stream", "fullStream", "textStream"] as const)("cancels %s while its usage drain is waiting for a provider event", async (key) => {
     let markFirstEventRequested!: () => void
     const firstEvent = new Promise<void>(() => undefined)
     const firstEventRequested = new Promise<void>((resolve) => { markFirstEventRequested = resolve })
     const cancelled = vi.fn()
     const result = await rawStreamingResult(firstEvent, markFirstEventRequested, cancelled)
-    // SAFETY: streamAgentInline preserves the AI SDK stream and usage result members.
-    const streamed = result as { stream: ReadableStream<unknown>, usage: Promise<unknown> }
-    const reader = streamed.stream.getReader()
+    // SAFETY: streamAgentInline preserves the selected AI SDK stream and usage result members.
+    const streamed = result as Record<typeof key, ReadableStream<unknown>> & { usage: Promise<unknown> }
+    const reader = streamed[key].getReader()
 
     const firstRead = reader.read()
     await firstEventRequested
