@@ -54,8 +54,9 @@ function releaseMetadata(eventName: string, ref: string, refName: string) {
 
 describe("release workflow authority", () => {
   it("serializes every npm-mutating release", () => {
-    expect(workflow).toContain("concurrency:\n  group: npm-release\n  cancel-in-progress: false")
-    expect(workflow).not.toContain("queue:")
+    expect(workflow).toContain(
+      "concurrency:\n  group: npm-release\n  cancel-in-progress: false\n  queue: max",
+    )
     expect(workflow).not.toContain("release-${{ github.ref }}")
   })
 

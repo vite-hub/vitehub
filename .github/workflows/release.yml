@@ -11,6 +11,7 @@ permissions: {}
 concurrency:
   group: npm-release
   cancel-in-progress: false
+  queue: max
 
 env:
   NODE_VERSION: 24
