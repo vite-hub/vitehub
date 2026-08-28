@@ -361,9 +361,6 @@ async function typecheckPackageModule(
     rootNames.push(hostTypesPath)
   }
   const paths: ts.CompilerOptions["paths"] = {}
-  if (["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)) {
-    paths["json-schema"] = [resolve(packageRoot, "../../@types/json-schema/index.d.ts")]
-  }
   if (hostTypesPath) {
     paths["cloudflare:workers"] = [hostTypesPath]
   }
@@ -375,12 +372,7 @@ async function typecheckPackageModule(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    typeRoots: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
-      ? [resolve(packageRoot, "../../@types"), resolve(runnerDir, "../..", "node_modules/@types")]
-      : undefined,
-    types: ["@vite-hub/agent", "@vite-hub/auth"].includes(packageName)
-      ? ["json-schema", "mdast", "node"]
-      : ["node"],
+    types: ["node"],
   }
   const program = ts.createProgram(rootNames, options)
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic =>
