@@ -30,8 +30,6 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/auth/agent", ["@vite-hub/agent"]],
   ["@vite-hub/auth/nuxt", ["vite"]],
   ["@vite-hub/browser/controllers/playwright", ["playwright-core"]],
-  ["@vite-hub/blob/drivers/files-sdk", ["files-sdk"]],
-  ["@vite-hub/blob/drivers/netlify-blobs", ["files-sdk"]],
   ["@vite-hub/kv/runtime/upstash-driver", ["@upstash/redis"]],
   ["@vite-hub/source/client", ["vue"]],
   ["@vite-hub/source/content", ["comark-content"]],
@@ -49,6 +47,7 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["vite-hub/source/content/client", ["comark-content"]],
   ["vite-hub/ui", ["vue"]],
   ["vite-hub/ui/headless", ["vue"]],
+  ["vite-hub/ui/nuxt", ["vue"]],
   ["vite-hub/ui/vite", ["@nuxt/ui"]],
   ["vite-hub/workspace/collections/client", ["vue"]],
   ["vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
@@ -59,10 +58,10 @@ const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/agent", ["@vite-hub/workflow"]],
   ["@vite-hub/agent/runtime/workflow", ["@vite-hub/workflow"]],
   ["@vite-hub/browser/controllers/playwright", ["playwright-core"]],
-  ["@vite-hub/blob/drivers/files-sdk", ["files-sdk"]],
   ["@vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
   ["@vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
   ["vite-hub/browser/controllers/playwright", ["playwright-core"]],
+  ["vite-hub/ui/nuxt", ["vue"]],
 ])
 
 function optionalDeclarationPeersForExport(specifier: string, subpath: string) {

@@ -284,7 +284,6 @@ async function addOptionalPeers(appDir: string) {
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
     "comark-content": await installedVersion(join(repoRoot, "packages/source/node_modules/comark-content/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
-    "files-sdk": await installedVersion(join(repoRoot, "packages/blob/node_modules/files-sdk/package.json")),
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
@@ -464,7 +463,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         }
       }
 
-      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "files-sdk", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
+      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
       await assertResolution(appDir, optionalPeers, false)
       await exercisePackagesWithoutOptionalPeers(root, specs)
 

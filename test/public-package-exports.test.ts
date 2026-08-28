@@ -52,10 +52,10 @@ describe("public package export contracts", () => {
       ["@vite-hub/agent", "@vite-hub/workflow"],
       ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
-      ["@vite-hub/blob/drivers/files-sdk", "files-sdk"],
       ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
       ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
+      ["vite-hub/ui/nuxt", "vue"],
     ])
 
     for (const [specifier, peer] of lazyPeerExports) {
