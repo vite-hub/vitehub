@@ -1383,6 +1383,32 @@ async function generateProviderOutputsWithinLock(
         ...options.providerRuntimeImportAliases?.vercel,
       }, options.serverFunctionName)
     : undefined
+  const publishGeneratedArtifacts = async () => {
+    const generatedDir = resolve(options.rootDir, ".vitehub", productName)
+    if (resolve(artifacts.generatedDir) === generatedDir) return
+    const nextDir = `${generatedDir}.${randomUUID()}.next`
+    const previousDir = `${generatedDir}.${randomUUID()}.previous`
+    await cp(artifacts.generatedDir, nextDir, { recursive: true })
+    const hadPrevious = existsSync(generatedDir)
+    try {
+      if (hadPrevious) await rename(generatedDir, previousDir)
+      await rename(nextDir, generatedDir)
+    }
+    catch (error) {
+      await rm(nextDir, { force: true, recursive: true })
+      if (hadPrevious) {
+        try {
+          await rm(generatedDir, { force: true, recursive: true })
+          await rename(previousDir, generatedDir)
+        }
+        catch (restoreError) {
+          throw new AggregateError([error, restoreError], "Generated Workflow artifact rollback failed")
+        }
+      }
+      throw error
+    }
+    await rm(previousDir, { force: true, recursive: true })
+  }
   const writeOutputs = async () => {
     const outputRoot = createDefaultVercelOutputRoot(options.rootDir)
     const previousOutputRoot = `${outputRoot}.vitehub-workflow.previous`
@@ -1412,6 +1438,8 @@ async function generateProviderOutputsWithinLock(
           cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
         },
         afterWrite: async (signal) => {
+          signal?.throwIfAborted()
+          await publishGeneratedArtifacts()
           signal?.throwIfAborted()
           if (vercelOutput) {
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
