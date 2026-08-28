@@ -8,6 +8,7 @@ import {
   isIdentifier,
   isImportDeclaration,
   isNamedImports,
+  isNamespaceImport,
   isObjectLiteralExpression,
   isPropertyAccessExpression,
   isPropertyAssignment,
@@ -27,13 +28,27 @@ function propertyName(node: Node) {
   return isIdentifier(node) || isStringLiteralLike(node) ? node.text : undefined;
 }
 
-function isEnvDeclaration(node: Node, bindings: ReadonlySet<string>): node is CallExpression {
+function isEnvDeclaration(
+  node: Node,
+  bindings: ReadonlySet<string>,
+  namespaces: ReadonlySet<string>,
+): node is CallExpression {
   if (!isCallExpression(node)) return false;
   if (isIdentifier(node.expression)) return bindings.has(node.expression.text);
+  if (!isPropertyAccessExpression(node.expression)) return false;
+
+  const owner = node.expression.expression;
+  if (isIdentifier(owner)) {
+    return (
+      (bindings.has(owner.text) && node.expression.name.text === "variable") ||
+      (namespaces.has(owner.text) && node.expression.name.text === "env")
+    );
+  }
   return (
-    isPropertyAccessExpression(node.expression) &&
-    isIdentifier(node.expression.expression) &&
-    bindings.has(node.expression.expression.text) &&
+    isPropertyAccessExpression(owner) &&
+    isIdentifier(owner.expression) &&
+    namespaces.has(owner.expression.text) &&
+    owner.name.text === "env" &&
     node.expression.name.text === "variable"
   );
 }
@@ -48,24 +63,29 @@ function envCalls(source: string) {
   );
   const calls: CallExpression[] = [];
   const bindings = new Set(["env"]);
+  const namespaces = new Set<string>();
 
   for (const statement of sourceFile.statements) {
     if (
       !isImportDeclaration(statement) ||
       !isStringLiteralLike(statement.moduleSpecifier) ||
       !envDeclarationModules.has(statement.moduleSpecifier.text) ||
-      !statement.importClause?.namedBindings ||
-      !isNamedImports(statement.importClause.namedBindings)
+      !statement.importClause?.namedBindings
     ) {
       continue;
     }
-    for (const element of statement.importClause.namedBindings.elements) {
-      if ((element.propertyName ?? element.name).text === "env") bindings.add(element.name.text);
+    const namedBindings = statement.importClause.namedBindings;
+    if (isNamespaceImport(namedBindings)) {
+      namespaces.add(namedBindings.name.text);
+    } else if (isNamedImports(namedBindings)) {
+      for (const element of namedBindings.elements) {
+        if ((element.propertyName ?? element.name).text === "env") bindings.add(element.name.text);
+      }
     }
   }
 
   function visit(node: Node) {
-    if (isEnvDeclaration(node, bindings)) {
+    if (isEnvDeclaration(node, bindings, namespaces)) {
       calls.push(node);
       return;
     }
@@ -127,12 +147,17 @@ describe("Env documentation", () => {
     const calls = buildEnvCalls(`
 \`\`\`ts
 import { env as declareEnv } from "@vite-hub/env/vite"
+import * as envApi from "@vite-hub/env/vite"
+import * as unrelatedApi from "unrelated-env"
 import { env as unrelatedEnv } from "unrelated-env"
 
 const config = {
   public: {
     appName: declareEnv({ source: declareEnv.source("APP_NAME"), mode: "build" }),
     region: declareEnv.variable({ mode: "build" }),
+    target: envApi.env({ mode: "build" }),
+    stage: envApi.env.variable({ mode: "build" }),
+    ignoredNamespace: unrelatedApi.env({ mode: "runtime" }),
     ignored: unrelatedEnv({ mode: "runtime" }),
   },
 }
@@ -141,7 +166,7 @@ const example = "env({ mode: 'runtime' })"
 \`\`\`
     `);
 
-    expect(calls.map(({ section }) => section)).toEqual(["public", "public"]);
+    expect(calls.map(({ section }) => section)).toEqual(["public", "public", "public", "public"]);
     expect(calls.every(({ call }) => hasBuildMode(call))).toBe(true);
   });
 
