@@ -320,7 +320,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         return
       }
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
@@ -351,12 +351,12 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         })
       }
       catch (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         throw error
       }
     },
-    async renderError() {
-      await resetProviderDeploymentOutputs(providerOutput)
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

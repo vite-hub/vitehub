@@ -199,7 +199,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(composedOutput)
+        await resetProviderDeploymentOutputs(composedOutput, error)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
@@ -239,12 +239,12 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         })
       }
       catch (error) {
-        await resetProviderDeploymentOutputs(composedOutput)
+        await resetProviderDeploymentOutputs(composedOutput, error)
         throw error
       }
     },
-    async renderError() {
-      await resetProviderDeploymentOutputs(composedOutput)
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(composedOutput, error)
     },
     closeBundle: {
       order: "post",

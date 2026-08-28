@@ -2922,7 +2922,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         return
       }
       if (!resolved || resolved.command !== "build") return
@@ -2961,8 +2961,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         },
       })
     },
-    async renderError() {
-      await resetProviderDeploymentOutputs(providerOutput)
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

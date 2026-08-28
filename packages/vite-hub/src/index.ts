@@ -574,10 +574,10 @@ function deploymentPlugins(
         }
       },
       async buildEnd(error) {
-        if (error) await resetProviderDeploymentOutputs(providerOutput)
+        if (error) await resetProviderDeploymentOutputs(providerOutput, error)
       },
-      async renderError() {
-        await resetProviderDeploymentOutputs(providerOutput)
+      async renderError(error) {
+        await resetProviderDeploymentOutputs(providerOutput, error)
       },
       closeBundle: {
         order: "post",

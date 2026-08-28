@@ -28,6 +28,7 @@ export async function copyVercelFunctionRuntimePackageDirectories(options: {
       await cp(outputNodeModules, stagedNodeModules, { recursive: true })
     }
     catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     await mkdir(stagedNodeModules, { recursive: true })
@@ -39,6 +40,7 @@ export async function copyVercelFunctionRuntimePackageDirectories(options: {
         selected.set(runtimePackage.name, await realpath(await resolvePackageJson(runtimePackage.name, dirname(runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")))))
       }
       catch (error) {
+        // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
         if (!runtimePackage.optional || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       }
     }
@@ -52,6 +54,7 @@ export async function copyVercelFunctionRuntimePackageDirectories(options: {
       movedPreviousOutput = true
     }
     catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
 
@@ -84,6 +87,7 @@ async function copyPackageDirectory(name: string, resolveFrom: string, outputNod
     resolvedPackageJsonPath = await resolvePackageJson(name, dirname(resolveFrom))
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if (optional && (error as NodeJS.ErrnoException).code === "ENOENT") return
     throw error
   }
@@ -105,8 +109,12 @@ async function copyPackageDirectory(name: string, resolveFrom: string, outputNod
     filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
     recursive: true,
   })
-  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as { dependencies?: Record<string, string> }
-  for (const dependency of Object.keys(packageJson.dependencies ?? {})) {
+  const parsedPackageJson: unknown = JSON.parse(await readFile(packageJsonPath, "utf8"))
+  const packageJson = parsePackageJson(parsedPackageJson, packageJsonPath)
+  const dependencies = packageJson.dependencies === undefined
+    ? {}
+    : parsePackageJson(packageJson.dependencies, `${packageJsonPath} dependencies`)
+  for (const dependency of Object.keys(dependencies)) {
     await copyPackageDirectory(dependency, packageJsonPath, outputNodeModules, copied, selected, false, join(targetDir, "node_modules"))
   }
 }
@@ -120,11 +128,22 @@ async function resolvePackageJson(name: string, fromDir: string): Promise<string
       return candidate
     }
     catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     current = dirname(current)
   }
+  // SAFETY: NodeJS.ErrnoException extends Error with the mutable filesystem error code assigned below.
   const error = new Error(`Could not resolve package.json for ${name}.`) as NodeJS.ErrnoException
   error.code = "ENOENT"
   throw error
+}
+
+function parsePackageJson(value: unknown, path: string): Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns an untrusted runtime value that must be checked at this boundary.
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`Expected ${path} to contain a JSON object.`)
+  }
+  // SAFETY: The checks above establish a non-null, non-array object with string keys.
+  return value as Record<string, unknown>
 }

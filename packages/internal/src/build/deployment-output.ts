@@ -139,11 +139,16 @@ interface ProviderDeploymentOutputFinalization {
   controller: AbortController
   handoff?: Promise<void>
   promise: Promise<void>
-  reset?: Promise<void>
+  reset?: ProviderDeploymentOutputReset
 }
 
 const providerDeploymentOutputFinalizations = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
-const providerDeploymentOutputCompletedResets = new WeakMap<ProviderOutputCatalogType, Promise<void>>()
+interface ProviderDeploymentOutputReset {
+  failures: Set<unknown>
+  promise: Promise<void>
+}
+
+const providerDeploymentOutputCompletedResets = new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>()
 
 const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "agent",
@@ -237,6 +242,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     hadPreviousOutput = true
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   if (copiesStaticOutput) {
@@ -245,6 +251,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       hadPreviousStaticOutput = true
     }
     catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   }
@@ -464,6 +471,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     await cp(outputRoot, stagedOutputRoot, { recursive: true })
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   const functionWrites = (options.functions ?? []).map(async (func) => {
@@ -615,24 +623,41 @@ export function contributeProviderDeploymentOutput(
   catalog?.replaceDeploymentContribution(contribution)
 }
 
-export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined): Promise<void> {
+export async function resetProviderDeploymentOutputs(catalog: ProviderOutputCatalogType | undefined, failure?: unknown): Promise<void> {
   if (!catalog) return
   const completedReset = providerDeploymentOutputCompletedResets.get(catalog)
   if (completedReset) {
-    await completedReset
+    if (failure !== undefined && !completedReset.failures.has(failure)) {
+      completedReset.failures.add(failure)
+      catalog.resetDeploymentContributions()
+    }
+    await completedReset.promise
     return
   }
   const active = providerDeploymentOutputFinalizations.get(catalog)
   if (active?.reset) {
-    await active.reset
+    if (failure !== undefined && !active.reset.failures.has(failure)) {
+      active.reset.failures.add(failure)
+      catalog.resetDeploymentContributions()
+    }
+    await active.reset.promise
     return
   }
   active?.controller.abort(new Error("Provider Output finalization reset"))
   catalog?.resetDeploymentContributions()
   if (active) {
-    active.reset = active.promise.catch(() => undefined)
+    active.reset = {
+      failures: new Set([failure]),
+      promise: active.promise.catch(() => undefined),
+    }
     providerDeploymentOutputCompletedResets.set(catalog, active.reset)
-    await active.reset
+    await active.reset.promise
+  }
+  else if (failure !== undefined) {
+    providerDeploymentOutputCompletedResets.set(catalog, {
+      failures: new Set([failure]),
+      promise: Promise.resolve(),
+    })
   }
 }
 

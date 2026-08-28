@@ -179,7 +179,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         return
       }
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
@@ -214,7 +214,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         })
       }
       catch (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         throw error
       }
     },
@@ -235,8 +235,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         })}\n`
       }
     },
-    async renderError() {
-      await resetProviderDeploymentOutputs(providerOutput)
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

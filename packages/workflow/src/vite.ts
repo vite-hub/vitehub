@@ -177,7 +177,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
@@ -216,8 +216,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         },
       })
     },
-    async renderError() {
-      await resetProviderDeploymentOutputs(providerOutput)
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",

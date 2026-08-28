@@ -236,7 +236,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
@@ -279,12 +279,12 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         })
       }
       catch (error) {
-        await resetProviderDeploymentOutputs(providerOutput)
+        await resetProviderDeploymentOutputs(providerOutput, error)
         throw error
       }
     },
-    async renderError() {
-      await resetProviderDeploymentOutputs(providerOutput)
+    async renderError(error) {
+      await resetProviderDeploymentOutputs(providerOutput, error)
     },
     closeBundle: {
       order: "post",
