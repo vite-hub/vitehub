@@ -405,6 +405,14 @@ describe("ViteHub Nuxt integration", () => {
       const refreshed = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(refreshed).not.toBe(generated)
 
+      const agent = "/tmp/vitehub-nuxt/custom-server/agents/fixture-refresh.ts"
+      await mkdir(resolve(agent, ".."), { recursive: true })
+      await writeFile(agent, "export default { name: 'Fixture refresh' }\n")
+      await development.runBuilderWatchHook(agent)
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8"))
+        .resolves.toContain("fixture-refresh.ts")
+      await rm(agent)
+
       await writeFile(fixture, "not json")
       await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
       await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshed)

@@ -61,6 +61,7 @@ type NuxtLike = {
     vite?: UserConfig & { auth?: AuthModuleOptions }
     vitehub?: ViteHubNuxtOptions
     vitehubCliDiscovery?: true
+    watch?: string[]
     typescript?: Record<string, unknown>
   }
 }
@@ -261,15 +262,17 @@ async function installConsole(
   if (writeGeneratedPlugin) await refreshAgentDefinitions()
   if (nuxt.options.dev && writeGeneratedPlugin) {
     if (fixture) {
-      const watchOptions = nuxt.options as typeof nuxt.options & { watch?: string[] }
-      watchOptions.watch = [...new Set([...(watchOptions.watch ?? []), fixture])]
+      nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), fixture])]
     }
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
     // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
     const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
     hookBuilderWatch?.("builder:watch", async (_event, path) => {
-      if (fixture && resolve(path) !== fixture) return
-      await refreshAgentDefinitions().catch(() => {})
+      if (fixture && resolve(path) === fixture) {
+        await refreshAgentDefinitions().catch(() => {})
+        return
+      }
+      await refreshAgentDefinitions()
     })
   }
   if (!plugins.includes(plugin)) plugins.push(plugin)
