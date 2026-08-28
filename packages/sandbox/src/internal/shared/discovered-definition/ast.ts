@@ -340,6 +340,37 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
     return expression
   }
 
+  function isTrackedFilesystemBindingUse(node: ts.Identifier) {
+    if (typescript.isImportSpecifier(node.parent)
+      || typescript.isImportClause(node.parent)
+      || typescript.isNamespaceImport(node.parent)
+      || typescript.isImportEqualsDeclaration(node.parent)) {
+      return true
+    }
+    let invokedExpression: ts.Expression = node
+    while ((typescript.isPropertyAccessExpression(invokedExpression.parent)
+      || typescript.isElementAccessExpression(invokedExpression.parent))
+      && invokedExpression.parent.expression === invokedExpression) {
+      invokedExpression = invokedExpression.parent
+    }
+    if ((typescript.isCallExpression(invokedExpression.parent) || typescript.isNewExpression(invokedExpression.parent))
+      && invokedExpression.parent.expression === invokedExpression
+      && filesystemOperation(invokedExpression)) {
+      return true
+    }
+    let current: ts.Node = node
+    while (current.parent && !typescript.isVariableDeclaration(current.parent))
+      current = current.parent
+    if (!current.parent
+      || !typescript.isVariableDeclaration(current.parent)
+      || current.parent.initializer !== current
+      || !typescript.isIdentifier(current.parent.name)) {
+      return false
+    }
+    return directBindings.has(current.parent.name.text)
+      && Boolean(derivedFilesystemOperation(current.parent.initializer))
+  }
+
   type ResolvedPath = FilesystemPathReference | 'runtime' | undefined
 
   function resolveFilesystemPath(argument: ts.Expression | undefined, seen = new Set<string>()): ResolvedPath {
@@ -395,6 +426,13 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
   }
 
   function visit(node: ts.Node) {
+    if (typescript.isIdentifier(node)
+      && directBindings.has(node.text)
+      && !isTrackedFilesystemBindingUse(node)) {
+      // Once a filesystem function escapes into an object, array, callback,
+      // or another value we do not model, its eventual path is unknown.
+      references.push({ relativeTo: 'working-directory' })
+    }
     if (typescript.isCallExpression(node)
       && node.expression.kind === typescript.SyntaxKind.ImportKeyword
       && node.arguments[0]

@@ -155,6 +155,32 @@ describe("bundleSandboxDefinition assets", () => {
     expect(bundle.modules[bundle.entry]).toContain('from "node:fs/promises"')
   })
 
+  it.each([
+    ["object", "const ops = { readFile }\nexport default { run: async () => await ops.readFile('./prompt.md', 'utf8') }"],
+    ["array", "const ops = [readFile]\nexport default { run: async () => await ops[0]('./prompt.md', 'utf8') }"],
+  ])("keeps the project when a filesystem binding escapes into an %s", async (_name, usage) => {
+    const project: SandboxProject = {
+      digest: "escaped-filesystem-binding-fixture",
+      files: {
+        "prompt.md": { contents: "", encoding: "base64" },
+      },
+      install: { args: ["install"], command: "pnpm", cwd: "." },
+      packagePath: ".",
+    }
+    const source = [
+      "import { readFile } from 'node:fs/promises'",
+      usage,
+      "",
+    ].join("\n")
+
+    const bundle = await bundleSandboxDefinition(source, "/fixture/run.sandbox.ts", {
+      execution: "definition",
+      project,
+    })
+
+    expect(bundle.project?.files).toEqual(project.files)
+  })
+
   it("keeps project assets used through computed filesystem paths", async () => {
     const project: SandboxProject = {
       digest: "computed-path-fixture",
