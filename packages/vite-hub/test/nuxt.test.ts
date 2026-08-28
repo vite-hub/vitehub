@@ -964,7 +964,7 @@ describe("ViteHub Nuxt integration", () => {
     ])
     const { nuxt, runNitroConfigHook } = createNuxt()
 
-    await viteHubNuxtModule({ email: { driver: "unemail/driver/resend" }, preset: "node" }, nuxt)
+    await viteHubNuxtModule({ email: { driver: "resend" }, preset: "node" }, nuxt)
     const nitroConfig: Record<string, unknown> = {}
     await runNitroConfigHook(nitroConfig)
 

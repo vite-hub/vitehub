@@ -71,29 +71,33 @@ function isValidDateString(value: unknown): value is string {
   return isString(value) && !Number.isNaN(Date.parse(value))
 }
 
-function isProviderMetadata(key: string, value: unknown) {
-  switch (key) {
-    case "__contentType":
-    case "contentType":
-      return isString(value)
-    case "__lastModified":
-      return isNumber(value) && Number.isFinite(value)
-    case "__size":
-    case "size":
-      return isNumber(value) && Number.isFinite(value) && value >= 0
-    case "__user":
-    case "customMetadata":
-      return isStringRecord(value)
-    case "uploadedAt":
-      return isValidDateString(value)
-    default:
-      return false
-  }
+function metadataEnvelope(metadata: StoredMetadata): "files-sdk" | "legacy" | undefined {
+  if (
+    isString(metadata.__contentType)
+    && isNumber(metadata.__lastModified)
+    && Number.isFinite(metadata.__lastModified)
+    && isNumber(metadata.__size)
+    && Number.isFinite(metadata.__size)
+    && metadata.__size >= 0
+  ) return "files-sdk"
+  if (
+    isString(metadata.contentType)
+    && isNumber(metadata.size)
+    && Number.isFinite(metadata.size)
+    && metadata.size >= 0
+    && isValidDateString(metadata.uploadedAt)
+  ) return "legacy"
+  return undefined
 }
 
-function rawCustomMetadata(metadata: StoredMetadata): Record<string, string> {
+function rawCustomMetadata(metadata: StoredMetadata, envelope = metadataEnvelope(metadata)): Record<string, string> {
+  const reservedFields = envelope === "files-sdk"
+    ? new Set(["__contentType", "__lastModified", "__size", "__user"])
+    : envelope === "legacy"
+      ? new Set(["contentType", "customMetadata", "size", "uploadedAt"])
+      : new Set<string>()
   return Object.fromEntries(Object.entries(metadata).flatMap(([key, value]): [string, string][] =>
-    !isProviderMetadata(key, value) && isString(value) ? [[key, value]] : [],
+    !reservedFields.has(key) && isString(value) ? [[key, value]] : [],
   ))
 }
 
@@ -320,23 +324,24 @@ function toBlobObject(
   metadata: StoredMetadata = {},
   listed?: Pick<NetlifyListBlob, "last_modified" | "lastModified" | "size" | "uploaded_at" | "uploadedAt">,
 ): BlobObject {
-  const contentType = isString(metadata.__contentType)
+  const envelope = metadataEnvelope(metadata)
+  const contentType = envelope === "files-sdk"
     ? metadata.__contentType
-    : isString(metadata.contentType) ? metadata.contentType : undefined
+    : envelope === "legacy" ? metadata.contentType : undefined
   const customMetadata = {
-    ...rawCustomMetadata(metadata),
+    ...rawCustomMetadata(metadata, envelope),
     ...(isStringRecord(metadata.customMetadata) ? metadata.customMetadata : {}),
     ...(isStringRecord(metadata.__user) ? metadata.__user : {}),
   }
-  const metadataSize = isNumber(metadata.__size) && Number.isFinite(metadata.__size) && metadata.__size >= 0
+  const metadataSize = envelope === "files-sdk"
     ? metadata.__size
-    : isNumber(metadata.size) && Number.isFinite(metadata.size) && metadata.size >= 0 ? metadata.size : undefined
+    : envelope === "legacy" ? metadata.size : undefined
   const size = metadataSize ?? listed?.size ?? 0
   const listedUploadTime = listed?.uploaded_at ?? listed?.uploadedAt ?? listed?.last_modified ?? listed?.lastModified
-  const uploadedAt = isNumber(metadata.__lastModified) && Number.isFinite(metadata.__lastModified)
-    ? new Date(metadata.__lastModified)
+  const uploadedAt = envelope === "files-sdk"
+    ? new Date(metadata.__lastModified!)
     : listedUploadTime ? new Date(listedUploadTime)
-      : isValidDateString(metadata.uploadedAt) ? new Date(metadata.uploadedAt) : new Date(0)
+      : envelope === "legacy" ? new Date(metadata.uploadedAt!) : new Date(0)
   return {
     contentType,
     customMetadata,
@@ -368,7 +373,11 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       const result = await store.getWithMetadata(pathname, { consistency: options.consistency, type: "blob" })
       if (!result) return null
       const metadata = result.metadata as StoredMetadata
-      return new Blob([result.data], { type: metadata.__contentType || metadata.contentType })
+      const envelope = metadataEnvelope(metadata)
+      const contentType = envelope === "files-sdk"
+        ? metadata.__contentType
+        : envelope === "legacy" ? metadata.contentType : undefined
+      return new Blob([result.data], { type: contentType })
     },
     async getArrayBuffer(pathname) {
       const result = await store.getWithMetadata(pathname, { consistency: options.consistency, type: "arrayBuffer" })

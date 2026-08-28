@@ -281,6 +281,37 @@ describe("Netlify Blobs driver", () => {
     expect(result?.customMetadata).toEqual({ owner: "external-client" })
   })
 
+  it("preserves valid reserved-looking fields in direct custom metadata", async () => {
+    const metadata = {
+      contentType: "draft",
+      uploadedAt: "2026-08-27T12:34:56.000Z",
+    }
+    store.getMetadata.mockResolvedValue({ etag: "etag", metadata })
+    mockListPages({
+      first: {
+        blobs: [{ etag: "etag", key: "external.txt", size: 7, uploaded_at: "2026-08-28T12:34:56.000Z" }],
+        directories: [],
+      },
+    })
+
+    const driver = createDriver(options)
+    const head = await driver.head("external.txt")
+    const listed = await driver.list()
+
+    expect(head).toMatchObject({
+      customMetadata: metadata,
+      httpMetadata: {},
+      size: 0,
+      uploadedAt: new Date(0),
+    })
+    expect(listed.blobs[0]).toMatchObject({
+      customMetadata: metadata,
+      httpMetadata: {},
+      size: 7,
+      uploadedAt: new Date("2026-08-28T12:34:56.000Z"),
+    })
+  })
+
   it("keeps invalid reserved Netlify metadata as custom metadata", async () => {
     store.getMetadata.mockResolvedValue({
       etag: "etag",
