@@ -1087,6 +1087,38 @@ describe("framework generated types", () => {
     expect(replacementRestart).toHaveBeenCalledOnce()
   })
 
+  it("keeps Source directories scoped to their Vite server lifecycle", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const firstServerDir = join(first.root, "api")
+    const secondServerDir = join(second.root, "backend")
+    const firstCollection = join(firstServerDir, "collections/meals.ts")
+    await mkdir(dirname(firstCollection), { recursive: true })
+    await writeFile(firstCollection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root: first.viteRoot, [VITEHUB_SERVER_DIRS]: [firstServerDir] })
+    const firstListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const firstRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: firstRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => firstListeners.set(event, callback) },
+    })
+
+    await config(plugin)({ root: second.viteRoot, [VITEHUB_SERVER_DIRS]: [secondServerDir] })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+
+    await rm(firstCollection)
+    await firstListeners.get("unlink")?.(firstCollection)
+
+    expect(firstRestart).toHaveBeenCalledOnce()
+    await expect(readFile(join(first.root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
+  })
+
   it("watches custom Source directories and recovers after refresh errors", async () => {
     const { root, viteRoot } = await createNestedProject()
     const serverDir = join(root, "api")

@@ -400,10 +400,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     },
     configureServer(server) {
       const root = projectRoot
+      const lifecycleServerDirs = serverDirs?.slice()
       let activeHandlerKey = configuredHandlerKey
-      const effectiveServerDirs = serverDirs === undefined
+      const effectiveServerDirs = lifecycleServerDirs === undefined
         ? root ? [resolve(root, "server")] : []
-        : root ? serverDirs.map(directory => resolve(root, directory)) : []
+        : root ? lifecycleServerDirs.map(directory => resolve(root, directory)) : []
       server.watcher.add(effectiveServerDirs)
       let hostRefreshRetry: ReturnType<typeof setTimeout> | undefined
       let hostRefreshRetryDelay = initialHostRefreshRetryDelay
@@ -430,10 +431,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)
       }
       function queueHostRefresh(file: string) {
-        if (serverClosed || !root || !sourceDefinitionPath(file, root, serverDirs)) return
+        if (serverClosed || !root || !sourceDefinitionPath(file, root, lifecycleServerDirs)) return
         const result = refreshQueue.then(async () => {
           if (serverClosed) return
-          const handlers = await prepareSources({ projectRoot: root, serverDirs })
+          const handlers = await prepareSources({ projectRoot: root, serverDirs: lifecycleServerDirs })
           if (serverClosed) return
           const handlerKey = await generatedHandlerKey(handlers)
           if (serverClosed) return
@@ -486,7 +487,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         return result
       }
       const refreshHost = (file: string) => {
-        if (!root || !sourceDefinitionPath(file, root, serverDirs)) return
+        if (!root || !sourceDefinitionPath(file, root, lifecycleServerDirs)) return
         clearHostRefreshRetry()
         hostRefreshRetryDelay = initialHostRefreshRetryDelay
         return queueHostRefresh(file)
