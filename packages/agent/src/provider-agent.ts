@@ -58,7 +58,7 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
-import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { agentProviderCleanupTask, settleAgentProviderCleanups } from "./internal/provider-cleanup-task.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1142,7 +1142,7 @@ async function* runProvider<
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
-        await Promise.all([cleanupCredentialHome(), cleanupRoot()])
+        await settleAgentProviderCleanups([cleanupCredentialHome(), cleanupRoot()])
       }
     }
   }
@@ -1232,7 +1232,7 @@ async function* runProvider<
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
-      await Promise.all([cleanupCredentialHome(), cleanupRoot()])
+      await settleAgentProviderCleanups([cleanupCredentialHome(), cleanupRoot()])
     }
     const codexExecutable = options.provider === "codex" ? resolveInstalledCodexExecutable() : undefined
     const runtimeEnvironment = providerEnvironment(providerEnvironmentOverrides)
