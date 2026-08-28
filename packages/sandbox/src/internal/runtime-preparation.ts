@@ -16,8 +16,9 @@ import {
   markSandboxRuntimeGeneration,
   pruneSandboxRuntimeGeneration,
   readSandboxRuntimeGeneration,
-  resolveSandboxRuntimeFacadeImportBase,
+  resolveSandboxRuntimeFacadeImportBases,
   resolveSandboxRuntimeLinkType,
+  type SandboxRuntimeFacadeImportBases,
   type SandboxRuntimeGenerationLease,
   withSandboxRuntimeGenerationLock,
 } from './runtime-generation'
@@ -188,7 +189,7 @@ function readResolveOptions(config: unknown): { alias?: unknown } {
 }
 
 function createSandboxRuntimeFacadeContents(
-  file: string,
+  importBases: SandboxRuntimeFacadeImportBases,
   runtimeConfig: AgentSandboxConfig | false,
   registryFile: string,
   providerLoaderFile?: string,
@@ -197,17 +198,17 @@ function createSandboxRuntimeFacadeContents(
   const packageIndexFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js')
 
   return [
-    `import sandboxRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    `import sandboxRegistry from ${JSON.stringify(createImportPath(importBases.local, registryFile))}`,
     ...(providerLoaderFile
-      ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
+      ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(importBases.local, providerLoaderFile))}`]
       : []),
-    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, stateFile))}`,
+    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(importBases.package, stateFile))}`,
     '',
     `setSandboxRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
     'export default sandboxRegistry',
-    `export * from ${JSON.stringify(createImportPath(file, packageIndexFile))}`,
+    `export * from ${JSON.stringify(createImportPath(importBases.package, packageIndexFile))}`,
     '',
   ].join('\n')
 }
@@ -239,7 +240,11 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan, plat
 async function writeSandboxArtifacts(
   rootDir: string,
   plan: FeatureRuntimePlan,
-  createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
+  createFacadeContents: (
+    importBases: SandboxRuntimeFacadeImportBases,
+    registryFile: string,
+    providerLoaderFile?: string,
+  ) => string,
   platform = process.platform,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
@@ -255,7 +260,11 @@ async function writeSandboxArtifacts(
 
 async function writeSandboxArtifactsLocked(
   plan: FeatureRuntimePlan,
-  createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
+  createFacadeContents: (
+    importBases: SandboxRuntimeFacadeImportBases,
+    registryFile: string,
+    providerLoaderFile?: string,
+  ) => string,
   generatedDir: string,
   platform: NodeJS.Platform,
   lease: SandboxRuntimeGenerationLease,
@@ -291,7 +300,7 @@ async function writeSandboxArtifactsLocked(
     for (const artifact of emitted.values())
       await writeFileIfChanged(artifact.dst, artifact.contents)
     const generationFacadeFile = resolve(generationDir, 'sandbox.mjs')
-    const activeFacadeFile = resolveSandboxRuntimeFacadeImportBase(runtimeDir, generationFacadeFile, platform)
+    const facadeImportBases = resolveSandboxRuntimeFacadeImportBases(runtimeDir, generationFacadeFile, platform)
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     if (!registryArtifact)
       throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
@@ -299,7 +308,7 @@ async function writeSandboxArtifactsLocked(
     await writeFileIfChanged(
       generationFacadeFile,
       markSandboxRuntimeGeneration(
-        createFacadeContents(activeFacadeFile, registryArtifact.dst, providerLoaderArtifact?.dst),
+        createFacadeContents(facadeImportBases, registryArtifact.dst, providerLoaderArtifact?.dst),
         generationDir,
       ),
     )
@@ -470,8 +479,8 @@ export async function prepareSandboxRuntime(options: {
   const emitted = await writeSandboxArtifacts(
     rootDir,
     plan,
-    (file, registryFile, providerLoaderFile) => createSandboxRuntimeFacadeContents(
-      file,
+    (importBases, registryFile, providerLoaderFile) => createSandboxRuntimeFacadeContents(
+      importBases,
       context.runtimeConfig.sandbox,
       registryFile,
       providerLoaderFile,

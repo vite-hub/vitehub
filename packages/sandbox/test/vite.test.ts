@@ -1,6 +1,6 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -84,8 +84,8 @@ function readSandboxNitroNoExternals(
   return createSandboxNitroLifecycle(plugin, initial)().noExternals as Array<string | RegExp>
 }
 
-async function createViteRoot() {
-  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-sandbox-vite-"))
+async function createViteRoot(parentDir = tmpdir()) {
+  const rootDir = await mkdtemp(join(parentDir, "vitehub-sandbox-vite-"))
   tempDirs.push(rootDir)
   await writeFile(join(rootDir, "package.json"), JSON.stringify({
     name: "vitehub-sandbox-vite-fixture",
@@ -110,7 +110,7 @@ afterEach(async () => {
 
 describe("hubSandbox", () => {
   it("exposes Vite Sandbox state", async () => {
-    const rootDir = await createViteRoot()
+    const rootDir = await createViteRoot(process.cwd())
     const { hubSandbox } = await import("../src/vite.ts")
     const providerImportAliases: Record<string, string> = {}
     const plugin = hubSandbox({
@@ -171,6 +171,14 @@ describe("hubSandbox", () => {
     expect(facade).toContain("export * from")
     expect(facade).not.toContain("providerImportAliases")
     expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
+    const facadePackageImports = [
+      facade.match(/import \{ setSandboxRuntimeConfig, setSandboxRuntimeRegistry \} from "([^"]+)"/)?.[1],
+      facade.match(/export \* from "([^"]+)"/)?.[1],
+    ].filter((specifier): specifier is string => Boolean(specifier))
+    expect(facadePackageImports).toHaveLength(2)
+    await Promise.all(facadePackageImports.map(async (specifier) => {
+      await expect(realpath(join(dirname(sandboxAlias), specifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
+    }))
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("resolveSandboxBox")
     expect(providerLoader).not.toContain("createSandboxClient")

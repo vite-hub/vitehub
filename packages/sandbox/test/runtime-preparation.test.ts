@@ -9,7 +9,7 @@ import {
   markSandboxRuntimeGeneration,
   pruneSandboxRuntimeGeneration,
   readSandboxRuntimeGeneration,
-  resolveSandboxRuntimeFacadeImportBase,
+  resolveSandboxRuntimeFacadeImportBases,
   resolveSandboxRuntimeLinkType,
   withSandboxRuntimeGenerationLock,
 } from "../src/internal/runtime-generation.ts"
@@ -31,9 +31,14 @@ describe("Sandbox runtime preparation", () => {
     const runtimeDir = join(generatedDir, "runtime")
     const generationFacade = join(generatedDir, ".runtime-generations", "runtime-next", "sandbox.mjs")
 
-    expect(resolveSandboxRuntimeFacadeImportBase(runtimeDir, generationFacade, "win32"))
-      .toBe(join(runtimeDir, "sandbox.mjs"))
-    expect(resolveSandboxRuntimeFacadeImportBase(runtimeDir, generationFacade, "linux")).toBe(generationFacade)
+    expect(resolveSandboxRuntimeFacadeImportBases(runtimeDir, generationFacade, "win32")).toEqual({
+      local: join(runtimeDir, "sandbox.mjs"),
+      package: join(runtimeDir, "sandbox.mjs"),
+    })
+    expect(resolveSandboxRuntimeFacadeImportBases(runtimeDir, generationFacade, "linux")).toEqual({
+      local: generationFacade,
+      package: join(runtimeDir, "sandbox.mjs"),
+    })
   })
 
   it("retains the active Windows runtime when file replacement fails", async () => {
