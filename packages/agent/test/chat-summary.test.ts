@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createMessage, getMessageText } from "../src/messages.ts"
 
 const runtime = () => ({
+  capabilities: {},
   memo: vi.fn(),
   runtime: "unknown" as const,
   runtimeConfig: {},

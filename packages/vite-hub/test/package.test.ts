@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import * as ownerAgentEve from "@vite-hub/agent/eve"
+import * as ownerAgentMcp from "@vite-hub/agent/mcp"
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process"
 import * as ownerAgentVue from "@vite-hub/agent/vue"
 import ownerAuthHandler from "@vite-hub/auth/server"
@@ -23,6 +24,7 @@ import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
+import * as frameworkAgentMcp from "vite-hub/agent/mcp"
 import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process"
 import * as frameworkAgentVue from "vite-hub/agent/vue"
 import frameworkAuthHandler from "vite-hub/auth/server"
@@ -67,7 +69,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/eve",
-  "@vite-hub/agent/mcp",
   "@vite-hub/agent/mcp/stdio",
   "@vite-hub/agent/messages",
   "@vite-hub/agent/output",
@@ -93,6 +94,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/vercel-vite",
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
+  "@vite-hub/kv/runtime/cloudflare-kv",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
@@ -165,7 +167,9 @@ describe("framework package contract", () => {
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
     expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(ownerAgentProcessRuntime.createProcessAgentCapacity)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
+    expect(frameworkCapabilities.executor).toBe(ownerCapabilities.executor)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
+    expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer)
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent)
     expect(frameworkAgentVue.useChat).toBe(ownerAgentVue.useChat)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
@@ -208,6 +212,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
+      "./console/sections",
       "./console/server",
       "./database/drizzle",
       "./nuxt",
@@ -264,14 +269,16 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain('import "@vite-hub/env/vite"')
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain("@cloudflare/workers-types")
     const consolePage = readFileSync(`${packageRoot}/dist/console/runtime/components/console-app.vue`, "utf8")
-    expect(consolePage).toContain('from "../agent-route"')
     expect(consolePage).toMatch(/\[data-slot="invocation"\],[\s\S]*?\[data-slot="invocation-inspector"\]\s*\{[\s\S]*?height: 100%;[\s\S]*?width: 100%;[\s\S]*?\}/)
-    expect(existsSync(`${packageRoot}/dist/console/runtime/agent-route.js`)).toBe(true)
+    expect(consolePage).toContain('from "../console-route"')
+    expect(existsSync(`${packageRoot}/dist/console/runtime/console-route.js`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.js`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.d.ts`)).toBe(true)
-    expect(manifest.exports).not.toHaveProperty("./console/runtime/agent-route")
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/console-route")
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/sections")
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request")
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time")
     expect(consolePage).toContain("AgentInvocationList")
@@ -282,9 +289,10 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("agentMenuItems")
     expect(consolePage).toContain("invocation.agentName !== selectedAgentName.value")
     expect(consolePage).toContain("invocation.agentName === agentName")
-    expect(consolePage).toContain('resolveAgentRouteName(route.name, "vitehub-console-invocation")')
+    expect(consolePage).toContain('resolveConsoleRouteName(route.name, "vitehub-console-invocation")')
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)")
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)")
+    expect(consolePage).toContain('data-slot="mobile-session-navigation"')
     expect(consolePage).not.toContain("route.query.agent")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(consolePage).not.toContain("<UApp")
@@ -294,16 +302,23 @@ describe("framework package contract", () => {
     expect(consoleRoute).toContain("<ClientOnly>")
     expect(consoleRoute).toContain("<ConsoleProvider>")
     const consoleIndexRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/index.vue`, "utf8")
-    expect(consoleIndexRoute).toContain('import { navigateTo } from "#imports"')
+    expect(consoleIndexRoute).toContain("<ConsoleHome")
+    expect(consoleIndexRoute).toContain(":sections-base=")
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
     const consoleProvider = readFileSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`, "utf8")
     expect(consoleProvider).toContain("injectTooltipProviderContext(null)")
     expect(consoleProvider).toContain('<slot v-if="hasAppProvider" />')
     expect(consoleProvider).toContain('<UApp v-else :toaster="null">')
     const consoleSearch = readFileSync(`${packageRoot}/dist/console/runtime/components/console-search.vue`, "utf8")
-    expect(consoleSearch).toContain('resolveAgentRouteName(route.name, "vitehub-console-invocation")')
+    expect(consoleSearch).toContain('resolveConsoleRouteName(route.name, "vitehub-console-invocation")')
+    expect(consoleSearch).toContain('label: "All primitives"')
+    expect(consoleSearch).toContain('label: "Pages"')
+    expect(consoleSearch).toContain('label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions"')
     const consoleClient = readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.js`, "utf8")
     expect(consoleClient).toContain("ViteHub")
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation")
+    expect(consoleClient).toContain("/kv")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8")).toContain("vitehub-console")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
@@ -312,8 +327,14 @@ describe("framework package contract", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-distributed-console-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n", "utf8")
-      const plugin = framework.vitehub({ console: { exposure: "host-managed" }, preset: "node" })
-        .find(candidate => Reflect.get(Object(candidate), "name") === "vite-hub/console")
+      const plugin = framework
+        .vitehub({
+          agent: true,
+          console: { exposure: "host-managed" },
+          kv: true,
+          preset: "node",
+        })
+        .find((candidate) => Reflect.get(Object(candidate), "name") === "vite-hub/console")
       if (!plugin) throw new TypeError("Expected the distributed Console plugin.")
       const configHook = Reflect.get(Object(plugin), "config")
       const configHandler = Reflect.get(Object(configHook), "handler") || configHook
@@ -328,7 +349,7 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.")
       }
-      expect(handlers).toHaveLength(6)
+      expect(handlers).toHaveLength(7)
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler")
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.")

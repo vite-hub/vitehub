@@ -180,11 +180,12 @@ function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
 }
 
 describe("vitehub", () => {
-  it("installs the complete console from one option", () => {
-    expect(pluginNames(vitehub({ console: true, preset: "node" }))).toEqual(expect.arrayContaining([
-      "vite-hub/console",
-      "vite-hub/console-invocation-root",
-    ]))
+  it("installs the console and adds the Agent runtime bridge only when Agents are active", () => {
+    expect(pluginNames(vitehub({ console: true, preset: "node" }))).toContain("vite-hub/console")
+    expect(pluginNames(vitehub({ console: true, preset: "node" }))).not.toContain("vite-hub/console-invocation-root")
+    expect(pluginNames(vitehub({ agent: true, console: true, preset: "node" }))).toEqual(
+      expect.arrayContaining(["vite-hub/console", "vite-hub/console-invocation-root"]),
+    )
   })
 
   it("does not install console plugins when explicitly disabled", () => {
@@ -196,7 +197,7 @@ describe("vitehub", () => {
 
   it("passes the deployment storage contract to the console plugin", async () => {
     const plugin = dependencyPluginByName(
-      vitehub({ console: true, preset: "cloudflare" }),
+      vitehub({ agent: true, console: true, preset: "cloudflare" }),
       "vite-hub/console",
     )
 
@@ -216,15 +217,14 @@ describe("vitehub", () => {
           ],
         },
       })
-      const plugin = dependencyPluginByName(
-        vitehub({ auth: true, console: { access: "auth" }, preset: "node" }),
-        "vite-hub/console",
-      )
+      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { access: "auth" }, preset: "node" }), "vite-hub/console")
       const config: Record<string, unknown> = { root }
 
       await callHook(plugin.config, [config, { command: "build", mode: "production" }])
 
-      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
+      expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, {
+        serverDirs: undefined,
+      })
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
           expect.objectContaining({ route: "/_vitehub/**" }),
@@ -265,7 +265,7 @@ describe("vitehub", () => {
       auth: true,
       blob: true,
       database: true,
-      email: { driver: "unemail/driver/resend" },
+      email: { driver: "resend" },
       channels: true,
       kv: true,
       preset: "cloudflare",
@@ -345,7 +345,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
-      driver: "unemail/driver/resend",
+      driver: "resend",
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
     })
@@ -436,7 +436,7 @@ describe("vitehub", () => {
 
   it("passes configured Email drivers through the canonical integration", () => {
     const email = {
-      driver: "unemail/driver/resend" as const,
+      driver: "resend" as const,
       options: { endpoint: "https://api.resend.com" },
     }
 
@@ -457,7 +457,7 @@ describe("vitehub", () => {
     vitehub({ email: true, preset: "cloudflare" })
 
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
-      driver: "unemail/driver/cloudflare-email",
+      driver: "cloudflare-email",
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
