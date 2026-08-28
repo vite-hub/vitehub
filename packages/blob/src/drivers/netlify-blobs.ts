@@ -61,7 +61,8 @@ function isString(value: unknown): value is string {
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
-  return value === Object(value)
+  return typeof value === "object"
+    && value !== null
     && !Array.isArray(value)
     && Object.values(value).every(isString)
 }
