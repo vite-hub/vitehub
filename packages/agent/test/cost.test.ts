@@ -457,6 +457,47 @@ describe("cost Capability", () => {
     expect(pricing).toHaveBeenCalledOnce()
   })
 
+  it("does not account attached usage records from non-terminal stream chunks", async () => {
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const pricing = vi.fn(() => ({
+      usd: "0.02",
+      estimated: true,
+      source: "custom" as const,
+    }))
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [cost({ pricing })],
+      driver: {
+        run: () => (async function* () {
+          yield {
+            data: "progress",
+            type: "data" as const,
+            usageRecord: {
+              usage: {
+                inputTokens: 10,
+                outputTokens: 2,
+                totalTokens: 12,
+              },
+            },
+          }
+          yield { type: "finish" as const }
+        })(),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    const stream = await streamAgent(agent, runtime(), { prompt: "hello" })
+    // SAFETY: streamAgent returns an async iterable for its default output mode.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(pricing).not.toHaveBeenCalled()
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].invocation.usage).toBeUndefined()
+  })
+
   it("prices UI message stream usage before tracing it", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const { cost } = await import("../src/capabilities.ts")

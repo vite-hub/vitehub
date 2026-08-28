@@ -3813,13 +3813,9 @@ function withStreamedResult(
           if (event.phase === "final") finalText += event.text
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
-        const attachedUsageRecord = chunk && hasRuntimeType(chunk, "object") && "usageRecord" in chunk
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
-          : undefined
         usageRecord = event?.type === "usage"
           ? event.usageRecord
-          : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
+          : usageRecordFromStreamChunk(chunk, result) ?? usageRecord
         yield chunk
       }
     })(),
