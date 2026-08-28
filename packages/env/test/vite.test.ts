@@ -206,6 +206,7 @@ describe("Vite plugin", () => {
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
+      ...result as object,
       logger: { info: vi.fn() },
       root,
     } as never)
@@ -307,7 +308,7 @@ describe("Vite plugin", () => {
       },
     })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const configResult = await configHook({
       env: {
         server: {
           token: env({ secret: true }),
@@ -318,6 +319,7 @@ describe("Vite plugin", () => {
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
+      ...configResult as object,
       logger: { info: vi.fn() },
       root,
     } as never)
@@ -621,6 +623,39 @@ describe("Vite plugin", () => {
     expect(generated).not.toContain("FIRST_TOKEN")
   })
 
+  it("keeps proxied Vite environments pinned across same-root configuration reuse", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-proxied-environment-"))
+    const plugin = hubEnv()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    const resolveEnvironment = async (key: string) => {
+      const environmentConfig = {}
+      const userConfig = {
+        env: { server: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) } },
+        environments: { ssr: environmentConfig },
+        root,
+      }
+      const configResult = await configHook(userConfig, { command: "serve", mode: "development" })
+      await configResolvedHook({
+        ...userConfig,
+        ...configResult as object,
+        logger: { info: vi.fn() },
+      } as never)
+      return new Proxy(environmentConfig, {})
+    }
+
+    const firstEnvironment = await resolveEnvironment("first")
+    const secondEnvironment = await resolveEnvironment("second")
+    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const firstModule = loadHook.call({ environment: { config: firstEnvironment } }, "\0#vitehub/env/server")
+    const secondModule = loadHook.call({ environment: { config: secondEnvironment } }, "\0#vitehub/env/server")
+
+    expect(firstModule).toContain("FIRST_TOKEN")
+    expect(firstModule).not.toContain("SECOND_TOKEN")
+    expect(secondModule).toContain("SECOND_TOKEN")
+    expect(secondModule).not.toContain("FIRST_TOKEN")
+  })
+
   it("applies prefixes to inferred Vite env names", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
     await writeFile(join(root, ".env.production"), "VITEHUB_PUBLIC_APP_NAME=Quiver\n", "utf8")
@@ -698,7 +733,7 @@ describe("Vite plugin", () => {
 
     const plugin = hubEnv()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const configResult = await configHook({
       env: {
         server: {
           airtableToken: env({ secret: true }),
@@ -709,6 +744,7 @@ describe("Vite plugin", () => {
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
+      ...configResult as object,
       logger: { info: vi.fn() },
       root: join(root, "app"),
     } as never)
@@ -736,7 +772,7 @@ describe("Vite plugin", () => {
 
     const plugin = hubEnv({ runtimeImports: { secret: "../../secret.js" } })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const configResult = await configHook({
       env: {
         public: {
           appName: env({
@@ -751,6 +787,7 @@ describe("Vite plugin", () => {
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
+      ...configResult as object,
       logger: { info: vi.fn() },
       root: appRoot,
     } as never)
@@ -791,7 +828,7 @@ describe("Vite plugin", () => {
 
     const plugin = hubEnv()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const configResult = await configHook({
       env: {
         server: {
           airtableToken: env({ secret: true }),
@@ -802,6 +839,7 @@ describe("Vite plugin", () => {
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
+      ...configResult as object,
       logger: { info: vi.fn() },
       root: join(root, "frontend"),
     } as never)
@@ -817,7 +855,7 @@ describe("Vite plugin", () => {
 
     const plugin = hubEnv()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const configResult = await configHook({
       env: {
         server: {
           airtableToken: env({ secret: true }),
@@ -828,6 +866,7 @@ describe("Vite plugin", () => {
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
+      ...configResult as object,
       logger: { info: vi.fn() },
       root: join(root, "app"),
     } as never)
@@ -842,7 +881,7 @@ describe("Vite plugin", () => {
 
     const plugin = hubEnv({ projectRoot: ".." })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
+    const configResult = await configHook({
       env: {
         server: {
           airtableToken: env({ secret: true }),
@@ -853,6 +892,7 @@ describe("Vite plugin", () => {
 
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
+      ...configResult as object,
       logger: { info: vi.fn() },
       root: join(root, "app"),
     } as never)

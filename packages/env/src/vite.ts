@@ -92,6 +92,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   const resolvedConfigStates = new WeakMap<object, ResolvedEnvState>()
   const pendingConfigStates = new Map<string, ResolvedEnvState>()
   const configStateKey = `__vitehubEnvState${++envVitePluginSequence}`
+  const environmentStateKey = `${configStateKey}Resolved`
   let configStateSequence = 0
   const serverRegistryHandlers = new Set<(registry: EnvRuntimeRegistry, config: UserConfig) => void>()
   const getPublicEnv = () => buildPublicConfig
@@ -206,6 +207,10 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         resolvedConfigStates.set(config, state)
         for (const environmentConfig of Object.values(config.environments || {})) {
           resolvedConfigStates.set(environmentConfig, state)
+          Reflect.defineProperty(environmentConfig, environmentStateKey, {
+            configurable: true,
+            value: state,
+          })
         }
         Reflect.deleteProperty(config, configStateKey)
         resolvedStates.set(projectRoot, state)
@@ -220,7 +225,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     },
     load(id) {
       const viteConfig = this?.environment?.config
-      const state = (viteConfig ? resolvedConfigStates.get(viteConfig) : undefined)
+      const environmentState = viteConfig ? Reflect.get(viteConfig, environmentStateKey) as ResolvedEnvState | undefined : undefined
+      const state = environmentState
+        ?? (viteConfig ? resolvedConfigStates.get(viteConfig) : undefined)
         ?? (viteConfig?.root ? resolvedStates.get(resolveProjectRoot(viteConfig.root)) : undefined)
         ?? (viteConfig?.root ? Array.from(pendingConfigStates.values()).findLast(state => state.projectRoot === resolveProjectRoot(viteConfig.root)) : undefined)
         ?? Array.from(resolvedStates.values()).at(-1)

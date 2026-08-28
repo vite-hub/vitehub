@@ -159,6 +159,24 @@ describe("Server Env providers", () => {
     await expect(loading).rejects.toBe(duringReason)
   })
 
+  it("preserves abort identity when provider output validation triggers cancellation", async () => {
+    const registry = createRuntimeRegistry({ token: env({ source: env.provider("secrets", "token") }) })
+    const controller = new AbortController()
+    const reason = new Error("cancelled while validating provider output")
+    const privateFailure = new Error("private provider output failure")
+    const output = new Proxy({}, {
+      getPrototypeOf() {
+        controller.abort(reason)
+        throw privateFailure
+      },
+    })
+
+    await expect(loadServerEnv(registry, undefined, {
+      providers: { secrets: defineEnvProvider({ read: async () => output }) },
+      signal: controller.signal,
+    })).rejects.toBe(reason)
+  })
+
   it("does not start provider work after immediate cancellation", async () => {
     const providerRegistry = createRuntimeRegistry({
       token: env({ source: env.provider("secrets", "token") }),

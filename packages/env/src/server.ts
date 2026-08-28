@@ -258,6 +258,7 @@ function createProviderLoads(
       .then(provider => readProvider(provider, { env: localEnv, keys, signal: options.signal }, options.signal))
       .then(value => normalizeProviderValues(value, keys))
       .catch((cause) => {
+        if (options.signal?.aborted) throw abortReason(options.signal)
         if (isCancellation(cause, options.signal) || isViteHubError(cause)) throw cause
         throw envSourceFailed("provider", cause)
       })
