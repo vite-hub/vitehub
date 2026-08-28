@@ -1070,28 +1070,28 @@ function renderInvocationActivities(
   const prefix = activities.slice(0, firstUser + 1);
   const tail = activities.slice(firstUser + 1);
   const terminal = tail.filter(activity => activity.name === "vitehub.observation.truncated");
-  const externalBeforeFinal = tail.filter((activity, offset) =>
+  const visibleBeforeFinal = tail.filter((activity, offset) =>
     activity.name !== "vitehub.observation.truncated"
-    && isExternalActivity(activity)
+    && (activity.kind === "message" || isExternalActivity(activity))
     && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
   );
-  const externalAfterFinal = tail.filter((activity, offset) =>
+  const visibleAfterFinal = tail.filter((activity, offset) =>
     activity.name !== "vitehub.observation.truncated"
-    && isExternalActivity(activity)
+    && (activity.kind === "message" || isExternalActivity(activity))
     && lastAssistant >= 0
     && firstUser + 1 + offset > lastAssistant,
   );
   const work = tail.filter((activity, offset) => {
     const index = firstUser + 1 + offset;
-    return index !== lastAssistant && !isExternalActivity(activity);
+    return activity.kind !== "message" && index !== lastAssistant && !isExternalActivity(activity);
   });
 
   return [
     ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(externalBeforeFinal, invocation, expanded, toggleExpanded, inspect),
+    ...renderActivitySequence(visibleBeforeFinal, invocation, expanded, toggleExpanded, inspect),
     renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect),
     ...(lastAssistant >= 0 ? [renderInvocationActivity(activities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
-    ...renderActivitySequence(externalAfterFinal, invocation, expanded, toggleExpanded, inspect),
+    ...renderActivitySequence(visibleAfterFinal, invocation, expanded, toggleExpanded, inspect),
     ...renderActivitySequence(terminal, invocation, expanded, toggleExpanded, inspect),
   ].filter(item => item !== null);
 }

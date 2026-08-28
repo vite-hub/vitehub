@@ -590,7 +590,7 @@ describe("Agent Invocation UI", () => {
     } satisfies AgentInvocationView;
 
     const wrapper = mount(AgentInvocation, { props: { invocation } });
-    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(1);
+    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(0);
     expect(wrapper.findAll(".vh-invocation-message").map(message => message.text())).toEqual([
       expect.stringContaining("First question"),
       expect.stringContaining("First answer"),
@@ -1832,7 +1832,7 @@ describe("Agent Invocation UI", () => {
 
     expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
       .toEqual(["First question", "First answer", "Unanswered question"]);
-    expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
+    expect(messages.at(-1)!.attributes("data-role")).toBe("user");
   });
 
   it("renders truncation after work when the latest user has no response", () => {

@@ -166,6 +166,7 @@ describe("framework package contract", () => {
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
     expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(ownerAgentProcessRuntime.createProcessAgentCapacity)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
+    expect(frameworkCapabilities.executor).toBe(ownerCapabilities.executor)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer)
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent)
