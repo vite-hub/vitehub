@@ -15,9 +15,19 @@ const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: {
   settings?: Record<string, unknown>
 }) => providerRuntimes.shift()))
 const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
+const readCodexSharedHome = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...original,
+    readdir: (...args: Parameters<typeof original.readdir>) => readCodexSharedHome.getMockImplementation()
+      ? readCodexSharedHome(...args)
+      : original.readdir(...args),
+  }
+})
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -419,6 +429,57 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
     finally {
       releaseFirst()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("aborts stalled Codex shared-home materialization and retains its lock until settlement", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
+    let finishMaterialization!: () => void
+    const materialization = new Promise<string[]>(resolve => finishMaterialization = () => resolve([]))
+    readCodexSharedHome.mockImplementationOnce(async (path: string) => {
+      expect(path).toBe(sharedHome)
+      return await materialization
+    })
+    const controller = new AbortController()
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const firstResult = adapter.generate(context("thread-stalled-home-first", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    try {
+      await vi.waitFor(() => expect(readCodexSharedHome).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+      const outcome = await Promise.race([
+        firstResult.then(() => "resolved", error => error),
+        new Promise(resolve => setTimeout(() => resolve("still pending"), 100)),
+      ])
+      expect(outcome).toBe("cancelled")
+      await vi.waitFor(async () => {
+        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
+      })
+
+      const second = runtime("thread-stalled-home-second", [event("turn.completed", "thread-stalled-home-second", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const secondResult = adapter.generate(context("thread-stalled-home-second") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+
+      finishMaterialization()
+      await expect(secondResult).resolves.toBeDefined()
+      expect(second.startSession).toHaveBeenCalledOnce()
+    }
+    finally {
+      finishMaterialization()
+      controller.abort("cancelled")
+      await firstResult.catch(() => undefined)
       await rm(sharedHome, { force: true, recursive: true })
     }
   })

@@ -1401,7 +1401,15 @@ async function* runProvider<
       credentialSharedHome = await realpath(credentialSharedHome)
       const sharedHomeKey = providerHostPlatform === "win32" || providerHostPlatform === "darwin" ? credentialSharedHome.toLowerCase() : credentialSharedHome
       releaseCredentialHomeLock = await acquireProviderSessionLock(codexSharedHomeLocks, sharedHomeKey, effectiveSignal)
-      await materializeCodexCredentialOverlay(credentialHome, credentialSharedHome)
+      await waitForProviderOperation(
+        materializeCodexCredentialOverlay(credentialHome, credentialSharedHome),
+        effectiveSignal,
+        () => undefined,
+        (cleanup) => {
+          deferCredentialOverlayLockRelease(cleanup)
+          observeLateCleanup(cleanup)
+        },
+      )
       providerSettings.homePath = credentialHome
       delete providerSettings.shadowHomePath
     }
