@@ -786,7 +786,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     }
   })
 
-  it.runIf(process.platform === "darwin")("serializes case-equivalent Codex homes on case-insensitive macOS volumes", async () => {
+  it.runIf(process.platform !== "win32")("serializes case-equivalent Codex homes on case-insensitive volumes", async () => {
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     const equivalentHome = sharedHome.toUpperCase()
     if (!await access(equivalentHome).then(() => true, () => false)) {

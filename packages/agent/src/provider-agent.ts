@@ -273,7 +273,6 @@ async function restrictWindowsCodexCredentialHome(home: string): Promise<void> {
 
 async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> {
   if (providerHostPlatform === "win32") return true
-  if (providerHostPlatform !== "darwin") return false
   const probe = await mkdtemp(join(sharedHome, ".vitehub-case-probe-"))
   const alternate = join(dirname(probe), basename(probe).toUpperCase())
   try {
