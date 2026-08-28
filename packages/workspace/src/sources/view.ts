@@ -293,8 +293,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )) return
     let pending = materializeBySource.get(sourceKey)
     if (!pending) {
-      const source = sources.find(item => item.key === sourceKey)
-      const reusePreparedContext = !source?.source.resolveRevision || !materializationAttemptsBySource.has(sourceKey)
+      const reusePreparedContext = !materializationAttemptsBySource.has(sourceKey)
       pending = materializeSources({ path, sources: [sourceKey] }, { reusePreparedContext }).then(() => undefined)
       materializeBySource.set(sourceKey, pending)
       try {

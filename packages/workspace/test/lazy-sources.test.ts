@@ -1282,13 +1282,22 @@ describe("lazy sources", () => {
   })
 
   it("materializes an uncovered sibling after a scoped lazy access", async () => {
-    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
+    const preparedVersions = new WeakMap<SourceContext, number>()
+    const prepare = vi.fn(async (context: SourceContext) => {
+      preparedVersions.set(context, prepare.mock.calls.length)
+    })
+    const getItem = vi.fn(async (key: string, context: SourceContext) => ({
+      key,
+      path: key,
+      content: `# ${key} v${preparedVersions.get(context)}\n`,
+    }))
     const view = createWorkspaceSourceView({
       name: "sibling-scoped-materialization",
       sources: {
         docs: custom({
           cache: false,
           materialize: "lazy",
+          prepare,
           async getKeys() {
             return ["a.md", "b.md"]
           },
@@ -1297,8 +1306,9 @@ describe("lazy sources", () => {
       },
     }, createMemoryWorkspaceStore())
 
-    await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md\n")
-    await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md\n")
+    await expect(view.readFile("docs/a.md", { encoding: "utf8" })).resolves.toBe("# a.md v1\n")
+    await expect(view.readFile("docs/b.md", { encoding: "utf8" })).resolves.toBe("# b.md v2\n")
+    expect(prepare).toHaveBeenCalledTimes(2)
     expect(getItem).toHaveBeenCalledTimes(2)
   })
 
