@@ -15,6 +15,23 @@ import type { Plugin, PluginOption } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
+function fixtureDocument(id?: string) {
+  return {
+    invocations: id
+      ? [{
+          agentName: "support",
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id,
+          observations: [],
+          status: "completed" as const,
+          traceId: `${id}-trace`,
+          updatedAt: "2026-08-27T10:00:00.000Z",
+        }]
+      : [],
+    version: 1 as const,
+  }
+}
+
 function isTestRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
 }
@@ -391,7 +408,7 @@ describe("ViteHub Nuxt integration", () => {
     const fixture = "/tmp/vitehub-nuxt/console.fixture.json"
     await mkdir("/tmp/vitehub-nuxt", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/package.json", "{}\n")
-    await writeFile(fixture, JSON.stringify({ invocations: [], version: 1 }))
+    await writeFile(fixture, JSON.stringify(fixtureDocument()))
     vi.stubEnv("VITEHUB_CONSOLE_FIXTURE", fixture)
     try {
       const development = createNuxt(true)
@@ -400,7 +417,7 @@ describe("ViteHub Nuxt integration", () => {
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `)
       expect(development.nuxt.options.watch).toContain(fixture)
-      await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
+      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
       await development.runBuilderWatchHook()
       const refreshed = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(refreshed).not.toBe(generated)
@@ -409,19 +426,22 @@ describe("ViteHub Nuxt integration", () => {
       await mkdir(resolve(agent, ".."), { recursive: true })
       await writeFile(agent, "export default { name: 'Fixture refresh' }\n")
       await development.runBuilderWatchHook(agent)
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8"))
-        .resolves.toContain("fixture-refresh.ts")
-      await rm(agent)
+      const refreshedWithAgent = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(refreshedWithAgent).toContain("fixture-refresh.ts")
 
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
       await writeFile(fixture, "not json")
       await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshed)
+      await expect(development.runBuilderWatchHook(agent)).resolves.toBeUndefined()
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshedWithAgent)
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
+      await rm(agent)
 
       await rm(fixture)
       await expect(development.runBuilderWatchHook()).resolves.toBeUndefined()
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshed)
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toBe(refreshedWithAgent)
 
-      await writeFile(fixture, JSON.stringify({ invocations: [], marker: "restored", version: 1 }))
+      await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
       await development.runBuilderWatchHook()
       await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toBe(refreshed)
 

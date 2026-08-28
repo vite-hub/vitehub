@@ -13,7 +13,7 @@ import { createServer } from "vite"
 import { defineAgent } from "../src/agent.ts"
 import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRevisionRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
-import { consoleFixtureEnvironmentVariable, parseConsoleFixture } from "../src/console/fixture.ts"
+import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
@@ -36,6 +36,23 @@ type ConsoleGlobal = typeof globalThis & Record<symbol, AgentInvocations | strin
 const scope = globalThis as ConsoleGlobal
 // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This test double only needs identity; no journal method is invoked through it.
 const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocations
+
+function fixtureDocument(id?: string) {
+  return {
+    invocations: id
+      ? [{
+          agentName: "support",
+          createdAt: "2026-08-27T10:00:00.000Z",
+          id,
+          observations: [],
+          status: "completed" as const,
+          traceId: `${id}-trace`,
+          updatedAt: "2026-08-27T10:00:00.000Z",
+        }]
+      : [],
+    version: 1 as const,
+  }
+}
 
 function event(address: string | undefined, method = "GET"): ConsoleRequestEvent {
   const headers = new Headers({ host: "localhost" })
@@ -178,6 +195,25 @@ describe("Agent invocation console", () => {
       expect(Reflect.get(process, consoleInvocationsRegistryKey).size).toBe(1)
       await expect(second.list()).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "second" })],
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("installs a validated generated snapshot after the fixture changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-snapshot-"))
+    try {
+      const file = join(root, "fixture.json")
+      const fixture = parseConsoleFixture(fixtureDocument("generated"))
+      await writeFile(file, JSON.stringify(fixture))
+      await writeFile(file, "not json")
+
+      const invocations = installConsoleFixtureInvocations(root, file, fixture, consoleFixtureRevision(fixture))
+
+      await expect(invocations.list()).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "generated" })],
       })
     }
     finally {
@@ -400,7 +436,7 @@ describe("Agent invocation console", () => {
     try {
       const fixture = join(fixtureRoot, "console.fixture.json")
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(fixture, JSON.stringify({ invocations: [], version: 1 }))
+      await writeFile(fixture, JSON.stringify(fixtureDocument()))
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
       const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
       const configHook = plugin.config
@@ -423,7 +459,7 @@ describe("Agent invocation console", () => {
         : configureServerHook
       await Reflect.apply(configureServer, {}, [{ config: { logger }, watcher: { add, on: (event: string, callback: () => Promise<void>) => listeners.set(event, callback) } }])
       expect(add).toHaveBeenCalledWith(fixture)
-      await writeFile(fixture, JSON.stringify({ invocations: [], marker: "replacement", version: 1 }))
+      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
       await listeners.get("change")?.()
       const refreshed = await readFile(config.nitro?.plugins?.[0] ?? "", "utf8")
       expect(refreshed).not.toBe(generated)
@@ -438,7 +474,7 @@ describe("Agent invocation console", () => {
       await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.toBe(refreshed)
       expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
 
-      await writeFile(fixture, JSON.stringify({ invocations: [], marker: "restored", version: 1 }))
+      await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
       await listeners.get("add")?.()
       await expect(readFile(config.nitro?.plugins?.[0] ?? "", "utf8")).resolves.not.toBe(refreshed)
 

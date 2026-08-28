@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto"
-import { mkdirSync, readFileSync } from "node:fs"
+import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -13,9 +12,10 @@ import {
   resolveConsoleInvocationsIdentity,
   resolveConsoleInvocationsRevision,
 } from "../../internal.ts"
-import { readConsoleFixture } from "../../fixture.ts"
+import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
+import type { ConsoleFixture } from "../../fixture.ts"
 
 const consoleMetadataContent = [
   "input.messages",
@@ -78,14 +78,17 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
   })
 }
 
-export function createConsoleFixtureInvocations(file: string): AgentInvocations {
-  const fixture = readConsoleFixture(file)
+function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): AgentInvocations {
   const store = createMemoryAgentInvocationStore()
   for (const record of fixture.invocations) {
     const { cursor: _cursor, ...input } = record
     store.create(input)
   }
   return defineAgentInvocations({ metadataContent: consoleMetadataContent, store })
+}
+
+export function createConsoleFixtureInvocations(file: string): AgentInvocations {
+  return createConsoleFixtureInvocationsFromSnapshot(readConsoleFixture(file))
 }
 
 export function installConsoleInvocations(projectRoot: string): AgentInvocations {
@@ -98,14 +101,20 @@ export function installConsoleInvocations(projectRoot: string): AgentInvocations
   return invocations
 }
 
-export function installConsoleFixtureInvocations(projectRoot: string, file: string, _generatedRevision?: string): AgentInvocations {
+export function installConsoleFixtureInvocations(
+  projectRoot: string,
+  file: string,
+  generatedFixture?: ConsoleFixture,
+  generatedRevision?: string,
+): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const resolvedFile = resolve(file)
   const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile)
-  const revision = createHash("sha256").update(readFileSync(resolvedFile)).digest("hex")
+  const fixture = generatedFixture ?? readConsoleFixture(resolvedFile)
+  const revision = generatedRevision ?? consoleFixtureRevision(fixture)
   const installed = resolveConsoleInvocations()
   if (installed && resolveConsoleInvocationsIdentity() === identity && resolveConsoleInvocationsRevision(identity) === revision) return installed
-  const invocations = createConsoleFixtureInvocations(resolvedFile)
+  const invocations = createConsoleFixtureInvocationsFromSnapshot(fixture)
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity, revision)
   return invocations
 }

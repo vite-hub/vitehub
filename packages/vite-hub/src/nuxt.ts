@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -16,7 +14,7 @@ import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
-import { consoleFixtureEnvironmentVariable, readConsoleFixture } from "./console/fixture.ts"
+import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
@@ -173,14 +171,13 @@ function renderConsoleNitroPlugin(
   agents: readonly { handler: string, name: string }[],
   fixture?: string,
 ): string {
-  const fixtureRevision = fixture
-    ? createHash("sha256").update(readFileSync(fixture)).digest("hex")
-    : undefined
+  const fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined
+  const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   return [
     `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     fixture
-      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${JSON.stringify(fixtureRevision)})`
+      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${JSON.stringify(fixtureSnapshot)}, ${JSON.stringify(revision)})`
       : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
     `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
@@ -267,9 +264,11 @@ async function installConsole(
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
     // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
     const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
-    hookBuilderWatch?.("builder:watch", async (_event, path) => {
-      if (fixture && resolve(path) === fixture) {
-        await refreshAgentDefinitions().catch(() => {})
+    hookBuilderWatch?.("builder:watch", async (_event, _path) => {
+      if (fixture) {
+        await refreshAgentDefinitions().catch((error) => {
+          console.error(`[vitehub] Could not refresh Console development state: ${error instanceof Error ? error.message : String(error)}`)
+        })
         return
       }
       await refreshAgentDefinitions()

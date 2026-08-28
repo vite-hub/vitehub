@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 
 import * as v from "valibot"
@@ -272,6 +273,10 @@ export function parseConsoleFixture(value: unknown): ConsoleFixture {
     ids.add(item.id)
   }
   return { invocations, version: 1 }
+}
+
+export function consoleFixtureRevision(fixture: ConsoleFixture): string {
+  return createHash("sha256").update(JSON.stringify(fixture)).digest("hex")
 }
 
 export function readConsoleFixture(file: string): ConsoleFixture {

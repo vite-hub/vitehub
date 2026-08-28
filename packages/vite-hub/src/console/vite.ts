@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
@@ -13,7 +12,7 @@ import type { Plugin } from "vite"
 
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
-import { consoleFixtureEnvironmentVariable, readConsoleFixture } from "./fixture.ts"
+import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
@@ -89,14 +88,13 @@ export function assertConsoleProductionAccess(
 }
 
 function renderConsoleNitroPlugin(projectRoot: string, agents: readonly ConsoleAgentEntry[], fixture?: string): string {
-  const fixtureRevision = fixture
-    ? createHash("sha256").update(JSON.stringify(readConsoleFixture(fixture))).digest("hex")
-    : undefined
+  const fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined
+  const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   return [
     `import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`,
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     fixture
-      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${JSON.stringify(fixtureRevision)})`
+      ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${JSON.stringify(fixtureSnapshot)}, ${JSON.stringify(revision)})`
       : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
     `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
     "export default function viteHubConsolePlugin() {}",
