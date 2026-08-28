@@ -81,6 +81,12 @@ loader.require.resolve("member-resolve")
 loader.__require.resolve("member-helper-resolve")
 loader?.require("optional-member-require")
 loader?.require.resolve("optional-member-resolve")
+loader . require("spaced-member-require")
+loader . __require("spaced-member-helper-require")
+loader . require . resolve("spaced-member-resolve")
+loader ?. require("spaced-optional-member-require")
+loader ?. require . resolve("spaced-optional-member-resolve")
+loader /* receiver */ . /* call */ require("commented-member-require")
 this.#require("private-member-require")
 `))
       .toEqual([])
@@ -97,8 +103,10 @@ this.#require("private-member-require")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), `
 import "./helper.cjs"
 const importOptions = { with: { type: "json" } }
-const loader = { import: () => {} }
+const loader = { import: () => {}, require: Object.assign(() => {}, { resolve: () => {} }) }
 loader.import("member-data", importOptions)
+loader . require("member-require")
+loader ?. require . resolve("member-resolve")
 class Loader { #import = () => {}; load() { this.#import("private-member-data", importOptions) } }
 await import("data-package", importOptions)
 `, "utf8")
@@ -109,6 +117,8 @@ await import("data-package", importOptions)
     await expect(readFile(join(root, ".output/node_modules/data-package/marker"), "utf8")).resolves.toBe("data-package")
     await expect(readFile(join(root, ".output/node_modules/commonjs-runtime/marker"), "utf8")).resolves.toBe("commonjs-runtime")
     expect(existsSync(join(root, ".output/node_modules/member-data"))).toBe(false)
+    expect(existsSync(join(root, ".output/node_modules/member-require"))).toBe(false)
+    expect(existsSync(join(root, ".output/node_modules/member-resolve"))).toBe(false)
     expect(existsSync(join(root, ".output/node_modules/private-member-data"))).toBe(false)
   })
 

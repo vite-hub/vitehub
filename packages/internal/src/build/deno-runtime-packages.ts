@@ -60,19 +60,37 @@ function collectBundledPackages(source: string): Map<string, string> {
   return packages
 }
 
+function isStandaloneRequireCall(source: string, start: number) {
+  const immediatePrefix = source[start - 1]
+  if (immediatePrefix && /[$_\p{ID_Continue}]/u.test(immediatePrefix))
+    return false
+
+  let prefixIndex = start - 1
+  while (prefixIndex >= 0 && /\s/.test(source[prefixIndex]!))
+    prefixIndex--
+  return source[prefixIndex] !== '.' && source[prefixIndex] !== '#'
+}
+
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
   const executableSource = maskInertImportText(source)
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
-    /(?<![.$#])\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*\)/g,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
       const name = packageNameFromSpecifier(match[1]!)
       if (name) names.add(name)
     }
+  }
+  for (const match of executableSource.matchAll(
+    /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*\(\s*["']([^"']+)["']\s*\)/g,
+  )) {
+    if (!isStandaloneRequireCall(executableSource, match.index))
+      continue
+    const name = packageNameFromSpecifier(match[1]!)
+    if (name) names.add(name)
   }
   for (const { specifier } of findLiteralDynamicImports(executableSource)) {
     const name = packageNameFromSpecifier(specifier)
