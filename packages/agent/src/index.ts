@@ -5915,7 +5915,7 @@ async function executeAgentInvocationWithCapacityLease<
         const reason = outcome.failed ? outcome.error : undefined
         const uiSources = [...uiMessageSources.values()]
         await Promise.allSettled(uiSources.map(source => source.cancel(reason)))
-        const settleUiSources = outcome.failed || outcome.completed || !rendererSource
+        const settleUiSources = outcome.failed || outcome.completed || options.holdCapacity === true
         const cancellations = await Promise.allSettled([
           ...(rendererSource ? [rendererSource.settleCancellation(reason)] : []),
           ...(settleUiSources ? uiSources.map(source => source.settleCancellation(reason)) : []),
