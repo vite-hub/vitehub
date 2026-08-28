@@ -663,13 +663,12 @@ function providerDeploymentOutputPaths(options: ProviderDeploymentOutputOptions)
 }
 
 interface ProviderDeploymentOutputRootState {
-  cloudflareWritten: boolean
   pending: number
 }
 
 async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operation: (state: ProviderDeploymentOutputRootState) => Promise<T>): Promise<T> {
   const key = resolve(rootDir)
-  const state = providerDeploymentOutputRootStates.get(key) ?? { cloudflareWritten: false, pending: 0 }
+  const state = providerDeploymentOutputRootStates.get(key) ?? { pending: 0 }
   providerDeploymentOutputRootStates.set(key, state)
   state.pending++
   const previous = providerDeploymentOutputWrites.get(key) ?? Promise.resolve()
@@ -738,7 +737,6 @@ async function restoreProviderDeploymentOutputSnapshot(snapshot: ProviderDeploym
 async function withProviderDeploymentOutputRootTransaction<T>(
   rootDir: string,
   operation: (transaction: ProviderDeploymentOutputRootTransaction) => Promise<T>,
-  rootState?: ProviderDeploymentOutputRootState,
 ): Promise<T> {
   const roots = [
     createDefaultCloudflareOutputRoot(rootDir),
@@ -748,14 +746,17 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/rate-limit/manifest.json"),
     resolve(rootDir, ".vitehub/schedule/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/schedule/deno-cron.mjs"),
+    resolve(rootDir, ".vitehub/schedule/registry.mjs"),
     resolve(rootDir, ".vitehub/workflow"),
   ]
   const transactionRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-output-"))
   const snapshots = new Map<string, ProviderDeploymentOutputSnapshot>()
   let snapshotIndex = 0
   const transaction: ProviderDeploymentOutputRootTransaction = {
-    cloudflareWritten: rootState?.cloudflareWritten ?? false,
+    cloudflareWritten: false,
     async snapshot(paths, preservedPaths = []) {
       const resolvedPreservedPaths = [...new Set(preservedPaths.map(path => resolve(path)))]
       for (const snapshot of snapshots.values()) {
@@ -813,7 +814,6 @@ async function withProviderDeploymentOutputRootTransaction<T>(
   try {
     await transaction.snapshot(roots)
     const result = await operation(transaction)
-    if (transaction.cloudflareWritten && rootState) rootState.cloudflareWritten = true
     await rm(transactionRoot, { force: true, recursive: true })
     return result
   }
@@ -996,7 +996,7 @@ export async function finalizeProviderDeploymentOutputs(
               ready = resolve
               rejectReady = reject
             })
-            const write = withProviderDeploymentOutputRootLock(rootDir, async (rootState) => {
+            const write = withProviderDeploymentOutputRootLock(rootDir, async () => {
               await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
                 try {
                   for (const contribution of rootContributions) {
@@ -1020,7 +1020,7 @@ export async function finalizeProviderDeploymentOutputs(
                   rejectReady(error)
                   throw error
                 }
-              }, rootState)
+              })
             })
             void write.catch(rejectReady)
             return { readiness, write }
@@ -1040,6 +1040,7 @@ export async function finalizeProviderDeploymentOutputs(
             await settleWrites(roots.map(root => root.write))
             throw error
           }
+          catalog.commitDeploymentContributions(contributions)
           state.generations.clear()
           decideRoots(undefined)
           await settleWrites(roots.map(root => root.write))

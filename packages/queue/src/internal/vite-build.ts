@@ -89,6 +89,7 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   serverFunctionName?: string
   signal?: AbortSignal
+  sourceRootDir?: string
 }
 
 export interface CloudflareQueueConfigOptions {
@@ -143,12 +144,12 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined, definitions = discoverQueueDefinitions({ rootDir })) {
+async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined, definitions = discoverQueueDefinitions({ rootDir }), sourceRootDir = rootDir) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const userAppEntry = resolveUserAppEntry(rootDir)
+  const userAppEntry = resolveUserAppEntry(sourceRootDir)
 
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
@@ -593,7 +594,7 @@ export async function generateProviderOutputs(
   options: GenerateProviderOutputsOptions,
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<GeneratedQueueArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
+  const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions, options.sourceRootDir)
   options.signal?.throwIfAborted()
   const cloudflareQueueConfig = resolveOutputQueueConfig(options.queue, "cloudflare")
   const usesCloudflare = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare"

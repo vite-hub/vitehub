@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { cp, mkdir, rm, stat, writeFile } from "node:fs/promises"
-import { dirname, extname, isAbsolute, relative, resolve, normalize } from "node:path"
+import { mkdir, rm, writeFile } from "node:fs/promises"
+import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -638,20 +639,23 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         const contributionArtifactDir = artifactDir
         const workflow = await prepareWorkflow?.(resolve(contributionArtifactDir, "workflow"))
         const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
-        const retainedAliases = Object.fromEntries(await Promise.all(Object.entries(contributedAliases).map(async ([specifier, target], index) => {
-          if (!isAbsolute(target)) return [specifier, target]
-          try {
-            await stat(target)
-          }
-          catch (error) {
-            if (isRecord(error) && error.code === "ENOENT") return [specifier, target]
-            throw error
-          }
-          const retainedTarget = resolve(contributionArtifactDir, "aliases", `${index}${extname(target)}`)
-          await mkdir(dirname(retainedTarget), { recursive: true })
-          await cp(target, retainedTarget, { recursive: true })
-          return [specifier, retainedTarget]
-        })))
+        const aliases = {
+          ...resolveStringAliases(config),
+          ...contributedAliases,
+          ...internalOptions.providerImportAliases,
+          ...workflow?.bundleAlias,
+        }
+        const retainedSources = await retainProviderOutputSources({
+          artifactDir: resolve(contributionArtifactDir, "sources"),
+          paths: [...definitions.map(definition => definition.handler), ...Object.values(aliases)],
+          roots: [rootDir],
+        })
+        const retainedDefinitions = definitions.map(definition => ({
+          ...definition,
+          handler: retainedSources.resolve(definition.handler),
+        }))
+        const retainedAliases = Object.fromEntries(Object.entries(aliases)
+          .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
           owner: "schedule",
@@ -659,15 +663,10 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           write: async ({ signal }) => {
             signal.throwIfAborted()
             await generateProviderOutputsWithinLock({
-              bundleAlias: {
-                ...resolveStringAliases(config),
-                ...retainedAliases,
-                ...internalOptions.providerImportAliases,
-                ...workflow?.bundleAlias,
-              },
+              bundleAlias: retainedAliases,
               ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
               clientOutDir: resolve(config.root, config.build.outDir),
-              definitions,
+              definitions: retainedDefinitions,
               crons,
               rootDir,
               runtimeImport: internalOptions.runtimeImport,

@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -2944,15 +2945,20 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
           : undefined
         const contributionArtifactDir = artifactDir
-        const retainedDefinitions = contributionArtifactDir
-          ? await Promise.all(definitions.map(async (definition, index) => {
-              const sourceDir = dirname(definition.handler)
-              const retainedSourceDir = resolve(contributionArtifactDir, String(index))
-              const handler = resolve(retainedSourceDir, relative(sourceDir, definition.handler))
-              await cp(sourceDir, retainedSourceDir, { recursive: true })
-              return { ...definition, handler }
-            }))
-          : definitions
+        const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
+        const retainedSources = contributionArtifactDir
+          ? await retainProviderOutputSources({
+              artifactDir: resolve(contributionArtifactDir, "sources"),
+              paths: [...definitions.map(definition => definition.handler), ...Object.values(providerImportAliases)],
+              roots: [config.root],
+            })
+          : undefined
+        const retainedDefinitions = definitions.map(definition => ({
+          ...definition,
+          handler: retainedSources?.resolve(definition.handler) ?? definition.handler,
+        }))
+        const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
+          .map(([specifier, target]) => [specifier, retainedSources?.resolve(target) ?? target]))
         contributeProviderDeploymentOutput(providerOutput, {
           discard: contributionArtifactDir ? async () => await rm(contributionArtifactDir, { force: true, recursive: true }) : undefined,
           owner: "agent",
@@ -2963,7 +2969,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               agentImportBase: getAgentImportBase(agent, frameworkOptions),
               libsqlState: resolveLibsqlAgentState(normalized, config),
-              providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
+              providerImportAliases: retainedProviderImportAliases,
               runtimeCapabilities: standaloneRuntimeCapabilities,
               schedule: hasScheduleVitePlugin(config),
               scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),

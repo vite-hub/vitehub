@@ -84,9 +84,11 @@ export class ProviderOutputCatalog {
   #runtimeContributions = new Map<ProviderOutputProduct, ProviderRuntimeContribution>()
   #deploymentContributionSequence = 0
   #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], ProviderDeploymentOutputEntry[]>()
-  #deploymentGenerations = new Set<ProviderDeploymentOutputGeneration>()
+  #deploymentGenerationRefs = new WeakMap<ProviderDeploymentOutputGeneration, WeakRef<ProviderDeploymentOutputGeneration>>()
+  #deploymentGenerations = new Set<WeakRef<ProviderDeploymentOutputGeneration>>()
   #pendingDeploymentDiscards: Array<Promise<void>> = []
   #takenDeploymentContributions = new Map<ProviderDeploymentOutputContribution, {
+    committed: boolean
     entry: ProviderDeploymentOutputEntry
     entryDiscarded: boolean
     fallbacks: ProviderDeploymentOutputEntry[]
@@ -141,22 +143,29 @@ export class ProviderOutputCatalog {
 
   createDeploymentGeneration(): ProviderDeploymentOutputGeneration {
     const generation = { valid: true }
-    this.#deploymentGenerations.add(generation)
+    this.#trackDeploymentGeneration(generation)
     return generation
   }
 
   replaceDeploymentContribution(contribution: ProviderDeploymentOutputContribution, generation?: ProviderDeploymentOutputGeneration): void {
-    if (generation && !generation.valid) return
-    this.#restoreDeploymentContribution({
+    const entry = {
       contribution,
       generation,
       sequence: this.#deploymentContributionSequence++,
-    })
+    }
+    if (generation && !generation.valid) {
+      this.#queueDeploymentDiscard(entry)
+      return
+    }
+    this.#restoreDeploymentContribution(entry)
   }
 
   resetDeploymentContributions(generation?: ProviderDeploymentOutputGeneration): void {
     if (!generation) {
-      for (const current of this.#deploymentGenerations) current.valid = false
+      for (const reference of this.#deploymentGenerations) {
+        const current = reference.deref()
+        if (current) current.valid = false
+      }
       this.#deploymentGenerations.clear()
       for (const entries of this.#deploymentContributions.values()) {
         for (const entry of entries) this.#queueDeploymentDiscard(entry)
@@ -170,7 +179,7 @@ export class ProviderOutputCatalog {
       return
     }
     generation.valid = false
-    this.#deploymentGenerations.delete(generation)
+    this.#deleteDeploymentGeneration(generation)
     for (const [owner, entries] of this.#deploymentContributions) {
       for (const entry of entries) {
         if (entry.generation === generation) this.#queueDeploymentDiscard(entry)
@@ -186,7 +195,10 @@ export class ProviderOutputCatalog {
       if (taken.entry.generation !== generation) continue
       this.#takenDeploymentContributions.delete(contribution)
       if (!taken.entryDiscarded) this.#queueDeploymentDiscard(taken.entry)
-      for (const fallback of taken.fallbacks) this.#restoreDeploymentContribution(fallback)
+      for (const fallback of taken.fallbacks) {
+        if (taken.committed) this.#queueDeploymentDiscard(fallback)
+        else this.#restoreDeploymentContribution(fallback)
+      }
     }
   }
 
@@ -200,6 +212,7 @@ export class ProviderOutputCatalog {
       const entry = entries.at(-1)!
       contributions.push(entry.contribution)
       this.#takenDeploymentContributions.set(entry.contribution, {
+        committed: false,
         entry,
         entryDiscarded: false,
         fallbacks: entries.slice(0, -1),
@@ -211,6 +224,13 @@ export class ProviderOutputCatalog {
 
   deploymentContributionGeneration(contribution: ProviderDeploymentOutputContribution): ProviderDeploymentOutputGeneration | undefined {
     return this.#takenDeploymentContributions.get(contribution)?.entry.generation
+  }
+
+  commitDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): void {
+    for (const contribution of contributions) {
+      const taken = this.#takenDeploymentContributions.get(contribution)
+      if (taken) taken.committed = true
+    }
   }
 
   async prepareDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): Promise<void> {
@@ -228,15 +248,18 @@ export class ProviderOutputCatalog {
 
   async completeDeploymentContributions(contributions: ProviderDeploymentOutputContribution[]): Promise<void> {
     const discarded = this.#pendingDeploymentDiscards.splice(0)
+    const completedGenerations = new Set<ProviderDeploymentOutputGeneration>()
     for (const contribution of contributions) {
       const taken = this.#takenDeploymentContributions.get(contribution)
       if (!taken) continue
       this.#takenDeploymentContributions.delete(contribution)
       const entries = taken.entryDiscarded ? taken.fallbacks : [...taken.fallbacks, taken.entry]
       for (const entry of entries) {
+        if (entry.generation) completedGenerations.add(entry.generation)
         if (entry.contribution.discard) discarded.push(entry.contribution.discard())
       }
     }
+    for (const generation of completedGenerations) this.#retireDeploymentGeneration(generation)
     const results = await Promise.allSettled(discarded)
     const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
     if (failure) throw failure.reason
@@ -253,6 +276,7 @@ export class ProviderOutputCatalog {
 
   #restoreDeploymentContribution(entry: ProviderDeploymentOutputEntry): void {
     if (entry.generation && !entry.generation.valid) return
+    if (entry.generation) this.#trackDeploymentGeneration(entry.generation)
     const entries = this.#deploymentContributions.get(entry.contribution.owner) ?? []
     const replaced = entries.findIndex(candidate => candidate.generation === entry.generation)
     if (replaced >= 0) {
@@ -262,6 +286,26 @@ export class ProviderOutputCatalog {
     entries.push(entry)
     entries.sort((left, right) => left.sequence - right.sequence)
     this.#deploymentContributions.set(entry.contribution.owner, entries)
+  }
+
+  #retireDeploymentGeneration(generation: ProviderDeploymentOutputGeneration): void {
+    const pending = [...this.#deploymentContributions.values()].some(entries => entries.some(entry => entry.generation === generation))
+    const taken = [...this.#takenDeploymentContributions.values()].some(entry => entry.entry.generation === generation
+      || entry.fallbacks.some(fallback => fallback.generation === generation))
+    if (!pending && !taken) this.#deleteDeploymentGeneration(generation)
+  }
+
+  #trackDeploymentGeneration(generation: ProviderDeploymentOutputGeneration): void {
+    if (this.#deploymentGenerationRefs.has(generation)) return
+    const reference = new WeakRef(generation)
+    this.#deploymentGenerationRefs.set(generation, reference)
+    this.#deploymentGenerations.add(reference)
+  }
+
+  #deleteDeploymentGeneration(generation: ProviderDeploymentOutputGeneration): void {
+    const reference = this.#deploymentGenerationRefs.get(generation)
+    if (reference) this.#deploymentGenerations.delete(reference)
+    this.#deploymentGenerationRefs.delete(generation)
   }
 
   #queueDeploymentDiscard(entry: ProviderDeploymentOutputEntry): void {
