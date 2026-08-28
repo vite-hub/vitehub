@@ -182,6 +182,29 @@ describe("Resend Email driver", () => {
     },
   );
 
+  it.each([
+    [401, "AUTH", false],
+    [429, "RATE_LIMIT", true],
+    [500, "NETWORK", false],
+  ] as const)(
+    "preserves HTTP %i as %s when reading the error body fails",
+    async (status, code, retryable) => {
+      const response = new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("connection reset"));
+          },
+        }),
+        { status },
+      );
+      const driver = resend({ apiKey: "re_secret", fetch: async () => response });
+
+      await expect(driver.send(message, context)).resolves.toMatchObject({
+        error: { code, retryable, status },
+      });
+    },
+  );
+
   it("omits empty optional recipient lists", async () => {
     const request = vi.fn(
       async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
@@ -356,6 +379,28 @@ describe("Resend Email driver", () => {
       "List-Unsubscribe": "<https://example.com/unsubscribe>, <mailto:leave@example.com>",
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     });
+  });
+
+  it("accepts a lowercase one-click unsubscribe post value", async () => {
+    const request = vi.fn(
+      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
+        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
+    );
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await driver.send(
+      {
+        ...message,
+        headers: {
+          "List-Unsubscribe": "<https://example.com/unsubscribe>",
+          "List-Unsubscribe-Post": "list-unsubscribe=one-click",
+        },
+        unsubscribe: { url: "https://example.com/unsubscribe" },
+      },
+      context,
+    );
+
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it("serializes the validated unsubscribe URL", async () => {
@@ -892,6 +937,27 @@ describe("Cloudflare Email driver", () => {
     expect(Constructor.mock.calls[0]?.[2]).toContain(
       "List-Unsubscribe-Post: List-Unsubscribe=One-Click",
     );
+  });
+
+  it("accepts a mixed-case one-click unsubscribe post value", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await driver.send(
+      {
+        ...message,
+        headers: {
+          "List-Unsubscribe": "<https://example.com/unsubscribe>",
+          "List-Unsubscribe-Post": "LiSt-UnSuBsCrIbE=OnE-cLiCk",
+        },
+        unsubscribe: { url: "https://example.com/unsubscribe" },
+      },
+      context,
+    );
+
+    expect(Constructor).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("serializes the validated unsubscribe URL", async () => {

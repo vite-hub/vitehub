@@ -117,6 +117,36 @@ function validateIdempotencyKey(value: string | undefined): string | undefined {
   }
 }
 
+function responseError(
+  response: Response,
+  idempotencyKey: string | undefined,
+  cause: unknown,
+  message?: unknown,
+) {
+  const code: EmailProviderErrorCode =
+    response.status === 401 || response.status === 403
+      ? "AUTH"
+      : response.status === 408
+        ? "TIMEOUT"
+        : response.status === 429
+          ? "RATE_LIMIT"
+          : response.status >= 500
+            ? "NETWORK"
+            : "PROVIDER";
+  return emailProviderError(
+    "resend",
+    code,
+    isString(message) ? message : `HTTP ${response.status}`,
+    {
+      cause,
+      retryable:
+        code === "RATE_LIMIT" ||
+        ((code === "TIMEOUT" || code === "NETWORK") && idempotencyKey !== undefined),
+      status: response.status,
+    },
+  );
+}
+
 function attachment(value: EmailAttachment): Record<string, unknown> {
   return {
     content:
@@ -391,6 +421,12 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
               retryable: false,
             }),
           };
+        if (!response.ok) {
+          return {
+            data: null,
+            error: responseError(response, idempotencyKey, cause),
+          };
+        }
         if (isEmailProviderError(cause)) return { data: null, error: cause };
         return {
           data: null,
@@ -408,30 +444,9 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         responseBody = isRecord(parsed) ? parsed : {};
       } catch {}
       if (!response.ok) {
-        const code: EmailProviderErrorCode =
-          response.status === 401 || response.status === 403
-            ? "AUTH"
-            : response.status === 408
-              ? "TIMEOUT"
-              : response.status === 429
-                ? "RATE_LIMIT"
-                : response.status >= 500
-                  ? "NETWORK"
-                  : "PROVIDER";
         return {
           data: null,
-          error: emailProviderError(
-            "resend",
-            code,
-            isString(responseBody.message) ? responseBody.message : `HTTP ${response.status}`,
-            {
-              cause: responseBody,
-              retryable:
-                code === "RATE_LIMIT" ||
-                ((code === "TIMEOUT" || code === "NETWORK") && idempotencyKey !== undefined),
-              status: response.status,
-            },
-          ),
+          error: responseError(response, idempotencyKey, responseBody, responseBody.message),
         };
       }
       return typeof responseBody.id === "string" && responseBody.id.trim() !== ""

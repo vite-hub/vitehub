@@ -177,7 +177,7 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
       }
     });
     if (
-      existingListUnsubscribePost.trim() !== "List-Unsubscribe=One-Click" ||
+      existingListUnsubscribePost.trim().toLowerCase() !== "list-unsubscribe=one-click" ||
       webTargets?.length !== 1 ||
       webTargets[0]?.protocol !== "https:"
     ) {
