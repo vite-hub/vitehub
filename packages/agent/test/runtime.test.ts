@@ -6574,6 +6574,126 @@ describe("agent message protocol", () => {
         usage: { totalTokens: 7 },
       },
     })
+    if (method === "runAgent") {
+      expect(result).toMatchObject({
+        usage: { totalTokens: 7 },
+        usageRecord: { model: "renderer-model", usage: { totalTokens: 7 } },
+      })
+    }
+  })
+
+  it.each(["runAgent", "streamAgent"] as const)("preserves raw usage settled while %s consumes a lazy UI renderer", async (method) => {
+    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const raw = Object.assign((async function* () {
+      yield { text: "provider", type: "text-delta" }
+      resolveUsage({ totalTokens: 11 })
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "lazy-ui-renderer",
+          output(context) {
+            context.output.render(source => ({
+              toUIMessageStream: () => new ReadableStream({
+                async start(controller) {
+                  for await (const _event of source as AsyncIterable<unknown>) {}
+                  controller.enqueue({ messageId: "assistant", type: "start" })
+                  controller.enqueue({ id: "text", type: "text-start" })
+                  controller.enqueue({ delta: "rendered", id: "text", type: "text-delta" })
+                  controller.enqueue({ id: "text", type: "text-end" })
+                  controller.enqueue({ type: "finish" })
+                  controller.close()
+                },
+              }),
+              usageRecord: { model: "renderer-model" },
+            }))
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = method === "runAgent"
+      ? await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+      : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
+    expect(finish).not.toHaveBeenCalled()
+    // SAFETY: Each invocation method returns the UI stream form selected above.
+    const stream = method === "runAgent"
+      ? (result as { toUIMessageStream: () => ReadableStream<unknown> }).toUIMessageStream()
+      : result as ReadableStream<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].result).toMatchObject({
+      usage: { totalTokens: 11 },
+      usageRecord: {
+        model: "renderer-model",
+        usage: { totalTokens: 11 },
+      },
+    })
+    if (method === "runAgent") {
+      expect(result).toMatchObject({
+        usage: { totalTokens: 11 },
+        usageRecord: { model: "renderer-model", usage: { totalTokens: 11 } },
+      })
+    }
+  })
+
+  it.each(["runAgent", "streamAgent"] as const)("does not await pending raw usage when %s cancels a lazy UI renderer", async (method) => {
+    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const pendingUsage = new Promise<never>(() => {})
+    const raw = Object.assign((async function* () {
+      yield { text: "provider", type: "text-delta" }
+      await new Promise<never>(() => {})
+    })(), { usage: pendingUsage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "cancelled-lazy-ui-renderer",
+          output(context) {
+            context.output.render((source) => {
+              const iterator = (source as AsyncIterable<unknown>)[Symbol.asyncIterator]()
+              return {
+                toUIMessageStream: () => new ReadableStream({
+                  async cancel(reason) {
+                    await iterator.return?.(reason)
+                  },
+                  async pull(controller) {
+                    const chunk = await iterator.next()
+                    if (chunk.done) controller.close()
+                    else controller.enqueue({ messageId: "assistant", type: "start" })
+                  },
+                }),
+                usageRecord: { model: "renderer-model" },
+              }
+            })
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = method === "runAgent"
+      ? await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+      : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
+    // SAFETY: Each invocation method returns the UI stream form selected above.
+    const stream = method === "runAgent"
+      ? (result as { toUIMessageStream: () => ReadableStream<unknown> }).toUIMessageStream()
+      : result as ReadableStream<unknown>
+    const reader = stream.getReader()
+    await reader.read()
+    await reader.cancel()
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ usageRecord: { model: "renderer-model" } })
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
   })
 
   it("does not re-await pending raw usage after UI message stream consumption", async () => {
