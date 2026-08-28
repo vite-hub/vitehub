@@ -115,7 +115,10 @@ export function installConsoleFixtureInvocations(
   const revision = generatedRevision ?? consoleFixtureRevision(fixture)
   const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile, revision, runtimeBinding)
   const installed = resolveConsoleInvocationsByIdentity(identity)
-  if (installed && resolveConsoleInvocationsRevision(identity) === revision) return installed
+  if (installed && resolveConsoleInvocationsRevision(identity) === revision) {
+    installConsoleInvocationFallback(installed, resolvedRoot, globalThis, identity, revision)
+    return installed
+  }
   const invocations = createConsoleFixtureInvocationsFromSnapshot(fixture)
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity, revision)
   return invocations

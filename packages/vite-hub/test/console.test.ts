@@ -249,6 +249,31 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("installs reused fixture journals in the current runtime realm", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-realm-"))
+    try {
+      const file = join(root, "fixture.json")
+      const fixture = parseConsoleFixture(fixtureDocument("shared"))
+      const revision = consoleFixtureRevision(fixture)
+      await writeFile(file, JSON.stringify(fixture))
+
+      const first = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime")
+      delete scope[consoleInvocationsKey]
+      delete scope[consoleInvocationsIdentityKey]
+      delete scope[consoleInvocationsIdentityRootKey]
+      delete scope[consoleInvocationsRootKey]
+
+      const reused = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime")
+
+      expect(reused).toBe(first)
+      expect(resolveConsoleInvocations()).toBe(first)
+      expect(scope[consoleInvocationsIdentityKey]).toBe(createConsoleInvocationsIdentity(root, file, revision, "runtime"))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("installs a validated generated snapshot after the fixture changes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-snapshot-"))
     try {
