@@ -40,6 +40,7 @@ function releaseMetadata(eventName: string, ref: string, refName: string) {
         GITHUB_OUTPUT: output,
         GITHUB_REF: ref,
         GITHUB_REF_NAME: refName,
+        GITHUB_RUN_ATTEMPT: "3",
         GITHUB_RUN_ID: "42",
         GITHUB_SHA: "a".repeat(40),
       },
@@ -53,7 +54,8 @@ function releaseMetadata(eventName: string, ref: string, refName: string) {
 
 describe("release workflow authority", () => {
   it("serializes every npm-mutating release", () => {
-    expect(workflow).toContain("concurrency:\n  group: npm-release\n  cancel-in-progress: false\n  queue: max")
+    expect(workflow).toContain("concurrency:\n  group: npm-release\n  cancel-in-progress: false")
+    expect(workflow).not.toContain("queue:")
     expect(workflow).not.toContain("release-${{ github.ref }}")
   })
 
@@ -67,6 +69,8 @@ describe("release workflow authority", () => {
     expect(publishNpm).toContain("Configure required reviewers and release-tag protection")
     expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
     expect(publishNpm).not.toContain("contents: write")
+    expect(publishNpm).toContain("voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0")
+    expect(publishNpm).not.toContain("voidzero-dev/setup-vp@v1")
 
     expect(githubRelease).toMatch(/permissions:\n      contents: write\n/)
     expect(githubRelease).not.toContain("id-token:")
@@ -77,7 +81,7 @@ describe("release workflow authority", () => {
     expect(verify).not.toContain("Publish packages to npm")
     expect(verify).not.toContain("gh release create")
 
-    const publishGate = "if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
+    const publishGate = "if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
     expect(publishNpm.indexOf(publishGate)).toBeLessThan(publishNpm.indexOf("    steps:"))
     expect(githubRelease.indexOf(publishGate)).toBeLessThan(githubRelease.indexOf("    steps:"))
     expect(workflow).not.toContain("pull_request_target")
@@ -90,7 +94,7 @@ describe("release workflow artifact handoff", () => {
   it("uploads one bounded immutable tarball set after verification", () => {
     expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Dry-run npm package publish"))
     expect(verify).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1")
-    expect(verify).toContain('artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}"')
+    expect(verify).toContain('artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"')
     expect(verify).toContain(".release/release-metadata.json")
     expect(verify).toContain(".release/npm")
     expect(verify).not.toMatch(/^\s+packages\s*$/m)
@@ -122,7 +126,7 @@ describe("release workflow artifact handoff", () => {
     expect(githubRelease).toContain("needs: [verify, publish-npm]")
     expect(githubRelease).not.toContain("actions/checkout@")
     expect(publishNpm).toContain("Checkout trusted release verifier")
-    expect(publishNpm).toContain("actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0")
+    expect(publishNpm).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1")
     expect(publishNpm).toContain("persist-credentials: false")
     expect(publishNpm).toContain("ref: ${{ github.sha }}")
     expect(publishNpm).toContain('test "$(git -C trusted-source rev-parse HEAD)" = "$GITHUB_SHA"')

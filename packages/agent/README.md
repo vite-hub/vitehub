@@ -24,7 +24,13 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-The built-in `"codex"` and `"claude-code"` drivers use ViteHub's pinned T3 provider runtime. The provider runtime starts the corresponding local CLI, so its credentials and executable must be available to the host process.
+The built-in `"codex"` and `"claude-code"` drivers use ViteHub's pinned T3 provider runtime. Add Codex only when an Agent uses it:
+
+```sh
+pnpm add @openai/codex@0.149.1
+```
+
+ViteHub resolves that project dependency directly. Production self-hosted Node builds on macOS and Linux copy only the build host's OS/CPU payload, so build on the same OS and CPU architecture as the deployment host. Without the dependency, the Codex Driver keeps using `codex` from the host `PATH`. Claude Code continues to use its host executable. Provider credentials must be available to the host process in either case.
 
 Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` because the pinned runtime is an exact pkg.pr.new tarball.
 
@@ -107,7 +113,21 @@ export default defineAgent({
 })
 ```
 
-Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent info` expose the configured limits plus the process's current active and pending counts. The scheduler is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
+Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent info` expose the configured limits plus the process's current active and pending counts. A literal capacity config is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
+
+For a self-hosted Node process, `createProcessAgentCapacity()` adjusts new admissions from host CPU and memory pressure while keeping `concurrency` as a hard maximum. When capacity reaches zero, work stays in the same FIFO queue and resumes automatically after pressure recovers. Active invocations are never preempted.
+
+```ts
+// server/agent-capacity.ts
+import { createProcessAgentCapacity } from "@vite-hub/agent/runtime/process"
+
+export const agentCapacity = createProcessAgentCapacity({
+  concurrency: 6,
+  queue: { maxPending: 100, timeout: 30 * 60_000 },
+})
+```
+
+Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits, memory events, and pressure stall information when available; other hosts fall back to Node's available-memory and parallelism signals. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. Tune `memory.perInvocationBytes`, `memory.reserveBytes`, and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 

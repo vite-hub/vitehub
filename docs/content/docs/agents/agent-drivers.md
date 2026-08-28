@@ -68,6 +68,12 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 
+Install the Codex CLI as a project dependency when you select the Codex Driver:
+
+```sh
+pnpm add @openai/codex@0.149.1
+```
+
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 
@@ -82,7 +88,7 @@ export default defineAgent({
 })
 ```
 
-Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
+Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. For Codex, ViteHub resolves an installed `@openai/codex` package without requiring a global executable. Production self-hosted Node builds on macOS and Linux copy the CLI wrapper and only the build host's native optional package into `.output/server/node_modules`, so build on the same OS and CPU architecture as the deployment host. If the package is absent, ViteHub falls back to `codex` on the host `PATH`; it does not download a runtime during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
 Provider runtime cursors resume a thread while the Agent Definition process remains active. Chat-backed cursors are also partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one. Cursors are process-local and do not survive restarts or resume on another worker; use the Agent Invocation message history as the durable conversation boundary.
 
@@ -97,9 +103,24 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"ask"`. Set `"allow-all"` explicitly to run provider actions without approval. |
 | `output` | Optional structured Agent output contract. |
-| `capacity` | Optional process-local concurrency and queue limits. |
+| `capacity` | Optional process-local static or adaptive concurrency and queue limits. |
 
 Provider Drivers do not accept Agent Boxes, model-specific Provider Tool contributions, Cloudflare Agents, or Deno. Provider Workspaces are also unsupported on Windows. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
+
+## Adaptive process capacity
+
+Self-hosted Node applications can admit new work according to current machine pressure instead of relying on a fixed schedule. Keep one shared capacity object in an application module and reuse it across the Agent Definitions that compete for the same host resources:
+
+```ts [server/agent-capacity.ts]
+import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+
+export const agentCapacity = createProcessAgentCapacity({
+  concurrency: 6,
+  queue: { maxPending: 100, timeout: 30 * 60_000 },
+})
+```
+
+`concurrency` is always the hard maximum. The adapter lowers only new admissions when CPU or memory is under pressure; active invocations continue, queued invocations remain FIFO, and admission resumes after recovery. Linux uses cgroup v2 limits, memory events, and pressure stall information when available. Other hosts fall back to Node's available-memory and parallelism signals. Failed samples or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. `vitehub agent info` reports the current admitted limit, hard maximum, queue depth, and sampling reason.
 
 ## Use a custom run Driver
 

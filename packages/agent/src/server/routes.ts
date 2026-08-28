@@ -21,6 +21,8 @@ import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCa
 import {
   chatTriggerHistoryLimit,
   createChatMessageTriggerInput,
+  derivedChatTriggerInvoker,
+  markDerivedChatTriggerInvoker,
   resolveChatSessionBaseId,
   resolveChatSessionId,
   resolveChatTriggerHistory,
@@ -34,7 +36,7 @@ import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
-import { hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
+import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -46,11 +48,15 @@ import {
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl } from "../internal/chat-approvals.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
+import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
+import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
+import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import {
   isRuntimeBigInt,
   isRuntimeBoolean,
@@ -132,6 +138,7 @@ import type {
 import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
+import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -2709,9 +2716,20 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 throw new Error("[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed.")
               }
               let recoveredWorkflowInput = recoveredInput
-              if (restored.message.resolvedInvoker) {
-                const recoveredInvoker = resolveInputAgentInvoker(recoveredInput.context)
-                if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredInput, recoveredInvoker)
+              if (restored.message.parsedMessageMeta !== undefined) {
+                recoveredWorkflowInput = restoreParsedAgentMessageMeta(
+                  // SAFETY: route discovery narrows this runtime value to an Agent Definition before recovery starts.
+                  agent as AgentDefinition | undefined,
+                  recoveredWorkflowInput,
+                  restored.message.run,
+                  restored.message.parsedMessageMeta,
+                )
+              }
+              const recoveredDerivedInvokerNeedsResolution = restored.message.parsedMessageMeta?.derivedInvoker
+                && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, recoveredWorkflowInput, restored.message.run)
+              if (restored.message.resolvedInvoker && !recoveredDerivedInvokerNeedsResolution) {
+                const recoveredInvoker = resolveInputAgentInvoker(recoveredWorkflowInput.context)
+                if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredWorkflowInput, recoveredInvoker)
               }
               let recoveredWorkflowAccepted = false
               let recoveredWorkflowRetryRegistered = false
@@ -2946,7 +2964,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         pendingQueue = durableSteerPendingQueue(queue)
         successorClaimId = crypto.randomUUID()
         let queuedInput = queued.message.input
-        if (queued.message.resolvedInvoker) {
+        // SAFETY: queued durable messages retain the Agent Definition selected by this route.
+        if (queued.message.parsedMessageMeta !== undefined) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
+        const queuedDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run)
+        if (queued.message.resolvedInvoker && !queuedDerivedInvokerNeedsResolution) {
           const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
           if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
         }
@@ -3000,9 +3022,13 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         if (ownerReleased) return
         if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error) && successorInput && queued?.message) {
           let retryInput = successorInput
-          if (queued.message.resolvedInvoker) {
-            const retryInvoker = resolveInputAgentInvoker(successorInput.context)
-            if (retryInvoker) retryInput = withResolvedAgentInvokerInput(successorInput, retryInvoker)
+          // SAFETY: settlement retries reuse the Agent Definition selected for the queued message.
+          if (queued.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
+          const retryDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+            && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run)
+          if (queued.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
+            const retryInvoker = resolveInputAgentInvoker(retryInput.context)
+            if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
           }
           const retryMessage = queued.message
           registerAgentWorkflowRetry(
@@ -3065,7 +3091,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             )
           } catch (settlementError) {
             let retryInput = successorPending.message.input
-            if (successorPending.message.resolvedInvoker) {
+            // SAFETY: successor settlement retries retain the Agent Definition selected by this route.
+            if (successorPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
+            const retryDerivedInvokerNeedsResolution = successorPending.message.parsedMessageMeta?.derivedInvoker
+              && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run)
+            if (successorPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
               const retryInvoker = resolveInputAgentInvoker(retryInput.context)
               if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
             }
@@ -3105,7 +3135,11 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           await restoreDurableSteerQueue(resolved.state, queue, queued.message)
         }
         let retryInput = claimedPending.message.input
-        if (claimedPending.message.resolvedInvoker) {
+        // SAFETY: claimed pending messages retain the Agent Definition selected by this route.
+        if (claimedPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
+        const retryDerivedInvokerNeedsResolution = claimedPending.message.parsedMessageMeta?.derivedInvoker
+          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run)
+        if (claimedPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
           const retryInvoker = resolveInputAgentInvoker(retryInput.context)
           if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
         }
@@ -3207,6 +3241,7 @@ interface DurableSteerQueueMessage {
   input?: AgentRunInput
   invokerKey?: string
   ownerToken?: string
+  parsedMessageMeta?: ParsedAgentMessageMetaState
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: AgentRunMetadata
@@ -3515,6 +3550,7 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
       input: restoredInput,
       capabilities: newerMessage.capabilities ?? previous.capabilities,
       requestUrl: newerMessage.requestUrl ?? previous.requestUrl,
+      parsedMessageMeta: newerMessage.parsedMessageMeta,
       resolvedInvoker: newerMessage.resolvedInvoker ?? previous.resolvedInvoker,
       run: newerMessage.run ?? previous.run,
     }
@@ -4429,8 +4465,28 @@ function withChatFinishExtension<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS
   return {
     ...input,
     context: {
-      ...(input.context || {}),
+      ...input.context,
       [CHAT_FINISH_EXTENSION_CONTEXT_KEY]: chat,
+    },
+  }
+}
+
+function withAgentInvokerRunAnnotation(
+  input: AgentChatMessageTriggerInput,
+  invoker: AgentInvoker,
+): AgentChatMessageTriggerInput {
+  if (!input.run) return input
+  const annotations = { ...input.run.annotations }
+  delete annotations.triggeredBy
+  const triggeredBy = agentInvokerLabel(invoker)
+  return {
+    ...input,
+    run: {
+      ...input.run,
+      annotations: {
+        ...(triggeredBy ? { triggeredBy } : {}),
+        ...annotations,
+      },
     },
   }
 }
@@ -4446,6 +4502,7 @@ async function isChatMessageAuthorized(
   messageContext?: MessageContext,
 ): Promise<AgentInvoker | undefined> {
   const invocationContext = createAgentInvocationContextStore(input.context)
+  const derivedInvoker = derivedChatTriggerInvoker(invocationContext.get("invoker"))
   const invoker = await resolveAgentInvoker(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -4454,6 +4511,7 @@ async function isChatMessageAuthorized(
     input,
     run,
   )
+  if (derivedInvoker) markDerivedChatTriggerInvoker(invoker, derivedInvoker)
   for (const accessOptions of getAccessCapabilityOptions(getAgentCapabilities(agent))) {
     if (!accessOptions.chat) continue
     const result = await accessOptions.chat.resolve({
@@ -4543,15 +4601,24 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
-    const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
+    const authorizationInput = await withParsedAgentMessageMeta(
+      // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
+      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+      createChatMessageTriggerInput(options || {}, input).input,
+      input.run,
+    )
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) {
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
+    const parsedChannelContext = authorizationInput.context?.channel
+    input = withAgentInvokerRunAnnotation({
+      ...input,
+      context: authorizationInput.context,
+      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
+    }, invoker)
 
-    const manualDelivery = options?.delivery === "manual"
-    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const messages = scopeCurrentChatUiMessage(
       await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
       message.id,
@@ -4581,6 +4648,9 @@ async function handleChatSdkMessage(
         return
       }
     }
+
+    const manualDelivery = options?.delivery === "manual"
+    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     input = { ...input, messages }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
@@ -4643,6 +4713,7 @@ async function handleChatSdkMessage(
         },
         invoker,
       ) as AgentRunInput
+      let workflowInputHasParsedMessageMeta = parsedAgentMessageMetaState(agent, workflowInput, run)
       let workflowInputHasResolvedInvoker = hasResolvedAgentInvokerInput(workflowInput)
       let workflowInvokerKey = JSON.stringify(resolveInputAgentInvoker(workflowInput.context) ?? null)
       let workflowCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
@@ -4710,6 +4781,7 @@ async function handleChatSdkMessage(
                 : [currentErrorDelivery],
               input: workflowInput,
               invokerKey: workflowInvokerKey,
+              parsedMessageMeta: workflowInputHasParsedMessageMeta,
               requestUrl: workflowRequestUrl,
               resolvedInvoker: workflowInputHasResolvedInvoker,
               run,
@@ -4770,6 +4842,7 @@ async function handleChatSdkMessage(
                   errorDeliveries: [currentErrorDelivery],
                   input: workflowInput,
                   invokerKey: workflowInvokerKey,
+                  parsedMessageMeta: workflowInputHasParsedMessageMeta,
                   requestUrl: workflowRequestUrl,
                   resolvedInvoker: workflowInputHasResolvedInvoker,
                   run: workflowRun,
@@ -4783,6 +4856,7 @@ async function handleChatSdkMessage(
             // The persisted entry remains the CAS expectation below. Rebinding
             // steer ownership must not mutate that expected value in place.
             workflowInput = structuredClone(previous.message.input)
+            workflowInputHasParsedMessageMeta = previous.message.parsedMessageMeta
             workflowInputHasResolvedInvoker = previous.message.resolvedInvoker === true
             workflowInvokerKey = durableSteerInvokerKey(previous.message)
             workflowCapabilities = previous.message.capabilities
@@ -4854,6 +4928,7 @@ async function handleChatSdkMessage(
               input: workflowInput,
               invokerKey: workflowInvokerKey,
               ownerToken: steerLock.token,
+              parsedMessageMeta: workflowInputHasParsedMessageMeta,
               requestUrl: workflowRequestUrl,
               resolvedInvoker: workflowInputHasResolvedInvoker,
               run: workflowRun,
@@ -4877,8 +4952,11 @@ async function handleChatSdkMessage(
           steerStartOwnershipLost = true
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
         }
+        const workflowStartInput = workflowInputHasParsedMessageMeta
+          ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+          : workflowInput
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+        await runAgent(agent as never, workflowRunContext as never, workflowStartInput as never)
         durableHandoff = true
         if (steerStartOwnershipLost && steerLock && !(await state.state.extendLock(steerLock, steerTtlMs))) {
           throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
@@ -4985,7 +5063,11 @@ async function handleChatSdkMessage(
                     try {
                       recoveryStartAttempts++
                       // SAFETY: The owning Agent runtime boundary creates these values with the internal startup contract.
-                      await runAgent(agent as never, workflowRunContext as never, recoveryInput as never)
+                      const recoveryStartInput = workflowInputHasParsedMessageMeta
+                        ? restoreParsedAgentMessageMeta(agent, recoveryInput, workflowRun, workflowInputHasParsedMessageMeta)
+                        : recoveryInput
+                      // SAFETY: recovery reuses the input and context accepted by this Agent's initial run.
+                      await runAgent(agent as never, workflowRunContext as never, recoveryStartInput as never)
                       return
                     } catch (recoveryError) {
                       if (isAmbiguousAgentWorkflowStartFailure(recoveryError)) return
@@ -5021,7 +5103,11 @@ async function handleChatSdkMessage(
               // lease was lost. Start a fresh Workflow so persisted custody does not
               // depend on another webhook arriving.
               // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-              await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+              const recoveredWorkflowInput = workflowInputHasParsedMessageMeta
+                ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+                : workflowInput
+              // SAFETY: ownership recovery reuses the input and context accepted by this Agent's initial run.
+              await runAgent(agent as never, workflowRunContext as never, recoveredWorkflowInput as never)
               durableHandoff = true
             } catch (retryError) {
               if (isAmbiguousAgentWorkflowStartFailure(retryError)) {
@@ -5089,7 +5175,11 @@ async function handleChatSdkMessage(
                 durableHandoff = true
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                  const settlementRetryInput = workflowInputHasParsedMessageMeta
+                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+                    : workflowInput
+                  // SAFETY: settlement retry reuses the input and context accepted by this Agent's initial run.
+                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
@@ -5115,7 +5205,11 @@ async function handleChatSdkMessage(
                 steerPending = failedPending
                 try {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  await runAgent(agent as never, workflowRunContext as never, workflowInput as never)
+                  const settlementRetryInput = workflowInputHasParsedMessageMeta
+                    ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
+                    : workflowInput
+                  // SAFETY: this terminal settlement path reuses the input and context accepted by the initial run.
+                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
@@ -6094,373 +6188,13 @@ async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
   return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
 }
 
-interface AgentChatPendingApproval {
-  id: string
-  input?: unknown
-  name: string
-  toolCallId: string
-}
-
-interface AgentChatConsumedApproval extends AgentChatPendingApproval {
-  approved: boolean
-  reason?: string
-}
-
-function isAgentChatConsumedApproval(value: unknown): value is AgentChatConsumedApproval {
-  return isRecord(value) && isRuntimeString(value.id) && isRuntimeString(value.name) && isRuntimeString(value.toolCallId) && isRuntimeBoolean(value.approved)
-}
-
-const agentChatApprovalTtlMs = 24 * 60 * 60 * 1000
-
-function agentChatApprovalKey(invokerId: string, sessionId: string, approvalId?: string): string {
-  const session = `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:approval`
-  return approvalId ? `${session}:${encodeURIComponent(approvalId)}` : session
-}
-
-function agentChatApprovedToolsKey(invokerId: string, sessionId: string): string {
-  return `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:eve:approved-tools`
-}
-
 function agentChatSessionBoundaryKey(invokerId: string, sessionId: string, manualId: string): string {
   return `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:manual:${encodeURIComponent(manualId)}:boundary`
 }
-
-function agentChatConsumedApprovalKey(invokerId: string, sessionId: string, approvalId: string): string {
-  return `${agentChatApprovalKey(invokerId, sessionId, approvalId)}:consumed`
-}
-
-async function withAgentChatApprovalLock<T>(state: StateAdapter, invokerId: string, sessionId: string, callback: () => Promise<T>): Promise<T> {
-  const lock = await state.acquireLock(`${agentChatApprovalKey(invokerId, sessionId)}:lock`, 10_000)
-  if (!lock) throw createRouteError(409, "Agent chat session is already handling an approval response.")
-  try {
-    return await callback()
-  } finally {
-    await state.releaseLock(lock)
-  }
-}
-
-function uiApprovalPart(part: unknown): { approval: Record<string, unknown>; record: Record<string, unknown> } | undefined {
-  if (!isRecord(part)) return
-  const type = part.type
-  if (type !== "dynamic-tool" && !(isRuntimeString(type) && type.startsWith("tool-"))) return
-  if (part.state !== "approval-requested" && part.state !== "approval-responded") return
-  if (!isRecord(part.approval) || !isRuntimeString(part.approval.id)) return
-  return { approval: part.approval, record: part }
-}
-
-async function authorizeAgentChatApprovals(
-  state: StateAdapter,
-  invokerId: string,
-  sessionId: string,
-  messages: UIMessageLike[],
-  persistApprovedTools = true,
-  ttlMs = agentChatApprovalTtlMs,
-): Promise<{ approvedTools: string[]; messages: UIMessageLike[] }> {
-  const submitted = messages.flatMap((message, messageIndex) =>
-    (message.parts || []).flatMap((part) => {
-      const approvalPart = uiApprovalPart(part)
-      return approvalPart ? [{ ...approvalPart, historical: messageIndex < messages.length - 1 }] : []
-    }),
-  )
-  if (!submitted.length) return { approvedTools: [], messages }
-
-  return await withAgentChatApprovalLock(state, invokerId, sessionId, async () => {
-    const pending = new Map(
-      await Promise.all(
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        [...new Set(submitted.map((part) => part.approval.id as string))].map(
-          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-          async (id) => [id, await state.get<AgentChatPendingApproval>(agentChatApprovalKey(invokerId, sessionId, id))] as const,
-        ),
-      ),
-    )
-    const historical = new Map(
-      await Promise.all(
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        [...new Set(submitted.filter((part) => part.historical).map((part) => part.approval.id as string))].map(async (id) => {
-          const value = await state.get<AgentChatConsumedApproval>(agentChatConsumedApprovalKey(invokerId, sessionId, id))
-          // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-          return [id, isAgentChatConsumedApproval(value) ? value : undefined] as const
-        }),
-      ),
-    )
-    const consumed = new Set<string>()
-    const authorized = messages
-      .map((message, messageIndex) => ({
-        ...message,
-        parts: (message.parts || [])
-          .filter((part) => {
-            const submittedPart = uiApprovalPart(part)
-            if (!submittedPart || messageIndex === messages.length - 1) return true
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            const id = submittedPart.approval.id as string
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            return Boolean(pending.get(id) || historical.get(id))
-          })
-          .map((part) => {
-            const submittedPart = uiApprovalPart(part)
-            if (!submittedPart) return part
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            const id = submittedPart.approval.id as string
-            const historicalDecision = historical.get(id)
-            const request = pending.get(id) ?? (messageIndex < messages.length - 1 ? historicalDecision : undefined)
-            if (!request) throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} was not issued by this session.`)
-            if (submittedPart.record.state === "approval-responded") {
-              if (!isRuntimeBoolean(submittedPart.approval.approved)) {
-                throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} requires an approved decision.`)
-              }
-              if (consumed.has(id)) throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} was submitted more than once.`)
-              consumed.add(id)
-            }
-            return {
-              ...submittedPart.record,
-              approval: {
-                id,
-                ...(isRuntimeBoolean(submittedPart.approval.approved) ? { approved: historicalDecision?.approved ?? submittedPart.approval.approved } : {}),
-                ...(isRuntimeString(historicalDecision?.reason ?? submittedPart.approval.reason)
-                  ? { reason: historicalDecision?.reason ?? submittedPart.approval.reason }
-                  : {}),
-              },
-              input: request.input,
-              toolCallId: request.toolCallId,
-              toolName: request.name,
-            }
-          }),
-      }))
-      .filter((message) => message.parts.length > 0)
-
-    const newlyApproved = submitted.flatMap((part) => {
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      const id = part.approval.id as string
-      const request = pending.get(id)
-      return part.record.state === "approval-responded" && part.approval.approved === true && request ? [request.name] : []
-    })
-    if (persistApprovedTools && newlyApproved.length) {
-      const approved = await state.get<string[]>(agentChatApprovedToolsKey(invokerId, sessionId))
-      await state.set(agentChatApprovedToolsKey(invokerId, sessionId), [...new Set([...(approved ?? []), ...newlyApproved])], ttlMs)
-    }
-    await Promise.all(
-      [...consumed].map(async (id) => {
-        const request = pending.get(id)
-        const decision = submitted.find((part) => part.approval.id === id && part.record.state === "approval-responded")?.approval
-        if (request && isRuntimeBoolean(decision?.approved)) {
-          await state.set(
-            agentChatConsumedApprovalKey(invokerId, sessionId, id),
-            {
-              ...request,
-              approved: decision.approved,
-              ...(isRuntimeString(decision.reason) ? { reason: decision.reason } : {}),
-            } satisfies AgentChatConsumedApproval,
-            ttlMs,
-          )
-        }
-      }),
-    )
-    await Promise.all([...consumed].map((id) => state.delete(agentChatApprovalKey(invokerId, sessionId, id))))
-    return { approvedTools: [...new Set(newlyApproved)], messages: authorized }
-  })
-}
-
-function trackAgentChatApprovals(result: unknown, state: StateAdapter, invokerId: string, sessionId: string, ttlMs = agentChatApprovalTtlMs): unknown {
-  const toolInputs = new Map<string, { input?: unknown; name?: string }>()
-
-  async function trackChunk(value: unknown): Promise<void> {
-    if (!isRecord(value)) return
-    const type = value.type
-    const toolCallId = firstString(value.toolCallId, value.id)
-    if ((type === "tool-input-available" || type === "tool-call") && toolCallId) {
-      toolInputs.set(toolCallId, {
-        input: value.input,
-        name: firstString(value.toolName, value.name),
-      })
-    }
-    if (type !== "tool-approval-request" || !toolCallId) return
-    const id = firstString(value.approvalId, value.id)
-    if (!id) return
-    const tool = toolInputs.get(toolCallId)
-    await state.set(
-      agentChatApprovalKey(invokerId, sessionId, id),
-      {
-        id,
-        input: tool?.input ?? value.input,
-        name: firstString(value.toolName, tool?.name) || "tool",
-        toolCallId,
-      } satisfies AgentChatPendingApproval,
-      ttlMs,
-    )
-  }
-
-  function trackedStream(stream: ReadableStream<unknown>, framed = false): ReadableStream<unknown> {
-    const reader = stream.getReader()
-    const decoder = framed ? new TextDecoder() : undefined
-    let pending = ""
-    return new ReadableStream({
-      async pull(controller) {
-        try {
-          const chunk = await reader.read()
-          if (chunk.done) {
-            if (decoder) pending += decoder.decode()
-            controller.close()
-            return
-          }
-          if (decoder) {
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            pending += decoder.decode(chunk.value as Uint8Array, { stream: true })
-            const events = pending.split(/\r?\n\r?\n/)
-            pending = events.pop() || ""
-            for (const event of events) {
-              const data = event
-                .split(/\r?\n/)
-                .filter((line) => line.startsWith("data:"))
-                .map((line) => line.slice(5).trimStart())
-                .join("\n")
-              if (data && data !== "[DONE]") {
-                try {
-                  await trackChunk(JSON.parse(data))
-                } catch (error) {
-                  if (!(error instanceof SyntaxError)) throw error
-                }
-              }
-            }
-          } else await trackChunk(chunk.value)
-          controller.enqueue(chunk.value)
-        } catch (error) {
-          controller.error(error)
-        }
-      },
-      async cancel(reason) {
-        await reader.cancel(reason)
-      },
-    })
-  }
-
-  if (result instanceof Response || isResponseLike(result)) {
-    if (!result.body || !isUiMessageStreamResponse(result)) return result
-    const headers = new Headers([...result.headers.entries()])
-    headers.delete("content-encoding")
-    headers.delete("content-length")
-    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    return new Response(trackedStream(result.body, true) as ReadableStream<Uint8Array>, {
-      headers,
-      status: result.status,
-      statusText: result.statusText,
-    })
-  }
-  if (!isReadableStreamLike(result)) return result
-  return trackedStream(result)
-}
-
 function agentChatFetchErrorResponse(error: unknown): Response {
   const response = toHttpErrorResponse(error)
   if (response) return response
   return toHttpErrorResponse(error, error instanceof TypeError ? 400 : 500)!
-}
-
-const resumableChatDefaultTtlMs = 10 * 60 * 1000
-const resumableChatDiscoveryAttempts = 30
-const resumableChatDiscoveryIntervalMs = 100
-
-interface ResumableChatRun {
-  chunks: Uint8Array[]
-  done: boolean
-  error?: unknown
-  hasBody: boolean
-  headers: Headers
-  invocationKey: string
-  latestKey: string
-  reader?: ReadableStreamDefaultReader<Uint8Array>
-  ready: Promise<void>
-  resolveReady: () => void
-  setupError?: unknown
-  status: number
-  statusText: string
-  subscribers: Set<ReadableStreamDefaultController<Uint8Array>>
-}
-
-function resumableChatKey(...parts: string[]): string {
-  return JSON.stringify(parts)
-}
-
-function resumableChatResponse(run: ResumableChatRun): Response {
-  if (!run.hasBody) {
-    return new Response(null, {
-      headers: run.headers,
-      status: run.status,
-      statusText: run.statusText,
-    })
-  }
-  let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined
-  return new Response(new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of run.chunks) controller.enqueue(chunk)
-      if (run.error) controller.error(run.error)
-      else if (run.done) controller.close()
-      else {
-        subscriber = controller
-        run.subscribers.add(controller)
-      }
-    },
-    cancel() {
-      if (subscriber) run.subscribers.delete(subscriber)
-    },
-  }), {
-    headers: run.headers,
-    status: run.status,
-    statusText: run.statusText,
-  })
-}
-
-async function resumableChatOwner(
-  config: AgentChannelChatRouteResumableOptions | undefined,
-  context: AgentChannelChatRouteResumableContext,
-): Promise<string> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route options can arrive from untyped JavaScript, so validate the public runtime boundary before invocation.
-  if (!config || typeof config !== "object" || typeof config.owner !== "function") {
-    throw new TypeError("[vitehub] Resumable web chat requires route.resumable.owner().")
-  }
-  if (config.scope !== "process") {
-    throw new TypeError('[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.')
-  }
-  const owner = await config.owner(context)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript owner callbacks can violate the declared return type at this public runtime boundary.
-  if (typeof owner !== "string" || !owner.trim()) {
-    throw new TypeError("[vitehub] Resumable web chat owner must be a non-empty string.")
-  }
-  return owner.trim()
-}
-
-function closeResumableChatRun(run: ResumableChatRun, error?: unknown): void {
-  if (run.done) return
-  run.done = true
-  run.error = error
-  for (const subscriber of run.subscribers) {
-    if (error) subscriber.error(error)
-    else subscriber.close()
-  }
-  run.subscribers.clear()
-}
-
-function scheduleResumableChatRunCleanup(
-  run: ResumableChatRun,
-  resumable: AgentChannelChatRouteResumableOptions,
-  resumableRuns: Map<string, ResumableChatRun>,
-  latestResumableRuns: Map<string, ResumableChatRun>,
-): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript route options can violate the declared numeric type at this public runtime boundary.
-  const ttlMs = typeof resumable.ttlMs === "number" && resumable.ttlMs > 0 ? resumable.ttlMs : resumableChatDefaultTtlMs
-  const cleanup = setTimeout(() => {
-    resumableRuns.delete(run.invocationKey)
-    if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
-  }, ttlMs)
-  cleanup.unref?.()
-}
-
-async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key: string): Promise<ResumableChatRun | undefined> {
-  for (let attempt = 0; attempt < resumableChatDiscoveryAttempts; attempt++) {
-    const run = runs.get(key)
-    if (run) return run
-    await new Promise<void>(resolve => setTimeout(resolve, resumableChatDiscoveryIntervalMs))
-  }
 }
 
 export function createChannelChatRouteHandler(
@@ -6468,16 +6202,16 @@ export function createChannelChatRouteHandler(
   options: AgentChannelChatRouteHandlerOptions = {},
 ): AgentChannelChatRouteHandler {
   const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
-  const resumableRuns = new Map<string, ResumableChatRun>()
-  const latestResumableRuns = new Map<string, ResumableChatRun>()
+  const resumableCustody = routeOptions.resumable
+    ? createResumableChatProcessCustody<AgentChannelChatRouteResumableContext>(routeOptions.resumable)
+    : undefined
   const handler: AgentChannelChatRouteHandler = async (request, handlerOptions = {}) => {
-    const resumable = routeOptions.resumable
-    if (request.method !== "POST" && (!resumable || (request.method !== "GET" && request.method !== "DELETE"))) {
+    if (request.method !== "POST" && (!resumableCustody || (request.method !== "GET" && request.method !== "DELETE"))) {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
     }
 
     let delivery: AgentChannelDeliveryTracker | undefined
-    let claimedRun: ResumableChatRun | undefined
+    let resumableClaim: ResumableChatProcessClaim | undefined
     try {
       if (request.method !== "POST") {
         const searchParams = new URL(request.url).searchParams
@@ -6498,30 +6232,27 @@ export function createChannelChatRouteHandler(
           request,
         })
         if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
-        const owner = await resumableChatOwner(resumable, {
-          agentName,
-          // SAFETY: false is rejected immediately above.
-          auth: auth as never,
-          body,
-          event: handlerOptions.event,
-          rawBody: "",
-          request,
-        })
-        const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", owner, id)
-        const run = request.method === "DELETE"
-          ? resumableRuns.get(resumableChatKey(latestKey, messageId!))
-          : latestResumableRuns.get(latestKey) || await waitForResumableChatRun(latestResumableRuns, latestKey)
-        if (!run) return new Response(null, { status: 204 })
-        await run.ready
-        if (run.setupError) throw run.setupError
+        const session = await resumableCustody!.session(
+          {
+            agentName,
+            // SAFETY: false is rejected immediately above.
+            auth: auth as never,
+            body,
+            event: handlerOptions.event,
+            rawBody: "",
+            request,
+          },
+          {
+            agentName,
+            channelId: routeOptions.channelId || "http",
+            chatId: id,
+          },
+        )
         if (request.method === "DELETE") {
-          if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
-          resumableRuns.delete(run.invocationKey)
-          closeResumableChatRun(run)
-          await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+          await session.stop(messageId!)
           return new Response(null, { status: 204 })
         }
-        return resumableChatResponse(run)
+        return await session.latest() || new Response(null, { status: 204 })
       }
       const captured = await captureAgentInboundBody(request, handlerOptions.maxBodyBytes ?? routeOptions.maxBodyBytes)
       request = captured.request
@@ -6565,41 +6296,35 @@ export function createChannelChatRouteHandler(
         rawBody: parsed.rawBody,
         request,
       }
-      const resumableOwner = resumable ? await resumableChatOwner(resumable, inputContext) : undefined
+      const resumableSession = resumableCustody
+        ? await resumableCustody.session(inputContext, {
+            agentName,
+            channelId: routeOptions.channelId || "http",
+            chatId: optionalBodyString(body.id, "id") || "default",
+          })
+        : undefined
       const admittedInput = mergeAgentChannelChatRouteInput(trustedInput, await routeOptions.admission?.context?.(inputContext))
       let triggerInput = mergeAgentChannelChatRouteInput(admittedInput, await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }))
-      if (resumableOwner) {
-        const chatId = optionalBodyString(body.id, "id") || "default"
-        const latestKey = resumableChatKey(agentName, routeOptions.channelId || "http", resumableOwner, chatId)
-        const invocationKey = resumableChatKey(latestKey, resumableMessageId || "default")
-        const existingRun = resumableRuns.get(invocationKey)
-        if (existingRun) {
-          await existingRun.ready
-          if (existingRun.setupError) throw existingRun.setupError
-          return resumableChatResponse(existingRun)
-        }
-        let resolveReady!: () => void
-        const ready = new Promise<void>((resolve) => {
-          resolveReady = resolve
-        })
-        claimedRun = {
-          chunks: [],
-          done: false,
-          hasBody: false,
-          headers: new Headers(),
-          invocationKey,
-          latestKey,
-          ready,
-          resolveReady,
-          status: 200,
-          statusText: "",
-          subscribers: new Set(),
-        }
-        resumableRuns.set(invocationKey, claimedRun)
-        latestResumableRuns.set(latestKey, claimedRun)
+      if (resumableSession) {
+        const claim = resumableSession.claim(resumableMessageId || "default")
+        if (claim.kind === "existing") return await claim.response
+        resumableClaim = claim
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
-      const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
+      let invokerInput: AgentRunInput
+      try {
+        invokerInput = await withParsedAgentMessageMeta(
+          // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
+          agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+          createChatMessageTriggerInput(chatOptions, triggerInput).input,
+          triggerInput.run,
+        )
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("[vitehub] Invalid agent channel metadata:")) {
+          throw createRouteBodyError(error.message)
+        }
+        throw error
+      }
       const invoker = await resolveAgentInvoker(
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -6609,12 +6334,15 @@ export function createChannelChatRouteHandler(
         invokerInput,
         triggerInput.run,
       )
-      triggerInput = {
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        ...(withResolvedAgentInvokerInput(triggerInput as never, invoker) as AgentChatMessageTriggerInput),
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+      triggerInput = withAgentInvokerRunAnnotation(withResolvedAgentInvokerInput({
+        ...triggerInput,
+        context: invokerInput.context,
         invoker,
-      }
+        ...(isRuntimeObject(invokerInput.context?.channel) && isRuntimeObject(invokerInput.context.channel.meta)
+          ? { meta: invokerInput.context.channel.meta }
+          : {}),
+      } as never, invoker) as AgentChatMessageTriggerInput, invoker)
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
       let selectedSessionId = resolveChatSessionId(triggerInput.messages, chatOptions.sessions, triggerInput.session)
       const registration = {
@@ -6633,7 +6361,7 @@ export function createChannelChatRouteHandler(
       })
       context = withAgentChannelDelivery(context, delivery)
       const sessionOptions = chatOptions.sessions
-      let approvalTtlMs = agentChatApprovalTtlMs
+      let approvalTtlMs = resolveAgentChatApprovalTtl()
       const manualSessions =
         sessionOptions === true ||
         Boolean(
@@ -6643,10 +6371,9 @@ export function createChannelChatRouteHandler(
       if (sessionId && manualSessions) {
         const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
         const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)
-        approvalTtlMs =
-          sessionOptions && sessionOptions !== true && sessionOptions.strategy === "hybrid" && sessionOptions.idleTimeoutMs
-            ? Math.min(agentChatApprovalTtlMs, sessionOptions.idleTimeoutMs)
-            : agentChatApprovalTtlMs
+        approvalTtlMs = resolveAgentChatApprovalTtl(
+          sessionOptions && sessionOptions !== true && sessionOptions.strategy === "hybrid" ? sessionOptions.idleTimeoutMs : undefined,
+        )
         if (triggerInput.session?.action === "new") {
           selectedSessionId = `${manualId}:manual:${randomToken()}`
         } else {
@@ -6664,23 +6391,22 @@ export function createChannelChatRouteHandler(
           },
         }
       }
-      if (approvalSessionId) {
-        const persistApprovedTools = invoker.kind !== "anonymous"
-        if (
-          !persistApprovedTools &&
-          triggerInput.messages.some((message) => message.parts?.some((part) => uiApprovalPart(part)?.record.state === "approval-responded"))
-        ) {
-          throw createRouteBodyError("Agent chat approval responses require an authenticated invoker.")
-        }
-        const authorized = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages, persistApprovedTools, approvalTtlMs)
-        const approvedTools = persistApprovedTools
-          ? await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, approvalSessionId))
-          : authorized.approvedTools
+      const approvalCustody = approvalSessionId
+        ? createAgentChatApprovalCustody({
+            authenticated: invoker.kind !== "anonymous",
+            invokerId: invoker.id,
+            sessionId: approvalSessionId,
+            state,
+            ttlMs: approvalTtlMs,
+          })
+        : undefined
+      if (approvalCustody) {
+        const authorized = await approvalCustody.authorize(triggerInput.messages)
         triggerInput = {
           ...triggerInput,
           context: {
             ...triggerInput.context,
-            ...(approvedTools?.length ? { "vitehub.eve.approvedTools": approvedTools } : {}),
+            ...(authorized.approvedTools.length ? { "vitehub.eve.approvedTools": authorized.approvedTools } : {}),
           },
           messages: authorized.messages,
         }
@@ -6701,51 +6427,16 @@ export function createChannelChatRouteHandler(
             output: "ui-message-stream",
           }),
       )
-      if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
+      if (approvalCustody) result = approvalCustody.observe(result)
       const response = await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
-      if (!claimedRun || !resumable) return response
-
-      const headers = new Headers(response.headers)
-      headers.set("x-vitehub-message-id", resumableMessageId || "")
-      headers.set("x-vitehub-run-id", triggerInput.run?.runId || "")
-      headers.delete("content-length")
-      claimedRun.headers = headers
-      claimedRun.status = response.status
-      claimedRun.statusText = response.statusText
-      claimedRun.hasBody = Boolean(response.body)
-      claimedRun.reader = response.body?.getReader()
-      claimedRun.resolveReady()
-      if (!claimedRun.reader) {
-        closeResumableChatRun(claimedRun)
-        scheduleResumableChatRunCleanup(claimedRun, resumable, resumableRuns, latestResumableRuns)
-      } else {
-        const run = claimedRun
-        const consume = (async () => {
-          try {
-            while (!run.done) {
-              const chunk = await run.reader!.read()
-              if (chunk.done) break
-              const value = chunk.value.slice()
-              run.chunks.push(value)
-              for (const subscriber of run.subscribers) subscriber.enqueue(value)
-            }
-            closeResumableChatRun(run)
-          } catch (error) {
-            closeResumableChatRun(run, error)
-          } finally {
-            scheduleResumableChatRunCleanup(run, resumable, resumableRuns, latestResumableRuns)
-          }
-        })()
-        context.waitUntil(consume)
-      }
-      return resumableChatResponse(claimedRun)
+      if (!resumableClaim) return response
+      return resumableClaim.complete(response, {
+        messageId: resumableMessageId,
+        runId: triggerInput.run?.runId,
+        waitUntil: promise => context.waitUntil(promise),
+      })
     } catch (error) {
-      if (claimedRun) {
-        claimedRun.setupError = error
-        claimedRun.resolveReady()
-        resumableRuns.delete(claimedRun.invocationKey)
-        if (latestResumableRuns.get(claimedRun.latestKey) === claimedRun) latestResumableRuns.delete(claimedRun.latestKey)
-      }
+      resumableClaim?.fail(error)
       if (delivery) {
         await settleChannelDeliveryInvocation(delivery, "failed", "failed", {
           error: channelDeliveryError(error),

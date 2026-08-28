@@ -46,6 +46,8 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  esbuild: true",
     "overrides:",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    "  \"@nestjs/common\": \"11.2.3\"",
+    "  \"@nestjs/core\": \"11.2.3\"",
     ...Object.entries(overrides)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),

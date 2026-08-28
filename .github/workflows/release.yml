@@ -11,7 +11,6 @@ permissions: {}
 concurrency:
   group: npm-release
   cancel-in-progress: false
-  queue: max
 
 env:
   NODE_VERSION: 24
@@ -30,12 +29,12 @@ jobs:
       publish: ${{ steps.release.outputs.publish }}
       version: ${{ steps.release.outputs.version }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
+      - uses: voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0
         with:
           node-version: "24"
           cache: true
@@ -72,7 +71,7 @@ jobs:
             prerelease=true
           fi
 
-          artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}"
+          artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           mkdir -p .release
           RELEASE_ARTIFACT_NAME="$artifact_name" \
@@ -201,7 +200,7 @@ jobs:
   publish-npm:
     name: publish npm packages
     needs: verify
-    if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
+    if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     # Configure required reviewers and release-tag protection for this environment in repository settings.
@@ -217,14 +216,14 @@ jobs:
           path: release-data
 
       - name: Checkout trusted release verifier
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: trusted-source
           persist-credentials: false
           ref: ${{ github.sha }}
 
-      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
+      - uses: voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0
         with:
           node-version: "24"
           cache: false
@@ -290,7 +289,7 @@ jobs:
   github-release:
     name: create GitHub release
     needs: [verify, publish-npm]
-    if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
+    if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
     permissions:
       contents: write

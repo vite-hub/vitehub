@@ -171,6 +171,7 @@ export interface WorkspaceSessionHostFiles {
 
 export interface WorkspaceSessionHost {
   readonly executionAuthority: ExecutionAuthority
+  readonly inspectionConcurrency?: number
   detachAbortSignal?(): void
   files: WorkspaceSessionHostFiles
   exec(
@@ -505,12 +506,14 @@ export type WorkspaceFileSourceInput<TKey extends string = string> =
 export interface WorkspaceFetchSourceRequestOptions {
   body?: unknown
   headers?: Record<string, string>
+  maxResponseBytes?: number
   method?: "GET" | "HEAD" | "POST"
   query?: Record<string, unknown>
   timeout?: number
 }
 
 export interface WorkspaceFetchSourceInput<TResponse = unknown, TOutput = TResponse> extends WorkspaceSourceBindingOptions {
+  maxResponseBytes?: number
   method?: "GET" | "HEAD" | "POST"
   path?: string
   request?: WorkspaceFetchSourceRequestOptions | (() => WorkspaceFetchSourceRequestOptions | Promise<WorkspaceFetchSourceRequestOptions>)
@@ -522,7 +525,10 @@ export interface WorkspaceFetchSourceInput<TResponse = unknown, TOutput = TRespo
 
 export type WorkspaceGlobSourceInput = SourcePackageGlobSourceOptions & WorkspaceSourceBindingOptions
 
-export type WorkspaceGitHubSourceInput = SourcePackageGitHubSourceOptions & WorkspaceSourceBindingOptions
+export type WorkspaceGitHubSourceInput =
+  Omit<SourcePackageGitHubSourceOptions, "ignore">
+  & { ignore?: false | string | readonly string[] }
+  & WorkspaceSourceBindingOptions
 
 export type WorkspaceMcpResourcesSourceInput<TKey extends string = string> =
   Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache"> & WorkspaceSourceBindingOptions

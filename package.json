@@ -9,6 +9,9 @@
     "url": "git+https://github.com/vite-hub/vitehub.git"
   },
   "type": "module",
+  "dependencies": {
+    "yaml": "catalog:tooling"
+  },
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
@@ -22,7 +25,6 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
-    "@vite-hub/history": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
