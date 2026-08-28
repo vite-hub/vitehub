@@ -11,6 +11,7 @@ import {
   materializeWorkspaceSources,
   readResolvedSourceFile,
   searchMaterializedStore,
+  shouldMaterializeSource,
   statVirtualSourcePath,
 } from "./materialization.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
@@ -107,8 +108,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     behavior: { reusePreparedContext?: boolean } = {},
   ) {
     let started = false
-    const selectedSources = sources
-      .filter(source => !options?.sources?.length || options.sources.includes(source.key))
+    const selectedSources = allSources.filter(source => shouldMaterializeSource(source, options))
     if (!selectedSources.length) {
       return {
         bytes: 0,

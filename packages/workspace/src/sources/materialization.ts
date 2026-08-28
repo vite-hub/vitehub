@@ -182,7 +182,7 @@ function materializesCompleteSource(source: ResolvedWorkspaceSource, options: Wo
   return !requested || Boolean(source.mountPath && pathContains(requested, source.mountPath))
 }
 
-function shouldMaterializeSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
+export function shouldMaterializeSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
   if (source.requestOnly || !sourcePathMatches("", source, options)) return false
   if (source.materialize === "lazy") return true
   return source.materialize === "build" && Boolean(options?.path)
@@ -537,7 +537,7 @@ export async function materializeWorkspaceSources(
         const item = entry.item!
         const metadata = item.metadata || {}
         const previousStat = await store.stat(path)
-        const previousFile = entry.contentStream ? undefined : await store.readFile(path)
+        const previousFile = entry.contentStream && previousStat?.size !== undefined ? undefined : await store.readFile(path)
         const previousExists = previousStat?.type === "file" || Boolean(previousFile)
         const fileMetadata = {
           ...metadata,
@@ -562,7 +562,7 @@ export async function materializeWorkspaceSources(
         }
         sourceFiles++
         sourceBytes += written.size || 0
-        persistedBytesDelta += (written.size || 0) - (previousExists && tracked ? previousStat?.size || (previousFile ? contentSize(previousFile.content) : 0) : 0)
+        persistedBytesDelta += (written.size || 0) - (previousExists && tracked ? previousStat?.size ?? (previousFile ? contentSize(previousFile.content) : 0) : 0)
         const unchanged = previousFile && contentEquals(previousFile.content, entry.content ?? "")
           && fileAttributesEqual(previousFile, previousItemMetadata, item.mediaType, fileMetadata)
         const status = unchanged

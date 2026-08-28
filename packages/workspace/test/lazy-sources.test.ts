@@ -2542,6 +2542,50 @@ describe("lazy sources", () => {
     })
   })
 
+  it("replaces streamed bytes in scoped snapshots when the Store omits stat size", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const stat = store.stat.bind(store)
+    store.stat = async (path) => {
+      const entry = await stat(path)
+      return entry ? { ...entry, size: undefined } : undefined
+    }
+    let content = new Uint8Array([0, 1, 2])
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-scoped-size",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() {
+            return ["asset.bin"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(content)
+                  controller.close()
+                },
+              }),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    content = new Uint8Array([0, 1, 2, 3, 4])
+    await view.materializeSources({ path: "docs/asset.bin", sources: ["docs"] })
+
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      bytes: 5,
+      files: 1,
+      status: "updating",
+    })
+  })
+
   it("reuses keyed source items with unchanged upstream metadata", async () => {
     let ref = "one"
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${ref}\n` }))
