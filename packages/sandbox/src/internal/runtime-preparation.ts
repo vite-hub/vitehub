@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
+import { pathToFileURL } from 'node:url'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
@@ -201,13 +202,13 @@ function createSandboxRuntimeFacadeContents(
     ...(providerLoaderFile
       ? [`export { loadSandboxRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
       : []),
-    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(stateFile)}`,
+    `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(pathToFileURL(stateFile).href)}`,
     '',
     `setSandboxRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     'setSandboxRuntimeRegistry(sandboxRegistry)',
     '',
     'export default sandboxRegistry',
-    `export * from ${JSON.stringify(packageIndexFile)}`,
+    `export * from ${JSON.stringify(pathToFileURL(packageIndexFile).href)}`,
     '',
   ].join('\n')
 }

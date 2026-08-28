@@ -1,7 +1,7 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, isAbsolute, join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { basename, join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { build, type AliasOptions } from "vite"
@@ -176,12 +176,9 @@ describe("hubSandbox", () => {
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toHaveLength(2)
-    expect(facadePackageImports.every(isAbsolute)).toBe(true)
-    const facadePaths = [sandboxAlias, await realpath(sandboxAlias)]
+    expect(facadePackageImports.every(specifier => specifier.startsWith("file:"))).toBe(true)
     await Promise.all(facadePackageImports.map(async (specifier) => {
-      await Promise.all(facadePaths.map(async (facadePath) => {
-        await expect(realpath(resolve(dirname(facadePath), specifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
-      }))
+      await expect(realpath(fileURLToPath(specifier))).resolves.toMatch(/packages\/sandbox\/(?:src|dist)/)
     }))
     expect(facade).toContain('from "./sandbox-registry.mjs"')
     expect(facade).toContain('from "./sandbox-provider-loader.mjs"')

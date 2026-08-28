@@ -11,6 +11,7 @@ const builtinModuleSet = new Set([
   ...builtinModules,
   ...builtinModules.map(name => `node:${name}`),
 ])
+const filesystemModuleSet = new Set(['fs', 'fs/promises', 'node:fs', 'node:fs/promises'])
 
 export async function bundleSandboxDefinition(
   source: string,
@@ -95,7 +96,8 @@ export async function bundleSandboxDefinition(
       },
     ],
   })
-  const requiresProject = hasRuntimeModuleResolution || externalImports.some(specifier => !builtinModuleSet.has(specifier))
+  const requiresProject = hasRuntimeModuleResolution
+    || externalImports.some(specifier => !builtinModuleSet.has(specifier) || filesystemModuleSet.has(specifier))
   if (!options.project || !requiresProject) {
     return {
       ...bundle,
