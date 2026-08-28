@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
+import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -24,6 +25,13 @@ const emptyWorkspace = () => ({
     none: vi.fn(() => ({})),
   },
 })
+
+function isWorkspaceSessionStarter(value: unknown): value is { startSession(): Promise<WorkspaceSession> } {
+  return typeof value === "object"
+    && value !== null
+    && "startSession" in value
+    && typeof value.startSession === "function"
+}
 
 const workspaceWithFiles = (files: Record<string, string>) => {
   const paths = new Set(Object.keys(files))
@@ -644,8 +652,8 @@ describe("agent capability runtime", () => {
         return this.values.entries()
       }
 
-      get<T = unknown>(id: string): T | undefined {
-        return this.values.get(id) as T | undefined
+      get(id: string): unknown {
+        return this.values.get(id)
       }
 
       has(id: string): boolean {
@@ -846,6 +854,64 @@ describe("agent capability runtime", () => {
       paths: ["pull-request", ".vitehub/sources/pullRequest.json"],
       sources: ["pullRequest"],
     })
+  })
+
+  it("rejects unsafe Access selectors before querying capability workspace sources", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    let sourceQueries = 0
+    const baseWorkspace = {
+      ...emptyWorkspace(),
+      startSession: vi.fn(async () => ({
+        glob: vi.fn(async () => []),
+      })),
+    }
+    baseWorkspace.fs.search.mockRejectedValue(new Error("base search unavailable"))
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({ workspace: { resolve: { role: "admin", scope: "all" }, scopes: { all: { all: true } } } }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                async getKeys() {
+                  sourceQueries++
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review context", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, baseWorkspace as never, "read", {
+      workspaceDefinition: { name: "review", sources: {} },
+    })
+
+    const expansivePattern = "{a,b}".repeat(11)
+    await expect(resolved.workspace?.fs.glob(expansivePattern)).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace?.fs.search({ paths: [`pull-request/${expansivePattern}`], pattern: "review" })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    if (!isWorkspaceSessionStarter(resolved.workspace)) throw new Error("Expected a session-capable Workspace facade.")
+    const session = await resolved.workspace.startSession()
+    await expect(session.glob(expansivePattern)).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    expect(sourceQueries).toBe(0)
+
+    await expect(resolved.workspace?.fs.search({ paths: ["pull-request"], pattern: "review" })).resolves.toEqual([
+      expect.objectContaining({ path: "pull-request/summary.md" }),
+    ])
+    expect(baseWorkspace.fs.search).not.toHaveBeenCalled()
+    expect(sourceQueries).toBe(1)
   })
 
   it("rejects authorized capability workspace sources that shadow base paths", async () => {
@@ -1620,10 +1686,13 @@ describe("agent capability runtime", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
-    const resolvedWorkspace = resolved.workspace as unknown as ReturnType<typeof writableWorkspace>
+    const resolvedWorkspace = resolved.workspace
+    if (!resolvedWorkspace || !("writeFile" in resolvedWorkspace.fs) || typeof resolvedWorkspace.fs.writeFile !== "function") {
+      throw new Error("Expected a writable Workspace facade.")
+    }
     await resolvedWorkspace.fs.writeFile("artifacts/review.md", "ok")
     expect(workspace.fs.writeFile).toHaveBeenCalledWith("artifacts/review.md", "ok", undefined)
-    expect(resolvedWorkspace.tools.write).toEqual(expect.any(Function))
+    expect(resolvedWorkspace.tools).toHaveProperty("write", expect.any(Function))
   })
 
   it("rejects duplicate invocation context values", async () => {

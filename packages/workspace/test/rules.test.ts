@@ -4,6 +4,17 @@ import { resolveWorkspaceAutoCommit } from "../src/core/rules.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 
 describe("workspace rules", () => {
+  it("keeps ordinary direct Workspace braces compatible in memory stores", async () => {
+    const workspace = createWorkspace({ name: "docs", store: { provider: "memory" } })
+    await workspace.writeFile("docs/readme.md", "readme")
+    await workspace.writeFile("docs/guide.mdx", "guide")
+
+    await expect(workspace.glob("docs/*.{md,mdx}")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guide.mdx", type: "file" }),
+      expect.objectContaining({ path: "docs/readme.md", type: "file" }),
+    ])
+  })
+
   it("creates an auto-commit plan from workspace commit", () => {
     expect(resolveWorkspaceAutoCommit({
       commit: "chore: update docs",
@@ -53,6 +64,23 @@ describe("workspace rules", () => {
     })).toEqual({
       message: "chore: archive inbox files",
       paths: ["inbox/audio.ogg", "inbox/audio.md"],
+    })
+  })
+
+  it("keeps ordinary developer-authored brace rules compatible", () => {
+    expect(resolveWorkspaceAutoCommit({
+      name: "docs",
+      rules: {
+        "notes/{draft,final}.md": { commit: true, write: true },
+      },
+    }, {
+      entries: [
+        { after: { type: "file" }, path: "notes/final.md", type: "added" },
+      ],
+      to: "next",
+    })).toEqual({
+      message: "chore: update docs workspace",
+      paths: ["notes/final.md"],
     })
   })
 

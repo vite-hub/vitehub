@@ -88,7 +88,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   const resolvedStates = new Map<string, ResolvedEnvState>()
-  const generatedStateSignatures = new Map<string, string>()
+  const activeGeneratedStates = new Map<string, { count: number, signature: string }>()
   const resolvedConfigStates = new WeakMap<object, ResolvedEnvState>()
   const pendingConfigStates = new Map<string, ResolvedEnvState>()
   const configStateKey = `__vitehubEnvState${++envVitePluginSequence}`
@@ -196,20 +196,27 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       if (!state) throw new Error(`Missing resolved Env state for ${projectRoot}`)
       pendingConfigStates.delete(configStateId)
       const generatedStateSignature = createGeneratedStateSignature(projectRoot, state, runtimeImports)
-      const existingGeneratedStateSignature = generatedStateSignatures.get(projectRoot)
-      if (existingGeneratedStateSignature && existingGeneratedStateSignature !== generatedStateSignature) {
+      const activeGeneratedState = activeGeneratedStates.get(projectRoot)
+      if (activeGeneratedState && activeGeneratedState.signature !== generatedStateSignature) {
         throw new TypeError(`[vitehub] One hubEnv() plugin cannot resolve incompatible Env configurations for the same project root ${JSON.stringify(projectRoot)}.`)
       }
-      generatedStateSignatures.set(projectRoot, generatedStateSignature)
-      resolvedConfigStates.set(config, state)
-      for (const environmentConfig of Object.values(config.environments || {})) {
-        resolvedConfigStates.set(environmentConfig, state)
+      if (activeGeneratedState) activeGeneratedState.count++
+      else activeGeneratedStates.set(projectRoot, { count: 1, signature: generatedStateSignature })
+      try {
+        resolvedConfigStates.set(config, state)
+        for (const environmentConfig of Object.values(config.environments || {})) {
+          resolvedConfigStates.set(environmentConfig, state)
+        }
+        Reflect.deleteProperty(config, configStateKey)
+        resolvedStates.set(projectRoot, state)
+        if (state.diagnosticsText) config.logger.info(state.diagnosticsText)
+        const packageRoot = await resolvePackageRoot(config.root, projectRoot)
+        await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules)
       }
-      Reflect.deleteProperty(config, configStateKey)
-      resolvedStates.set(projectRoot, state)
-      if (state.diagnosticsText) config.logger.info(state.diagnosticsText)
-      const packageRoot = await resolvePackageRoot(config.root, projectRoot)
-      await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules)
+      finally {
+        const active = activeGeneratedStates.get(projectRoot)
+        if (active && --active.count === 0) activeGeneratedStates.delete(projectRoot)
+      }
     },
     load(id) {
       const viteConfig = this?.environment?.config

@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import {
   createProgram,
@@ -19,6 +21,8 @@ import { resolveServerEnv } from "../src/server.ts"
 import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
+
+const execFileAsync = promisify(execFile)
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -398,59 +402,63 @@ describe("Vite plugin", () => {
     expect(serverTypes).toContain("inspectServerEnv(event?: unknown")
     expect(serverTypes).toContain('"codexAuth": SecretEnv<string>')
 
-    // SAFETY: Native import is required to exercise the persisted module with Node's URL decoding instead of Vitest's module runner.
-    const nativeImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>
-    const generatedModule = await nativeImport(`${pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href}?test=${Date.now()}`)
-    // SAFETY: The generated module contract is asserted below through every exported operation used by applications.
-    const generated = generatedModule as {
-      inspectServerEnv(event?: unknown): Promise<{ entries: Array<{ source: string, status: string }> }>
-      loadServerEnv(event?: unknown): Promise<{
-        ["__proto__"]: { nested: string }
-        codexAuth: { unseal(): string }
-        githubToken: { unseal(): string }
-      }>
-      useServerEnv(event?: unknown): { ["__proto__"]: { nested: string } }
-      runWithServerEnv<T>(event: unknown, callback: (env: {
-        codexAuth: { unseal(): string }
-        githubToken: { unseal(): string }
-      }) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>
-    }
-    // SAFETY: The fixture provider exports the stats record authored immediately above.
-    const provider = await nativeImport(pathToFileURL(providerPath).href) as { stats: { reads: number } }
-    const event = { env: { GATEWAY_KEY: "gateway-secret", NESTED: "local" } }
-    const local = generated.useServerEnv(event)
-    expect(Object.hasOwn(local, "__proto__")).toBe(true)
-    expect(local["__proto__"]).toEqual({ nested: "local" })
-    const first = await generated.loadServerEnv(event)
-    expect(Object.hasOwn(first, "__proto__")).toBe(true)
-    expect(first["__proto__"]).toEqual({ nested: "local" })
-    expect(first.codexAuth.unseal()).toBe("gateway-secret:1")
-    expect(first.githubToken.unseal()).toBe("gateway-secret:1")
-    expect(provider.stats.reads).toBe(1)
-    expect(Object.isFrozen(first)).toBe(true)
-
-    await expect(generated.inspectServerEnv(event)).resolves.toMatchObject({
-      entries: expect.arrayContaining([
-        expect.objectContaining({ source: "provider", status: "available" }),
-      ]),
+    const generatedModuleUrl = `${pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href}?test=${Date.now()}`
+    const providerUrl = pathToFileURL(providerPath).href
+    const nativeAssertions = `
+      const generated = await import(${JSON.stringify(generatedModuleUrl)})
+      const provider = await import(${JSON.stringify(providerUrl)})
+      const event = { env: { GATEWAY_KEY: "gateway-secret", NESTED: "local" } }
+      const local = generated.useServerEnv(event)
+      const first = await generated.loadServerEnv(event)
+      const reads = [provider.stats.reads]
+      const inspection = await generated.inspectServerEnv(event)
+      reads.push(provider.stats.reads)
+      const callback = await generated.runWithServerEnv(event, snapshot => [
+        snapshot.codexAuth.unseal(),
+        snapshot.githubToken.unseal(),
+      ])
+      reads.push(provider.stats.reads)
+      const aborted = new AbortController()
+      const abortReason = new Error("generated load cancelled")
+      aborted.abort(abortReason)
+      let preservedAbortReason = false
+      try {
+        await generated.runWithServerEnv(event, () => undefined, { signal: aborted.signal })
+      }
+      catch (error) {
+        preservedAbortReason = error === abortReason
+      }
+      reads.push(provider.stats.reads)
+      const second = await generated.loadServerEnv(event)
+      reads.push(provider.stats.reads)
+      process.stdout.write(JSON.stringify({
+        callback,
+        firstFrozen: Object.isFrozen(first),
+        firstOwnPrototype: Object.hasOwn(first, "__proto__"),
+        firstPrototype: first["__proto__"],
+        firstValues: [first.codexAuth.unseal(), first.githubToken.unseal()],
+        inspectionAvailable: inspection.entries.some(entry => entry.source === "provider" && entry.status === "available"),
+        localOwnPrototype: Object.hasOwn(local, "__proto__"),
+        localPrototype: local["__proto__"],
+        preservedAbortReason,
+        reads,
+        secondValue: second.codexAuth.unseal(),
+      }))
+    `
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", nativeAssertions], { encoding: "utf8" })
+    expect(JSON.parse(stdout)).toEqual({
+      callback: ["gateway-secret:3", "gateway-secret:3"],
+      firstFrozen: true,
+      firstOwnPrototype: true,
+      firstPrototype: { nested: "local" },
+      firstValues: ["gateway-secret:1", "gateway-secret:1"],
+      inspectionAvailable: true,
+      localOwnPrototype: true,
+      localPrototype: { nested: "local" },
+      preservedAbortReason: true,
+      reads: [1, 2, 3, 3, 4],
+      secondValue: "gateway-secret:4",
     })
-    expect(provider.stats.reads).toBe(2)
-
-    await expect(generated.runWithServerEnv(event, snapshot => [
-      snapshot.codexAuth.unseal(),
-      snapshot.githubToken.unseal(),
-    ])).resolves.toEqual(["gateway-secret:3", "gateway-secret:3"])
-    expect(provider.stats.reads).toBe(3)
-
-    const aborted = new AbortController()
-    const abortReason = new Error("generated load cancelled")
-    aborted.abort(abortReason)
-    await expect(generated.runWithServerEnv(event, () => undefined, { signal: aborted.signal })).rejects.toBe(abortReason)
-    expect(provider.stats.reads).toBe(3)
-
-    const second = await generated.loadServerEnv(event)
-    expect(second.codexAuth.unseal()).toBe("gateway-secret:4")
-    expect(provider.stats.reads).toBe(4)
 
     const missing = hubEnv()
     const missingConfig = missing.config as typeof configHook
@@ -588,6 +596,25 @@ describe("Vite plugin", () => {
     const virtualModule = loadHook.call({ environment: { config: resolvedConfig } }, "\0#vitehub/env/server")
     expect(virtualModule.includes("FIRST_TOKEN")).toBe(generated.includes("FIRST_TOKEN"))
     expect(virtualModule.includes("SECOND_TOKEN")).toBe(generated.includes("SECOND_TOKEN"))
+  })
+
+  it("regenerates Env after completed same-root configuration reuse", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-sequential-root-"))
+    const plugin = hubEnv()
+    const resolve = (key: string) => resolveConfig({
+      configFile: false,
+      env: { server: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) } },
+      logLevel: "silent",
+      plugins: [plugin],
+      root,
+    }, "serve", "development")
+
+    await resolve("first")
+    await resolve("second")
+
+    const generated = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    expect(generated).toContain("SECOND_TOKEN")
+    expect(generated).not.toContain("FIRST_TOKEN")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
