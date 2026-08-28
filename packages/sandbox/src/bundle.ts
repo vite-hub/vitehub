@@ -27,6 +27,14 @@ function findDefinitionProjectPath(file: string, project: SandboxProject) {
     .sort((left, right) => right.length - left.length)[0]
 }
 
+function containsProjectPath(projectPaths: Set<string>, path: string) {
+  if (path.startsWith('../'))
+    return false
+  if (!path || path === '.')
+    return projectPaths.size > 0
+  return projectPaths.has(path) || [...projectPaths].some(projectPath => projectPath.startsWith(`${path}/`))
+}
+
 function hasProjectAssetReference(
   modules: Record<string, string>,
   file: string,
@@ -42,15 +50,18 @@ function hasProjectAssetReference(
       const relativePath = normalize(reference.path.replaceAll('\\', '/'))
       if (reference.relativeTo === 'working-directory') {
         const projectPath = normalize(join(packagePath, relativePath))
-        return !projectPath.startsWith('../') && projectPaths.has(projectPath)
+        return containsProjectPath(projectPaths, projectPath)
       }
       if (definitionPath) {
         const projectPath = normalize(join(dirname(definitionPath), relativePath))
-        if (!projectPath.startsWith('../') && projectPaths.has(projectPath))
+        if (containsProjectPath(projectPaths, projectPath))
           return true
       }
       const suffix = relativePath.replace(/^(?:\.\.\/)+/, '').replace(/^\.\//, '')
-      return !!suffix && [...projectPaths].some(path => path === suffix || path.endsWith(`/${suffix}`))
+      return !!suffix && [...projectPaths].some(path => path === suffix
+        || path.endsWith(`/${suffix}`)
+        || path.startsWith(`${suffix}/`)
+        || path.includes(`/${suffix}/`))
     })
   })
 }
