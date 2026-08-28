@@ -49,6 +49,7 @@
     "packages/queue/test/published-runtime.test.ts:../dist/runtime/hosted.js",
     "packages/runtime/test/published-runtime.test.ts:../dist/index.js",
     "packages/schedule/test/errors.test.ts:../dist/index.js",
+    "packages/source/types/source/index.d.ts:./vitehub-source-registry.js",
     "packages/vite-hub/src/_internal/workspace/internal/runtime/hosted-vercel-blob.ts:@vite-hub/workspace/internal/runtime/hosted-vercel-blob",
     "packages/vite-hub/src/_internal/workspace/internal/runtime/hosted.ts:@vite-hub/workspace/internal/runtime/hosted",
     "packages/vite-hub/src/_internal/workspace/internal/runtime/state.ts:@vite-hub/workspace/internal/runtime/state",

@@ -19,6 +19,7 @@ An optional approved fingerprint map can block added or changed tool definitions
 
 Pass a server map.
 Each entry can be a static direct MCP client borrowed from the application, or a client config or resolver whose resolved client is owned by the Agent Invocation.
+Use `false`, `null`, or `undefined` when a server is not configured for the current deployment or invocation.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -37,11 +38,41 @@ export default defineAgent({
 })
 ```
 
+Optional servers do not need a conditional Capability array. Declare credentials that may be absent as optional in Server Env, for example `analyticsToken: env({ optional: true, secret: true })`, then resolve only the server whose credentials are available:
+
+```ts [server/agents/support.ts]
+import { useServerEnv } from '#vitehub/env/server'
+import { defineAgent } from 'vite-hub/agent'
+import { mcp } from 'vite-hub/agent/capabilities'
+import { remoteMcpServer } from 'vite-hub/agent/mcp'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: [
+    mcp({
+      servers: {
+        analytics: () => {
+          const token = useServerEnv().analyticsToken
+          return token
+            ? remoteMcpServer({
+                headers: { Authorization: `Bearer ${token.unseal()}` },
+                url: 'https://analytics.example.com/mcp',
+              })
+            : undefined
+        },
+      },
+    }),
+  ],
+})
+```
+
 ## How MCP connections work
 
 During resolution, `mcp()` connects to each configured MCP Server and asks for its tool set.
 ViteHub prefixes normalized tool names with `mcp_<server>_` and rejects duplicate normalized names.
 Pass a resolver or client config for an invocation-owned connection, or a static direct client when the application owns its lifetime.
+An absent entry contributes no tools and creates no MCP client. Other configured servers still resolve.
+Thrown resolver errors and connection, authentication, discovery, integrity, and cleanup failures remain errors; ViteHub does not mistake a broken configured server for optional setup.
 
 The Capability redacts secret-shaped metadata keys before exposing MCP metadata.
 
@@ -89,7 +120,7 @@ They do not prove that the first reviewed definition was safe or detect changed 
 
 ## Requirements
 
-`mcp({ servers })` requires a server map. Each configured entry must resolve to an MCP client or MCP client configuration.
+`mcp({ servers })` requires a server map. Each present entry must resolve to an MCP client or MCP client configuration. `false`, `null`, and `undefined` skip that entry.
 MCP client configuration uses the optional `@ai-sdk/mcp` runtime package when ViteHub creates the client from config.
 Tool integrity requires `ai` 7.0.19 or newer only when `integrity` is configured.
 
@@ -118,7 +149,7 @@ Confirm that the Capability fails before model execution.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `integrity` | `Record<string, McpToolFingerprints>` | none | Approved AI SDK tool fingerprints keyed by configured server name. Blocks added or changed definitions. |
-| `servers` | `Record<string, McpServerConfig>` | required | MCP clients, client configs, or resolvers keyed by server name. |
+| `servers` | `Record<string, McpServerConfig>` | required | MCP clients, client configs, optional absent values, or resolvers keyed by server name. |
 
 Cover MCP usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep MCP tool descriptions with the MCP Server because they are structured tool contracts.
 
