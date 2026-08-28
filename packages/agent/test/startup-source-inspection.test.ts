@@ -37,9 +37,17 @@ describe("startup Source inspection", () => {
     const workspace = {
       sources: {
         docs: custom({
+          async getItem(key) {
+            requests++
+            return { content: "# Ready", key }
+          },
           async getItems() {
             requests++
             return [{ content: "# Ready", key: "ready.md" }]
+          },
+          async getKeys() {
+            requests++
+            return ["ready.md"]
           },
           materialize: "startup" as const,
         }),
@@ -64,7 +72,7 @@ describe("startup Source inspection", () => {
             return { content: "# Ready", key }
           },
           async getKeys() { return ["a-ready.md", "z-failed.md"] },
-          materialize: "startup",
+          materialize: "startup" as const,
         }),
       },
     }
@@ -75,7 +83,7 @@ describe("startup Source inspection", () => {
       driver: { run: () => "ok" },
     })
 
-    const preparation = createWorkspacePreparation({ retry: false, workspace: workspaceName })
+    const preparation = createWorkspacePreparation({ workspace: workspaceName })
     await preparation.start()
     const metadata = await resolveAgentInspectionMetadata(agent)
     await preparation.stop()
