@@ -276,6 +276,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
     await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
     await writeFile(join(sharedHome, "Auth.json"), "ambient credentials\n")
+    await mkdir(join(sharedHome, "Sessions"))
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
     let shadowHome: string | undefined
     createProviderRuntime.mockImplementationOnce(async (options) => {
@@ -285,7 +286,8 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
       expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
       await expect(access(join(shadowHome, "Auth.json"))).rejects.toMatchObject({ code: "ENOENT" })
-      expect(await readlink(join(shadowHome, "sessions"))).toBe(join(sharedHome, "sessions"))
+      expect(await readlink(join(shadowHome, "Sessions"))).toBe(join(sharedHome, "Sessions"))
+      await expect(access(join(shadowHome, "sessions"))).rejects.toMatchObject({ code: "ENOENT" })
       return providerRuntimes.shift()
     })
 

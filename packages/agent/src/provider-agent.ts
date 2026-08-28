@@ -275,7 +275,10 @@ async function materializeCodexCredentialOverlay(home: string, sharedHome: strin
     ...codexSharedHomeDirectories.map(directory => mkdir(join(sharedHome, directory), { recursive: true })),
     ...codexSharedHomeFiles.map(file => writeFile(join(sharedHome, file), "", { flag: "a" })),
   ])
-  const entries = new Set([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...await readdir(sharedHome)])
+  const discoveredEntries = await readdir(sharedHome)
+  const entries = process.platform === "win32" || process.platform === "darwin"
+    ? new Map([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries].map(entry => [entry.toLowerCase(), entry])).values()
+    : new Set([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries])
   await Promise.all([...entries]
     .filter((entry) => {
       const comparableEntry = entry.toLowerCase()
