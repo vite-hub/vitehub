@@ -23,6 +23,20 @@ const commandErrorSchema = object({
   stdout: optional(union([string(), instance(Buffer)])),
 })
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String)
+}
+
+function parseRecord(value: string, label: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(value)
+  if (!isRecord(parsed)) throw new TypeError(`Expected ${label} to contain a JSON object`)
+  return parsed
+}
+
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
@@ -173,9 +187,8 @@ console.log(item.content)
 
       const mcp = await buildWorker(appDir, "src/mcp.ts", "mcp")
       expect(Object.keys(mcp.inputs).join("\n")).toContain("@vite-hub/source/dist/mcp.js")
-      const externalMcpImports = Object.values(mcp.outputs)
-        .flatMap(output => output.imports || [])
-        .filter(entry => entry.external && /@modelcontextprotocol|pkce-challenge/.test(entry.path))
+      const externalMcpImports = externalImports(mcp.outputs)
+        .filter(path => /@modelcontextprotocol|pkce-challenge/.test(path))
       expect(externalMcpImports).toEqual([])
 
       const runtime = await run("node", ["mcp-run.mjs"], appDir)

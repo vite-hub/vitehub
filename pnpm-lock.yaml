@@ -85,10 +85,6 @@ catalogs:
     effect:
       specifier: 4.0.0-beta.99
       version: 4.0.0-beta.99
-  email:
-    unemail:
-      specifier: 0.5.0
-      version: 0.5.0
   esbuild-v27:
     esbuild:
       specifier: ^0.27.7
@@ -1084,9 +1080,6 @@ importers:
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1
-      unemail:
-        specifier: catalog:email
-        version: 0.5.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -14220,10 +14213,6 @@ packages:
   undici@8.9.0:
     resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
     engines: {node: '>=22.19.0'}
-
-  unemail@0.5.0:
-    resolution: {integrity: sha512-pTzgIYsCzYULYk1uoFEYL4GLQl9mCYLUQSZUvAt3DOBzR/QxoTkcDVB2qlvtY/80pOFU+KFQRlcT2NFjaAoz/g==}
-    engines: {node: '>=20.11.1'}
 
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
@@ -32264,8 +32253,6 @@ snapshots:
   undici@8.10.0: {}
 
   undici@8.9.0: {}
-
-  unemail@0.5.0: {}
 
   unenv@2.0.0-rc.24:
     dependencies:

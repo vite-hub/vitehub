@@ -671,6 +671,7 @@ async function recordServerRuntimePackageResolutions(
         bundledPackageJsonPaths.set(name, paths)
       }
       catch (error) {
+        // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       }
     }
