@@ -556,6 +556,8 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { plugins?: string[] }, root: string } = { root }
 
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
+      await callPluginHook(plugin.configResolved, {}, [{ root }])
+      await callPluginHook(plugin.buildStart, {})
 
       const generatedPlugin = config.nitro?.plugins?.[0] ?? ""
       const generated = await readFile(generatedPlugin, "utf8")
@@ -590,6 +592,8 @@ describe("Agent invocation console", () => {
       const concurrentPlugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node" })
       const concurrentConfig: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(concurrentPlugin.config, {}, [concurrentConfig, { command: "serve", mode: "development" }])
+      await callPluginHook(concurrentPlugin.configResolved, {}, [{ root }])
+      await callPluginHook(concurrentPlugin.buildStart, {})
       const concurrentGeneratedPlugin = concurrentConfig.nitro?.plugins?.[0] ?? ""
       expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
       await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(generated)
@@ -619,6 +623,40 @@ describe("Agent invocation console", () => {
     finally {
       await rm(root, { force: true, recursive: true })
       await rm(fixtureRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("does not materialize fixture state when Vite configuration aborts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-abort-"))
+    const fixture = join(root, "console.fixture.json")
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(fixture, JSON.stringify(fixtureDocument("aborted")))
+      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
+
+      for (const hook of ["config", "configResolved"] as const) {
+        const state: ConsoleInvocationRootState = {}
+        await expect(createServer({
+          configFile: false,
+          plugins: [
+            consoleVitePlugin({ invocationRootState: state }),
+            consoleInvocationRootPlugin(undefined, undefined, state),
+            { name: `fixture-${hook}-failure`, [hook]: () => { throw new Error(`${hook} failed`) } },
+          ],
+          root,
+          server: { middlewareMode: true },
+        })).rejects.toThrow(`${hook} failed`)
+
+        const generatedPlugin = resolve(root, ".vitehub/nitro/console", `plugin-${state.binding}.mjs`)
+        await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+        expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).not.toBe(true)
+        expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
+        expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: root })).toBeUndefined()
+      }
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
     }
   })
 
@@ -663,6 +701,7 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
       await callPluginHook(plugin.configResolved, {}, [{ root }])
+      await callPluginHook(plugin.buildStart, {})
       const generatedPlugin = config.nitro?.plugins?.[0]
       if (!generatedPlugin) throw new TypeError("Expected a generated Console plugin.")
 

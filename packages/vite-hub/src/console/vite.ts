@@ -255,7 +255,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       if (fixture && options.invocationRootState) {
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshAgentDefinitions)
       }
-      if (!cliDiscovery) {
+      if (!cliDiscovery && !fixture) {
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
@@ -304,7 +304,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      if (!cliDiscovery) await refreshAgentDefinitions()
+      if (!cliDiscovery && !fixture) await refreshAgentDefinitions()
+    },
+    buildStart: {
+      order: "post",
+      async handler() {
+        if (!cliDiscovery && fixture) await refreshAgentDefinitions()
+      },
     },
     configureServer(server) {
       if (fixture) server.watcher.add(fixture)
@@ -346,9 +352,18 @@ export function consoleInvocationRootPlugin(
   const activeEnvironments = new Set<object>()
   let projectRoot = configuredProjectRoot
   let identity = configuredIdentity
+  let fixtureConfigured = false
 
   function rememberFrameworkAgent(id: string): void {
     frameworkAgentEntries.add(normalizeModuleId(id))
+  }
+
+  async function closeEnvironment(environment: object | undefined): Promise<void> {
+    if (environment) activeEnvironments.delete(environment)
+    if (activeEnvironments.size > 0) return
+    state.closed = true
+    if (state.binding) releaseConsoleInvocationsBinding(state.binding)
+    await state.fixtureLifecycle?.close()
   }
 
   return {
@@ -366,6 +381,7 @@ export function consoleInvocationRootPlugin(
         ? undefined
         : process.env[consoleFixtureEnvironmentVariable]
       const fixture = configuredFixture ? resolve(projectRoot, configuredFixture) : undefined
+      fixtureConfigured = Boolean(fixture)
       const revision = fixture ? consoleFixtureRevision(readConsoleFixture(fixture)) : undefined
       identity ||= createConsoleInvocationsIdentity(
         projectRoot,
@@ -373,14 +389,13 @@ export function consoleInvocationRootPlugin(
         revision,
         state.binding,
       )
-      updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
+      if (!fixture) updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
     },
     async closeBundle() {
-      if (this.environment) activeEnvironments.delete(this.environment)
-      if (activeEnvironments.size > 0) return
-      state.closed = true
-      if (state.binding) releaseConsoleInvocationsBinding(state.binding)
-      await state.fixtureLifecycle?.close()
+      await closeEnvironment(this.environment)
+    },
+    async buildEnd(error) {
+      if (error) await closeEnvironment(this.environment)
     },
     async buildStart() {
       if (this.environment) activeEnvironments.add(this.environment)
@@ -390,6 +405,9 @@ export function consoleInvocationRootPlugin(
         else if (state.binding && state.identity && state.projectRoot) {
           bindConsoleInvocationsIdentity(state.binding, state.identity, state.projectRoot)
         }
+      }
+      else if (fixtureConfigured && projectRoot && identity) {
+        updateConsoleInvocationRootState(state, projectRoot, state.identity ?? identity)
       }
       const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
       if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
