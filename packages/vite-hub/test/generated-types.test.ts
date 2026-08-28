@@ -127,8 +127,8 @@ function configureServer(
 ) {
   const configureServer = plugin.configureServer
   const rawHook = configureServer instanceof Function ? configureServer : configureServer?.handler
-  // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
-  const hook = rawHook as (server: {
+  if (!rawHook) throw new TypeError("Expected a configureServer hook.")
+  type TestViteServer = {
     config: { logger: { error: (message: string) => void } }
     environments: Record<string, TestPluginEnvironment>
     restart: () => Promise<void>
@@ -136,8 +136,8 @@ function configureServer(
       add: (paths: string[]) => void
       on: (event: string, callback: (file: string) => void) => void
     }
-  }) => void
-  return (server: Omit<Parameters<typeof hook>[0], "environments">) => {
+  }
+  return (server: Omit<TestViteServer, "environments">) => {
     const environment = { id: Symbol("test-plugin-environment") }
     const viteServer = { ...server, environments: { client: environment } }
     const restart = viteServer.restart
@@ -149,7 +149,8 @@ function configureServer(
         viteServer.environments = { ...viteServer.environments }
       }
     }
-    hook(viteServer)
+    // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
+    rawHook.call({} as never, viteServer as never)
     return environment
   }
 }
