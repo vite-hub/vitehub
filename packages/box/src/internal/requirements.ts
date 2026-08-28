@@ -122,18 +122,24 @@ function commandFailureDetails(
 
 function diagnosticText(value: unknown, secrets: readonly string[]) {
   if (value === undefined || value === null) return "";
+  const patterns = [...new Set(secrets)].filter(Boolean).sort((left, right) => right.length - left.length);
   let text: string | undefined;
   if (typeof value === "object") {
     try {
-      text = JSON.stringify(value);
+      text = JSON.stringify(value, (_key, nested) =>
+        typeof nested === "string" ? redactDiagnosticString(nested, patterns) : nested
+      );
     } catch {}
   }
   text ||= String(value);
-  for (const secret of [...new Set(secrets)].sort((left, right) => right.length - left.length)) {
-    if (secret) text = text.replaceAll(secret, "[redacted]");
-  }
+  text = redactDiagnosticString(text, patterns);
   text = text.trim();
   if (text.length > maximumDiagnosticLength)
     text = `${text.slice(0, maximumDiagnosticLength - 1)}…`;
   return text;
+}
+
+function redactDiagnosticString(value: string, patterns: readonly string[]) {
+  for (const secret of patterns) value = value.replaceAll(secret, "[redacted]");
+  return value;
 }

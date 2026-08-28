@@ -77,6 +77,21 @@ describe("Box requirement failures", () => {
     expect(error.message).not.toContain("[object Object]");
   });
 
+  it.each(["stderr", "stdout"] as const)("redacts JSON-significant secrets from structured %s", (stream) => {
+    const secret = "line\n\"quote\"\\path";
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { exitCode: 1, [stream]: { detail: `credential ${secret} rejected` } },
+      [secret],
+    );
+
+    expect(error.message).toBe(
+      '[vitehub] Box requirement "setup" failed: exit code 1: {"detail":"credential [redacted] rejected"}',
+    );
+    expect(error.message).not.toContain(secret);
+    expect(error.message).not.toContain(JSON.stringify(secret).slice(1, -1));
+  });
+
   it("caps diagnostics at 4,000 characters including the ellipsis", () => {
     const error = boxRequirementError(
       { args: [], command: "setup", name: "setup" },
