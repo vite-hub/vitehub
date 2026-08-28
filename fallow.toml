@@ -74,6 +74,9 @@ dynamicallyLoaded = [
   "packages/blob/test/helpers/*.ts",
   "packages/blob/test/e2e.mjs",
   "packages/blob/test/**/*.test-d.ts",
+  # Selected as generated Vercel provider aliases during package builds.
+  "packages/blob/src/internal/vercel-retry.ts",
+  "packages/blob/src/internal/vercel-throttle.ts",
   "packages/browser/test/**/*.test-d.ts",
   "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
