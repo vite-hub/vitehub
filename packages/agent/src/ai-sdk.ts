@@ -22,6 +22,7 @@ import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { uiMessageStreamFromEvents } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -905,11 +906,28 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
         ), { highWaterMark: 0 })
       },
     })
+    const toUIMessageStream = Reflect.get(result, "toUIMessageStream")
+    let wrapped: T
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    return cloneWithPropertyDescriptors(result as object, {
+    wrapped = cloneWithPropertyDescriptors(result as object, {
       ...(hasStream ? { stream: descriptor("stream") } : {}),
       ...(hasFullStream ? { fullStream: descriptor("fullStream") } : {}),
+      ...(hasRuntimeType(toUIMessageStream, "function")
+        ? {
+            toUIMessageStream: {
+              configurable: true,
+              enumerable: true,
+              value: (...args: unknown[]) => {
+                const events = wrapped.fullStream ?? wrapped.stream
+                if (!events) return Reflect.apply(toUIMessageStream, wrapped, args)
+                return uiMessageStreamFromEvents(events)
+              },
+              writable: true,
+            },
+          }
+        : {}),
     }) as T
+    return wrapped
   }
   if (isAsyncIterable(result)) {
     const wrapped = withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)
@@ -1276,6 +1294,7 @@ function withCapturedStreamUsage<T extends {
     const complete = () => {
       if (completed) return
       completed = true
+      if (!draining) void usageReader?.cancel().catch(() => undefined)
       primaryCapture?.complete()
     }
     let draining: Promise<void> | undefined
@@ -1560,6 +1579,10 @@ function withProviderStreamCancellation<T>(model: T): T {
   if (!hasRuntimeType(doStream, "function")) return model
   return new Proxy(model, {
     get(target, property) {
+      const ownDescriptor = Object.getOwnPropertyDescriptor(target, property)
+      if (ownDescriptor && !ownDescriptor.configurable && "value" in ownDescriptor && !ownDescriptor.writable) {
+        return ownDescriptor.value
+      }
       if (property !== "doStream") {
         const value = Reflect.get(target, property, target)
         if (!hasRuntimeType(value, "function")) return value
@@ -1901,7 +1924,7 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false && !streamUsageCapture
+  const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false
     ? agentOutputJsonSchema(context.output.schema)
     : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
@@ -2455,19 +2478,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         Object.defineProperty(stream, Symbol.for("vitehub.agent.stream.cancel"), { value: cancelProvider })
         return stream
       }
-      // SAFETY: The lazy facade implements the StreamTextResult members consumed by the adapter.
-      const result = asUnknownBoundary({
+      const streamedResult = await start()
+      // Preserve the complete provider result surface while overriding only the streams and lazy usage accessors.
+      const result = cloneStreamTextResult(streamedResult, {
         fullStream: lazyStream("fullStream"),
         stream: lazyStream("stream"),
-        get textStream() {
-          return lazyStream("textStream")
-        },
-        get usage() {
-          return lazyUsage(result => result.usage)
-        },
-        get totalUsage() {
-          return lazyUsage(result => result.totalUsage)
-        },
+        textStream: lazyStream("textStream"),
         toUIMessageStream(...args: unknown[]) {
           let reader: ReadableStreamDefaultReader<unknown> | undefined
           return new ReadableStream<unknown>({
@@ -2504,7 +2520,19 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             },
           }, { highWaterMark: 0 })
         },
-      }) as StreamTextResult<ToolSet, never, never>
+      }, false) as StreamTextResult<ToolSet, never, never>
+      Object.defineProperties(result, {
+        usage: {
+          configurable: true,
+          enumerable: true,
+          get: () => lazyUsage(streamed => streamed.usage),
+        },
+        totalUsage: {
+          configurable: true,
+          enumerable: true,
+          get: () => lazyUsage(streamed => streamed.totalUsage),
+        },
+      })
       const cancelStarted = async () => {
         cancelProvider(invocationAbortSignal?.reason)
         try {

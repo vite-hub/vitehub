@@ -62,10 +62,12 @@ export function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>, str
     : undefined
   return withAsyncIterator(new ReadableStream<T>({
     async cancel(reason) {
-      await Promise.allSettled([
+      const results = await Promise.allSettled([
         Promise.resolve(iterator.return?.(reason)),
         Promise.resolve(hasRuntimeType(directCancel, "function") ? directCancel(reason) : undefined),
       ])
+      const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+      if (failure) throw failure.reason
     },
     async pull(controller) {
       try {

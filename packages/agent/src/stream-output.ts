@@ -369,15 +369,11 @@ export function normalizeUiMessageStream(
   } = {},
 ): ReadableStream<unknown> {
   const reader = stream.getReader()
-  let pulled = false
   return new ReadableStream<unknown>({
     async cancel(reason) {
-      const cancellation = reader.cancel(reason)
-      if (!pulled) await cancellation
-      else void cancellation.catch(() => undefined)
+      await reader.cancel(reason)
     },
     async pull(controller) {
-      pulled = true
       while (true) {
         const chunk = await reader.read()
         if (chunk.done) {
@@ -395,6 +391,28 @@ export function normalizeUiMessageStream(
       }
     },
   }, { highWaterMark: 0 })
+}
+
+export function uiMessageStreamFromEvents(events: AsyncIterable<unknown>): ReadableStream<unknown> {
+  return createAgentUIMessageStream({
+    execute: async ({ abortSignal, writer }) => {
+      const iterator = events[Symbol.asyncIterator]()
+      const directCancel = hasRuntimeType(events, "object")
+        ? Reflect.get(events, Symbol.for("vitehub.agent.stream.cancel"))
+        : undefined
+      const cancel = () => {
+        if (hasRuntimeType(directCancel, "function")) directCancel(abortSignal.reason)
+        void Promise.resolve(iterator.return?.(abortSignal.reason)).catch(() => {})
+      }
+      abortSignal.addEventListener("abort", cancel, { once: true })
+      try {
+        await writeEventsToUiMessageStream(writer, { [Symbol.asyncIterator]: () => iterator })
+      }
+      finally {
+        abortSignal.removeEventListener("abort", cancel)
+      }
+    },
+  })
 }
 
 function projectUiMessageStream(
