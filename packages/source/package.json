@@ -20,6 +20,8 @@
   },
   "files": [
     "dist",
+    "tsconfig.empty.d.ts",
+    "tsconfig.vite.d.ts",
     "tsconfig.vite.json",
     "package.json"
   ],

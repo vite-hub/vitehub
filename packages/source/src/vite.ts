@@ -211,7 +211,10 @@ async function writeCollectionArtifacts(options: SourceGenerationOptions): Promi
   await rm(resolve(options.projectRoot, legacyCollectionTypesEntry), { force: true })
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
   if (collections.length === 0) {
-    await Promise.all([rm(output, { force: true }), rm(routesDirectory, { force: true, recursive: true })])
+    await Promise.all([
+      rm(output, { force: true }),
+      rm(routesDirectory, { force: true, recursive: true }),
+    ])
     return []
   }
 
@@ -326,6 +329,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   let serverDirs: string[] | undefined
   let configuredHandlerKey = generatedHandlerKey([])
   let refreshQueue = Promise.resolve()
+  let closeHostRefresh: (() => void) | undefined
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, GeneratedSourceHandlersListenerOptions>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) =>
     prepareSourceGeneration({ ...input, importBase: options.importBase })
@@ -344,18 +348,19 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     enforce: "post",
     api: { onGeneratedHandlersChanged, prepareSources },
     async config(config) {
-      // SAFETY: Vite passes the mutable user config object, which this plugin augments through ViteHub's shared symbols.
+      // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
       projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       const handlers = await prepareSources({ projectRoot, serverDirs })
       configuredHandlerKey = generatedHandlerKey(handlers)
-      viteConfig.define = {
-        ...viteConfig.define,
-        __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)),
+      mergeGeneratedSourceNitroConfig(viteConfig.nitro, handlers)
+      const contribution: SourcePluginConfig = {
+        define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
+        ...(handlers.length > 0 ? { nitro: mergeGeneratedSourceNitroConfig(undefined, handlers) } : {}),
       }
-      viteConfig.nitro = mergeGeneratedSourceNitroConfig(viteConfig.nitro, handlers)
+      return contribution
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
@@ -376,12 +381,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       server.watcher.add(effectiveServerDirs)
       let hostRefreshRetry: ReturnType<typeof setTimeout> | undefined
       let hostRefreshRetryDelay = initialHostRefreshRetryDelay
+      let serverClosed = false
       const clearHostRefreshRetry = () => {
         if (hostRefreshRetry) clearTimeout(hostRefreshRetry)
         hostRefreshRetry = undefined
       }
+      closeHostRefresh = () => {
+        serverClosed = true
+        clearHostRefreshRetry()
+      }
       const queueHostRefresh = (file: string) => {
-        if (!root || !sourceDefinitionPath(file, root, serverDirs)) return
+        if (serverClosed || !root || !sourceDefinitionPath(file, root, serverDirs)) return
         const result = refreshQueue.then(async () => {
           const handlers = await prepareSources({ projectRoot: root, serverDirs })
           const handlerKey = generatedHandlerKey(handlers)
@@ -403,7 +413,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
             if (!hostRefreshRetry) {
               hostRefreshRetry = setTimeout(() => {
                 hostRefreshRetry = undefined
-                void queueHostRefresh(file)
+                if (!serverClosed) void queueHostRefresh(file)
               }, hostRefreshRetryDelay)
               hostRefreshRetry.unref?.()
               hostRefreshRetryDelay = Math.min(hostRefreshRetryDelay * 2, maximumHostRefreshRetryDelay)
@@ -432,5 +442,9 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     },
     buildStart: refresh,
     buildEnd: refresh,
+    closeBundle() {
+      closeHostRefresh?.()
+      closeHostRefresh = undefined
+    },
   }
 }

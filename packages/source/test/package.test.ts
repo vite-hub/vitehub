@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { getParsedCommandLineOfConfigFile, sys } from "typescript"
+import { createProgram, getParsedCommandLineOfConfigFile, sys } from "typescript"
 import { describe, expect, it } from "vitest"
 
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js"
@@ -12,12 +12,16 @@ describe("@vite-hub/source package contract", () => {
   it("includes generated Collection types through its TypeScript config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-source-tsconfig-"))
     const generatedTypes = join(root, ".vitehub/types/source/collections.d.ts")
-    const applicationEntry = join(root, "index.ts")
+    const applicationEntry = join(root, "src/index.ts")
+    const configEntry = resolve(import.meta.dirname, "../tsconfig.vite.d.ts")
+    const emptyEntry = resolve(import.meta.dirname, "../tsconfig.empty.d.ts")
     try {
+      await mkdir(dirname(applicationEntry), { recursive: true })
       await Promise.all([
         writeFile(applicationEntry, "export {}\n"),
         writeFile(join(root, "tsconfig.json"), JSON.stringify({
           extends: [resolve(import.meta.dirname, "../tsconfig.vite.json")],
+          include: ["src"],
         })),
       ])
 
@@ -27,20 +31,32 @@ describe("@vite-hub/source package contract", () => {
           throw new TypeError(String(diagnostic.messageText))
         },
       })
+      const sourceFiles = (parsed: NonNullable<ReturnType<typeof parse>>) => new Set(
+        createProgram({ options: parsed.options, rootNames: parsed.fileNames })
+          .getSourceFiles()
+          .map(sourceFile => sourceFile.fileName),
+      )
       const clean = parse()
+      if (!clean) throw new TypeError("Expected clean Source TypeScript config.")
       expect(clean?.errors).toEqual([])
-      expect(clean?.fileNames).toEqual([applicationEntry])
+      expect(new Set(clean?.fileNames)).toEqual(new Set([applicationEntry, configEntry]))
+      expect(sourceFiles(clean)).toContain(emptyEntry)
 
       await mkdir(dirname(generatedTypes), { recursive: true })
       await writeFile(generatedTypes, "interface ViteHubCollectionMap { meals: unknown }\n")
       const generated = parse()
+      if (!generated) throw new TypeError("Expected generated Source TypeScript config.")
       expect(generated?.errors).toEqual([])
-      expect(new Set(generated?.fileNames)).toEqual(new Set([applicationEntry, generatedTypes]))
+      expect(new Set(generated?.fileNames)).toEqual(new Set([applicationEntry, configEntry]))
+      expect(sourceFiles(generated)).toContain(generatedTypes)
+      expect(sourceFiles(generated)).not.toContain(emptyEntry)
 
       await rm(generatedTypes)
       const removed = parse()
+      if (!removed) throw new TypeError("Expected cleaned Source TypeScript config.")
       expect(removed?.errors).toEqual([])
-      expect(removed?.fileNames).toEqual([applicationEntry])
+      expect(new Set(removed?.fileNames)).toEqual(new Set([applicationEntry, configEntry]))
+      expect(sourceFiles(removed)).toContain(emptyEntry)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -61,7 +77,7 @@ describe("@vite-hub/source package contract", () => {
     ])
     const tsconfig = fileURLToPath(import.meta.resolve("@vite-hub/source/tsconfig"))
     expect(tsconfig).toBe(resolve(import.meta.dirname, "../tsconfig.vite.json"))
-    await expect(readFile(tsconfig, "utf8")).resolves.toContain(".vitehub/types/source/collections.d.ts")
+    await expect(readFile(tsconfig, "utf8")).resolves.toContain(".vitehub/types")
   })
 
   it("keeps CommonJS dependency discovery out of the glob bundle", async () => {

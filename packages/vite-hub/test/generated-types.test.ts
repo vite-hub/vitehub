@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { IncomingMessage, ServerResponse } from "node:http"
 import { Socket } from "node:net"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -81,7 +81,10 @@ function config(plugin: Plugin) {
     root?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
     [VITEHUB_SERVER_DIRS]?: string[]
-  }) => Promise<void>
+  }) => Promise<{
+    define?: Record<string, string>
+    nitro?: Record<string, unknown>
+  } | void>
 }
 
 function buildStart(plugin: Plugin) {
@@ -100,6 +103,15 @@ function buildEnd(plugin: Plugin) {
   }
   // SAFETY: This fixture invokes the documented Vite buildEnd hook signature.
   return plugin.buildEnd as () => Promise<void>
+}
+
+function closeBundle(plugin: Plugin) {
+  if (plugin.closeBundle && !(plugin.closeBundle instanceof Function)) {
+    // SAFETY: This fixture invokes the documented Vite closeBundle hook signature.
+    return plugin.closeBundle.handler as () => Promise<void> | void
+  }
+  // SAFETY: This fixture invokes the documented Vite closeBundle hook signature.
+  return plugin.closeBundle as () => Promise<void> | void
 }
 
 function configureServer(plugin: Plugin) {
@@ -141,9 +153,10 @@ describe("framework generated types", () => {
       root: viteRoot,
     }
 
-    await config(sourcePlugin())(viteConfig)
+    const contribution = await config(sourcePlugin())(viteConfig)
 
-    expect(viteConfig.define).toEqual({
+    expect(viteConfig.define).toEqual({ EXISTING: "true" })
+    expect({ ...viteConfig.define, ...contribution?.define }).toEqual({
       EXISTING: "true",
       __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
     })
@@ -155,9 +168,9 @@ describe("framework generated types", () => {
       const { viteRoot } = await createNestedProject()
       const viteConfig = { base, root: viteRoot }
 
-      await config(sourcePlugin())(viteConfig)
+      const contribution = await config(sourcePlugin())(viteConfig)
 
-      expect(viteConfig).toMatchObject({
+      expect(contribution).toMatchObject({
         define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") },
       })
     },
@@ -497,19 +510,42 @@ describe("framework generated types", () => {
       root: string
     } = { nitro: { handlers: [existing] }, root }
 
-    await config(sourcePlugin())(userConfig)
+    const contribution = await config(sourcePlugin())(userConfig)
 
-    expect(userConfig.nitro.handlers).toEqual([
-      existing,
-      {
-        handler: join(root, ".vitehub/source/routes/meals.mjs"),
-        method: "get",
-        route: "/api/meals",
-      },
-    ])
-    expect(userConfig.nitro.modules).toContainEqual(
+    expect(userConfig.nitro.handlers).toEqual([existing])
+    expect(contribution?.nitro).toMatchObject({
+      handlers: [
+        {
+          handler: join(root, ".vitehub/source/routes/meals.mjs"),
+          method: "get",
+          route: "/api/meals",
+        },
+      ],
+    })
+    expect(Reflect.get(Object(contribution?.nitro), "modules")).toContainEqual(
       expect.objectContaining({ name: "vite-hub/generated-route-guard" }),
     )
+  })
+
+  it("keeps generated handlers out of a reused inline Vite config", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const inlineConfig = { nitro: { handlers: [existing] }, root }
+    const plugin = sourcePlugin()
+
+    const generated = await config(plugin)(inlineConfig)
+    expect(inlineConfig.nitro.handlers).toEqual([existing])
+    expect(Reflect.get(Object(generated?.nitro), "handlers")).toContainEqual(
+      expect.objectContaining({ route: "/api/meals" }),
+    )
+
+    await rm(collection)
+    const removed = await config(plugin)(inlineConfig)
+    expect(inlineConfig.nitro.handlers).toEqual([existing])
+    expect(removed).not.toHaveProperty("nitro")
   })
 
   it("restarts the Vite host when Source refresh changes Nitro handlers", async () => {
@@ -634,6 +670,40 @@ describe("framework generated types", () => {
 
     await listeners.get("unlink")?.(collection)
     expect(restartHost).toHaveBeenCalledTimes(2)
+  })
+
+  it("cancels generated topology retries when the Vite server closes", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const collection = join(root, "server/collections/meals.ts")
+      await mkdir(join(root, "server/collections"), { recursive: true })
+      await writeFile(collection, collectionModule("meals"))
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const restartHost = vi.fn().mockRejectedValue(new Error("host restart failed"))
+      plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restart = vi.fn(async () => {})
+
+      configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart,
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await rm(collection)
+      await listeners.get("unlink")?.(collection)
+      expect(restartHost).toHaveBeenCalledOnce()
+
+      await closeBundle(plugin)()
+      await vi.runAllTimersAsync()
+      expect(restartHost).toHaveBeenCalledOnce()
+      expect(restart).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("watches custom Source directories and recovers after refresh errors", async () => {

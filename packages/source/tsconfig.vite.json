@@ -1,6 +1,11 @@
 {
-  "include": [
-    "${configDir}/**/*",
-    "${configDir}/.vitehub/types/source/collections.d.ts"
-  ]
+  "compilerOptions": {
+    "paths": {
+      "#vitehub/source/collections": [
+        "${configDir}/.vitehub/types/source/collections.d.ts",
+        "./tsconfig.empty.d.ts"
+      ]
+    }
+  },
+  "files": ["./tsconfig.vite.d.ts"]
 }
