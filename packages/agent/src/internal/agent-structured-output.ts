@@ -13,6 +13,8 @@ const agentOutputErrorMessages = {
 
 type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 
+const validatedAgentOutputs = new WeakMap<object, WeakMap<object, Promise<unknown>>>()
+
 export const agentOutputRepairSymbol = Symbol.for("vitehub.agent.output-repair")
 export const agentOutputUsageReadySymbol = Symbol.for("vitehub.agent.output-usage-ready")
 
@@ -141,7 +143,7 @@ function isMaterializedObject(result: unknown): boolean {
   }
 }
 
-export async function validateAgentOutput<TOutput>(
+async function validateAgentOutputValue<TOutput>(
   output: AgentOutputDefinition<TOutput>,
   result: unknown,
   options: { allowMaterializedObject?: boolean } = {},
@@ -154,6 +156,34 @@ export async function validateAgentOutput<TOutput>(
   const validation = inspectValidation(await output.schema["~standard"].validate(value))
   if (!validation) throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID")
   return validation.value
+}
+
+export async function validateAgentOutput<TOutput>(
+  output: AgentOutputDefinition<TOutput>,
+  result: unknown,
+  options: { allowMaterializedObject?: boolean } = {},
+): Promise<TOutput> {
+  if (!hasRuntimeType(result, "object") && !hasRuntimeType(result, "function")) {
+    return await validateAgentOutputValue(output, result, options)
+  }
+  // SAFETY: The runtime checks above exclude primitive WeakMap keys.
+  const cacheableResult = result as object
+  let outputValidations = validatedAgentOutputs.get(cacheableResult)
+  if (!outputValidations) {
+    outputValidations = new WeakMap()
+    validatedAgentOutputs.set(cacheableResult, outputValidations)
+  }
+  const existing = outputValidations.get(output.schema)
+  if (existing) return await existing as TOutput
+  const validation = validateAgentOutputValue(output, result, options)
+  outputValidations.set(output.schema, validation)
+  try {
+    return await validation
+  }
+  catch (error) {
+    if (outputValidations.get(output.schema) === validation) outputValidations.delete(output.schema)
+    throw error
+  }
 }
 
 export function agentOutputJsonSchema(schema: StandardSchemaV1): Record<string, unknown> | undefined {

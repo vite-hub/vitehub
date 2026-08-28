@@ -5,7 +5,7 @@ import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
-import { agentOutputRepairSymbol, agentOutputUsageReadySymbol, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { agentOutputRepairSymbol, agentOutputUsageReadySymbol, isAgentOutputValidationError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import type { AgentOutputUsageLifecycle } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
@@ -4709,6 +4709,7 @@ async function materializeAgentStructuredOutputInner(
           await validateAgentOutput(output, rejectedText)
         }
         catch (error) {
+          if (!isAgentOutputValidationError(error)) throw error
           const repair = result && hasRuntimeType(result, "object")
             ? Reflect.get(result, agentOutputRepairSymbol)
             : undefined
@@ -4729,12 +4730,13 @@ async function materializeAgentStructuredOutputInner(
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
   }
-  const materialized = resultWithUsageRecord(text, usageRecord)
+  const materialized = resultWithUsageRecord(output ? { raw: text, text } : text, usageRecord)
   if (output) {
     try {
       await validateAgentOutput(output, materialized)
     }
     catch (error) {
+      if (!isAgentOutputValidationError(error)) throw error
       const repair = result && hasRuntimeType(result, "object")
         ? Reflect.get(result, agentOutputRepairSymbol)
         : undefined

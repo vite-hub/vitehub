@@ -1192,6 +1192,82 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(1)
   })
 
+  it.each(["events", "ui-message-stream"] as const)("validates each %s structured stream once", async (output) => {
+    const fakeModel = model([])
+    const validate = vi.fn((value: unknown) => is(object({ text: stringSchema }), value)
+      ? { value: { text: "validated" } }
+      : { issues: [{ message: "Expected text to be a string" }] })
+    const schema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ type: "object" }), output: () => ({ type: "object" }) },
+        validate,
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: '{"text":"answer"}', id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: { schema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" }, output === "events" ? undefined : { output })
+    const events = []
+    // SAFETY: Both selected output modes implement the documented async iterable result contract.
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual(expect.objectContaining({ data: { text: "validated" }, type: "data" }))
+    expect(validate).toHaveBeenCalledTimes(1)
+  })
+
+  it("validates a repaired non-stream result once", async () => {
+    const fakeModel = model(['{"text":1}', '{"text":"repaired"}'])
+    const validatedInputs: unknown[] = []
+    const schema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ type: "object" }), output: () => ({ type: "object" }) },
+        validate(value: unknown) {
+          validatedInputs.push(value)
+          return is(object({ text: stringSchema }), value)
+            ? { value: { text: "validated" } }
+            : { issues: [{ message: "Expected text to be a string" }] }
+        },
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+        output: { schema },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime, { prompt: "Respond" })).resolves.toEqual({ text: "validated" })
+    expect(validatedInputs.filter(value => is(object({ text: stringSchema }), value))).toHaveLength(1)
+  })
+
   it("allows structured-output repair to be disabled", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":\"must not run\"}"])
     const agent = defineAgent({
@@ -1229,6 +1305,50 @@ describe("AI SDK recovery", () => {
 
     await expect(runAgentInline(agent, runtime, { prompt: "Respond" })).rejects.toBe(unavailable)
     expect(fakeModel.calls).toHaveLength(1)
+  })
+
+  it.each(["events", "ui-message-stream"] as const)("propagates operational validator failures from %s streams without repair", async (output) => {
+    const unavailable = new Error("validator unavailable")
+    const fakeModel = model(['{"text":"must not run"}'])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ id: "answer", type: "text-start" })
+          controller.enqueue({ delta: '{"text":"valid"}', id: "answer", type: "text-delta" })
+          controller.enqueue({ id: "answer", type: "text-end" })
+          controller.enqueue({
+            finishReason: { raw: "stop", unified: "stop" },
+            type: "finish",
+            usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      driver: {
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fakeModel, doStream } as never,
+        output: {
+          schema: {
+            "~standard": {
+              validate: async () => { throw unavailable },
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Respond" }, output === "events" ? undefined : { output })
+    await expect(async () => {
+      // SAFETY: Both selected output modes implement the documented async iterable result contract.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+    }).rejects.toBe(unavailable)
+    expect(fakeModel.calls).toHaveLength(0)
   })
 
   it("propagates operational output validator failures from workspace fallback without repair", async () => {
