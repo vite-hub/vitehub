@@ -292,13 +292,15 @@ describe("AI SDK recovery", () => {
     const resolverStarted = new Promise<void>((resolve) => { markResolverStarted = resolve })
     let resolverSignal: AbortSignal | undefined
     try {
+      // SAFETY: This fixture implements the model resolver callback exercised by the pending-setup timeout path.
+      const pendingModelResolver = ((context: { abortSignal?: AbortSignal }) => {
+        resolverSignal = context.abortSignal
+        markResolverStarted()
+        return new Promise<never>(() => undefined)
+      }) as never
       const agent = defineAgent({
         driver: {
-          model: ((context: { abortSignal?: AbortSignal }) => {
-            resolverSignal = context.abortSignal
-            markResolverStarted()
-            return new Promise<never>(() => undefined)
-          }) as never,
+          model: pendingModelResolver,
         },
         runtime: false,
       })

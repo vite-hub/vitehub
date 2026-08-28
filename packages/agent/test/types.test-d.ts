@@ -349,8 +349,10 @@ describe("agent public types", () => {
       },
     } satisfies StandardSchemaV1
 
+    // SAFETY: This compile-time fixture never executes the model and tests only Model Driver output configuration.
+    const typeOnlyModel = {} as LanguageModel
     defineAgent({
-      driver: { model: {} as LanguageModel, output: { maxAttempts: 2, schema } },
+      driver: { model: typeOnlyModel, output: { maxAttempts: 2, schema } },
     })
     defineAgent({
       driver: {

@@ -160,6 +160,7 @@ export async function validateAgentOutput<TOutput>(
     if (isRuntimeRecord(memo)
       && memo.schema === output.schema
       && memo.allowMaterializedObject === Boolean(options.allowMaterializedObject)) {
+      // SAFETY: Schema identity and matching validation options prove this memo was produced as TOutput.
       return memo.value as TOutput
     }
   }

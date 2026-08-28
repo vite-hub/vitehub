@@ -1947,9 +1947,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         invocationAbortSignal,
       )
       if (context.workspace && tools && "materialize_sources" in tools) {
-        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await runWithinInvocationSignal(
-          () => reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter),
+          () => {
+            // SAFETY: createAgent normalizes tools to AgentToolSet, and the guard proves materialize_sources is present.
+            return reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
+          },
           invocationAbortSignal,
         )
       }
@@ -2430,9 +2432,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const effectiveFallback = context.output && maxOutputAttempts <= 1
         ? { ...fallback, enabled: false }
         : fallback
+      // SAFETY: createAgent materialized model from the normalized Model Driver before producing this stream result.
+      const fallbackModel = model as never
       return withWorkspaceFallbackStreamResult(
         result,
-        model as never,
+        fallbackModel,
         context,
         effectiveFallback,
         fallbackCapture?.evidence,
