@@ -379,11 +379,16 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const handlerKey = generatedHandlerKey(handlers)
           if (handlerKey === configuredHandlerKey) return
           const listeners = [...generatedHandlersListeners]
-          const listenerResults = await Promise.allSettled(listeners.map(([listener]) => listener(handlers)))
+          const listenerResults = await Promise.allSettled(
+            listeners.map(([listener]) => Promise.resolve().then(() => listener(handlers))),
+          )
           for (const result of listenerResults) {
             if (result.status === "rejected") server.config.logger.error(String(result.reason))
           }
-          if (!listeners.some(([, listenerOptions]) => listenerOptions.handlesHostRestart)) {
+          const hostRestartHandled = listeners.some(([, listenerOptions], index) =>
+            listenerOptions.handlesHostRestart && listenerResults[index]?.status === "fulfilled",
+          )
+          if (!hostRestartHandled) {
             await server.restart()
           }
           configuredHandlerKey = handlerKey

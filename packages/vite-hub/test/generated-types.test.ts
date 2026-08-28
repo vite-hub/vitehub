@@ -551,7 +551,7 @@ describe("framework generated types", () => {
     await writeFile(collection, collectionModule("meals"))
     const plugin = sourcePlugin()
     await config(plugin)({ root })
-    const observer = vi.fn(async () => {
+    const observer = vi.fn(() => {
       throw new Error("passive observer failed")
     })
     plugin.api.onGeneratedHandlersChanged(observer)
@@ -599,6 +599,37 @@ describe("framework generated types", () => {
     await vi.waitFor(() => expect(restartHost).toHaveBeenCalledWith([]))
     await Promise.resolve()
     expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("restarts the Vite host when every restart-owning listener fails", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const restartHost = vi.fn(async () => {
+      throw new Error("host restart failed")
+    })
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => void>()
+    const restart = vi.fn(async () => {})
+    const loggerError = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: loggerError } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+
+    await vi.waitFor(() => {
+      expect(restartHost).toHaveBeenCalledWith([])
+      expect(restart).toHaveBeenCalledOnce()
+      expect(loggerError).toHaveBeenCalledWith("Error: host restart failed")
+    })
   })
 
   it("watches custom Source directories and recovers after refresh errors", async () => {
