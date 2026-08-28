@@ -16117,8 +16117,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = await handler(chatWebhookRequest(91_035), "telegram")
-      expect(response.status).toBe(500)
+      await expect(handler(chatWebhookRequest(91_035), "telegram")).rejects.toThrow("model timeout")
       expect(completedToolResults).toEqual([
         {
           output: { changes: 1 },
@@ -16175,8 +16174,8 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = await handler(chatWebhookRequest(messageId), "telegram")
-      expect(response.status).toBe(500)
+      const response = handler(chatWebhookRequest(messageId), "telegram")
+      await expect(response).rejects.toThrow("model timeout")
       expect(completedToolResults).toEqual([
         {
           output: { changes: 1 },
