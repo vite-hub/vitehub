@@ -1490,6 +1490,29 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(1);
   });
 
+  it("does not scroll into collapsed terminal history", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+        remainingStatuses: ["completed"],
+      },
+    });
+    const viewport = wrapper.get("nav");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 2_000 },
+      scrollTop: { configurable: true, writable: true, value: 1_600 },
+    });
+
+    await viewport.trigger("scroll");
+
+    expect(wrapper.emitted("endReached")).toBeUndefined();
+  });
+
   it("requests another page when the loaded sessions do not fill the viewport", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

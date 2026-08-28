@@ -204,6 +204,9 @@ export const AgentInvocationList = defineComponent({
       });
       if (hasMoreVisible) requestMoreIfNeeded();
     };
+    const requestMoreOnScroll = () => props.remainingStatuses.length > 0
+      ? requestMoreAutomatically()
+      : requestMoreIfNeeded();
     watch([() => props.items.length, paginationKey, () => props.hasMore, () => props.loading, () => props.remainingStatuses], ([length, key], [previous, previousKey]) => {
       if (length < previous || (length === previous && key !== previousKey)) requestedLength.value = undefined;
       requestMoreAutomatically();
@@ -284,7 +287,7 @@ export const AgentInvocationList = defineComponent({
     return () => h("nav", {
       "aria-label": props.ariaLabel,
       class: "vh-invocation-list",
-      onScroll: requestMoreIfNeeded,
+      onScroll: requestMoreOnScroll,
       onVnodeBeforeUpdate: rememberFocusedItem,
       onVnodeUpdated: restoreMovedItemFocus,
       ref: viewport,

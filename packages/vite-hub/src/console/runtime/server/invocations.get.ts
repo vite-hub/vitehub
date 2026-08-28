@@ -162,7 +162,15 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       for (const invocation of refreshed.invocations) currentIds.add(invocation.id)
       pages[laterKey] = refreshed
     }
-    if (rollbackBackfill) pages[key] = page
+    if (rollbackBackfill) {
+      const otherIds = new Set(Object.entries(pages)
+        .filter(([pageKey]) => pageKey !== key)
+        .flatMap(([, current]) => current.invocations.map(invocation => invocation.id)))
+      const refillLimit = Math.max(0, pageLimit - otherIds.size)
+      pages[key] = refillLimit === 0
+        ? emptyPage
+        : await listLifecyclePage(statuses, refillLimit, cursor[key], agentName)
+    }
     const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
     remainingLimit = Math.max(0, pageLimit - returnedIds.size)
   }
