@@ -516,6 +516,59 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("falls back to private without invoking structured clone accessors", async () => {
+    const getter = vi.fn(() => "must not be read")
+    const crossRealmMap = runInNewContext(
+      'new Map([["entry", Object.defineProperty({}, "secret", { enumerable: true, get: getter })]])',
+      { getter },
+    )
+    const error = Object.defineProperty(new Error("failed"), "cause", { get: getter })
+    const log = createTraceEventLog()
+
+    for (const value of [crossRealmMap, error]) {
+      await log.append({
+        name: "custom.event",
+        payload: { value, visibility: "public" },
+        type: "lifecycle",
+      })
+    }
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()).toEqual([
+      expect.objectContaining({ payload: { visibility: "private" } }),
+      expect.objectContaining({ payload: { visibility: "private" } }),
+    ])
+  })
+
+  it("falls back to private when structured cloning erases a Buffer identity", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: Buffer.from([1, 2]), visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("falls back to private for CryptoKey payloads unsupported by telemetry", async () => {
+    const key = await crypto.subtle.generateKey({ length: 128, name: "AES-GCM" }, true, ["encrypt"])
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: { key }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
   it("isolates stored entries from returned and observed payloads", async () => {
     let observed: TraceEventLogEntry | undefined
     const log = createTraceEventLog({

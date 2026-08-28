@@ -21,6 +21,7 @@ type OtlpAnyValue =
   | { stringValue: string }
 
 const retryableStatuses = new Set([429, 502, 503, 504])
+const maxOtlpBinaryBytes = 3 * 1024 * 1024 - 1024
 
 function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean | number | string } | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
@@ -82,6 +83,9 @@ async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Prom
     }
   }
   if (value instanceof Blob) {
+    if (value.size > maxOtlpBinaryBytes) {
+      throw new Error("OTLP/HTTP JSON Blob payload exceeds the bounded binary budget.")
+    }
     const FileConstructor = globalThis.File
     const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
     const bytes = new Uint8Array(await value.arrayBuffer())

@@ -3384,11 +3384,11 @@ async function createAgentInvocationContext<
           catch (error) {
             await traceAgentInvocationError(toTraceContext(invocation), error, { owner: "agent", phase: "delivery" })
           }
-        })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error))
+        })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error, { owner: "vitehub", phase: "setup" }))
         runtimeContext.waitUntil?.(invocation.startTask)
       }
       catch (error) {
-        await traceAgentInvocationError(toTraceContext(invocation), error)
+        await traceAgentInvocationError(toTraceContext(invocation), error, { owner: "vitehub", phase: "setup" })
       }
     }
     return invocation

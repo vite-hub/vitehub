@@ -414,6 +414,32 @@ function normalizedTraceActivity(activity: TraceActivityContext | undefined): Tr
   }
 }
 
+function reflectedMapEntries(value: unknown): Array<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Array.from(Map.prototype.entries.call(value))
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedSetValues(value: unknown): unknown[] | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Array.from(Set.prototype.values.call(value))
+  }
+  catch {
+    return
+  }
+}
+
+function isCryptoKey(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const CryptoKeyConstructor = Object.getOwnPropertyDescriptor(globalThis, "CryptoKey")?.value
+  return hasRuntimeType(CryptoKeyConstructor, "function") && value instanceof CryptoKeyConstructor
+}
+
 function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
   const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
@@ -434,10 +460,12 @@ function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): bo
   if (seen.has(value)) return false
   seen.add(value)
   if (ArrayBuffer.isView(value)) return containsSharedArrayBuffer(value.buffer, seen)
-  if (value instanceof Map) {
-    return [...value].some(([key, entry]) => containsSharedArrayBuffer(key, seen) || containsSharedArrayBuffer(entry, seen))
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
+    return mapEntries.some(([key, entry]) => containsSharedArrayBuffer(key, seen) || containsSharedArrayBuffer(entry, seen))
   }
-  if (value instanceof Set) return [...value].some(entry => containsSharedArrayBuffer(entry, seen))
+  const setValues = reflectedSetValues(value)
+  if (setValues) return setValues.some(entry => containsSharedArrayBuffer(entry, seen))
   return Reflect.ownKeys(value).some((key) => {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     return descriptor !== undefined && "value" in descriptor && containsSharedArrayBuffer(descriptor.value, seen)
@@ -491,24 +519,31 @@ function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
   }
 }
 
-function containsEnumerableAccessor(value: unknown, seen = new Set<object>()): boolean {
+function containsUnsafeStructuredCloneState(value: unknown, seen = new Set<object>()): boolean {
   if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
+  if (isCryptoKey(value)) return true
   seen.add(value)
   for (const key of Reflect.ownKeys(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     if (!descriptor?.enumerable) continue
-    if (!("value" in descriptor) || containsEnumerableAccessor(descriptor.value, seen)) return true
+    if (!("value" in descriptor) || containsUnsafeStructuredCloneState(descriptor.value, seen)) return true
   }
-  if (value instanceof Map) {
-    // SAFETY: The intrinsic call is bound to the Map instance established above.
-    for (const [key, entry] of Map.prototype.entries.call(value) as MapIterator<[unknown, unknown]>) {
-      if (containsEnumerableAccessor(key, seen) || containsEnumerableAccessor(entry, seen)) return true
+  for (const key of ["cause", "errors"] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor && (!("value" in descriptor) || containsUnsafeStructuredCloneState(descriptor.value, seen))) return true
+  }
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
+    for (const [key, entry] of mapEntries) {
+      if (containsUnsafeStructuredCloneState(key, seen) || containsUnsafeStructuredCloneState(entry, seen)) return true
     }
   }
-  if (value instanceof Set) {
-    // SAFETY: The intrinsic call is bound to the Set instance established above.
-    for (const entry of Set.prototype.values.call(value) as SetIterator<unknown>) {
-      if (containsEnumerableAccessor(entry, seen)) return true
+  else {
+    const setValues = reflectedSetValues(value)
+    if (setValues) {
+      for (const entry of setValues) {
+        if (containsUnsafeStructuredCloneState(entry, seen)) return true
+      }
     }
   }
   return false
@@ -520,6 +555,10 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   if (seen.has(source)) return seen.get(source) === snapshot
   seen.set(source, snapshot)
 
+  if (ArrayBuffer.isView(source)
+    && (!ArrayBuffer.isView(snapshot)
+      || Object.getPrototypeOf(source) !== Object.getPrototypeOf(snapshot)
+      || source.byteLength !== snapshot.byteLength)) return false
   if (source instanceof Date && (!(snapshot instanceof Date) || !Object.is(source.getTime(), snapshot.getTime()))) return false
   const sourceRegExp = reflectedRegExpState(source)
   if (sourceRegExp) {
@@ -577,20 +616,22 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
     if (!snapshotDescriptor || !("value" in snapshotDescriptor)) return false
     if (!preservesEnumerableFields(sourceDescriptor.value, snapshotDescriptor.value, seen)) return false
   }
-  if (source instanceof Map) {
-    if (!(snapshot instanceof Map) || source.size !== snapshot.size) return false
-    const snapshotEntries = [...snapshot]
-    return [...source].every(([key, value], index) => {
+  const sourceMapEntries = reflectedMapEntries(source)
+  if (sourceMapEntries) {
+    const snapshotEntries = reflectedMapEntries(snapshot)
+    if (!snapshotEntries || sourceMapEntries.length !== snapshotEntries.length) return false
+    return sourceMapEntries.every(([key, value], index) => {
       const snapshotEntry = snapshotEntries[index]
       return snapshotEntry !== undefined
         && preservesEnumerableFields(key, snapshotEntry[0], seen)
         && preservesEnumerableFields(value, snapshotEntry[1], seen)
     })
   }
-  if (source instanceof Set) {
-    if (!(snapshot instanceof Set) || source.size !== snapshot.size) return false
-    const snapshotEntries = [...snapshot]
-    return [...source].every((value, index) => preservesEnumerableFields(value, snapshotEntries[index], seen))
+  const sourceSetValues = reflectedSetValues(source)
+  if (sourceSetValues) {
+    const snapshotValues = reflectedSetValues(snapshot)
+    if (!snapshotValues || sourceSetValues.length !== snapshotValues.length) return false
+    return sourceSetValues.every((value, index) => preservesEnumerableFields(value, snapshotValues[index], seen))
   }
   return true
 }
@@ -604,7 +645,7 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
     if (!visibility || !("value" in visibility)) return { visibility: "private" }
     if (visibility.value === "public") {
       const value = Object.getOwnPropertyDescriptor(payload, "value")
-      if (value && "value" in value && !containsEnumerableAccessor(value.value)) {
+      if (value && "value" in value && !containsUnsafeStructuredCloneState(value.value)) {
         const snapshot = structuredClone(value.value)
         if (preservesEnumerableFields(value.value, snapshot) && !containsSharedArrayBuffer(snapshot)) {
           return { value: snapshot, visibility: "public" }

@@ -293,6 +293,25 @@ describe("Agent telemetry", () => {
     expect(attributes).toContainEqual({ key: "vitehub.payload.value", value: { stringValue: "undefined" } })
   })
 
+  it("rejects oversized Blob payloads before reading their bytes", async () => {
+    const blob = new Blob([new Uint8Array(3 * 1024 * 1024)])
+    const arrayBuffer = vi.spyOn(blob, "arrayBuffer")
+
+    await expect(otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: { "vitehub.payload.value": blob },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })).rejects.toThrow("bounded binary budget")
+    expect(arrayBuffer).not.toHaveBeenCalled()
+  })
+
   it("does not encode inherited sparse-array values as public OTLP data", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)

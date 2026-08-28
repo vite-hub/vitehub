@@ -1192,6 +1192,32 @@ describe("agent message protocol", () => {
     }])
   })
 
+  it("classifies Capability invocation-start failures as ViteHub setup", async () => {
+    const { capabilityInvocationStartSymbol } = await import("../src/capability-runtime.ts")
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const capability = defineCapability({ id: "failed-invocation-start" })
+    Object.defineProperty(capability, capabilityInvocationStartSymbol, {
+      value: () => { throw new Error("Capability invocation start failed") },
+    })
+    const agent = defineAgent({
+      capabilities: [capability],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("ok")
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: { "error.message": "Capability invocation start failed" },
+    }])
+  })
+
   it("attributes input-hook failures to Agent execution", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
