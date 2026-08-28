@@ -22,9 +22,19 @@ type FoldedCursor = {
 }
 
 type NetlifyListPage = {
-  blobs?: Array<{ etag: string, key: string }>
+  blobs?: NetlifyListBlob[]
   directories?: string[]
   next_cursor?: string
+}
+
+type NetlifyListBlob = {
+  etag: string
+  key: string
+  last_modified?: string
+  lastModified?: string
+  size?: number
+  uploaded_at?: string
+  uploadedAt?: string
 }
 
 type NetlifyEnvironmentContext = {
@@ -57,15 +67,24 @@ function encodeBase64Url(value: string) {
   return encodeBase64(value).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
+function readProperty(value: unknown, key: string) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? Reflect.get(value, key)
+    : undefined
+}
+
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0, page: 0 }
   try {
-    const parsed = JSON.parse(decodeBase64(cursor)) as Partial<FoldedCursor>
+    const parsed: unknown = JSON.parse(decodeBase64(cursor))
+    const index = readProperty(parsed, "index")
+    const page = readProperty(parsed, "page")
+    const providerCursor = readProperty(parsed, "providerCursor")
     return {
-      directoriesConsumed: parsed.directoriesConsumed === true,
-      index: typeof parsed.index === "number" && parsed.index >= 0 ? parsed.index : 0,
-      page: typeof parsed.page === "number" && parsed.page >= 0 ? parsed.page : undefined,
-      providerCursor: typeof parsed.providerCursor === "string" ? parsed.providerCursor : undefined,
+      directoriesConsumed: readProperty(parsed, "directoriesConsumed") === true,
+      index: typeof index === "number" && index >= 0 ? index : 0,
+      page: typeof page === "number" && page >= 0 ? page : undefined,
+      providerCursor: typeof providerCursor === "string" ? providerCursor : undefined,
     }
   }
   catch {
@@ -85,7 +104,13 @@ function getEnvironmentContext(): NetlifyEnvironmentContext {
     || runtime.process?.env?.NETLIFY_BLOBS_CONTEXT
   if (typeof encoded !== "string" || !encoded) return {}
   try {
-    return JSON.parse(decodeBase64(encoded)) as NetlifyEnvironmentContext
+    const parsed: unknown = JSON.parse(decodeBase64(encoded))
+    const context: NetlifyEnvironmentContext = {}
+    for (const key of ["apiURL", "deployID", "edgeURL", "primaryRegion", "siteID", "token", "uncachedEdgeURL"] as const) {
+      const value = readProperty(parsed, key)
+      if (typeof value === "string") context[key] = value
+    }
+    return context
   }
   catch {
     return {}
@@ -154,10 +179,11 @@ function createListPageFetcher(options: NetlifyBlobsStoreConfig, connection: Res
     if (options.deployScoped && edgeURL && !region) {
       throw new Error("Netlify Blobs deploy stores require a primary region when using the edge endpoint.")
     }
-    const pathname = edgeURL
-      ? `/${region ? `region:${region}/` : ""}${siteID}/${storeName}`
-      : `/api/v1/blobs/${siteID}/${storeName}`
-    const url = new URL(pathname, edgeURL ?? context.apiURL ?? "https://api.netlify.com")
+    const storePath = `${region ? `region:${region}/` : ""}${siteID}/${storeName}`
+    const url = edgeURL
+      ? new URL(edgeURL)
+      : new URL(`/api/v1/blobs/${storePath}`, context.apiURL ?? "https://api.netlify.com")
+    if (edgeURL) url.pathname = `${url.pathname.replace(/\/+$/, "")}/${storePath}`
     for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value)
     if (options.deployScoped && !edgeURL) url.searchParams.set("region", "auto")
     return await fetchWithRetry(url, { headers: { authorization: `Bearer ${token}` } })
@@ -178,7 +204,31 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
     await response.body?.cancel()
     throw new Error(`Netlify Blobs list failed with status ${response.status}.`)
   }
-  return await response.json() as NetlifyListPage
+  const body: unknown = await response.json()
+  const blobs = readProperty(body, "blobs")
+  const directories = readProperty(body, "directories")
+  const nextCursor = readProperty(body, "next_cursor")
+  return {
+    blobs: Array.isArray(blobs)
+      ? blobs.flatMap((value): NetlifyListBlob[] => {
+          const etag = readProperty(value, "etag")
+          const key = readProperty(value, "key")
+          if (typeof etag !== "string" || typeof key !== "string") return []
+          const blob: NetlifyListBlob = { etag, key }
+          const size = readProperty(value, "size")
+          if (typeof size === "number" && Number.isFinite(size) && size >= 0) blob.size = size
+          for (const field of ["last_modified", "lastModified", "uploaded_at", "uploadedAt"] as const) {
+            const timestamp = readProperty(value, field)
+            if (typeof timestamp === "string") blob[field] = timestamp
+          }
+          return [blob]
+        })
+      : [],
+    directories: Array.isArray(directories)
+      ? directories.filter((value): value is string => typeof value === "string")
+      : [],
+    next_cursor: typeof nextCursor === "string" ? nextCursor : undefined,
+  }
 }
 
 async function mapWithConcurrency<T, U>(values: readonly T[], visit: (value: T) => Promise<U>): Promise<U[]> {
@@ -219,13 +269,20 @@ function createStore(options: NetlifyBlobsStoreConfig, connection: ResolvedNetli
   }
 }
 
-function toBlobObject(pathname: string, etag: string | undefined, metadata: StoredMetadata = {}): BlobObject {
+function toBlobObject(
+  pathname: string,
+  etag: string | undefined,
+  metadata: StoredMetadata = {},
+  listed?: Pick<NetlifyListBlob, "last_modified" | "lastModified" | "size" | "uploaded_at" | "uploadedAt">,
+): BlobObject {
   const contentType = metadata.__contentType || metadata.contentType
   const customMetadata = metadata.__user || metadata.customMetadata || {}
-  const size = metadata.__size ?? metadata.size ?? 0
+  const size = metadata.__size ?? listed?.size ?? metadata.size ?? 0
+  const listedUploadTime = listed?.uploaded_at ?? listed?.uploadedAt ?? listed?.last_modified ?? listed?.lastModified
   const uploadedAt = metadata.__lastModified
     ? new Date(metadata.__lastModified)
-    : metadata.uploadedAt ? new Date(metadata.uploadedAt) : new Date(0)
+    : listedUploadTime ? new Date(listedUploadTime)
+      : metadata.uploadedAt ? new Date(metadata.uploadedAt) : new Date(0)
   return {
     contentType,
     customMetadata,
@@ -270,7 +327,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
     async list(listOptions = {}) {
       const cursor = decodeCursor(listOptions.cursor)
       const limit = listOptions.limit ?? 1000
-      const selected: Array<{ etag: string, key: string }> = []
+      const selected: NetlifyListBlob[] = []
       const folders = new Set<string>()
       let hasMore = false
       let nextCursor: FoldedCursor | undefined
@@ -311,9 +368,10 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         startIndex = 0
         directoriesConsumed = false
       }
-      const blobs = await mapWithConcurrency(selected, async ({ etag, key }) => {
+      const blobs = await mapWithConcurrency(selected, async (listed) => {
+        const { etag, key } = listed
         const metadata = await store.getMetadata(key, { consistency: options.consistency })
-        return toBlobObject(key, etag, metadata?.metadata as StoredMetadata | undefined)
+        return toBlobObject(key, etag, metadata?.metadata as StoredMetadata | undefined, listed)
       })
       return {
         blobs,

@@ -30,7 +30,16 @@ beforeEach(() => {
   vi.unstubAllEnvs()
 })
 
-function mockListPages(pages: Record<string, { blobs: Array<{ etag: string, key: string }>, directories: string[], next_cursor?: string }>) {
+function mockListPages(pages: Record<string, {
+  blobs: Array<{
+    etag: string
+    key: string
+    size?: number
+    uploaded_at?: string
+  }>
+  directories: string[]
+  next_cursor?: string
+}>) {
   vi.stubGlobal("fetch", vi.fn((input: string | URL | Request) => {
     const url = new URL(input.toString())
     const page = pages[url.searchParams.get("cursor") ?? "first"]
@@ -103,6 +112,22 @@ describe("Netlify Blobs driver", () => {
     const [input, init] = vi.mocked(fetch).mock.calls[0]!
     expect(new URL(input.toString()).pathname).toBe("/api/v1/blobs/environment-site/deploy:deployid:vitehub-blob")
     expect(init).toMatchObject({ headers: { authorization: "Bearer explicit-token" } })
+  })
+
+  it("preserves the complete edge endpoint path for list requests", async () => {
+    vi.stubEnv("NETLIFY_BLOBS_CONTEXT", Buffer.from(JSON.stringify({
+      edgeURL: "https://edge.example.test/.netlify/blobs",
+      siteID: "environment-site",
+      token: "environment-token",
+    })).toString("base64"))
+    mockListPages({ first: { blobs: [], directories: [] } })
+
+    await createDriver({ driver: "netlify-blobs", name: "vitehub-blob" }).list()
+
+    const [input] = vi.mocked(fetch).mock.calls[0]!
+    expect(new URL(input.toString()).pathname).toBe(
+      "/.netlify/blobs/environment-site/site:vitehub-blob",
+    )
   })
 
   it("decodes context and resumes cursors without Buffer", async () => {
@@ -221,6 +246,30 @@ describe("Netlify Blobs driver", () => {
     expect(new TextDecoder().decode(normalizedBody as ArrayBuffer)).toBe("streamed")
     expect(setOptions.metadata.__size).toBe(8)
     expect(result.size).toBe(8)
+  })
+
+  it("uses provider list attributes when custom metadata has no object details", async () => {
+    mockListPages({
+      first: {
+        blobs: [{
+          etag: "listed-etag",
+          key: "legacy.txt",
+          size: 42,
+          uploaded_at: "2026-08-27T12:34:56.000Z",
+        }],
+        directories: [],
+      },
+    })
+    store.getMetadata.mockResolvedValue({ metadata: { owner: "external-client" } })
+
+    const result = await createDriver(options).list()
+
+    expect(result.blobs).toEqual([expect.objectContaining({
+      httpEtag: "listed-etag",
+      pathname: "legacy.txt",
+      size: 42,
+      uploadedAt: new Date("2026-08-27T12:34:56.000Z"),
+    })])
   })
 
   it("advances folder-only pages across folded cursors", async () => {
