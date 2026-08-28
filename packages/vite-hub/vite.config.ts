@@ -127,15 +127,23 @@ export default defineConfig({
         delete exports["./console/runtime/definitions"]
         delete exports["./console/runtime/sections"]
         delete exports["./console/runtime/server/agents.get"]
+        delete exports["./console/runtime/server/blob"]
         delete exports["./console/runtime/server/definitions.get"]
+        delete exports["./console/runtime/server/definitions"]
         delete exports["./console/runtime/server/invocation.get"]
         delete exports["./console/runtime/server/invocations.get"]
         delete exports["./console/runtime/server/kv.get"]
+        delete exports["./console/runtime/server/kv"]
         delete exports["./console/runtime/server/page.get"]
         delete exports["./console/runtime/server/search.get"]
         delete exports["./console/runtime/server/sections.get"]
+        delete exports["./console/runtime/server/sections"]
         return {
           ...exports,
+          "./console/blob": "./dist/console/runtime/server/blob.js",
+          "./console/definitions": "./dist/console/runtime/server/definitions.js",
+          "./console/kv": "./dist/console/runtime/server/kv.js",
+          "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",
           "./tsconfig": "./tsconfig.json",
         }

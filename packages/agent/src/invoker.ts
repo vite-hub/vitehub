@@ -177,6 +177,13 @@ export function hasResolvedAgentInvokerInput(input: AgentRunInput): boolean {
   return contextRecord(input.context)[resolvedAgentInvokerInputKey] === true
 }
 
+export function withoutResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
+  if (!hasResolvedAgentInvokerInput(input)) return input
+  const context = { ...input.context }
+  Reflect.deleteProperty(context, resolvedAgentInvokerInputKey)
+  return { ...input, context }
+}
+
 export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
   if (!hasResolvedAgentInvokerInput(input)) return input
   const context = contextRecord(input.context)

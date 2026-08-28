@@ -61,15 +61,15 @@ function selectStore(storage: BlobStorage, stores: readonly string[], requested:
 
 function serializeBlob(object: BlobObject): ConsoleBlobObject {
   const serialized: ConsoleBlobObject = {
-    ...(object.contentType ? { contentType: object.contentType } : {}),
     customMetadata: { ...object.customMetadata },
-    ...(object.httpEtag ? { httpEtag: object.httpEtag } : {}),
     httpMetadata: { ...object.httpMetadata },
     pathname: object.pathname,
     uploadedAt: object.uploadedAt.toISOString(),
-    ...(object.url ? { urlAvailable: true as const } : {}),
   }
+  if (object.contentType) serialized.contentType = object.contentType
+  if (object.httpEtag) serialized.httpEtag = object.httpEtag
   if (object.size !== undefined) serialized.size = object.size
+  if (object.url) serialized.urlAvailable = true
   return serialized
 }
 
@@ -82,13 +82,14 @@ export default async function consoleBlobHandler(event: ConsoleRequestEvent): Pr
   const cursor = optionalParameter(url.searchParams.get("cursor"), "cursor")
   const limit = limitParameter(url.searchParams.get("limit"))
   const page = unwrap(await selected.storage.list({ cursor, limit, prefix }))
-  return {
+  const result: ConsoleBlobPage = {
     blobs: page.blobs.map(serializeBlob),
-    ...(page.cursor ? { cursor: page.cursor } : {}),
     hasMore: page.hasMore,
     limit,
     prefix,
     store: selected.name,
     stores: inspection.stores,
   }
+  if (page.cursor) result.cursor = page.cursor
+  return result
 }
