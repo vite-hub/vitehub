@@ -6,6 +6,7 @@ function invocationRecordFromUsageRecord(usageRecord: Record<string, unknown>) {
   return {
     completedAt: "2026-08-27T10:00:00.000Z",
     createdAt: "2026-08-27T10:00:00.000Z",
+    cursor: "usage-invocation",
     id: "usage-invocation",
     observations: [{
       attributes: { "usage.record": usageRecord },
@@ -55,6 +56,38 @@ describe("Console usage projection", () => {
         { model: "leaf-model", totalTokens: 6 },
       ],
       totalTokens: 10,
+    })
+  })
+
+  it("preserves raw-only calls as unavailable model evidence", async () => {
+    const record = invocationRecordFromUsageRecord({
+      calls: [
+        { model: "known-model", usage: { totalTokens: 10 } },
+        { raw: { requestId: "raw-only" } },
+      ],
+      usage: { totalTokens: 15 },
+    })
+    const { observations: _observations, ...summary } = record
+    const invocations = {
+      get: vi.fn(async () => record),
+      getByRunId: vi.fn(async () => record),
+      list: vi.fn(async () => ({ invocations: [summary] })),
+    }
+
+    expect(invocationUsage(record)).toEqual({
+      calls: [{ model: "known-model", totalTokens: 10 }, {}],
+      totalTokens: 15,
+    })
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This fixture supplies the three read methods used by the usage summary.
+    await expect(createUsageSummary(invocations as unknown as Parameters<typeof createUsageSummary>[0], {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      models: expect.arrayContaining([
+        expect.objectContaining({ model: "known-model", totalTokens: 10, totalTokensAvailable: true }),
+        expect.objectContaining({ invocations: 1, model: "Unknown model", totalTokensAvailable: false }),
+      ]),
+      totals: { totalTokens: 15, totalTokensAvailable: true },
     })
   })
 

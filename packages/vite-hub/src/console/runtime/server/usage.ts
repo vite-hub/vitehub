@@ -87,7 +87,7 @@ export function parseConsoleUsageWindow(value: string): ConsoleUsageWindow | und
 }
 
 const maximumUsageRecords = 10_000
-const finiteNumberSchema = v.pipe(v.number(), v.check(Number.isFinite), v.minValue(0))
+const finiteNumberSchema = v.pipe(v.number(), v.check((value: number) => Number.isFinite(value)), v.minValue(0))
 const stringSchema = v.string()
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -189,7 +189,7 @@ function usageNode(value: unknown, includeCalls = true, inheritedModel?: string)
   const model = stringValue(record.model)?.trim() || inheritedModel
   const rawCalls = includeCalls && Array.isArray(record.calls) ? record.calls : []
   const directCalls = rawCalls.map(call => usageNode(call, true, model))
-  const calls = directCalls.flatMap(projected => projected?.calls?.length ? projected.calls : projected ? [projected] : [])
+  const calls = directCalls.flatMap(projected => projected?.calls?.length ? projected.calls : [projected ?? {}])
   const inputTokens = finiteNumber(usage?.inputTokens)
   const outputTokens = finiteNumber(usage?.outputTokens)
   const reasoningTokens = detailNumber(outputDetails, "reasoningTokens", "reasoningOutputTokens", "reasoning")

@@ -2151,6 +2151,7 @@ describe("Agent invocation console", () => {
     const record = {
       completedAt: "2026-08-27T10:00:00.000Z",
       createdAt: "2026-08-27T10:00:00.000Z",
+      cursor: "raw-only-usage",
       id: "raw-only-usage",
       observations: [{
         attributes: {
