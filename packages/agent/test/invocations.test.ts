@@ -902,6 +902,77 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("recovers every identified outcome missed before delivery terminalizes", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const recoveryTasks: Array<Promise<unknown>> = []
+      const attempts = new Map<string, number>()
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            const name = input.observation?.name
+            if (name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            if (name) {
+              const attempt = attempts.get(name) || 0
+              attempts.set(name, attempt + 1)
+              if ((name === "run.error" || name === "agent.invocation.finish") && attempt < 2) return
+              if (name === "agent.channel.delivery.effect" && attempt === 0) return await new Promise(() => {})
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("finish-deadline-mixed-outcomes"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "provider run failed" },
+        name: "run.error",
+        type: "error",
+      })
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Failure notice" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      const finishing = journal.finish("failed", new Error("provider run failed"))
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+      await Promise.all(recoveryTasks)
+
+      const record = await invocations.getByRunId("finish-deadline-mixed-outcomes")
+      expect(record).toMatchObject({ status: "failed" })
+      expect(record?.observations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "run.error" }),
+        expect.objectContaining({ name: "agent.invocation.finish" }),
+        expect.objectContaining({ name: "agent.channel.delivery.effect" }),
+      ]))
+      expect(attempts).toEqual(new Map([
+        ["run.error", 3],
+        ["agent.invocation.finish", 3],
+        ["agent.channel.delivery.effect", 2],
+      ]))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("persists a queued delivery when its first write reaches the finish deadline", async () => {
     vi.useFakeTimers()
     try {

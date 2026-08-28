@@ -399,6 +399,11 @@ function outcomeObservationPriority(observation: TraceEventLogEntry): number | u
   if (deliveryOutcomeObservation(observation)) return 2
 }
 
+function recoverableOutcomeObservation(observation: TraceEventLogEntry): boolean {
+  return deliveryOutcomeObservation(observation)
+    || (observationIdentity(observation) !== undefined && outcomeObservationPriority(observation) !== undefined)
+}
+
 function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   return {
     ...observation,
@@ -449,7 +454,7 @@ export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
-  if (terminalStatus(record.status) && input.observation && !deliveryOutcomeObservation(input.observation)) return record
+  if (terminalStatus(record.status) && input.observation && !recoverableOutcomeObservation(input.observation)) return record
   if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
   const incomingObservation = input.observation
   const duplicateObservation = incomingObservation !== undefined
@@ -728,6 +733,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
+      let boundToTerminalRecord = false
       let finishing = false
       let ownsRecord = false
       let observationCount = 0
@@ -749,7 +755,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
       const terminalRetryObservations: TraceEventLogEntry[] = []
-      const terminalObservationRecoveries: Array<Promise<void>> = []
+      const terminalObservationRecoveries: Array<() => Promise<void>> = []
       const ambiguouslyPersistingObservations = new Set<string | number>()
       const persistedObservations = new Set<string | number>()
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
@@ -779,6 +785,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               truncationPersisted = result.record.observationsTruncated === true
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
               finished = terminalStatus(result.record.status)
+              boundToTerminalRecord = finished
               created = true
             }
             else if (creationTask === task) {
@@ -844,11 +851,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const operation = Promise.resolve().then(() => store.update(recordId, input, claimId))
           const result = await boundedStoreOperation(() => operation)
           updated = result !== undefined && result !== storeOperationTimedOut
-          if (result === storeOperationTimedOut && input.observation && deliveryOutcomeObservation(input.observation)) {
+          if (result === storeOperationTimedOut && input.observation && recoverableOutcomeObservation(input.observation)) {
             const observation = input.observation
             const key = observationPersistenceKey(observation)
             ambiguouslyPersistingObservations.add(key)
-            terminalObservationRecoveries.push((async () => {
+            terminalObservationRecoveries.push(async () => {
               const record = await boundedStoreOperation(() => store.get(recordId))
               if (record && record !== storeOperationTimedOut
                 && record.observations.some(candidate => sameObservation(candidate, observation))) {
@@ -856,7 +863,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 return
               }
               await persistLateObservation(observation)
-            })())
+            })
           }
         })
         return updated
@@ -881,11 +888,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               timestamp,
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             })
+            const previousObservationCount = observationCount
             const persistence = Promise.resolve().then(() => store.update(recordId, {
               observation: persistedObservation,
               timestamp,
             }, claimId)).then((updated) => {
-              if (updated?.observations.some(candidate => sameObservation(candidate, observation))) {
+              if (updated && (observationIdentity(observation) === undefined
+                ? updated.observations.length > previousObservationCount
+                : updated.observations.some(candidate => sameObservation(candidate, observation)))) {
                 persistedObservations.add(observationPersistenceKey(observation))
               }
               return updated
@@ -959,13 +969,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const observe = (observation: TraceEventLogEntry) => {
         if (finished) {
-          if (deliveryOutcomeObservation(observation)) {
+          if (!boundToTerminalRecord && recoverableOutcomeObservation(observation)) {
             registerAgentInvocationRecovery(context, persistLateObservation(observation))
           }
           return
         }
         if (finishing) {
-          if (deliveryOutcomeObservation(observation)) terminalRetryObservations.push(observation)
+          if (recoverableOutcomeObservation(observation)) terminalRetryObservations.push(observation)
           return
         }
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
@@ -1027,7 +1037,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const failure = errorDetails(error)
           for (const observation of pendingOutcomes.slice(0, -1)) {
             const persisted = await update({ observation, timestamp: observation.timestamp })
-            if (!persisted && deliveryOutcomeObservation(observation)
+            if (!persisted && recoverableOutcomeObservation(observation)
               && !ambiguouslyPersistingObservations.has(observationPersistenceKey(observation))) {
               terminalRetryObservations.push(observation)
             }
@@ -1052,7 +1062,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               terminalOutcomePersisted = false
             }
             if (!updated) return false
-            if (!terminalOutcomePersisted && terminalOutcome && deliveryOutcomeObservation(terminalOutcome)
+            if (!terminalOutcomePersisted && terminalOutcome && recoverableOutcomeObservation(terminalOutcome)
               && !ambiguouslyPersistingObservations.has(observationPersistenceKey(terminalOutcome))) {
               terminalRetryObservations.push(terminalOutcome)
             }
@@ -1067,7 +1077,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             const observations = terminalRetryObservations.splice(0)
             if (recoveries.length > 0 || observations.length > 0) {
               registerAgentInvocationRecovery(context, Promise.all([
-                ...recoveries,
+                ...recoveries.map(recover => recover()),
                 ...observations.map(persistLateObservation),
               ]).then(() => undefined))
             }
@@ -1093,8 +1103,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (!finished && terminalRetry === retry) {
               terminalRetry = undefined
               finishing = false
+              const recoveries = terminalObservationRecoveries.splice(0)
               const observations = terminalRetryObservations.splice(0)
-              await Promise.all(observations.map(persistLateObservation))
+              await Promise.all([
+                ...recoveries.map(recover => recover()),
+                ...observations.map(persistLateObservation),
+              ])
             }
           })
           terminalRetry = retry
