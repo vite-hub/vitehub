@@ -4020,7 +4020,8 @@ async function resultWithStreamedTextAndUsage(
 function withStreamedResult(
   stream: AsyncIterable<unknown>,
   result: unknown,
-  fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
+  fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"]
+    | ((resolveUsage: boolean) => MaybePromise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined>),
   toolResults?: AgentToolStepItem[],
   tools?: AgentToolSet,
 ) {
@@ -4034,7 +4035,10 @@ function withStreamedResult(
   let finalizedUsageRecord: AgentUsageRecord | undefined
   return {
     async finishResult(resultOverride: unknown = result, resolveUsage = true) {
-      const finishResult = await resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord, resolveUsage)
+      const resolvedFallbackUsageRecord = hasRuntimeType(fallbackUsageRecord, "function")
+        ? await fallbackUsageRecord(resolveUsage)
+        : fallbackUsageRecord
+      const finishResult = await resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, resolvedFallbackUsageRecord, resolveUsage)
       finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
         ? toAgentRunResult(finishResult).usageRecord
         : undefined
@@ -4747,7 +4751,7 @@ async function finalizeAgentInvocationResult<
   finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
   options: {
-    fallbackUsageRecord?: AgentUsageRecord
+    fallbackUsageRecord?: AgentUsageRecord | ((resolveUsage: boolean) => MaybePromise<AgentUsageRecord | undefined>)
     finalizeResponse?: (response: Response) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: Response | TResult } | undefined>
     finalizeRawStreams?: boolean
     holdOutput?: boolean
@@ -5128,6 +5132,17 @@ async function executeAgentInvocationWithCapacityLease<
     : undefined
   let renderedResult = false
   let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
+  const resolveRawDriverUsageRecord = async (resolveUsage: boolean) => {
+    if (!rendererSource?.completed) return rawDriverUsageRecord
+    rawDriverUsageRecord = toAgentRunResult(await resultWithStreamedTextAndUsage(
+      rawDriverResult,
+      "",
+      undefined,
+      rawDriverUsageRecord,
+      resolveUsage,
+    )).usageRecord
+    return rawDriverUsageRecord
+  }
   try {
     const shouldRenderStream = options.kind === "run"
       ? customRun && options.renderOutput && isAsyncIterable(result)
@@ -5143,7 +5158,7 @@ async function executeAgentInvocationWithCapacityLease<
       }
       renderedResult = true
       if (rendererSource?.completed) {
-        rawDriverUsageRecord = toAgentRunResult(await resultWithStreamedTextAndUsage(rawDriverResult, "")).usageRecord
+        await resolveRawDriverUsageRecord(true)
       }
     }
   }
@@ -5633,7 +5648,7 @@ async function executeAgentInvocationWithCapacityLease<
       finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
       holdOutput: options.holdCapacity,
       outputExtensions,
-      fallbackUsageRecord: rawDriverUsageRecord,
+      fallbackUsageRecord: rawDriverUsageObserved ? resolveRawDriverUsageRecord : undefined,
       ...(customRun
         ? {
             // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -5893,7 +5908,7 @@ async function executeAgentInvocationWithCapacityLease<
     finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
     holdOutput: options.holdCapacity,
     outputExtensions,
-    fallbackUsageRecord: rawDriverUsageRecord,
+    fallbackUsageRecord: rawDriverUsageObserved ? resolveRawDriverUsageRecord : undefined,
     ...(customRun
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
