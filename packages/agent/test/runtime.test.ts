@@ -3718,6 +3718,7 @@ describe("agent message protocol", () => {
       .mockResolvedValue(undefined)
     const execute = vi.fn(() => "Prepared title")
     const waitUntilTasks: Promise<unknown>[] = []
+    const traceLog = createTraceEventLog()
     const agent = defineAgent({
       capabilities: [title({ execute })],
       channels: {
@@ -3748,6 +3749,7 @@ describe("agent message protocol", () => {
       memo: vi.fn(),
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
+      traceLog,
       waitUntil: task => waitUntilTasks.push(task),
     }, "portal.message", {})
 
@@ -3761,6 +3763,10 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenCalledOnce()
     expect(titleEffect).toHaveBeenCalledTimes(2)
     expect(retryingTitleEffect).toHaveBeenCalledTimes(2)
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "agent", phase: "delivery" },
+      attributes: { "error.message": "temporary title failure" },
+    }])
   })
 
   it("delivers titles through Slack Assistant message Channels", async () => {

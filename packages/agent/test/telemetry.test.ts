@@ -154,6 +154,7 @@ describe("Agent telemetry", () => {
             boxedBoolean: new Boolean(false),
             boxedNumber: new Number(5),
             boxedString: new String("one"),
+            blob: new Blob([new Uint8Array([1, 2])], { type: "application/octet-stream" }),
             cyclic,
             date: new Date("2026-01-01T00:00:00.000Z"),
             domException: new DOMException("stopped", "AbortError"),
@@ -202,6 +203,11 @@ describe("Agent telemetry", () => {
           { key: "boxedString", value: { kvlistValue: { values: [
             { key: "type", value: { stringValue: "String" } },
             { key: "value", value: { stringValue: "one" } },
+          ] } } },
+          { key: "blob", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "application/octet-stream" } },
+            { key: "size", value: { intValue: "2" } },
+            { key: "bytes", value: { bytesValue: "AQI=" } },
           ] } } },
           { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
           { key: "date", value: { stringValue: "2026-01-01T00:00:00.000Z" } },

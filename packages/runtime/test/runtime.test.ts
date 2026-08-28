@@ -472,6 +472,23 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("falls back to private without invoking nested public payload accessors", async () => {
+    const getter = vi.fn(() => "must not be read")
+    const value = { nested: Object.defineProperty({}, "secret", { enumerable: true, get: getter }) }
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
   it("isolates stored entries from returned and observed payloads", async () => {
     let observed: TraceEventLogEntry | undefined
     const log = createTraceEventLog({

@@ -39,7 +39,7 @@ function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean
   }
 }
 
-function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyValue {
+async function otlpAnyValue(value: unknown, ancestors = new Set<object>()): Promise<OtlpAnyValue> {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
@@ -76,7 +76,21 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
         values: [
           { key: "source", value: { stringValue: value.source } },
           { key: "flags", value: { stringValue: value.flags } },
-          { key: "lastIndex", value: otlpAnyValue(value.lastIndex) },
+          { key: "lastIndex", value: await otlpAnyValue(value.lastIndex) },
+        ],
+      },
+    }
+  }
+  if (value instanceof Blob) {
+    const bytes = new Uint8Array(await value.arrayBuffer())
+    let binary = ""
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    return {
+      kvlistValue: {
+        values: [
+          { key: "type", value: { stringValue: value.type } },
+          { key: "size", value: { intValue: String(value.size) } },
+          { key: "bytes", value: { bytesValue: btoa(binary) } },
         ],
       },
     }
@@ -87,7 +101,7 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
       kvlistValue: {
         values: [
           { key: "type", value: { stringValue: primitiveWrapper.type } },
-          { key: "value", value: otlpAnyValue(primitiveWrapper.value) },
+          { key: "value", value: await otlpAnyValue(primitiveWrapper.value) },
         ],
       },
     }
@@ -99,28 +113,28 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
     if (Array.isArray(value)) {
       return {
         arrayValue: {
-          values: Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index)
+          values: await Promise.all(Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index)
             ? otlpAnyValue(value[index], nextAncestors)
-            : { stringValue: "[Array hole]" }),
+            : Promise.resolve<OtlpAnyValue>({ stringValue: "[Array hole]" }))),
         },
       }
     }
     if (value instanceof Map) {
       return {
         arrayValue: {
-          values: [...value].map(([key, child]) => ({
+          values: await Promise.all([...value].map(async ([key, child]) => ({
             kvlistValue: {
               values: [
-                { key: "key", value: otlpAnyValue(key, nextAncestors) },
-                { key: "value", value: otlpAnyValue(child, nextAncestors) },
+                { key: "key", value: await otlpAnyValue(key, nextAncestors) },
+                { key: "value", value: await otlpAnyValue(child, nextAncestors) },
               ],
             },
-          })),
+          }))),
         },
       }
     }
     if (value instanceof Set) {
-      return { arrayValue: { values: [...value].map(child => otlpAnyValue(child, nextAncestors)) } }
+      return { arrayValue: { values: await Promise.all([...value].map(child => otlpAnyValue(child, nextAncestors))) } }
     }
     if (value instanceof DOMException) {
       return {
@@ -139,13 +153,13 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
         { key: "message", value: { stringValue: value.message } },
       ]
       if (value instanceof AggregateError) {
-        values.push({ key: "errors", value: otlpAnyValue(value.errors, nextAncestors) })
+        values.push({ key: "errors", value: await otlpAnyValue(value.errors, nextAncestors) })
       }
       if (Object.hasOwn(value, "cause")) {
-        values.push({ key: "cause", value: otlpAnyValue(value.cause, nextAncestors) })
+        values.push({ key: "cause", value: await otlpAnyValue(value.cause, nextAncestors) })
       }
       for (const [key, child] of Object.entries(value)) {
-        if (key !== "cause" && key !== "errors") values.push({ key, value: otlpAnyValue(child, nextAncestors) })
+        if (key !== "cause" && key !== "errors") values.push({ key, value: await otlpAnyValue(child, nextAncestors) })
       }
       return {
         kvlistValue: { values },
@@ -157,17 +171,17 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
     }
     return {
       kvlistValue: {
-        values: Object.entries(value).map(([key, child]) => ({ key, value: otlpAnyValue(child, nextAncestors) })),
+        values: await Promise.all(Object.entries(value).map(async ([key, child]) => ({ key, value: await otlpAnyValue(child, nextAncestors) }))),
       },
     }
   }
   return { stringValue: String(value) }
 }
 
-function otlpAttributes(attributes: Record<string, unknown> | undefined) {
-  return Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined && key !== "vitehub.payload.value"
+async function otlpAttributes(attributes: Record<string, unknown> | undefined) {
+  return Promise.all(Object.entries(attributes || {}).flatMap(([key, value]) => value === undefined && key !== "vitehub.payload.value"
     ? []
-    : [{ key, value: otlpAnyValue(value) }])
+    : [{ key, value }]).map(async ({ key, value }) => ({ key, value: await otlpAnyValue(value) })))
 }
 
 function unixNanos(value: string | undefined, fallback: string): string {
@@ -175,17 +189,17 @@ function unixNanos(value: string | undefined, fallback: string): string {
   return String(BigInt(Number.isFinite(millis) ? millis : Date.parse(fallback)) * 1_000_000n)
 }
 
-function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
+async function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
   return {
-    attributes: otlpAttributes(span.attributes),
+    attributes: await otlpAttributes(span.attributes),
     ...(span.endTime ? { endTimeUnixNano: unixNanos(span.endTime, fallbackEndTime) } : {}),
     ...(span.events?.length
       ? {
-          events: span.events.map(event => ({
-            attributes: otlpAttributes(event.attributes),
+          events: await Promise.all(span.events.map(async event => ({
+            attributes: await otlpAttributes(event.attributes),
             name: event.name,
             timeUnixNano: unixNanos(event.time, fallbackEndTime),
-          })),
+          }))),
         }
       : {}),
     kind: 1,
@@ -198,9 +212,9 @@ function otlpSpan(span: OpenTelemetrySpanView, fallbackEndTime: string) {
   }
 }
 
-function otlpLogRecord(record: OpenTelemetryLogRecordView) {
+async function otlpLogRecord(record: OpenTelemetryLogRecordView) {
   return {
-    attributes: otlpAttributes(record.attributes),
+    attributes: await otlpAttributes(record.attributes),
     eventName: record.eventName,
     ...(record.severityNumber ? { severityNumber: record.severityNumber } : {}),
     ...(record.severityText ? { severityText: record.severityText } : {}),
@@ -310,11 +324,15 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
       ...configuredResource,
     }
     if (context.signal === "logs") {
+      const [resourceAttributes, logRecords] = await Promise.all([
+        otlpAttributes(resource),
+        Promise.all(context.records.map(otlpLogRecord)),
+      ])
       await postOtlp(otlpSignalEndpoint(options.endpoint, "logs"), headers, JSON.stringify({
         resourceLogs: [{
-          resource: { attributes: otlpAttributes(resource) },
+          resource: { attributes: resourceAttributes },
           scopeLogs: [{
-            logRecords: context.records.map(otlpLogRecord),
+            logRecords,
             scope: { name: "vitehub.agent" },
           }],
         }],
@@ -322,12 +340,16 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
       return
     }
     const fallbackEndTime = context.spans[0]?.endTime || new Date().toISOString()
+    const [resourceAttributes, spans] = await Promise.all([
+      otlpAttributes(resource),
+      Promise.all(context.spans.map(span => otlpSpan(span, fallbackEndTime))),
+    ])
     await postOtlp(otlpSignalEndpoint(options.endpoint, "traces"), headers, JSON.stringify({
       resourceSpans: [{
-        resource: { attributes: otlpAttributes(resource) },
+        resource: { attributes: resourceAttributes },
         scopeSpans: [{
           scope: { name: "vitehub.agent" },
-          spans: context.spans.map(span => otlpSpan(span, fallbackEndTime)),
+          spans,
         }],
       }],
     }), "rejectedSpans")

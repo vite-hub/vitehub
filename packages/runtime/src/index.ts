@@ -462,7 +462,7 @@ function reflectedBlobState(value: unknown): { intrinsicSymbols: ReadonlySet<sym
   const BlobConstructor = globalThis.Blob
   if (!hasRuntimeType(BlobConstructor, "function") || !(value instanceof BlobConstructor)) return
   try {
-    const intrinsic = new BlobConstructor()
+    const intrinsic = new BlobConstructor([])
     return {
       intrinsicSymbols: new Set(Reflect.ownKeys(intrinsic).filter((key): key is symbol =>
         hasRuntimeType(key, "symbol") && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
@@ -474,6 +474,27 @@ function reflectedBlobState(value: unknown): { intrinsicSymbols: ReadonlySet<sym
   catch {
     return
   }
+}
+
+function containsEnumerableAccessor(value: unknown, seen = new Set<object>()): boolean {
+  if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
+  seen.add(value)
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (!descriptor?.enumerable) continue
+    if (!("value" in descriptor) || containsEnumerableAccessor(descriptor.value, seen)) return true
+  }
+  if (value instanceof Map) {
+    for (const [key, entry] of Map.prototype.entries.call(value) as MapIterator<[unknown, unknown]>) {
+      if (containsEnumerableAccessor(key, seen) || containsEnumerableAccessor(entry, seen)) return true
+    }
+  }
+  if (value instanceof Set) {
+    for (const entry of Set.prototype.values.call(value) as SetIterator<unknown>) {
+      if (containsEnumerableAccessor(entry, seen)) return true
+    }
+  }
+  return false
 }
 
 function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = new Map<object, object>()): boolean {
@@ -562,7 +583,7 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
     if (!visibility || !("value" in visibility)) return { visibility: "private" }
     if (visibility.value === "public") {
       const value = Object.getOwnPropertyDescriptor(payload, "value")
-      if (value && "value" in value) {
+      if (value && "value" in value && !containsEnumerableAccessor(value.value)) {
         const snapshot = structuredClone(value.value)
         if (preservesEnumerableFields(value.value, snapshot) && !containsSharedArrayBuffer(snapshot)) {
           return { value: snapshot, visibility: "public" }

@@ -3377,7 +3377,13 @@ async function createAgentInvocationContext<
           await setChannelDeliverySupportContext(invocation.channels, invocation.context, invocation.runtimeContext, invocation.input, invocation.run)
         }
         invocation.startTask = (async () => {
-          await applyChannelDeliveryEffectIntents(invocation, await startCapabilities())
+          const deliveryEffectIntents = await startCapabilities()
+          try {
+            await applyChannelDeliveryEffectIntents(invocation, deliveryEffectIntents)
+          }
+          catch (error) {
+            await traceAgentInvocationError(toTraceContext(invocation), error, { owner: "agent", phase: "delivery" })
+          }
         })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error))
         runtimeContext.waitUntil?.(invocation.startTask)
       }
