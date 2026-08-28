@@ -311,27 +311,27 @@ const sections = reactive<{ anchor?: string; label: string; rows: MatrixRow[] }[
         values: {
           local: cell(
             "package",
-            "Configure an explicit Unemail driver for local delivery.",
-            "Unemail driver",
+            "Configure the built-in Resend driver for local delivery.",
+            "Resend",
           ),
           cloudflare: cell(
             "available",
-            "The Cloudflare preset supports the built-in Cloudflare Email driver default or an explicit Unemail driver.",
+            "The Cloudflare preset supports the built-in Cloudflare Email driver default or Resend.",
             "Cloudflare Email",
           ),
-          vercel: cell("package", "Configure an explicit Unemail driver.", "Unemail driver"),
-          netlify: cell("package", "Configure an explicit Unemail driver.", "Unemail driver"),
+          vercel: cell("package", "Configure the built-in Resend driver.", "Resend"),
+          netlify: cell("package", "Configure the built-in Resend driver.", "Resend"),
           deno: cell(
             "package",
-            "Configure an Unemail driver that supports the Deno runtime.",
-            "Unemail driver",
+            "Configure the built-in fetch-based Resend driver.",
+            "Resend",
           ),
           nitro: cell(
             "package",
-            "Uses the explicit Unemail driver selected for the deployment host.",
+            "Uses the explicit ViteHub Email driver selected for the deployment host.",
             "Host driver",
           ),
-          node: cell("package", "Configure any compatible Unemail driver.", "Unemail driver"),
+          node: cell("package", "Configure Resend or provide a custom ViteHub Email driver.", "Resend / custom"),
         },
       },
       {

@@ -1268,6 +1268,81 @@
     },
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "5b399c653b9e7e8e955032963ba68773d278aa45f64299c9f45a1a5a37d4b14e"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "5f1d42bd262fe34822bb6bbca7cdf2301b7028f42b02714db1c301f38ddc97f8"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "665299aec7a462008baee97957ed53ab02aa75435ae11307e1bce2170383cdb1"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "87ad8350b6992fe7f64071a1db6e8d0a0004b0f38483d8a1e687487dbc5181e0"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "899d81e6484d85e9ae8ff64488232287ed3f0fac3692c85e4edd8aae0c59c286"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/drivers/cloudflare-email.ts",
+      "fingerprint": "18cafc7467465fd421f7eaecfe708b8c1ec63db4b651b5ab6146b26d4a448150"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/drivers/resend.ts",
+      "fingerprint": "0bc0cf1daa8f62e1ab9cad2811ef13a360e645729cc53b7424b03abeb33a283d"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/drivers/resend.ts",
+      "fingerprint": "eaba9125e5d82fdb3fcd74b851b77a894b1ac3b56fa7083883a21ec82dee15d7"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/provider.ts",
+      "fingerprint": "a0c19e5ac76a1b9acd8b7132e620ca95f2184fd100b26bba069c89f7f5ecb641"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "02e98c467beac7821c9f876b55caa5541271898a1d7a53540af795628e7d6003"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "201f53b5c591fb809e315428886f44cfe6e7081b8f58d669784bbf981826e393"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "2dabaf124ed98a3a2b9273530549e3f36b96771d3b6e3d296922b034dd6875a1"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "5bdab153b22857a9c1565733a7a487581818f5c529b24700e5c19ad82d4e074c"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "7a5554fab4d84ca14f1663f474816f084500c75dfe494d491ed1eb97aff4a3e8"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "7a82ef030a3cafe2ab87f5fc2db7ec1f9663b0055272caa5616cd50273326513"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/internal/src/build/cloudflare-provider-output.ts",
       "fingerprint": "31fecb01bdff9c25778eaef1d6ba18d4f3d7ef1f13ceeeaa1f9bb136f5e2485a"
     },
@@ -3563,6 +3638,66 @@
     },
     {
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/client.ts",
+      "fingerprint": "354d3792439b993a0e433a9a411dc64c82d59dd716b350c0fea6a878be8dbc85"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/drivers/cloudflare-email.ts",
+      "fingerprint": "098bb42abcc6d1f50fc5534b313f7bd542e0aaf5312716f605aefac94b8deb97"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/provider.ts",
+      "fingerprint": "37eb9ea1065806f6f293ab06304bcd3e76ef97a7bd26916a607cef14671c3b69"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/provider.ts",
+      "fingerprint": "a5ae370e5188ccd88f28704b97aa2617c7819f7cf5f3f5f12bbbefa8004bce34"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "503546fb9b2517ce4badaf5bb0e475e6af8582b7b3f9ca9441441e4880fc3d34"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "64665eed70aab2be06b81e424575fe5baef467ffda88c29eb69a4c6a8ed35204"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "6d7fd5d4aa5a1766b5e317a9c3eaa12eb0b8206c80ddf26540f379248ef65831"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "70e3d73cd5e1a8b52607e519ac031a2455c64337c89e5978ed53c0b4bfca7379"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "73dd7da129e5fcf33d9bece15ed2f189d17b4582b82bc051ff5fc2a96a8734da"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "d199f18490964c92379f1c7860bfa979f690f651a7d93a4b36b0bcd4512f56c7"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "e9789fbd3d001de05929f242cc64116f5b902bd8040d6ce64f3f6064ba4eefc1"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/email/test/client.test.ts",
+      "fingerprint": "546c53ce52e03bd1701ffa68a7b332ab0b4dd1554f32ae6ce90b82be2f495b2d"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/internal/src/build/cloudflare-provider-output.ts",
       "fingerprint": "09f5a3592e3ba7c35f6f048042046d8cb9c4f58105eb8040b968f91442c797db"
     },
@@ -5765,6 +5900,46 @@
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
       "file": "packages/database/test/vite-output.test.ts",
       "fingerprint": "0588e1945d11a5e4c120330aca138957ae2f1610b312e70cf03fed6e1fa45a86"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/drivers/resend.ts",
+      "fingerprint": "1b8e5411cb7a7b1e7bb5211da2fc31a21144093b9fa70076088630a68678d91e"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/drivers/resend.ts",
+      "fingerprint": "74bf4581d51e43f659892d8a9cc69b61e3a28684662b5bbe06a7c821852e546c"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/drivers/resend.ts",
+      "fingerprint": "956d03dfe69a789a57966aaf8f6549e15f256a321f75e235f92887455a44ac58"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/drivers/shared.ts",
+      "fingerprint": "56e14f18be4adcd90de9c757a6440e725e9f47ca5668678a97a5cff0314c043b"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/drivers/shared.ts",
+      "fingerprint": "d277a55c36e8fccde5a304d1f51480314b661d94fc4734ec5e89e45c45d1cc39"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "51fb20fe78357e4efcae222666b5a3ce31bd8a3f1878fbce92435f22586809a4"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "8d6ed89c3ad99ec3d9e93d5750de1cab4fa93637ae4a8d86332942cbc6bb4d3e"
+    },
+    {
+      "ruleId": "typescript/style/no-conditional-empty-object-spread",
+      "file": "packages/email/src/vite.ts",
+      "fingerprint": "9dcf486ca62632054eb9bc4b7fafa2f7511a7f85e47e075411f470d28c07c0bd"
     },
     {
       "ruleId": "typescript/style/no-conditional-empty-object-spread",
