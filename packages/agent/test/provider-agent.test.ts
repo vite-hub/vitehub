@@ -106,6 +106,22 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
+  it("rejects provisioned Codex credentials on Windows before resolving them", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+    const credentials = vi.fn(() => JSON.stringify({ OPENAI_API_KEY: "private" }))
+    try {
+      await expect(createProviderAgentAdapter({
+        credentials,
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context("thread-windows-credentials") as never)).rejects.toThrow("provisioned credentials are not supported on Windows")
+      expect(credentials).not.toHaveBeenCalled()
+    }
+    finally {
+      platform.mockRestore()
+    }
+  })
+
   it("passes only host process essentials and explicitly selected environment values", async () => {
     const threadId = "thread-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -174,6 +190,36 @@ describe("Provider Agent Driver", () => {
     })
     expect(calls[0]?.[0].environment).not.toHaveProperty("OPENAI_API_KEY")
     await rm(homes[0], { force: true, recursive: true })
+  })
+
+  it("updates a credential-store setting after multiline TOML content", async () => {
+    const profile = `provider-multiline-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `instructions = """
+[this-is-string-content]
+"""
+cli_auth_credentials_store = "keyring"
+
+[projects."/workspace"]
+trust_level = "trusted"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-multiline-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(config.replace('"keyring"', '"file"'))
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
   })
 
   it("rejects a symlinked named-profile config without changing its target", async () => {

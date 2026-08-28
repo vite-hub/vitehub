@@ -244,12 +244,28 @@ async function writeCodexCredentials(homePath: string, credentials: string): Pro
 function codexFileCredentialStoreConfig(config: string): string {
   const lines = config.match(/.*(?:\r?\n|$)/g)?.filter(Boolean) || []
   const assignment = 'cli_auth_credentials_store = "file"'
+  let multiline: `'''` | `"""` | undefined
   for (const [index, line] of lines.entries()) {
-    if (/^\s*\[/.test(line)) break
-    if (!/^\s*(?:cli_auth_credentials_store|"cli_auth_credentials_store"|'cli_auth_credentials_store')\s*=/.test(line)) continue
-    const newline = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : ""
-    lines[index] = `${assignment}${newline}`
-    return lines.join("")
+    if (!multiline) {
+      if (/^\s*\[/.test(line)) break
+      if (/^\s*(?:cli_auth_credentials_store|"cli_auth_credentials_store"|'cli_auth_credentials_store')\s*=/.test(line)) {
+        const newline = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : ""
+        lines[index] = `${assignment}${newline}`
+        return lines.join("")
+      }
+    }
+    for (let offset = 0; offset < line.length - 2; offset++) {
+      const delimiter = line.slice(offset, offset + 3)
+      if (multiline) {
+        if (delimiter !== multiline || (multiline === '"""' && /(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, offset)))) continue
+        multiline = undefined
+        offset += 2
+        continue
+      }
+      if (delimiter !== '"""' && delimiter !== "'''") continue
+      multiline = delimiter
+      offset += 2
+    }
   }
   const newline = config.includes("\r\n") ? "\r\n" : "\n"
   return `${assignment}${newline}${config}`
@@ -389,6 +405,9 @@ async function prepareCodexCredentialHome<
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<CodexCredentialHome | undefined> {
   if (options.provider !== "codex" || options.credentials === undefined) return
+  if (process.platform === "win32") {
+    throw new Error("[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access.")
+  }
   const profile = options.credentialProfile?.trim()
   const resolveCredentials = async () => {
     context.input.abortSignal?.throwIfAborted()
