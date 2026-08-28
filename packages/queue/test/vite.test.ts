@@ -531,8 +531,10 @@ describe("hubQueue", () => {
       root,
     } as never)
 
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this callable Vite lifecycle hook in the focused test.
     await (plugin.buildEnd as unknown as () => void | Promise<void>)()
     await writeFile(join(root, "failed-rebuild.queue.ts"), "export default { handler: async () => undefined }\n")
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this object Vite lifecycle hook in the focused test.
     await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
 
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")

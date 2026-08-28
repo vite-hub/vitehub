@@ -1245,6 +1245,42 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(cloudflareRoot, "index.js"), "utf8")).resolves.toBe("current\n")
   })
 
+  it("does not let a concurrent catalog remove Cloudflare output written for the same root", async () => {
+    const writerCatalog = createProviderOutputCatalog()
+    const cleanupCatalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    let releaseWriter!: () => void
+    const writerBlocked = new Promise<void>(resolve => releaseWriter = resolve)
+    contributeProviderDeploymentOutput(writerCatalog, {
+      owner: "blob",
+      rootDir,
+      write: async ({ write }) => await write({
+        afterWrite: async () => await writerBlocked,
+        clientOutDir: "dist/client",
+        cloudflare: { files: { "index.js": "current\n" } },
+        rootDir,
+      }),
+    })
+    contributeProviderDeploymentOutput(cleanupCatalog, {
+      owner: "workflow",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cleanup: { cloudflare: { fileNames: ["index.js"] } },
+        rootDir,
+      }),
+    })
+
+    const writer = finalizeProviderDeploymentOutputs(writerCatalog)
+    await vi.waitFor(() => expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(true))
+    const cleanup = finalizeProviderDeploymentOutputs(cleanupCatalog)
+    releaseWriter()
+    await Promise.all([writer, cleanup])
+
+    await expect(readFile(join(cloudflareRoot, "index.js"), "utf8")).resolves.toBe("current\n")
+  })
+
   it("preserves client files when Cloudflare cleanup shares the client directory", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

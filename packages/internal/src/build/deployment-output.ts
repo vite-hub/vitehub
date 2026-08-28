@@ -157,6 +157,7 @@ const providerDeploymentOutputRegistry: typeof globalThis & {
   __vitehubProviderDeploymentOutputCompletedResets?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>
   __vitehubProviderDeploymentOutputEnvironmentGenerations?: WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>
   __vitehubProviderDeploymentOutputFinalizations?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>
+  __vitehubProviderDeploymentOutputRootStates?: Map<string, ProviderDeploymentOutputRootState>
   __vitehubProviderDeploymentOutputWrites?: Map<string, Promise<unknown>>
 } = globalThis
 const providerDeploymentOutputWrites = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputWrites
@@ -165,6 +166,8 @@ const providerDeploymentOutputFinalizations = providerDeploymentOutputRegistry._
   ??= new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>()
 const providerDeploymentOutputCompletedResets = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputCompletedResets
   ??= new WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>()
+const providerDeploymentOutputRootStates = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputRootStates
+  ??= new Map<string, ProviderDeploymentOutputRootState>()
 
 const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "agent",
@@ -659,16 +662,28 @@ function providerDeploymentOutputPaths(options: ProviderDeploymentOutputOptions)
   ].filter((path): path is string => Boolean(path) && resolve(path!) !== clientDir)
 }
 
-async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operation: () => Promise<T>): Promise<T> {
+interface ProviderDeploymentOutputRootState {
+  cloudflareWritten: boolean
+  pending: number
+}
+
+async function withProviderDeploymentOutputRootLock<T>(rootDir: string, operation: (state: ProviderDeploymentOutputRootState) => Promise<T>): Promise<T> {
   const key = resolve(rootDir)
+  const state = providerDeploymentOutputRootStates.get(key) ?? { cloudflareWritten: false, pending: 0 }
+  providerDeploymentOutputRootStates.set(key, state)
+  state.pending++
   const previous = providerDeploymentOutputWrites.get(key) ?? Promise.resolve()
-  const current = previous.catch(() => undefined).then(operation)
+  const current = previous.catch(() => undefined).then(async () => await operation(state))
   providerDeploymentOutputWrites.set(key, current)
   try {
     return await current
   }
   finally {
     if (providerDeploymentOutputWrites.get(key) === current) providerDeploymentOutputWrites.delete(key)
+    state.pending--
+    if (state.pending === 0 && providerDeploymentOutputRootStates.get(key) === state) {
+      providerDeploymentOutputRootStates.delete(key)
+    }
   }
 }
 
@@ -723,6 +738,7 @@ async function restoreProviderDeploymentOutputSnapshot(snapshot: ProviderDeploym
 async function withProviderDeploymentOutputRootTransaction<T>(
   rootDir: string,
   operation: (transaction: ProviderDeploymentOutputRootTransaction) => Promise<T>,
+  rootState?: ProviderDeploymentOutputRootState,
 ): Promise<T> {
   const roots = [
     createDefaultCloudflareOutputRoot(rootDir),
@@ -739,7 +755,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
   const snapshots = new Map<string, ProviderDeploymentOutputSnapshot>()
   let snapshotIndex = 0
   const transaction: ProviderDeploymentOutputRootTransaction = {
-    cloudflareWritten: false,
+    cloudflareWritten: rootState?.cloudflareWritten ?? false,
     async snapshot(paths, preservedPaths = []) {
       const resolvedPreservedPaths = [...new Set(preservedPaths.map(path => resolve(path)))]
       for (const snapshot of snapshots.values()) {
@@ -797,6 +813,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
   try {
     await transaction.snapshot(roots)
     const result = await operation(transaction)
+    if (transaction.cloudflareWritten && rootState) rootState.cloudflareWritten = true
     await rm(transactionRoot, { force: true, recursive: true })
     return result
   }
@@ -979,7 +996,7 @@ export async function finalizeProviderDeploymentOutputs(
               ready = resolve
               rejectReady = reject
             })
-            const write = withProviderDeploymentOutputRootLock(rootDir, async () => {
+            const write = withProviderDeploymentOutputRootLock(rootDir, async (rootState) => {
               await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
                 try {
                   for (const contribution of rootContributions) {
@@ -1003,7 +1020,7 @@ export async function finalizeProviderDeploymentOutputs(
                   rejectReady(error)
                   throw error
                 }
-              })
+              }, rootState)
             })
             void write.catch(rejectReady)
             return { readiness, write }
