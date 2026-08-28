@@ -13,7 +13,7 @@ const agentOutputErrorMessages = {
 
 type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 
-const validatedAgentOutputs = new WeakMap<object, WeakMap<object, Promise<unknown>>>()
+const agentOutputValidationMemoSymbol = Symbol("vitehub.agent.output-validation-memo")
 
 export const agentOutputRepairSymbol = Symbol.for("vitehub.agent.output-repair")
 export const agentOutputUsageReadySymbol = Symbol.for("vitehub.agent.output-usage-ready")
@@ -143,50 +143,59 @@ function isMaterializedObject(result: unknown): boolean {
   }
 }
 
-async function validateAgentOutputValue<TOutput>(
-  output: AgentOutputDefinition<TOutput>,
-  result: unknown,
-  options: { allowMaterializedObject?: boolean } = {},
-): Promise<TOutput> {
-  if (options.allowMaterializedObject && isMaterializedObject(result)) {
-    const directValidation = inspectValidation(await output.schema["~standard"].validate(result), true)
-    if (directValidation) return directValidation.value
-  }
-  const value = jsonValueFromResult(result)
-  const validation = inspectValidation(await output.schema["~standard"].validate(value))
-  if (!validation) throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID")
-  return validation.value
-}
-
 export async function validateAgentOutput<TOutput>(
   output: AgentOutputDefinition<TOutput>,
   result: unknown,
-  options: { allowMaterializedObject?: boolean } = {},
+  options: { allowMaterializedObject?: boolean, reuseNextValidation?: boolean } = {},
 ): Promise<TOutput> {
-  if (!hasRuntimeType(result, "object") && !hasRuntimeType(result, "function")) {
-    return await validateAgentOutputValue(output, result, options)
+  if (result && hasRuntimeType(result, "object")) {
+    let memo: unknown
+    try {
+      memo = Reflect.get(result, agentOutputValidationMemoSymbol)
+      Reflect.deleteProperty(result, agentOutputValidationMemoSymbol)
+    }
+    catch {
+      memo = undefined
+    }
+    if (isRuntimeRecord(memo)
+      && memo.schema === output.schema
+      && memo.allowMaterializedObject === Boolean(options.allowMaterializedObject)) {
+      return memo.value as TOutput
+    }
   }
-  // SAFETY: The runtime checks above exclude primitive WeakMap keys.
-  const cacheableResult = result as object
-  let outputValidations = validatedAgentOutputs.get(cacheableResult)
-  if (!outputValidations) {
-    outputValidations = new WeakMap()
-    validatedAgentOutputs.set(cacheableResult, outputValidations)
+  let value: TOutput
+  if (options.allowMaterializedObject && isMaterializedObject(result)) {
+    const directValidation = inspectValidation(await output.schema["~standard"].validate(result), true)
+    if (directValidation) value = directValidation.value
+    else {
+      const parsed = jsonValueFromResult(result)
+      const validation = inspectValidation(await output.schema["~standard"].validate(parsed))
+      if (!validation) throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID")
+      value = validation.value
+    }
   }
-  const existing = outputValidations.get(output.schema)
-  if (existing) {
-    outputValidations.delete(output.schema)
-    return await existing as TOutput
+  else {
+    const parsed = jsonValueFromResult(result)
+    const validation = inspectValidation(await output.schema["~standard"].validate(parsed))
+    if (!validation) throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID")
+    value = validation.value
   }
-  const validation = validateAgentOutputValue(output, result, options)
-  outputValidations.set(output.schema, validation)
-  try {
-    return await validation
+  if (options.reuseNextValidation && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
+    try {
+      Object.defineProperty(result, agentOutputValidationMemoSymbol, {
+        configurable: true,
+        value: {
+          allowMaterializedObject: Boolean(options.allowMaterializedObject),
+          schema: output.schema,
+          value,
+        },
+      })
+    }
+    catch {
+      // Non-extensible proxies can reject private validation metadata; the next boundary validates again.
+    }
   }
-  catch (error) {
-    if (outputValidations.get(output.schema) === validation) outputValidations.delete(output.schema)
-    throw error
-  }
+  return value
 }
 
 export function agentOutputJsonSchema(schema: StandardSchemaV1): Record<string, unknown> | undefined {

@@ -382,6 +382,14 @@ describe("agent public types", () => {
         run: () => "{}",
       },
     })
+    const reusableOutput = { maxAttempts: 2, schema }
+    defineAgent({
+      driver: {
+        // @ts-expect-error Reusable custom-run output definitions cannot enable Model Driver correction calls.
+        output: reusableOutput,
+        run: () => "{}",
+      },
+    })
   })
 
   it("accepts literal false as the inline runtime opt-out", () => {

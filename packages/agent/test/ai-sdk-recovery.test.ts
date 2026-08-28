@@ -318,6 +318,48 @@ describe("AI SDK recovery", () => {
     }
   })
 
+  it("rejects a pending provider read when the invocation deadline expires", async () => {
+    const timeoutController = new AbortController()
+    const timeoutError = new DOMException("stream timed out", "TimeoutError")
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeoutController.signal)
+    let markReadStarted!: () => void
+    const readStarted = new Promise<void>((resolve) => { markReadStarted = resolve })
+    try {
+      const fakeModel = {
+        ...model([]),
+        async doStream() {
+          return {
+            stream: new ReadableStream({
+              pull() {
+                markReadStarted()
+              },
+            }, { highWaterMark: 0 }),
+          }
+        },
+      }
+      const agent = defineAgent({
+        driver: {
+          // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+          model: fakeModel as never,
+        },
+        runtime: false,
+      })
+      const result = await streamAgentInline(agent, runtime, { prompt: "Respond", timeout: 100 })
+      const consumption = (async () => {
+        // SAFETY: streamAgentInline returns the documented async iterable result contract.
+        for await (const _event of result as AsyncIterable<unknown>) {}
+      })()
+
+      await readStarted
+      timeoutController.abort(timeoutError)
+
+      await expect(consumption).rejects.toBe(timeoutError)
+    }
+    finally {
+      timeoutSpy.mockRestore()
+    }
+  })
+
   it("shares the invocation timeout with structured output corrections", async () => {
     let now = 1_000
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now)
@@ -878,8 +920,153 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    { maxAttempts: 1, modelCalls: 1 },
+    { maxAttempts: 2, modelCalls: 2 },
+  ])("limits generated Workspace fallback to $maxAttempts structured output attempts", async ({ maxAttempts, modelCalls }) => {
+    const fakeModel = model([
+      [{ input: '{"query":"users"}', toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      '{"text":1}',
+      '{"text":"must not run"}',
+    ])
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "search-test",
+        tools: {
+          search: {
+            execute: () => "found",
+            inputSchema: toolInputSchema,
+            name: "search",
+          },
+        },
+      })],
+      driver: {
+        execution: { stepLimit: 1, workspaceFallback: true },
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+        output: { maxAttempts, schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime, { prompt: "Search" })).rejects.toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+    expect(fakeModel.calls).toHaveLength(modelCalls)
+  })
+
+  it("counts streamed Workspace fallback synthesis against structured output attempts", async () => {
+    const fallbackModel = model(['{"text":1}', '{"text":"must not run"}'])
+    const doStream = vi.fn(async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] })
+          controller.enqueue({ input: '{"query":"users"}', toolCallId: "call-1", toolName: "search", type: "tool-call" })
+          controller.enqueue({
+            finishReason: { raw: "tool-calls", unified: "tool-calls" },
+            type: "finish",
+            usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+          })
+          controller.close()
+        },
+      }),
+    }))
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "search-test",
+        tools: {
+          search: {
+            execute: () => "found",
+            inputSchema: toolInputSchema,
+            name: "search",
+          },
+        },
+      })],
+      driver: {
+        execution: { stepLimit: 1, workspaceFallback: true },
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: { ...fallbackModel, doStream } as never,
+        output: { maxAttempts: 2, schema: outputSchema },
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+    await expect(async () => {
+      // SAFETY: streamAgentInline returns the documented async iterable result contract.
+      for await (const _event of result as AsyncIterable<unknown>) {}
+    }).rejects.toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+    expect(doStream).toHaveBeenCalledOnce()
+    expect(fallbackModel.calls).toHaveLength(1)
+  })
+
   it("includes streamed workspace fallback synthesis in invocation usage", async () => {
     const baseModel = model(["Synthesized from the workspace"])
+    const fakeModel = {
+      ...baseModel,
+      doGenerate: vi.fn(async (options: ModelCall) => ({
+        ...await baseModel.doGenerate(options),
+        providerMetadata: { test: { usage: { cost: 0.2 } } },
+      })),
+      doStream: vi.fn(async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] })
+            controller.enqueue({ input: "{\"query\":\"users\"}", toolCallId: "call-1", toolName: "search", type: "tool-call" })
+            controller.enqueue({
+              finishReason: { raw: "tool-calls", unified: "tool-calls" },
+              providerMetadata: { test: { usage: { cost: 0.1 } } },
+              type: "finish",
+              usage: {
+                inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+                outputTokens: { reasoning: 0, text: 1, total: 1 },
+              },
+            })
+            controller.close()
+          },
+        }),
+      })),
+    }
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "search-test",
+        tools: {
+          search: {
+            execute: () => "found",
+            inputSchema: toolInputSchema,
+            name: "search",
+          },
+        },
+      })],
+      driver: {
+        execution: { stepLimit: 1, workspaceFallback: true },
+        // SAFETY: The fake model implements the AI SDK model contract exercised by this test.
+        model: fakeModel as never,
+      },
+      hooks: { "agent:finish": finish },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+    // SAFETY: streamAgentInline returns the documented async iterable result contract.
+    for await (const _event of result as AsyncIterable<unknown>) {}
+
+    expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        usage: expect.objectContaining({
+          calls: [
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.1" }) }),
+            expect.objectContaining({ cost: expect.objectContaining({ usd: "0.2" }) }),
+          ],
+          cost: expect.objectContaining({ usd: "0.3" }),
+          usage: expect.objectContaining({ totalTokens: 4 }),
+        }),
+      }),
+    }))
+  })
+
+  it("retains streamed workspace fallback usage when synthesis is empty", async () => {
+    const baseModel = model([""])
     const fakeModel = {
       ...baseModel,
       doGenerate: vi.fn(async (options: ModelCall) => ({
@@ -1236,7 +1423,10 @@ describe("AI SDK recovery", () => {
     // SAFETY: Both selected output modes implement the documented async iterable result contract.
     for await (const event of result as AsyncIterable<unknown>) events.push(event)
 
-    expect(events).toContainEqual(expect.objectContaining({ data: { text: "validated" }, type: "data" }))
+    expect(events).toContainEqual(expect.objectContaining({
+      data: { text: "validated" },
+      type: output === "events" ? "data" : "data-event",
+    }))
     expect(validate).toHaveBeenCalledTimes(1)
   })
 
@@ -1269,7 +1459,7 @@ describe("AI SDK recovery", () => {
     expect(validatedInputs.filter(value => is(object({ text: stringSchema }), value))).toHaveLength(1)
   })
 
-  it("does not reuse structured validation across invocations", async () => {
+  it("validates direct structured results independently", async () => {
     const result = { text: "{\"text\":\"answer\"}" }
     const validate = vi.fn(outputSchema["~standard"].validate)
     const output = { schema: { "~standard": { ...outputSchema["~standard"], validate } } }
@@ -1278,7 +1468,7 @@ describe("AI SDK recovery", () => {
     await validateAgentOutput(output, result)
     await validateAgentOutput(output, result)
 
-    expect(validate).toHaveBeenCalledTimes(2)
+    expect(validate).toHaveBeenCalledTimes(3)
   })
 
   it("allows structured-output repair to be disabled", async () => {
@@ -1432,6 +1622,19 @@ describe("AI SDK recovery", () => {
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.calls).toHaveLength(3)
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
+  })
+
+  it("retains the original tool-input failure when repaired arguments remain invalid", async () => {
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "{\"query\":2}",
+    ])
+
+    await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })).rejects.toMatchObject({
+      name: "AI_InvalidToolInputError",
+      toolName: "search",
+    })
+    expect(fakeModel.calls).toHaveLength(2)
   })
 
   it("shares the invocation timeout with tool-call repair", async () => {

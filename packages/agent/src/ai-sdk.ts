@@ -792,6 +792,7 @@ function withWorkspaceFallbackFullStream(
   capturedEvidence?: () => string[],
   fallbackUsageCapture?: ReturnType<typeof createUsageCapture>,
   usageCaptures?: () => readonly ReturnType<typeof createUsageCapture>[],
+  onSynthesis?: () => void,
 ): AsyncIterable<unknown> {
   return (async function* () {
     let text = ""
@@ -824,9 +825,7 @@ function withWorkspaceFallbackFullStream(
       return
     }
 
-    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
-    if (synthesized) {
-      yield* workspaceFallbackTextEvents(synthesized.text)
+    const fallbackUsage = async () => {
       const captures = usageCaptures?.()
       const usage = captures?.some(capture => capture.captured)
         ? await combinedCapturedUsage(captures)
@@ -834,10 +833,31 @@ function withWorkspaceFallbackFullStream(
       const usageRecord = captures && usage !== undefined
         ? await combinedUsageRecord(captures.map(capture => ({ capture })), usage)
         : undefined
-      yield workspaceFallbackFinishEvent(finishEvent, usage, usageRecord)
-      return
+      return { usage, usageRecord }
     }
-    if (finishEvent) yield finishEvent
+    onSynthesis?.()
+    let synthesized: Awaited<ReturnType<typeof synthesizeWorkspaceFallbackFromEvidence>>
+    try {
+      synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence, fallbackUsageCapture)
+    }
+    catch (error) {
+      try {
+        const { usage, usageRecord } = await fallbackUsage()
+        if (error && hasRuntimeType(error, "object") && Object.isExtensible(error)) {
+          Object.defineProperties(error, {
+            ...(usage === undefined ? {} : { usage: { configurable: true, enumerable: true, value: usage } }),
+            ...(usageRecord ? { usageRecord: { configurable: true, enumerable: true, value: usageRecord } } : {}),
+          })
+        }
+      }
+      catch {
+        // Preserve the synthesis failure when late usage aggregation is unavailable.
+      }
+      throw error
+    }
+    if (synthesized) yield* workspaceFallbackTextEvents(synthesized.text)
+    const { usage, usageRecord } = await fallbackUsage()
+    yield workspaceFallbackFinishEvent(finishEvent, usage, usageRecord)
   })()
 }
 
@@ -849,18 +869,19 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   capturedEvidence?: () => string[],
   fallbackUsageCapture?: ReturnType<typeof createUsageCapture>,
   usageCaptures?: () => readonly ReturnType<typeof createUsageCapture>[],
+  onSynthesis?: () => void,
 ): T {
   if (!fallback.enabled) return result
   const stream = result.stream
   const fullStream = result.fullStream
   if (stream || fullStream) {
     const wrappedStream = stream
-      ? withWorkspaceFallbackFullStream(stream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures)
+      ? withWorkspaceFallbackFullStream(stream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)
       : undefined
     const wrappedFullStream = fullStream
       ? fullStream === stream && wrappedStream
         ? wrappedStream
-        : withWorkspaceFallbackFullStream(fullStream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures)
+        : withWorkspaceFallbackFullStream(fullStream, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)
       : undefined
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return cloneStreamTextResult(result as object, {
@@ -870,7 +891,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   }
   if (isAsyncIterable(result)) {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    return asUnknownBoundary(withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures)) as T
+    return asUnknownBoundary(withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence, fallbackUsageCapture, usageCaptures, onSynthesis)) as T
   }
   return result
 }
@@ -1201,12 +1222,19 @@ function withCapturedStreamUsage<T extends {
     const cancelSource = async (reason?: unknown) => {
       getSource()
       if (reader) {
-        directCancel?.(reason)
-        await reader.cancel(reason).catch(() => undefined)
+        const cancellation = reader.cancel(reason)
+        const directCancellation = Promise.resolve(directCancel?.(reason))
+        await Promise.allSettled([cancellation, directCancellation])
         return { done: true as const, value: reason }
       }
-      directCancel?.(reason)
-      return iterator!.return ? await iterator!.return(reason) : { done: true as const, value: reason }
+      const returning = iterator!.return?.(reason)
+      const directCancellation = Promise.resolve(directCancel?.(reason))
+      if (!returning) {
+        await directCancellation
+        return { done: true as const, value: reason }
+      }
+      const [returned] = await Promise.all([returning, directCancellation])
+      return returned
     }
     const primaryCapture = captures()[0]
     let cancelled = false
@@ -1387,9 +1415,9 @@ function withCapturedStreamUsage<T extends {
                 const primaryCapture = captures()[0]
                 primaryCapture?.start()
                 try {
+                  const uiCancellation = getReader().cancel(reason)
                   const sourceCancellation = cancelUiMessageSource?.(reason)
-                  await getReader().cancel(reason)
-                  await sourceCancellation?.catch(() => undefined)
+                  await Promise.allSettled([uiCancellation, sourceCancellation])
                 }
                 finally {
                   primaryCapture?.complete()
@@ -1802,6 +1830,8 @@ async function createAgent(
         }
         catch (error) {
           if (abortSignal?.aborted) throw abortSignal.reason ?? error
+          const name = error && hasRuntimeType(error, "object") ? Reflect.get(error, "name") : undefined
+          if (isAgentOutputValidationError(error) || name === "AI_NoObjectGeneratedError") return null
           toolRepairFailure = error
           throw error
         }
@@ -1827,9 +1857,13 @@ async function createAgent(
       } as never)
     : undefined
   const repairOutput = repairAgent
-    ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown> | (() => Record<string, unknown>)): Promise<AgentAdapterResult> => {
+    ? async (
+        failure: { error: Error, evidence?: string[], text: string },
+        callInput: Record<string, unknown> | (() => Record<string, unknown>),
+        attemptsUsed = 1,
+      ): Promise<AgentAdapterResult> => {
         let latestFailure = failure
-        for (let attempt = 1; attempt < maxOutputAttempts; attempt += 1) {
+        for (let attempt = attemptsUsed; attempt < maxOutputAttempts; attempt += 1) {
           const resolvedCallInput = hasRuntimeType(callInput, "function") ? callInput() : callInput
           const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = resolvedCallInput
           let repairResult: AgentAdapterResult | undefined
@@ -1840,7 +1874,7 @@ async function createAgent(
               ...("options" in resolvedCallInput ? { options: resolvedCallInput.options } : {}),
               prompt: outputRepairPrompt(latestFailure.text, latestFailure.error, latestFailure.evidence),
             } as never)) as AgentAdapterResult
-            await validateAgentOutput(context.output!, repairResult)
+            await validateAgentOutput(context.output!, repairResult, { reuseNextValidation: true })
             return repairResult
           }
           catch (repairError) {
@@ -1881,6 +1915,7 @@ async function createAgent(
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
     model: instrumentedModel,
+    maxOutputAttempts,
     repairOutput,
     toolRepairFailure: () => toolRepairFailure,
     toolRepairUsageCaptures,
@@ -1907,7 +1942,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures, tools } = await runWithinInvocationSignal(
+      const { agent, maxOutputAttempts, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures, tools } = await runWithinInvocationSignal(
         () => createAgent(options, context, fallbackCapture, undefined, invocationDeadline, invocationAbortSignal),
         invocationAbortSignal,
       )
@@ -2001,7 +2036,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             error: error instanceof Error ? error : new Error(String(error)),
             evidence: fallbackCapture?.evidence(),
             text: synthesized.text,
-          }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
+          }, repairCallInput, 2) as GenerateTextResult<ToolSet, never, never>
           return await synthesizedOutput({ ...synthesized, text: repairResult.text }, original, repairResult)
         }
       }
@@ -2013,7 +2048,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       catch (error) {
         if (toolRepairFailure() !== undefined) throw toolRepairFailure()
         const failure = await nativeAgentOutputValidationFailure(context.output, error)
-        const synthesized = failure && fallback.enabled && !failure.text.trim()
+        const synthesized = failure && fallback.enabled && (!context.output || maxOutputAttempts > 1) && !failure.text.trim()
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           ? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [], fallbackUsageCapture)
           : undefined
@@ -2026,7 +2061,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         repaired = Boolean(repairedOutput)
       }
       if (toolRepairFailure() !== undefined) throw toolRepairFailure()
-      if (!repaired && fallback.enabled && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
+      if (!repaired && fallback.enabled && (!context.output || maxOutputAttempts > 1) && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -2108,7 +2143,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const abortSignal = context.input.abortSignal
       const streamCancellation = new AbortController()
       const providerAbortSignal = combinedAbortSignal(abortSignal, invocationDeadline?.signal, streamCancellation.signal)!
-      const { agent, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await runWithinInvocationSignal(
+      const { agent, maxOutputAttempts, model, repairOutput, toolRepairFailure, toolRepairUsageCaptures } = await runWithinInvocationSignal(
         () => createAgent(options, context, fallbackCapture, usageCapture, invocationDeadline, providerAbortSignal),
         providerAbortSignal,
       )
@@ -2138,6 +2173,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         }
       }
       const usageCaptures = () => [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
+      let outputAttemptsUsed = 1
       const cancelProvider = (reason?: unknown) => {
         if (!streamCancellation.signal.aborted) streamCancellation.abort(reason)
       }
@@ -2201,12 +2237,24 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           return reader
         }
         const read = async () => {
-          if (providerAbortSignal.aborted) return { done: true as const, value: undefined }
+          const interruptedRead = () => {
+            if (streamCancellation.signal.aborted) return { done: true as const, value: undefined }
+            throw providerAbortSignal.reason ?? new DOMException("[vitehub] Agent Invocation aborted.", "AbortError")
+          }
+          if (providerAbortSignal.aborted) return interruptedRead()
           let detachCancellation: () => void = () => undefined
-          const cancellation = new Promise<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>>((resolve) => {
-            const onAbort = () => resolve({ done: true, value: undefined })
+          const cancellation = new Promise<Awaited<ReturnType<ReadableStreamDefaultReader<unknown>["read"]>>>((resolve, reject) => {
+            const onAbort = () => {
+              try {
+                resolve(interruptedRead())
+              }
+              catch (error) {
+                reject(error)
+              }
+            }
             providerAbortSignal.addEventListener("abort", onAbort, { once: true })
             detachCancellation = () => providerAbortSignal.removeEventListener("abort", onAbort)
+            if (providerAbortSignal.aborted) onAbort()
           })
           try {
             return await Promise.race([(await getReader()).read(), cancellation])
@@ -2340,7 +2388,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
               repaired = await repairOutput({
                 ...failure,
                 evidence: fallbackCapture?.evidence(),
-              }, repairCallInput)
+              }, repairCallInput, outputAttemptsUsed)
             }
             catch (error) {
               const captures = [usageCapture, ...toolRepairUsageCaptures, ...repairUsageCaptures, fallbackUsageCapture]
@@ -2379,7 +2427,19 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         value: outputUsageLifecycle,
       })
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence, fallbackUsageCapture, usageCaptures)
+      const effectiveFallback = context.output && maxOutputAttempts <= 1
+        ? { ...fallback, enabled: false }
+        : fallback
+      return withWorkspaceFallbackStreamResult(
+        result,
+        model as never,
+        context,
+        effectiveFallback,
+        fallbackCapture?.evidence,
+        fallbackUsageCapture,
+        usageCaptures,
+        () => { outputAttemptsUsed = 2 },
+      )
     },
   })
 }

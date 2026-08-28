@@ -3897,9 +3897,14 @@ async function finishStreamAgentInvocation<
       }
     }
     finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
-    finishResult = context.output
-      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal, undefined, context.output), { allowMaterializedObject: allowMaterializedOutput || finishResult !== result })
-      : resultWithUsageRecord(finishResult, usageRecord)
+    if (context.output) {
+      const source = finishResult
+      const materialized = await materializeAgentStructuredOutput(source, context.input.abortSignal, undefined, context.output)
+      finishResult = (await validateMaterializedAgentStructuredOutput(source, materialized, context.output, {
+        allowMaterializedObject: allowMaterializedOutput || source !== result,
+      })).value
+    }
+    else finishResult = resultWithUsageRecord(finishResult, usageRecord)
   }
   catch (finishError) {
     await lifecycle.fail({ error: finishError, status: "error" }, finishError, failureMessage)
@@ -4731,24 +4736,6 @@ async function materializeAgentStructuredOutputInner(
     if (event.type === "usage") usageRecord = event.usageRecord
   }
   const materialized = resultWithUsageRecord(output ? { raw: text, text } : text, usageRecord)
-  if (output) {
-    try {
-      await validateAgentOutput(output, materialized)
-    }
-    catch (error) {
-      if (!isAgentOutputValidationError(error)) throw error
-      const repair = result && hasRuntimeType(result, "object")
-        ? Reflect.get(result, agentOutputRepairSymbol)
-        : undefined
-      if (hasRuntimeType(repair, "function")) {
-        return await repair({
-          error: error instanceof Error ? error : new Error(String(error)),
-          text,
-        })
-      }
-      throw error
-    }
-  }
   return materialized
 }
 
@@ -4770,6 +4757,29 @@ async function materializeAgentStructuredOutput(
   }
 }
 
+async function validateMaterializedAgentStructuredOutput(
+  source: unknown,
+  materialized: unknown,
+  output: AgentOutputDefinition,
+  options: { allowMaterializedObject?: boolean } = {},
+): Promise<{ result: unknown, value: unknown }> {
+  try {
+    return { result: materialized, value: await validateAgentOutput(output, materialized, options) }
+  }
+  catch (error) {
+    if (!isAgentOutputValidationError(error)) throw error
+    const repair = source && hasRuntimeType(source, "object")
+      ? Reflect.get(source, agentOutputRepairSymbol)
+      : undefined
+    if (!hasRuntimeType(repair, "function")) throw error
+    const repaired = await repair({
+      error: error instanceof Error ? error : new Error(String(error)),
+      text: toAgentRunResult(materialized).text ?? "",
+    })
+    return { result: repaired, value: await validateAgentOutput(output, repaired, options) }
+  }
+}
+
 function materializeAgentStructuredOutputWithEvents(
   result: unknown,
   abortSignal: AbortSignal | undefined,
@@ -4786,7 +4796,7 @@ function materializeAgentStructuredOutputWithEvents(
   let driveRequested = false
   let settled = false
   let wake: (() => void) | undefined
-  let materialized: ReturnType<typeof materializeAgentStructuredOutput> | undefined
+  let materialized: Promise<{ result: unknown, value: unknown }> | undefined
   const materialize = () => {
     materialized ??= materializeAgentStructuredOutput(result, materializationSignal, async (event) => {
       await onEvent?.(event)
@@ -4809,7 +4819,7 @@ function materializeAgentStructuredOutputWithEvents(
         wake?.()
         wake = undefined
       })
-    }, output).finally(() => {
+    }, output).then(materialized => validateMaterializedAgentStructuredOutput(result, materialized, output)).finally(() => {
       settled = true
       wake?.()
     })
@@ -5542,14 +5552,23 @@ async function executeAgentInvocationWithCapacityLease<
         }
       }
       const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
-      const structuredFinal = options.renderOutput && invocation.output
-        ? await materializeAgentStructuredOutput(
-            final,
-            invocation.input.abortSignal,
-            invocation.context.get(agentOutputEventObserverContextKey),
-            invocation.output,
-          )
-        : final
+      let structuredFinal = final
+      let structuredValue: unknown
+      if (options.renderOutput && invocation.output) {
+        const materialized = await materializeAgentStructuredOutput(
+          final,
+          invocation.input.abortSignal,
+          invocation.context.get(agentOutputEventObserverContextKey),
+          invocation.output,
+        )
+        const validated = await validateMaterializedAgentStructuredOutput(final, materialized, invocation.output, {
+          allowMaterializedObject: customRun
+            ? materialized === final
+            : materialized === final && final !== result,
+        })
+        structuredFinal = validated.result
+        structuredValue = validated.value
+      }
       const resolvedUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
@@ -5563,11 +5582,7 @@ async function executeAgentInvocationWithCapacityLease<
           ? resultWithResolvedUsageRecord(final, structuredUsageRecord)
           : hasFinishWork(invocation) ? resultWithUsageRecord(final, structuredUsageRecord) : final
       const value = options.renderOutput && invocation.output
-        ? await validateAgentOutput(invocation.output, structuredFinal, {
-            allowMaterializedObject: customRun
-              ? structuredFinal === final
-              : structuredFinal === final && final !== result,
-          })
+        ? structuredValue
         : customRun
           ? hasEagerFinishExtension ? finishResult : final
           : options.renderOutput ? toAgentRunResult(finishResult) : final
@@ -5677,9 +5692,8 @@ async function executeAgentInvocationWithCapacityLease<
                 yield event
               }
               const materialized = await materialization.result
-              uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized)
-              // SAFETY: uiMessageMaterialization is created only when structuredOutput is defined.
-              uiMessageFinishResult = await validateAgentOutput(structuredOutput!, materialized)
+              uiMessageStructuredUsageRecord = usageRecordFromStreamChunk(materialized.result)
+              uiMessageFinishResult = materialized.value
               const text = uiMessageFinishResult && hasRuntimeType(uiMessageFinishResult, "object") && hasRuntimeType(Reflect.get(uiMessageFinishResult, "text"), "string")
                 // SAFETY: The runtime type check above proves this property is a string.
                 ? Reflect.get(uiMessageFinishResult, "text") as string
@@ -5805,11 +5819,10 @@ async function executeAgentInvocationWithCapacityLease<
               else yield event
             }
             const materialized = await materialization.result
-            structuredUsageRecord = usageRecordFromStreamChunk(materialized)
+            structuredUsageRecord = usageRecordFromStreamChunk(materialized.result)
               ?? observedUsageEvent?.usageRecord
               ?? await resolveAgentUsageRecord(streamResult, invocation.run)
-            // SAFETY: structuredMaterialization is created only when structuredOutput is defined.
-            structuredFinishResult = await validateAgentOutput(structuredOutput!, materialized)
+            structuredFinishResult = materialized.value
             if (structuredUsageRecord) yield { type: "usage", usageRecord: structuredUsageRecord }
             yield { data: structuredFinishResult, type: "data" }
             yield materialization.finishEvent ?? { type: "finish" }

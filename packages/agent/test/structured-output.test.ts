@@ -149,6 +149,31 @@ describe("Agent structured output", () => {
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ text: "hello" })
   })
 
+  it("revalidates a reused custom Driver result for each Agent Invocation", async () => {
+    const pooled: Record<string, unknown> = { summary: "Decisions", title: "Weekly sync" }
+    const validate = vi.fn(summarySchema()["~standard"].validate)
+    const agent = defineAgent({
+      driver: {
+        output: {
+          schema: {
+            "~standard": {
+              validate,
+              vendor: "vitehub-test",
+              version: 1,
+            },
+          },
+        },
+        run: () => pooled,
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ summary: "Decisions", title: "Weekly sync" })
+    pooled.title = 42
+    await expect(runAgentInline(agent, runtime(), {})).rejects.toMatchObject({ code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+    expect(validate).toHaveBeenCalledTimes(2)
+  })
+
   it("preserves materialized text fields containing valid JSON", async () => {
     const schema: StandardSchemaV1<unknown, { text: string }> = {
       "~standard": {

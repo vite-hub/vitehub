@@ -1189,6 +1189,10 @@ export interface AgentModelExecutionOptions<
 
 export type AgentProviderPermissions = "allow-all" | "allow-edits" | "ask"
 
+type SingleAttemptAgentOutputDefinition<TOutput> = Omit<AgentOutputDefinition<TOutput>, "maxAttempts"> & {
+  maxAttempts?: never
+}
+
 export interface AgentProviderDriverOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   TOutput = unknown,
@@ -1200,7 +1204,7 @@ export interface AgentProviderDriverOptions<
   }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
-  output?: Omit<AgentOutputDefinition<TOutput>, "maxAttempts">
+  output?: SingleAttemptAgentOutputDefinition<TOutput>
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
 }
@@ -1254,7 +1258,7 @@ export interface AgentRunDriver<
   instructions?: never
   kind?: never
   model?: never
-  output?: Omit<AgentOutputDefinition<TOutput>, "maxAttempts">
+  output?: SingleAttemptAgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
