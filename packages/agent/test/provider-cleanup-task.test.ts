@@ -37,23 +37,30 @@ describe("Provider Agent cleanup retention", () => {
     expect(release).toHaveBeenCalledOnce()
   })
 
-  it("retries credential removal after a transient failure", async () => {
+  it("owns the retry after a forced credential removal fails transiently", async () => {
     const failure = new Error("credential removal failed")
+    let finishPersistence!: () => void
+    const persistence = new Promise<void>(resolve => finishPersistence = resolve)
+    const persist = vi.fn(() => persistence)
     const release = vi.fn()
     const remove = vi.fn()
+      .mockResolvedValue(undefined)
       .mockRejectedValueOnce(failure)
-      .mockResolvedValueOnce(undefined)
     const cleanup = createAgentProviderCredentialCleanup(
-      async () => undefined,
+      persist,
       remove,
       release,
     )
 
-    await expect(cleanup.forceRemove()).rejects.toBe(failure)
-    expect(release).toHaveBeenCalledOnce()
+    const pending = cleanup.cleanup()
+    await vi.waitFor(() => expect(persist).toHaveBeenCalledOnce())
     await expect(cleanup.forceRemove()).resolves.toBeUndefined()
     expect(remove).toHaveBeenCalledTimes(2)
     expect(release).toHaveBeenCalledOnce()
+
+    finishPersistence()
+    await expect(pending).resolves.toBeUndefined()
+    expect(remove).toHaveBeenCalledTimes(3)
   })
 
   it("waits for every cleanup before propagating a failure", async () => {

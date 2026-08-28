@@ -7,6 +7,7 @@ export function createAgentProviderCredentialCleanup(
 ): { cleanup: () => Promise<void>, forceRemove: () => Promise<void> } {
   let cleanup: Promise<void> | undefined
   let removal: Promise<void> | undefined
+  let forcedRemoval: Promise<void> | undefined
   let forced = false
   let released = false
   const releaseOnce = () => {
@@ -46,7 +47,7 @@ export function createAgentProviderCredentialCleanup(
     })(),
     forceRemove: () => {
       forced = true
-      return removeOnce()
+      return forcedRemoval ??= removeOnce().catch(() => removeOnce())
     },
   }
 }
