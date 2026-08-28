@@ -923,6 +923,19 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
   })
 
+  it("does not resolve Vercel runtime packages without server output", async () => {
+    const rootDir = await createTempProject()
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+    const resolvePackages = vi.fn(() => [{ name: "runtime-package" }])
+
+    await copyVercelFunctionRuntimePackages({
+      packages: resolvePackages,
+      rootDir,
+    })
+
+    expect(resolvePackages).not.toHaveBeenCalled()
+  })
+
   it("copies runtime packages into an explicit Node output", async () => {
     const rootDir = await createTempProject()
     const outputNodeModules = join(rootDir, ".output", "server", "node_modules")

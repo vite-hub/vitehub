@@ -3,7 +3,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { vitehub } from "vite-hub"
 import { defineAgent } from "vite-hub/agent"
-import { email } from "vite-hub/agent/capabilities"
+import { email, executor } from "vite-hub/agent/capabilities"
 import { useDatabase } from "vite-hub/database/drizzle"
 import { env } from "vite-hub/env"
 import { requireRateLimit } from "vite-hub/rate-limit"
@@ -43,6 +43,7 @@ vitehub({ console: { access: "auth", exposure: "host-managed" }, preset: "node" 
 vitehub({ console: { access: "public" }, preset: "node" })
 expectTypeOf(defineAgent).toBeFunction()
 expectTypeOf(email).toBeFunction()
+expectTypeOf(executor).toBeFunction()
 expectTypeOf(env).toBeFunction()
 expectTypeOf(requireRateLimit).toBeFunction()
 expectTypeOf(defineWorkspace).toBeFunction()

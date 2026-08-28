@@ -520,6 +520,17 @@ describe("hubEmail", () => {
     })).toThrow("email.options.apiKey cannot have a default")
   })
 
+  it("rejects provider-backed options from the synchronous Email registry", () => {
+    expect(() => hubEmail({
+      driver: "resend",
+      options: {
+        auth: {
+          apiKey: env({ secret: true, source: env.provider("secrets", "resend/api-key") }),
+        },
+      },
+    })).toThrow("email.options.auth.apiKey cannot use env.provider()")
+  })
+
   it("marks the package as noExternal for server environments", async () => {
     const plugin = hubEmail({ driver: "resend" })
     const config = functionHook(plugin.config, "config")

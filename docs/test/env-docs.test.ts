@@ -181,6 +181,19 @@ function sectionObjects(sourceFile: Node) {
     }
     if (isObjectLiteralExpression(expression)) return [expression];
     if (
+      isCallExpression(expression) &&
+      isIdentifier(expression.expression) &&
+      !seen.has(expression.expression.text)
+    ) {
+      let factory: Expression | FunctionDeclaration | undefined;
+      for (let current: Node | undefined = expression; current; current = current.parent) {
+        if (!isBlock(current) && !isSourceFile(current)) continue;
+        factory = bindings.get(current)?.get(expression.expression.text);
+        if (factory) break;
+      }
+      return factory ? resolveObjects(factory, new Set(seen).add(expression.expression.text)) : [];
+    }
+    if (
       isArrowFunction(expression) ||
       isFunctionExpression(expression) ||
       isFunctionDeclaration(expression)
@@ -191,7 +204,10 @@ function sectionObjects(sourceFile: Node) {
       const body = expression.body;
       const returned: Expression[] = [];
       function collectReturns(node: Node) {
-        if (node !== body && (isArrowFunction(node) || isFunctionExpression(node))) {
+        if (
+          node !== body &&
+          (isArrowFunction(node) || isFunctionExpression(node) || isFunctionDeclaration(node))
+        ) {
           return;
         }
         if (isReturnStatement(node)) {
@@ -434,6 +450,36 @@ defineConfig(config)
 
     expect(calls.map(({ section }) => section)).toEqual(["public"]);
     expect(hasBuildMode(calls[0]!.call)).toBe(false);
+  });
+
+  it("follows invoked named configuration factories", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+function config() {
+  return { env: { public: { appName: env({ mode: "runtime" }) } } }
+}
+defineConfig(config())
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.call)).toBe(false);
+  });
+
+  it("ignores returns from nested named functions", () => {
+    const calls = buildEnvCalls(`
+\`\`\`ts
+defineConfig(() => {
+  function unused() {
+    return { env: { public: { ignored: env({ mode: "runtime" }) } } }
+  }
+  return { env: { public: { appName: env({ mode: "build" }) } } }
+})
+\`\`\`
+    `);
+
+    expect(calls.map(({ section }) => section)).toEqual(["public"]);
+    expect(hasBuildMode(calls[0]!.call)).toBe(true);
   });
 
   it("follows objects spread into build-backed sections", () => {
