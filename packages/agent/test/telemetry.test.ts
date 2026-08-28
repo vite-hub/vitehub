@@ -149,6 +149,7 @@ describe("Agent telemetry", () => {
             invalidDate: new Date(Number.NaN),
             map: new Map<unknown, string>([[1, "number"], ["1", "string"]]),
             set: new Set(["first", "second"]),
+            undefined,
           },
         },
         eventName: "workspace.materialized",
@@ -181,6 +182,7 @@ describe("Agent telemetry", () => {
             },
           },
           { key: "set", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
+          { key: "undefined", value: { stringValue: "undefined" } },
         ],
       },
     })

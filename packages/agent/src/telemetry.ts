@@ -92,7 +92,7 @@ function otlpAnyValue(value: unknown, ancestors = new Set<object>()): OtlpAnyVal
     }
     return {
       kvlistValue: {
-        values: Object.entries(value).flatMap(([key, child]) => child === undefined ? [] : [{ key, value: otlpAnyValue(child, nextAncestors) }]),
+        values: Object.entries(value).map(([key, child]) => ({ key, value: otlpAnyValue(child, nextAncestors) })),
       },
     }
   }
