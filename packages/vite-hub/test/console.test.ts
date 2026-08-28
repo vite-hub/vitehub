@@ -490,6 +490,32 @@ describe("Agent invocation console", () => {
     expect(result.cursor).toBeDefined()
   })
 
+  it("backfills page capacity from a populated lifecycle", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (let index = 0; index < 60; index++) {
+      store.create({
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id: `pending-${index}`,
+        observations: [],
+        status: "pending",
+        traceId: `trace-${index}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?limit=50"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    const result = await invocationsHandler(requestEvent)
+
+    expect(result.invocations).toHaveLength(50)
+    expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(50)
+    expect(result.invocations.every(invocation => invocation.status === "pending")).toBe(true)
+    expect(result.cursor).toBeDefined()
+  })
+
   it("preserves empty opaque cursors across lifecycle pages", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
