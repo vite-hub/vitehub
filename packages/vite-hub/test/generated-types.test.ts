@@ -128,7 +128,7 @@ function configureServer(
   const configureServer = plugin.configureServer
   const rawHook = configureServer instanceof Function ? configureServer : configureServer?.handler
   // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
-  const hook = rawHook as unknown as (server: {
+  const hook = rawHook as (server: {
     config: { logger: { error: (message: string) => void } }
     environments: Record<string, TestPluginEnvironment>
     restart: () => Promise<void>
