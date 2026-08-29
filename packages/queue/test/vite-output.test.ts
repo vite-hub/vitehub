@@ -615,7 +615,6 @@ describe("Vite provider outputs", () => {
     }
 
     await cp(callbackFunctionDir, standaloneDir, { recursive: true })
-    const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
     ;(globalThis as Record<string, unknown>).__vitehubVercelQueue = {
       handleCallback: (callback: (payload: unknown, metadata: unknown) => Promise<void>) => async () => {
         await callback({}, { deliveryCount: 1, messageId: "blob-message" })
@@ -623,6 +622,7 @@ describe("Vite provider outputs", () => {
       },
       send: async () => ({ messageId: "unused" }),
     }
+    const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
     const server = createServer(handler)
     server.listen(0, "127.0.0.1")
     await once(server, "listening")
