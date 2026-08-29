@@ -14,6 +14,7 @@ Most applications install `vite-hub` and enable Env through the framework preset
 
 ```sh
 pnpm add @vite-hub/env
+pnpm add -D vite
 ```
 
 ## Choose an Env section
@@ -144,6 +145,12 @@ The generated `#vitehub/env/server` module is not blocked from client builds. Ke
 ## Structured errors
 
 ViteHub-owned Env resolution failures use the shared `ViteHubError` contract with Env-specific codes. Custom source resolvers keep application-owned errors unchanged, so callers can preserve their own error contract without translating it through ViteHub.
+
+Install the shared runtime package before inspecting structured errors:
+
+```sh
+pnpm add @vite-hub/runtime
+```
 
 ```ts
 import { getViteHubErrorShape } from "@vite-hub/runtime";
