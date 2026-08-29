@@ -256,10 +256,12 @@ export function withReadableStreamCleanup<T>(
     },
     async cancel(reason) {
       let outcome: StreamCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
+      let detachedReaderSettlement: Promise<true> | undefined
       try {
         await options.cancelOnAbort?.(reason)
         const readerCancellation = reader.cancel(reason)
         if (options.detachPendingReaderCancellation) {
+          detachedReaderSettlement = readerCancellation.then(() => true, () => true)
           void readerCancellation.catch(() => {})
         }
         else await readerCancellation
@@ -270,9 +272,9 @@ export function withReadableStreamCleanup<T>(
       }
       finally {
         const cleanup = runCleanup(outcome)
-        if (options.detachPendingReaderCancellation) {
+        if (detachedReaderSettlement) {
           const settled = await Promise.race([
-            cleanup.then(() => true, () => true),
+            detachedReaderSettlement,
             new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
           ])
           if (settled) await cleanup
