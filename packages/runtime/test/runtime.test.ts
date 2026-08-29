@@ -53,6 +53,22 @@ describe("@vite-hub/runtime", () => {
     await expect(controller.flushWaitUntil()).resolves.toBeUndefined()
   })
 
+  it("reports the first waitUntil rejection by settlement time", async () => {
+    const controller = createRuntimeWaitUntilController()
+    const firstFailure = new Error("first failure")
+    let rejectEarlierTask: ((reason: Error) => void) | undefined
+    controller.waitUntil(new Promise((_, reject) => {
+      rejectEarlierTask = reject
+    }))
+    controller.waitUntil(Promise.reject(firstFailure))
+
+    const flushing = controller.flushWaitUntil()
+    await vi.waitFor(() => expect(rejectEarlierTask).toBeTypeOf("function"))
+    rejectEarlierTask!(new Error("later failure"))
+
+    await expect(flushing).rejects.toBe(firstFailure)
+  })
+
   it("creates complete execution contexts from omitted host fields", () => {
     const first = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
     const second = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })

@@ -1174,12 +1174,16 @@ export function createRuntimeWaitUntilController(options: {
       let error: unknown
       let failed = false
       while (pending.length > 0) {
-        for (const result of await Promise.allSettled(pending.splice(0))) {
-          if (!failed && result.status === "rejected") {
-            error = result.reason
+        await Promise.all(pending.splice(0).map(async task => {
+          try {
+            await task
+          }
+          catch (reason) {
+            if (failed) return
+            error = reason
             failed = true
           }
-        }
+        }))
       }
       if (failed) throw error
     },
