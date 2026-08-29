@@ -118,6 +118,29 @@ it("retains package closures behind an earlier retained source", async () => {
   })
 })
 
+it("preserves workspace-relative imports from generated sources without their own package", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-generated-workspace-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const entry = join(rootDir, ".vitehub", "blob-generations", "one", "runtime.mjs")
+  const dependency = join(workspace, "packages", "blob", "dist", "runtime.js")
+  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dirname(dependency), { recursive: true })])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "../../../../packages/blob/dist/runtime.js"\n'),
+    writeFile(dependency, 'export const value = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "queue-generations", "one", "runtime-sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
 it("retains relative imports that escape a package-scoped Vite root", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-"))
   tempDirs.push(workspace)

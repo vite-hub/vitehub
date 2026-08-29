@@ -90,9 +90,11 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       .sort((left, right) => right.length - left.length)[0]
     const pathSegments = configuredRoot ? relative(configuredRoot, path).split(sep) : []
     const nestedInRetainedOutput = pathSegments.includes(".vitehub") || pathSegments.includes("node_modules")
-    const sourceRoot = configuredRoot && !nestedInRetainedOutput ? sourceClosureRoot(configuredRoot) : packageRoot(path)
+    const discoveredPackageRoot = packageRoot(path)
+    const hasNestedPackage = Boolean(configuredRoot && nestedInRetainedOutput && discoveredPackageRoot !== configuredRoot)
+    const sourceRoot = configuredRoot && !hasNestedPackage ? sourceClosureRoot(configuredRoot) : discoveredPackageRoot
     sourceRootByPath.set(path, sourceRoot)
-    if (!configuredRoot || nestedInRetainedOutput) packageRoots.add(sourceRoot)
+    if (!configuredRoot || hasNestedPackage) packageRoots.add(sourceRoot)
   }
   for (const root of configuredRoots) sourceRootByPath.set(root, sourceClosureRoot(root))
 
