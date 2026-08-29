@@ -185,7 +185,7 @@ function isReadableAsyncIterable(stream: AsyncIterable<unknown>): stream is Asyn
 export function withReadableStreamCleanup<T>(
   stream: ReadableStream<T>,
   cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
-  options: { abortSignal?: AbortSignal, cancelOnAbort?: (reason: unknown) => Promise<void>, detachReaderCancellation?: boolean, onChunk?: (chunk: T) => void } = {},
+  options: { abortSignal?: AbortSignal, cancelOnAbort?: (reason: unknown) => Promise<void>, detachPendingReaderCancellation?: boolean, onChunk?: (chunk: T) => void } = {},
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
@@ -259,7 +259,14 @@ export function withReadableStreamCleanup<T>(
       try {
         await options.cancelOnAbort?.(reason)
         const readerCancellation = reader.cancel(reason)
-        if (options.detachReaderCancellation) void readerCancellation.catch(() => {})
+        if (options.detachPendingReaderCancellation) {
+          const settled = await Promise.race([
+            readerCancellation.then(() => true, () => true),
+            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+          ])
+          if (settled) await readerCancellation
+          else void readerCancellation.catch(() => {})
+        }
         else await readerCancellation
       }
       catch (error) {
@@ -487,12 +494,12 @@ export async function finalizeUiMessageStreamOutput(
   options: {
     abortSignal?: AbortSignal
     cancelOnAbort?: (reason: unknown) => Promise<void>
-    detachReaderCancellation?: boolean
+    detachPendingReaderCancellation?: boolean
     onNormalizedChunk?: (chunk: unknown) => void
     projection?: AgentUIMessageStreamProjection
   } = {},
 ): Promise<FinalizedStreamOutput<unknown>> {
-  const { abortSignal, cancelOnAbort, detachReaderCancellation, onNormalizedChunk, projection } = options
+  const { abortSignal, cancelOnAbort, detachPendingReaderCancellation, onNormalizedChunk, projection } = options
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
   const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
@@ -531,7 +538,7 @@ export async function finalizeUiMessageStreamOutput(
       ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
           abortSignal,
           cancelOnAbort,
-          detachReaderCancellation,
+          detachPendingReaderCancellation,
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
             streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord

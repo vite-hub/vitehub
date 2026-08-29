@@ -5985,7 +5985,7 @@ async function executeAgentInvocationWithCapacityLease<
         await finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
       }, {
         abortSignal: invocation.input.abortSignal,
-        detachReaderCancellation: options.holdCapacity !== true && !rendererSource,
+        detachPendingReaderCancellation: options.holdCapacity !== true && !rendererSource,
         cancelOnAbort: options.holdCapacity === true || rendererSource
           ? async reason => {
               await Promise.allSettled([
