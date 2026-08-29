@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentRunInput } from "./types.ts"
 
 export type AgentInvocationStatus = "pending" | "running" | "completed" | "failed" | "cancelled"
@@ -75,20 +76,14 @@ export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = un
   support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
-export interface BackedAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = unknown> {
+export interface BackedAgentInvocationOptions<TOutput = unknown> {
   cancel: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   errorOutcome: (error: unknown) => "unsupported" | "unavailable"
   id: string
   inspect: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   parentAbortSignal?: AbortSignal
   result: Promise<unknown>
-  sendInput?: (
-    id: string,
-    input: AgentRunInput<CALL_OPTIONS>,
-    options: { mode: AgentInvocationInputMode },
-  ) => Promise<AgentInvocationControlOutcome>
   settled?: Promise<unknown>
-  support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
 const agentInvocationResult = Symbol.for("vitehub.agentInvocationResult")
@@ -105,7 +100,7 @@ export function createAgentInvocationController<
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
   result: Promise<unknown>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS> {
-  const resolveSupport = () => adapter.support instanceof Function ? adapter.support() : adapter.support
+  const resolveSupport = () => hasRuntimeType(adapter.support, "function") ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
     get followUp() {
       return resolveSupport()?.followUp === true
@@ -198,9 +193,9 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
   }, result)
 }
 
-export function createBackedAgentInvocationController<TOutput = unknown, CALL_OPTIONS = unknown>(
-  options: BackedAgentInvocationOptions<TOutput, CALL_OPTIONS>,
-): AgentInvocationController<TOutput, CALL_OPTIONS> {
+export function createBackedAgentInvocationController<TOutput = unknown>(
+  options: BackedAgentInvocationOptions<TOutput>,
+): AgentInvocationController<TOutput> {
   let removeParentAbortListener: (() => void) | undefined
   const stopObservingParent = () => {
     removeParentAbortListener?.()
@@ -223,7 +218,7 @@ export function createBackedAgentInvocationController<TOutput = unknown, CALL_OP
       return { id: options.id, outcome: "unavailable" }
     }
   }
-  const controller = createAgentInvocationController<TOutput, CALL_OPTIONS>(options.id, {
+  const controller = createAgentInvocationController<TOutput>(options.id, {
     async cancel() {
       try {
         const snapshot = observeTerminalSnapshot(await options.cancel())
@@ -241,13 +236,9 @@ export function createBackedAgentInvocationController<TOutput = unknown, CALL_OP
       }
     },
     inspect,
-    async sendInput(input, inputOptions) {
-      const outcome = options.sendInput
-        ? await options.sendInput(options.id, input, inputOptions)
-        : "unsupported"
-      return { id: options.id, outcome }
+    async sendInput() {
+      return { id: options.id, outcome: "unsupported" }
     },
-    support: options.support ? () => options.support!(options.id) : undefined,
   }, options.result)
   if (options.parentAbortSignal) {
     const parentAbortSignal = options.parentAbortSignal
