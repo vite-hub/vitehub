@@ -615,13 +615,13 @@ describe("Vite provider outputs", () => {
     }
 
     await cp(callbackFunctionDir, standaloneDir, { recursive: true })
-    ;(globalThis as Record<string, unknown>).__vitehubVercelQueue = {
+    Reflect.set(globalThis, "__vitehubVercelQueue", {
       handleCallback: (callback: (payload: unknown, metadata: unknown) => Promise<void>) => async () => {
         await callback({}, { deliveryCount: 1, messageId: "blob-message" })
         return new Response("handled")
       },
       send: async () => ({ messageId: "unused" }),
-    }
+    })
     const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
     const server = createServer(handler)
     server.listen(0, "127.0.0.1")
@@ -630,13 +630,13 @@ describe("Vite provider outputs", () => {
       const address = server.address()
       if (!address || typeof address === "string") throw new Error("Missing Queue callback address.")
       await fetch(`http://127.0.0.1:${address.port}`, { method: "POST" })
-      expect((globalThis as Record<string, unknown>).__vitehubQueueBlobRuntimeLoaded).toBe(true)
+      expect(Reflect.get(globalThis, "__vitehubQueueBlobRuntimeLoaded")).toBe(true)
     }
     finally {
       server.close()
       await once(server, "close")
-      delete (globalThis as Record<string, unknown>).__vitehubQueueBlobRuntimeLoaded
-      delete (globalThis as Record<string, unknown>).__vitehubVercelQueue
+      Reflect.deleteProperty(globalThis, "__vitehubQueueBlobRuntimeLoaded")
+      Reflect.deleteProperty(globalThis, "__vitehubVercelQueue")
     }
   })
 
