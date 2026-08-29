@@ -5976,7 +5976,17 @@ async function executeAgentInvocationWithCapacityLease<
         }
       }
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        await finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
+        const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
+        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true && !rendererSource) {
+          const settled = await Promise.race([
+            finishTask.then(() => true, () => true),
+            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+          ])
+          if (settled) await finishTask
+          else void finishTask.catch(() => {})
+          return
+        }
+        await finishTask
       }, {
         abortSignal: invocation.input.abortSignal,
         detachPendingReaderCancellation: options.holdCapacity !== true && !rendererSource,
