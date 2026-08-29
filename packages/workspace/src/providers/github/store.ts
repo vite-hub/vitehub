@@ -89,9 +89,14 @@ function isReservedWorkspacePath(path: string): boolean {
 }
 
 function contentLength(content: string | Uint8Array): number {
-  return typeof content === "string"
-    ? new TextEncoder().encode(content).byteLength
-    : content.byteLength;
+  return content instanceof Uint8Array
+    ? content.byteLength
+    : new TextEncoder().encode(content).byteLength;
+}
+
+function readStringMetadata(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return Object.prototype.toString.call(value) === "[object String]" ? String(value) : undefined;
 }
 
 function gitHubFileMetadata(entry: GitHubTreeEntry): Record<string, unknown> | undefined {
@@ -249,8 +254,9 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async #writeFile(normalized: string, file: WorkspaceFile): Promise<void> {
     const current = this.#files.get(normalized);
     const metadata = inheritedGitHubFileMetadata(file, current);
-    const content = gitHubFileMode(metadata) === "120000" && typeof metadata?.symlinkTarget === "string"
-      ? metadata.symlinkTarget
+    const symlinkTarget = readStringMetadata(metadata, "symlinkTarget");
+    const content = gitHubFileMode(metadata) === "120000" && symlinkTarget !== undefined
+      ? symlinkTarget
       : file.content;
     const update = await createGitHubFileUpdate(normalized, this.#root, content);
     if (current?.gitSha === update.gitSha) {
@@ -636,7 +642,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async #fileMetadata(file: GitHubWorkspaceStoreFile): Promise<Record<string, unknown> | undefined> {
-    if (gitHubFileMode(file.metadata) !== "120000" || typeof file.metadata?.symlinkTarget === "string") return file.metadata;
+    if (gitHubFileMode(file.metadata) !== "120000" || readStringMetadata(file.metadata, "symlinkTarget") !== undefined) return file.metadata;
     return {
       ...file.metadata,
       symlinkTarget: gitSymlinkTargetFromBytes(await this.#readFileBytes(file)),
