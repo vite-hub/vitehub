@@ -831,6 +831,38 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/b.md")).resolves.toBe("# b.md\n")
   })
 
+  it("preserves complete aggregate totals after a partial refresh failure", async () => {
+    let revision = "one"
+    let failSecond = false
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-failed-aggregates",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() { return ["a.md", "b.md"] },
+          async getItem(key) {
+            if (key === "b.md" && failSecond) throw new Error("temporary source failure")
+            return { key, path: key, content: key === "a.md" ? revision : "b" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    revision = "three"
+    failSecond = true
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ bytes: 6, files: 2, status: "error" })],
+    })
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      bytes: 6,
+      files: 2,
+      status: "error",
+    })
+  })
+
   it("checkpoints completed source items when materialization is canceled", async () => {
     const abort = new AbortController()
     let cancel = true
@@ -1343,6 +1375,7 @@ describe("lazy sources", () => {
     const writeFileStream = store.writeFileStream!.bind(store)
     store.writeFileStream = async (path, file) => {
       const { digest: _, ...result } = await writeFileStream(path, file)
+      // SAFETY: This fixture deliberately removes the required digest to exercise runtime validation.
       return result as Awaited<ReturnType<NonNullable<WorkspaceStore["writeFileStream"]>>>
     }
     const view = createWorkspaceSourceView({

@@ -636,6 +636,8 @@ export async function materializeWorkspaceSources(
       })
     }
     catch (error) {
+      const checkpointItemsMetadata = checkpointItems(itemMetadata)
+      const resumesExistingSnapshot = existing?.configHash === configHash
       const failed: SourceSnapshotMetadata = {
         configHash,
         source: source.key,
@@ -643,16 +645,16 @@ export async function materializeWorkspaceSources(
         status: "error",
         revision,
         error: error instanceof Error ? error.message : String(error),
-        files: sourceFiles,
-        bytes: sourceBytes,
-        items: checkpointItems(itemMetadata),
+        files: resumesExistingSnapshot && checkpointItemsMetadata ? Object.keys(checkpointItemsMetadata).length : sourceFiles,
+        bytes: resumesExistingSnapshot ? Math.max(0, (existing?.bytes || 0) + persistedBytesDelta) : sourceBytes,
+        items: checkpointItemsMetadata,
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
       const checkpoint = options.abortSignal?.aborted
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, items: checkpointItems(itemMetadata) }
+            ? { ...existing, items: checkpointItemsMetadata }
             : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))
