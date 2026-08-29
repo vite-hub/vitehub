@@ -26,11 +26,7 @@ export interface SubagentToolInput<
   timeout?: number
 }
 
-export interface SubagentDefinition<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TContext extends object = Record<string, unknown>,
-> {
+export interface SubagentDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>
   description: string
   toolName?: string
@@ -38,7 +34,7 @@ export interface SubagentDefinition<
 
 export interface SubagentsOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TAgents extends Record<string, SubagentDefinition<TRuntimeConfig, any, any>> = Record<string, SubagentDefinition<TRuntimeConfig>>,
+  TAgents extends Record<string, SubagentDefinition<TRuntimeConfig>> = Record<string, SubagentDefinition<TRuntimeConfig>>,
 > {
   agents: TAgents
   id?: string
@@ -142,7 +138,7 @@ function createTool<TRuntimeConfig extends AgentRuntimeConfig>(
 export function subagents<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-  const TAgents extends Record<string, SubagentDefinition<TRuntimeConfig, any, any>> = Record<string, SubagentDefinition<TRuntimeConfig>>,
+  const TAgents extends Record<string, SubagentDefinition<TRuntimeConfig>> = Record<string, SubagentDefinition<TRuntimeConfig>>,
 >(
   options: SubagentsOptions<TRuntimeConfig, TAgents>,
 ): AgentCapabilityDefinition<TRuntimeConfig, Name> {
