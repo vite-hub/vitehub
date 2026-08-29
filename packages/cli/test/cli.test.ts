@@ -1,12 +1,17 @@
+import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 
 const directories: string[] = []
+const execFileAsync = promisify(execFile)
 
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -45,6 +50,29 @@ function stream() {
 }
 
 describe("ViteHub CLI", () => {
+  it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn()
+
+    const exitCode = await runViteHubCli({ args: [flag], loadConfig, stderr, stdout })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe(`${cliPackageManifest.version}\n`)
+    expect(stderr.output()).toBe("")
+    expect(loadConfig).not.toHaveBeenCalled()
+  })
+
+  it("prints the version through the built binary outside a project", async () => {
+    const rootDir = await createTempDir()
+    const { stderr, stdout } = await execFileAsync(process.execPath, [resolve(import.meta.dirname, "../dist/index.js"), "--version"], {
+      cwd: rootDir,
+    })
+
+    expect(stdout).toBe(`${cliPackageManifest.version}\n`)
+    expect(stderr).toBe("")
+  })
+
   it("flushes configured entrypoint streams before exiting", async () => {
     const callbacks: Array<() => void> = []
     const createStream = () => ({

@@ -4,6 +4,8 @@ import { existsSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
+import cliPackageManifest from "../package.json" with { type: "json" }
+
 import { collectViteHubCliNamespaces, collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
 import { resolve } from "pathe"
 
@@ -180,9 +182,14 @@ function isRootHelp(args: string[]): boolean {
 
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
   const args = options.args || process.argv.slice(2)
+  const stdout = options.stdout || process.stdout
+  if (args[0] === "-v" || args[0] === "--version") {
+    stdout.write(`${cliPackageManifest.version}\n`)
+    return 0
+  }
+
   const cwd = options.cwd || process.cwd()
   const env = options.env || process.env
-  const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
   const config = await (options.loadConfig || loadViteConfig)(cwd)
   const nuxtConfig = config.vitehubConfigResolved
