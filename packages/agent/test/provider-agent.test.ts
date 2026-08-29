@@ -167,6 +167,25 @@ describe("Provider Agent Driver", () => {
     }))
   })
 
+  it("appends ViteHub reasoning flags to explicit Codex launch arguments", async () => {
+    const threadId = "thread-provider-reasoning-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      // SAFETY: This test fixture intentionally constructs the exact provider invocation contract.
+    }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: expect.objectContaining({
+        launchArgs: '--enable responses_websockets_v2 -c "model_reasoning_effort=\\"high\\""',
+      }),
+    }))
+  })
+
   it("projects rotating Codex credentials into one protected profile Home", async () => {
     const profile = `provider-test-${crypto.randomUUID()}`
     let source = JSON.stringify({ OPENAI_API_KEY: "first" })

@@ -196,7 +196,9 @@ interface CodexCredentialHome {
 
 const codexCredentialProfileLocks = new Map<string, Promise<void>>()
 const unavailableCodexCredentialProfiles = new Map<string, unknown>()
+const codexCredentialUnknownProcessIdentity = "unavailable"
 const codexCredentialProcessIdentity = processStartIdentity(process.pid)
+  .then(identity => identity ?? codexCredentialUnknownProcessIdentity)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 const codexCredentialSeedMaxBytes = 65
 const codexCredentialConfigMaxBytes = 1_048_576
@@ -387,6 +389,7 @@ async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: num
   if (owner.pid === process.pid) return owner.startedAt === await codexCredentialProcessIdentity
   try {
     process.kill(owner.pid, 0)
+    if (owner.startedAt === codexCredentialUnknownProcessIdentity) return true
     const liveIdentity = await processStartIdentity(owner.pid).catch(() => undefined)
     return liveIdentity === undefined || liveIdentity === owner.startedAt
   }
@@ -431,7 +434,6 @@ async function createTemporaryCodexCredentialHome(credentials: string): Promise<
   try {
     await chmod(root, 0o700)
     const startedAt = await codexCredentialProcessIdentity
-    if (!startedAt) throw new Error("[vitehub] Codex Driver could not determine the credential Home owner process identity.")
     await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, startedAt })}\n`)
     await mkdir(homePath, { mode: 0o700 })
     await configureCodexCredentialHome(homePath)
@@ -1567,7 +1569,10 @@ async function* runProvider<
       await cleanupRoot()
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
-    const launchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
+    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
+    const launchArgs = generatedLaunchArgs === undefined
+      ? undefined
+      : [options.providerSettings?.launchArgs, generatedLaunchArgs].filter(Boolean).join(" ")
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerExecutable,
