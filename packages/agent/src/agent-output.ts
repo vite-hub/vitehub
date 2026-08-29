@@ -197,10 +197,80 @@ function readString(record: Record<string, unknown> | undefined, ...keys: string
 function readDetails(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return
   const details: Record<string, number> = {}
-  for (const [key, item] of Object.entries(value)) {
-    if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
+  let descriptors: PropertyDescriptorMap
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value)
+  }
+  catch {
+    return
+  }
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!descriptor.enumerable) continue
+    try {
+      const item = Reflect.get(value, key)
+      if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
+    }
+    catch {
+      // Ignore individual provider detail getters that cannot be read.
+    }
   }
   return Object.keys(details).length ? details : undefined
+}
+
+function readableProperty(value: unknown, key: string): unknown {
+  if (!isRecord(value)) return
+  try {
+    return Reflect.get(value, key)
+  }
+  catch {
+    return
+  }
+}
+
+function readableRunMetadata(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {}
+  const metadata: Record<string, unknown> = {}
+  let source: object | null = value
+  while (source && source !== Object.prototype) {
+    let descriptors: PropertyDescriptorMap
+    try {
+      descriptors = Object.getOwnPropertyDescriptors(source)
+    }
+    catch {
+      descriptors = {}
+    }
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (metadata[key] !== undefined || (!descriptor.enumerable && !("get" in descriptor))) continue
+      try {
+        const property = Reflect.get(value, key)
+        if (property !== undefined) metadata[key] = property
+      }
+      catch {
+        // Ignore individual run metadata getters that cannot be read.
+      }
+    }
+    try {
+      source = Object.getPrototypeOf(source)
+    }
+    catch {
+      source = null
+    }
+  }
+  for (const key of ["annotations", "channelId", "messageId", "origin", "runId", "threadId"] as const) {
+    if (metadata[key] !== undefined) continue
+    const property = readableProperty(value, key)
+    if (property !== undefined) metadata[key] = property
+  }
+  return metadata
+}
+
+function mergedRunMetadata(...values: unknown[]): Partial<AgentRunMetadata> | undefined {
+  const metadata = Object.assign({}, ...values.map(readableRunMetadata))
+  const annotations = Object.assign({}, ...values.map(value =>
+    readableRunMetadata(readableProperty(value, "annotations")),
+  ))
+  if (Object.keys(annotations).length) metadata.annotations = annotations
+  return Object.keys(metadata).length ? metadata : undefined
 }
 
 function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
@@ -359,7 +429,7 @@ function withFallbackUsageMetadata(
   const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
   const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
   const credentialSource = record.credentialSource ?? (compound ? undefined : credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource)))
-  const runMetadata = record.run ?? run
+  const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
   return model || transport || cost || response || latency || credentialSource || runMetadata
     ? {
         ...record,
