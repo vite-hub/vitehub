@@ -88,6 +88,36 @@ it("retains sibling chunks behind an installed package alias", async () => {
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
+it("retains package closures behind an earlier retained source", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-retained-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const packageDir = join(rootDir, ".vitehub", "queue-generations", "one", "sources", "2")
+  const dependencyDir = join(rootDir, "node_modules", "fixture-dependency")
+  const entry = join(packageDir, "dist", "index.js")
+  const chunk = join(packageDir, "dist", "chunk.js")
+  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dependencyDir, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "./chunk.js"\nexport { dependency } from "fixture-dependency"\n'),
+    writeFile(chunk, 'export const value = "retained"\n'),
+    writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
+    writeFile(join(dependencyDir, "index.js"), 'export const dependency = "linked"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "queue-generations", "one", "runtime-sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({
+    dependency: "linked",
+    value: "retained",
+  })
+})
+
 it("retains relative imports that escape a package-scoped Vite root", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-"))
   tempDirs.push(workspace)
