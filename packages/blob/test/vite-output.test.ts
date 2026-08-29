@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { execFile } from "node:child_process"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -1052,8 +1053,9 @@ describe("Vite provider outputs", () => {
       server.once("error", reject)
       server.listen(0, "127.0.0.1", resolve)
     })
-    const address = server.address()
-    if (!address || typeof address === "string") throw new Error("Missing MinIO test server address.")
+    // SAFETY: This server listens on a TCP host and port, so Node returns AddressInfo rather than a pipe name.
+    const address = server.address() as AddressInfo | null
+    if (!address) throw new Error("Missing MinIO test server address.")
     const endpoint = `http://127.0.0.1:${address.port}`
 
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
