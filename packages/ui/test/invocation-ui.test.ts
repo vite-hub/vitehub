@@ -1897,11 +1897,23 @@ describe("Agent Invocation UI", () => {
       observations: [
         {
           attributes: {
+            "step.id": "vitehub.workspace.materialization:[\"docs\",\"\"]",
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Materializing workspace",
+          },
+          name: "vitehub.workspace.materialization.start",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: {
+            "step.id": "vitehub.workspace.materialization:[\"docs\",\"\"]",
             "vitehub.activity.kind": "preparation",
             "vitehub.activity.title": "Workspace materialized",
           },
-          name: "vitehub.workspace.materialized",
-          sequence: 1,
+          name: "vitehub.workspace.materialization.completed",
+          sequence: 2,
           timestamp,
           type: "lifecycle" as const,
         },
@@ -1911,12 +1923,12 @@ describe("Agent Invocation UI", () => {
             "channel.effect.kind": "reaction",
           },
           name: "vitehub.channel.delivery",
-          sequence: 2,
+          sequence: 3,
           timestamp,
           type: "lifecycle" as const,
         },
       ],
-      status: "completed" as const,
+      status: "running" as const,
       traceId: "trace",
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
@@ -1924,6 +1936,7 @@ describe("Agent Invocation UI", () => {
     const activities = invocationActivities(invocation);
     expect(activities.map(activity => activity.kind)).toEqual(["preparation", "delivery"]);
     expect(activities.map(invocationActivityTitle)).toEqual(["Workspace materialized", "Reacted with eyes"]);
+    expect(activities[0]?.status).toBe("completed");
   });
 
   it("groups preparation, links the pull request, and emits inspector targets", async () => {
@@ -1956,7 +1969,7 @@ describe("Agent Invocation UI", () => {
             "vitehub.activity.title": "Workspace materialized",
             "vitehub.inspect.target": "workspace",
           },
-          name: "vitehub.workspace.materialized",
+          name: "vitehub.workspace.materialization.completed",
           sequence: 2,
           timestamp,
           type: "lifecycle" as const,
