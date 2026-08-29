@@ -260,12 +260,7 @@ export function withReadableStreamCleanup<T>(
         await options.cancelOnAbort?.(reason)
         const readerCancellation = reader.cancel(reason)
         if (options.detachPendingReaderCancellation) {
-          const settled = await Promise.race([
-            readerCancellation.then(() => true, () => true),
-            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
-          ])
-          if (settled) await readerCancellation
-          else void readerCancellation.catch(() => {})
+          void readerCancellation.catch(() => {})
         }
         else await readerCancellation
       }
@@ -274,7 +269,16 @@ export function withReadableStreamCleanup<T>(
         throw error
       }
       finally {
-        await runCleanup(outcome)
+        const cleanup = runCleanup(outcome)
+        if (options.detachPendingReaderCancellation) {
+          const settled = await Promise.race([
+            cleanup.then(() => true, () => true),
+            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+          ])
+          if (settled) await cleanup
+          else void cleanup.catch(() => {})
+        }
+        else await cleanup
       }
     },
   })
