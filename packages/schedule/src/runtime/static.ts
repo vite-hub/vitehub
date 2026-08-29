@@ -158,7 +158,7 @@ async function runWithCloudflareServerEnv<T>(
 
 async function flushPendingWork(pending: Set<Promise<unknown>>): Promise<void> {
   while (pending.size > 0) {
-    await Promise.allSettled([...pending])
+    await Promise.allSettled(pending)
   }
 }
 
