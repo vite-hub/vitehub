@@ -5,7 +5,7 @@ import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTrac
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
-import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 
 const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
@@ -23,6 +23,13 @@ const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
+const CANONICAL_TRACE_ATTRIBUTE_KEYS = new Set([
+  "vitehub.activity.owner",
+  "vitehub.activity.phase",
+  "vitehub.payload.summary",
+  "vitehub.payload.value",
+  "vitehub.payload.visibility",
+])
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
@@ -125,7 +132,9 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
 function cloneObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   return {
     ...observation,
+    ...(observation.activity ? { activity: { ...observation.activity } } : {}),
     ...(observation.attributes ? { attributes: structuredClone(observation.attributes) } : {}),
+    ...(observation.payload ? { payload: structuredClone(observation.payload) } : {}),
     ...(observation.trace ? { trace: { ...observation.trace } } : {}),
   }
 }
@@ -228,13 +237,132 @@ interface ObservationBudget {
   truncated: boolean
 }
 
-function boundedObservationValue(value: unknown, budget: ObservationBudget, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
+interface BoundedObservationBuiltIn {
+  truncated: boolean
+  value: unknown
+}
+
+function boxedObservationPrimitive(value: unknown): { type: string, value: bigint | boolean | number | string } | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  for (const [type, unwrap] of [
+    ["Boolean", () => Boolean.prototype.valueOf.call(value)],
+    ["Number", () => Number.prototype.valueOf.call(value)],
+    ["String", () => String.prototype.valueOf.call(value)],
+    ["BigInt", () => BigInt.prototype.valueOf.call(value)],
+  ] as const) {
+    try {
+      return { type, value: unwrap() }
+    }
+    catch {
+      // Try the next intrinsic wrapper.
+    }
+  }
+}
+
+async function collectBoundedObservationBuiltIns(
+  value: unknown,
+  builtIns: Map<object, BoundedObservationBuiltIn>,
+  budget: { items: number },
+  seen = new Set<object>(),
+  depth = 0,
+): Promise<void> {
+  if (!value || !hasRuntimeType(value, "object") || seen.has(value) || budget.items <= 0 || depth >= MAX_OBSERVATION_DEPTH) return
+  budget.items--
+  seen.add(value)
+  const BlobConstructor = globalThis.Blob
+  if (hasRuntimeType(BlobConstructor, "function") && value instanceof BlobConstructor) {
+    const FileConstructor = globalThis.File
+    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
+    const bytes = Array.from(new Uint8Array(await value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
+    const representation: Record<string, unknown> = {
+      bytes,
+      mediaType: value.type,
+      size: value.size,
+      type: file ? "File" : "Blob",
+    }
+    if (file) {
+      representation.lastModified = file.lastModified
+      representation.name = file.name
+    }
+    builtIns.set(value, {
+      truncated: true,
+      value: representation,
+    })
+    return
+  }
+  const primitive = boxedObservationPrimitive(value)
+  if (primitive) {
+    builtIns.set(value, { truncated: true, value: primitive })
+    return
+  }
+  if (Array.isArray(value)) {
+    const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    for (let index = 0; index < length; index++) {
+      if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
+    }
+    return
+  }
+  if (value instanceof Map) {
+    let count = 0
+    for (const [key, child] of value) {
+      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+      await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
+      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+    }
+    return
+  }
+  if (value instanceof Set) {
+    let count = 0
+    for (const child of value) {
+      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+    }
+    return
+  }
+  if (value instanceof Error) {
+    if (value instanceof AggregateError) {
+      await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
+    }
+    if (Object.hasOwn(value, "cause")) {
+      await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
+    }
+    for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+      if (key !== "cause" && key !== "errors") {
+        await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+      }
+    }
+    return
+  }
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== null && prototype !== Object.prototype) return
+  for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+    await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+  }
+}
+
+function boundedObservationValue(
+  value: unknown,
+  budget: ObservationBudget,
+  depth = 0,
+  maxStringLength = MAX_METADATA_STRING_LENGTH,
+  builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+): unknown {
+  if (value && hasRuntimeType(value, "object")) {
+    const builtIn = builtIns?.get(value)
+    if (builtIn) {
+      if (builtIn.truncated) budget.truncated = true
+      value = builtIn.value
+    }
+  }
   if (budget.items <= 0) {
     budget.truncated = true
     return "[truncated]"
   }
   budget.items--
-  if (value === undefined) return undefined
+  if (value === undefined) {
+    budget.truncated = true
+    return null
+  }
   if (hasRuntimeType(value, "string")) {
     if (budget.stringLength <= 0) {
       budget.truncated = true
@@ -246,8 +374,12 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     return value.slice(0, length)
   }
   if (value === null || hasRuntimeType(value, "boolean")) return value
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : null
+  if (hasRuntimeType(value, "number")) {
+    if (!Number.isFinite(value) || Object.is(value, -0)) budget.truncated = true
+    return Number.isFinite(value) ? value : null
+  }
   if (hasRuntimeType(value, "bigint")) {
+    budget.truncated = true
     const string = String(value)
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
@@ -259,12 +391,106 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
   if (Array.isArray(value)) {
     const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
     if (length < value.length) budget.truncated = true
-    return value.slice(0, length).map(item => item === undefined ? null : boundedObservationValue(item, budget, depth + 1, maxStringLength))
+    return Array.from({ length }, (_, index) => {
+      if (!Object.hasOwn(value, index)) {
+        budget.truncated = true
+        return boundedObservationValue(undefined, budget, depth + 1, maxStringLength, builtIns)
+      }
+      return boundedObservationValue(value[index], budget, depth + 1, maxStringLength, builtIns)
+    })
+  }
+  if (value instanceof Date) {
+    budget.truncated = true
+    return {
+      type: "Date",
+      value: boundedObservationValue(
+        Number.isFinite(value.getTime()) ? value.toISOString() : String(value),
+        budget,
+        depth + 1,
+        maxStringLength,
+        builtIns,
+      ),
+    }
+  }
+  if (value instanceof Map) {
+    budget.truncated = true
+    const entries: [unknown, unknown][] = []
+    const limit = Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    for (const entry of value) {
+      if (entries.length >= limit) break
+      entries.push(entry)
+    }
+    if (entries.length < value.size) budget.truncated = true
+    return entries.map(([key, child]) => [
+      boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
+      boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
+    ])
+  }
+  if (value instanceof Set) {
+    budget.truncated = true
+    const entries: unknown[] = []
+    const limit = Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    for (const entry of value) {
+      if (entries.length >= limit) break
+      entries.push(entry)
+    }
+    if (entries.length < value.size) budget.truncated = true
+    return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
+  }
+  if (value instanceof ArrayBuffer) {
+    budget.truncated = true
+    const length = Math.min(value.byteLength, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
+  }
+  if (ArrayBuffer.isView(value)) {
+    budget.truncated = true
+    const length = Math.min(value.byteLength, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    return {
+      bytes: boundedObservationValue(
+        Array.from(new Uint8Array(value.buffer, value.byteOffset, length)),
+        budget,
+        depth + 1,
+        maxStringLength,
+        builtIns,
+      ),
+      type: value.constructor.name,
+    }
+  }
+  if (value instanceof RegExp) {
+    budget.truncated = true
+    return {
+      flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength, builtIns),
+      lastIndex: boundedObservationValue(value.lastIndex, budget, depth + 1, maxStringLength, builtIns),
+      source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength, builtIns),
+    }
+  }
+  if (value instanceof Error) {
+    budget.truncated = true
+    const details: Array<[string, unknown]> = [
+      ["name", value.name],
+      ["message", value.message],
+    ]
+    if (value instanceof AggregateError) details.push(["errors", value.errors])
+    if (Object.hasOwn(value, "cause")) details.push(["cause", value.cause])
+    for (const [key, child] of Object.entries(value)) {
+      if (key !== "cause" && key !== "errors") details.push([key, child])
+    }
+    const length = Math.min(details.length, MAX_OBSERVATION_COLLECTION_ITEMS)
+    if (length < details.length) budget.truncated = true
+    return Object.fromEntries(details.slice(0, length).map(([key, child]) => [
+      boundedString(key),
+      boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
+    ]))
   }
   if (!value || !hasRuntimeType(value, "object")) {
     const string = String(value)
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
+  }
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== null && prototype !== Object.prototype) {
+    budget.truncated = true
+    return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const entries = Object.entries(value as Record<string, unknown>)
@@ -274,29 +500,77 @@ function boundedObservationValue(value: unknown, budget: ObservationBudget, dept
     .slice(0, length)
     .flatMap(([key, child]) => {
       if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-      return child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength)]]
+      return [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns)]]
     }))
 }
 
-function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
+function boundedObservationPayload(
+  payload: TraceEventPayload | undefined,
+  budget: ObservationBudget,
+  builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+): TraceEventPayload | undefined {
+  if (payload?.visibility === "public") {
+    return { value: boundedObservationValue(payload.value, budget, 0, MAX_OBSERVATION_CONTENT_STRING_LENGTH, builtIns), visibility: "public" }
+  }
+  if (payload?.visibility === "summary") {
+    if (payload.summary.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+    return { summary: boundedString(payload.summary)!, visibility: "summary" }
+  }
+  if (payload?.visibility === "redacted") return { visibility: "redacted" }
+  if (payload?.visibility === "private") return { visibility: "private" }
+}
+
+function boundedObservation(
+  observation: TraceEventLogEntry,
+  builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+): TraceEventLogEntry {
   const budget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
     stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
     truncated: false,
   }
-  if (observation.attributes && Object.keys(observation.attributes).length > MAX_OBSERVATION_ATTRIBUTES) {
+  const payloadBudget: ObservationBudget = {
+    items: MAX_OBSERVATION_VALUE_ITEMS,
+    stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+    truncated: false,
+  }
+  const payload = boundedObservationPayload(observation.payload, payloadBudget, builtIns)
+  const canonicalAttributes: Record<string, unknown> = {}
+  if (observation.activity) {
+    canonicalAttributes["vitehub.activity.owner"] = observation.activity.owner
+    canonicalAttributes["vitehub.activity.phase"] = observation.activity.phase
+  }
+  if (payload) {
+    canonicalAttributes["vitehub.payload.visibility"] = payload.visibility
+    if (payload.visibility === "public") canonicalAttributes["vitehub.payload.value"] = payload.value
+    if (payload.visibility === "summary") canonicalAttributes["vitehub.payload.summary"] = payload.summary
+  }
+  const ordinaryAttributes = Object.entries(observation.attributes || {})
+    .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+  const ordinaryAttributeLimit = MAX_OBSERVATION_ATTRIBUTES - Object.keys(canonicalAttributes).length
+  if (ordinaryAttributes.length > ordinaryAttributeLimit) {
     budget.truncated = true
   }
-  let attributes = observation.attributes
-    ? Object.fromEntries(Object.entries(observation.attributes)
-        .slice(0, MAX_OBSERVATION_ATTRIBUTES)
+  let attributes = observation.attributes || Object.keys(canonicalAttributes).length
+    ? {
+        ...Object.fromEntries(ordinaryAttributes
+          .slice(0, ordinaryAttributeLimit)
         .flatMap(([key, value]) => {
           if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-          return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]
-        }))
+          return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH, builtIns)]]
+        })),
+        ...canonicalAttributes,
+      }
     : undefined
+  if (payloadBudget.truncated) budget.truncated = true
   if (budget.truncated) {
     attributes ||= {}
+    if (Object.keys(attributes).length >= MAX_OBSERVATION_ATTRIBUTES) {
+      const lastOrdinaryAttribute = Object.keys(attributes)
+        .filter(key => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+        .at(-1)
+      if (lastOrdinaryAttribute) delete attributes[lastOrdinaryAttribute]
+    }
     if (observation.name === "vitehub.agent.configured") {
       attributes["vitehub.agent.configurationTruncated"] = true
     }
@@ -309,6 +583,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
     name: boundedString(observation.name)!,
     timestamp: normalizedTimestamp(observation.timestamp),
     ...(attributes ? { attributes } : {}),
+    ...(payload ? { payload } : {}),
     ...(observation.trace
       ? { trace: {
           ...observation.trace,
@@ -317,6 +592,13 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
         } }
       : {}),
   }
+}
+
+async function boundedJournalObservation(observation: TraceEventLogEntry): Promise<TraceEventLogEntry> {
+  const builtIns = new Map<object, BoundedObservationBuiltIn>()
+  await collectBoundedObservationBuiltIns(observation.attributes, builtIns, { items: MAX_OBSERVATION_VALUE_ITEMS })
+  await collectBoundedObservationBuiltIns(observation.payload, builtIns, { items: MAX_OBSERVATION_VALUE_ITEMS })
+  return boundedObservation(observation, builtIns)
 }
 
 async function boundedIdentity(value: string): Promise<string> {
@@ -607,21 +889,37 @@ function journalTraceLog(
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
+      const safeEntryPromise = Promise.resolve(createTraceEventLog({ content }).append(event))
+      void safeEntryPromise.catch(() => {})
+      const metadataContentValues = new Map<string, unknown>()
+      for (const key of metadataContent) {
+        try {
+          const attributes = event.attributes
+          if (!attributes) continue
+          const descriptor = Object.getOwnPropertyDescriptor(attributes, key)
+          if (descriptor && "value" in descriptor) {
+            const snapshot = structuredClone(descriptor.value)
+            if (snapshot !== undefined) metadataContentValues.set(key, snapshot)
+          }
+        }
+        catch {}
+      }
       let entry: TraceEventLogEntry
       try {
         entry = await traceLog.append(event)
       }
       catch {
-        entry = await createTraceEventLog({ content }).append(event)
+        entry = await safeEntryPromise
       }
       try {
-        const safeEntry = await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp })
-        if (content === "metadata" && safeEntry.attributes && event.attributes) {
+        const safeEntry = await safeEntryPromise
+        safeEntry.timestamp = entry.timestamp
+        if (content === "metadata" && safeEntry.attributes) {
           const omitted = Array.isArray(safeEntry.attributes["content.omitted"])
-            ? safeEntry.attributes["content.omitted"].filter(key => !metadataContent.has(String(key)))
+            ? safeEntry.attributes["content.omitted"].filter(key => !metadataContentValues.has(String(key)))
             : undefined
-          for (const key of metadataContent) {
-            if (key in event.attributes) safeEntry.attributes[key] = event.attributes[key]
+          for (const [key, value] of metadataContentValues) {
+            safeEntry.attributes[key] = value
           }
           if (omitted?.length) safeEntry.attributes["content.omitted"] = omitted
           else delete safeEntry.attributes["content.omitted"]
@@ -652,6 +950,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   assertStore(options?.store)
   if (options.content !== undefined && options.content !== "content" && options.content !== "metadata") {
     throw new TypeError('[vitehub] Agent Invocations content must be "content" or "metadata".')
+  }
+  if (options.metadataContent?.some(key => CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))) {
+    throw new TypeError("[vitehub] Agent Invocations metadataContent cannot include reserved trace attributes.")
   }
   if (options.metadataContent?.some(key => !isTraceContentAttributeKey(key))) {
     throw new TypeError("[vitehub] Agent Invocations metadataContent entries must name content attributes.")
@@ -803,7 +1104,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           try {
             if (finished || !await renew()) return
             const timestamp = normalizedTimestamp(observation.timestamp)
-            const persistedObservation = boundedObservation({
+            const persistedObservation = await boundedJournalObservation({
               ...observation,
               timestamp,
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
@@ -890,14 +1191,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const unpersistedOutcomes = outcomeObservations.filter(observation => !persistedObservationSequences.has(observation.sequence))
           const pendingFailure = unpersistedOutcomes.find(failureEvidenceObservation)
           const pendingTerminal = unpersistedOutcomes.findLast(terminalObservation)
-          const pendingOutcomes = [pendingFailure, pendingTerminal]
+          const pendingOutcomes = await Promise.all([pendingFailure, pendingTerminal]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
             .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
-            .map(observation => boundedObservation({
+            .map(async observation => await boundedJournalObservation({
               ...observation,
               timestamp: normalizedTimestamp(observation.timestamp),
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-            }))
+            })))
           const pendingOutcomeSequences = new Set(pendingOutcomes.map(observation => observation.sequence))
           const discardedObservationSequences = unpersistedOutcomes
             .filter(observation => !pendingOutcomeSequences.has(observation.sequence))

@@ -45,7 +45,14 @@ describe("ViteHub CLI config loading", () => {
     expect(resolveViteConfig).toHaveBeenCalledWith(expect.objectContaining({
       configFile: false,
       root,
+      vitehubCliDiscovery: true,
     }), "serve", "development")
+    expect(loadNuxt).toHaveBeenCalledWith({
+      cwd: root,
+      dev: true,
+      overrides: { vitehubCliDiscovery: true },
+      ready: true,
+    })
     expect(close).toHaveBeenCalledOnce()
   })
 
@@ -72,6 +79,7 @@ describe("ViteHub CLI config loading", () => {
     expect(resolveViteConfig).toHaveBeenCalledWith(expect.objectContaining({
       configFile: false,
       root: join(root, "app"),
+      vitehubCliDiscovery: true,
     }), "serve", "development")
     expect(close).toHaveBeenCalledOnce()
   })
@@ -88,7 +96,7 @@ describe("ViteHub CLI config loading", () => {
     })
 
     expect(loadNuxt).not.toHaveBeenCalled()
-    expect(resolveViteConfig).toHaveBeenCalledWith({ root }, "serve", "development")
+    expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", "development")
   })
 
   it("uses Nuxt ownership when a Nuxt app also has a Vite config", async () => {

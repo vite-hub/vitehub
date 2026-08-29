@@ -237,7 +237,10 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
 }
 
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
-  const overrides = Object.entries({ ...specs, ...additionalOverrides })
+  const overrides = Object.entries({
+    ...specs,
+    ...additionalOverrides,
+  })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
 

@@ -26,7 +26,7 @@ import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } fro
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
-import { createAgentStreamEventTracer } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -62,6 +62,7 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -983,15 +984,36 @@ function selectedWorkspacePaths(context: AgentAdapterRunContext): readonly strin
   return paths.length ? paths : []
 }
 
+function workspaceSetupObserverOptions(context: AgentAdapterRunContext) {
+  // SAFETY: Agent invocation setup stores this context value as the invocation trace ID string.
+  const invocationId = context.context.get(agentInvocationTraceIdContextKey) as string | undefined
+  return {
+    invocationId,
+    runId: context.runtime.run?.runId,
+    trace: context.runtime.trace,
+    traceLog: context.runtime.traceLog,
+    workspace: context.workspaceDefinition?.name,
+  }
+}
+
 async function materializeWorkspaceSources(context: AgentAdapterRunContext, paths: readonly string[] | undefined) {
   const workspace = context.workspaceMaterializationSource || context.workspace
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
-  if (!materialize || (paths && !paths.length)) return
+  if (!materialize || (paths && !paths.length)) return false
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
-  await Promise.all((paths || [""]).map(path => materialize.call(owner, { abortSignal: context.input.abortSignal, path })))
+  const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
+  const results = await Promise.allSettled((paths || [""]).map(path => materialize.call(owner, {
+    abortSignal: context.input.abortSignal,
+    onProgress: observers.materialization,
+    path,
+  })))
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+  if (failure) throw failure.reason
+  return results.every(result => result.status === "fulfilled"
+    && result.value.sources.every(source => source.status === "ready"))
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
@@ -1000,10 +1022,12 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     throw new Error("[vitehub] Provider Agent Driver Workspaces require a POSIX Node host.")
   }
   const paths = selectedWorkspacePaths(context)
-  await materializeWorkspaceSources(context, paths)
+  const materializedSources = await materializeWorkspaceSources(context, paths)
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
+    ...(materializedSources ? { materializeSources: false } : {}),
+    onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,
   }

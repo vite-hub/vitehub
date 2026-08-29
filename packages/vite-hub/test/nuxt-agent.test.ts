@@ -24,7 +24,10 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
 
   let nitroConfigHook: ((config: Record<string, unknown>) => Promise<void>) | undefined
   const nuxt = {
-    hook(name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) {
+    hook(
+      name: "close" | "nitro:config",
+      callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
+    ) {
       if (name === "nitro:config") nitroConfigHook = callback
     },
     options: {

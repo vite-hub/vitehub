@@ -47,11 +47,24 @@ Available namespaces:
 | `vitehub agent invocations` | Available | Agent Package | List, inspect, or follow records in the application's Agent Invocation journal. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
+| `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
+
+## Run the Console with saved data
+
+Keep the app's usual development command after `--`. ViteHub validates the fixture before it starts that command, reports the resolved fixture path and record count on stdout, and passes through the child command's exit status.
+
+```bash [Terminal]
+pnpm vitehub console dev \
+  --fixture test/fixtures/console.fixture.json \
+  -- pnpm dev --host 127.0.0.1
+```
+
+The command requires an enabled Console integration so the package-owned `console` namespace can be discovered. Read [Console](/docs/development/console#develop-against-a-fixture) for the version 1 fixture shape and storage behavior.
 
 ## Synchronize Channel webhooks
 

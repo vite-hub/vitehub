@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -440,6 +440,64 @@ describe("ViteHub CLI", () => {
     expect(loadNuxtViteConfig).toHaveBeenCalledOnce()
     expect(stdout.output()).toContain("nuxt-only")
     expect(stdout.output()).not.toContain("vite-only")
+  })
+
+  it("marks standalone Vite config loading as CLI discovery", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "vite.config.ts"), `
+export default {
+  plugins: [{
+    config(config) {
+      if (config.vitehubCliDiscovery !== true) throw new Error("fixture state was consumed during CLI discovery")
+    },
+    name: "fixture-discovery-test",
+    vitehub: {
+      cli: {
+        namespaces: [{ features: [{ name: "run", run: () => 0 }], name: "test" }],
+      },
+    },
+  }],
+}
+`)
+
+    await expect(runViteHubCli({
+      args: ["test", "run"],
+      cwd: rootDir,
+      stdout: stream(),
+    })).resolves.toBe(0)
+  })
+
+  it("loads development-only Nuxt contributors during CLI discovery", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, "nuxt.config.ts"), `
+export default {
+  modules: ["./discovery-module.ts"],
+}
+`)
+    await writeFile(join(rootDir, "discovery-module.ts"), `
+export default function (_options, nuxt) {
+  if (nuxt.options.vitehubCliDiscovery !== true) throw new Error("fixture state was consumed during CLI discovery")
+  if (!nuxt.options.dev) return
+  nuxt.options.vite.plugins ||= []
+  nuxt.options.vite.plugins.push({
+    name: "fixture-discovery-test",
+    vitehub: {
+      cli: {
+        namespaces: [{ features: [{ name: "run", run: () => 0 }], name: "test" }],
+      },
+    },
+  })
+}
+`)
+
+    await expect(runViteHubCli({
+      args: ["test", "run"],
+      cwd: rootDir,
+      stdout: stream(),
+    })).resolves.toBe(0)
   })
 
   it("fails closed when provision credentials are missing", async () => {
