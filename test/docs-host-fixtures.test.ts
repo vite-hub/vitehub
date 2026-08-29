@@ -94,7 +94,9 @@ async function expectDenoLauncherToStart(appRoot: string) {
     const started = (async () => {
       for (let attempt = 0; attempt < 100; attempt++) {
         try {
-          const response = await fetch(`http://127.0.0.1:${port}/`)
+          const response = await fetch(`http://127.0.0.1:${port}/`, {
+            signal: AbortSignal.timeout(1_000),
+          })
           if ((await response.text()).includes("ViteHub host fixture")) return
         }
         catch {
