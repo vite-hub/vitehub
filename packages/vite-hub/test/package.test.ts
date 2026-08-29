@@ -149,7 +149,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata"
   if (packageName === "@vite-hub/cli") return "framework tooling"
-  if (/^(?:cli|mountx|nitro|nuxt|test|virtual|vite)(?:\/|$)/.test(path)) return "integration or test tooling"
+  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite)(?:\/|$)/.test(path)) return "integration or test tooling"
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation"
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path)) return "direct provider adapter"
   if (consolidatedOwnerExports.has(specifier)) return "available from the feature root"
@@ -217,6 +217,7 @@ describe("framework package contract", () => {
       "./database/drizzle",
       "./nuxt",
       "./source",
+      "./source/vite",
     ])
 
     for (const { subpath, targets } of manifestForwarders) {

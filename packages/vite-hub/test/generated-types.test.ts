@@ -776,7 +776,7 @@ describe("framework generated types", () => {
     await config(plugin)({ root })
     await writeFile(collection, collectionModule("meals"))
     await listeners.get("add")?.(collection)
-    expect(restart).toHaveBeenCalledTimes(2)
+    expect(restart).toHaveBeenCalledOnce()
   })
 
   it("restarts the Vite host when a generated handler changes its source target", async () => {
@@ -1171,7 +1171,7 @@ describe("framework generated types", () => {
       finishObserver = resolve
     })
     const observer = vi.fn().mockImplementationOnce(() => observerFinished)
-    plugin.api.onGeneratedHandlersChanged(observer)
+    plugin.api.onGeneratedHandlersChanged(observer, { handlesHostRestart: true })
     const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
     const replacementListeners = new Map<string, (file: string) => Promise<void> | void>()
     const oldRestart = vi.fn(async () => {})
@@ -1275,7 +1275,8 @@ describe("framework generated types", () => {
       [VITEHUB_SERVER_DIRS]: ["backend"],
     })
     releaseOldPreparation?.()
-    await Promise.all([oldRefresh, replacementPreparation])
+    await expect(oldRefresh).rejects.toThrow("preparation failed")
+    await replacementPreparation
 
     await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
       toRuntimeModuleSpecifier(drinks),
@@ -1660,7 +1661,7 @@ describe("framework generated types", () => {
       root: viteRoot,
       [VITEHUB_SERVER_DIRS]: [serverDir],
     })
-    await buildStart(plugin)()
+    await buildStart(plugin).call({ environment: { config: { root: viteRoot } } })
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
       JSON.stringify(pathToFileURL(join(serverDir, "collections/meals.ts")).href),
