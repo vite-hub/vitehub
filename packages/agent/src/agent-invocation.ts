@@ -75,13 +75,20 @@ export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = un
   support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
-export interface BackedAgentInvocationOptions<TOutput = unknown> {
+export interface BackedAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = unknown> {
   cancel: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   errorOutcome: (error: unknown) => "unsupported" | "unavailable"
   id: string
   inspect: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   parentAbortSignal?: AbortSignal
   result: Promise<unknown>
+  sendInput?: (
+    id: string,
+    input: AgentRunInput<CALL_OPTIONS>,
+    options: { mode: AgentInvocationInputMode },
+  ) => Promise<AgentInvocationControlOutcome>
+  settled?: Promise<unknown>
+  support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
 const agentInvocationResult = Symbol.for("vitehub.agentInvocationResult")
@@ -98,7 +105,7 @@ export function createAgentInvocationController<
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
   result: Promise<unknown>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS> {
-  const resolveSupport = () => typeof adapter.support === "function" ? adapter.support() : adapter.support
+  const resolveSupport = () => adapter.support instanceof Function ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
     get followUp() {
       return resolveSupport()?.followUp === true
@@ -126,6 +133,7 @@ export function createAgentInvocationController<
 }
 
 export function awaitAgentInvocationResult(controller: AgentInvocationController): Promise<unknown> {
+  // SAFETY: createAgentInvocationController attaches this private result symbol to every controller it returns.
   return (controller as InternalAgentInvocationController)[agentInvocationResult]
 }
 
@@ -152,11 +160,15 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
     id,
     onFinish(outcome) {
       observedFinish = true
-      snapshot = outcome.status === "completed"
-        ? { id, ...(outcome.output !== undefined ? { output: outcome.output } : {}), status: "completed" }
-        : abortSignal.aborted
+      if (outcome.status === "completed") {
+        snapshot = { id, status: "completed" }
+        if (outcome.output !== undefined) snapshot.output = outcome.output
+      }
+      else {
+        snapshot = abortSignal.aborted
           ? { id, status: "cancelled" }
           : { error: outcome.error, id, status: "failed" }
+      }
     },
   })
   void result.catch((error) => {
@@ -187,7 +199,7 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
 }
 
 export function createBackedAgentInvocationController<TOutput = unknown, CALL_OPTIONS = unknown>(
-  options: BackedAgentInvocationOptions<TOutput>,
+  options: BackedAgentInvocationOptions<TOutput, CALL_OPTIONS>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS> {
   let removeParentAbortListener: (() => void) | undefined
   const stopObservingParent = () => {
@@ -229,9 +241,13 @@ export function createBackedAgentInvocationController<TOutput = unknown, CALL_OP
       }
     },
     inspect,
-    async sendInput() {
-      return { id: options.id, outcome: "unsupported" }
+    async sendInput(input, inputOptions) {
+      const outcome = options.sendInput
+        ? await options.sendInput(options.id, input, inputOptions)
+        : "unsupported"
+      return { id: options.id, outcome }
     },
+    support: options.support ? () => options.support!(options.id) : undefined,
   }, options.result)
   if (options.parentAbortSignal) {
     const parentAbortSignal = options.parentAbortSignal
@@ -242,6 +258,6 @@ export function createBackedAgentInvocationController<TOutput = unknown, CALL_OP
       removeParentAbortListener = () => parentAbortSignal.removeEventListener("abort", cancel)
     }
   }
-  void options.result.then(stopObservingParent, stopObservingParent)
+  void options.settled?.then(stopObservingParent, stopObservingParent)
   return controller
 }

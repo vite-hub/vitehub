@@ -25,7 +25,9 @@ describe("Agent Invocation controllers", () => {
   it("isolates active invocation owners by route state", () => {
     const firstState = {}
     const secondState = {}
+    // SAFETY: These minimal controllers only exercise route-state identity lookup.
     const firstController = { id: "first" } as never
+    // SAFETY: These minimal controllers only exercise route-state identity lookup.
     const secondController = { id: "second" } as never
     const unregisterFirst = registerActiveAgentInvocation("shared-key", firstController, Promise.resolve(), firstState)
     const unregisterSecond = registerActiveAgentInvocation("shared-key", secondController, Promise.resolve(), secondState)
@@ -211,6 +213,7 @@ describe("Agent Invocation controllers", () => {
       inspect: async () => ({ id: "child", status: "running" }),
       parentAbortSignal: parent.signal,
       result,
+      settled: result,
     })
 
     settle()
@@ -218,6 +221,23 @@ describe("Agent Invocation controllers", () => {
     expect(removeEventListener).toHaveBeenCalledOnce()
     parent.abort("too late")
     expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it("keeps observing parent cancellation when only a backed start result settles", async () => {
+    const parent = new AbortController()
+    const cancel = vi.fn(async () => ({ id: "child", status: "cancelled" as const }))
+    createBackedAgentInvocationController({
+      cancel,
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      parentAbortSignal: parent.signal,
+      result: Promise.resolve({ id: "child", status: "queued" }),
+    })
+
+    await Promise.resolve()
+    parent.abort("stop queued child")
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
   })
 
   it("keeps subagents serializable while assigning fresh trusted identities", async () => {
@@ -228,11 +248,11 @@ describe("Agent Invocation controllers", () => {
           researcher: { agent: child, description: "Research one question." },
         },
       })],
+      // SAFETY: The test resolves tools without invoking this driver model.
       driver: { model: {} as never },
     })
-    const resolved = await parent.resolve(runtime()) as unknown as {
-      tools: Record<string, AgentToolDefinition>
-    }
+    // SAFETY: Resolving the subagents capability adds its generated tool map to this adapter fixture.
+    const resolved = await parent.resolve(runtime()) as { tools: Record<string, AgentToolDefinition> }
     const tool = resolved.tools.run_researcher!
     const first = await tool.execute?.({ message: "one" })
     const second = await tool.execute?.({ message: "two" })
@@ -240,6 +260,7 @@ describe("Agent Invocation controllers", () => {
     expect(first).toMatch(/^ainv_/)
     expect(second).toMatch(/^ainv_/)
     expect(second).not.toBe(first)
+    // SAFETY: Agent tool input schemas use object-shaped Standard Schema output in this test fixture.
     expect((tool.inputSchema as { properties?: Record<string, unknown> }).properties).not.toHaveProperty("runId")
   })
 })
