@@ -1171,9 +1171,17 @@ export function createRuntimeWaitUntilController(options: {
   const pending: Promise<unknown>[] = []
   return {
     async flushWaitUntil() {
+      let error: unknown
+      let failed = false
       while (pending.length > 0) {
-        await Promise.all(pending.splice(0))
+        for (const result of await Promise.allSettled(pending.splice(0))) {
+          if (!failed && result.status === "rejected") {
+            error = result.reason
+            failed = true
+          }
+        }
       }
+      if (failed) throw error
     },
     waitUntil(task) {
       pending.push(task)
