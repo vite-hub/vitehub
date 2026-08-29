@@ -903,7 +903,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               observationCount = updated.observations.length
               persisted = true
             }
-            else if (updated === undefined) failed = true
+            else if (updated === undefined || updated === storeOperationTimedOut) failed = true
           }
           finally {
             if (failed && !finished) {
