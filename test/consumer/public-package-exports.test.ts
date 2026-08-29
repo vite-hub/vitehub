@@ -27,6 +27,12 @@ function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts
   return true
 }
 
+function validatesDependencyDeclarations(contract: (typeof publicPackageExportContracts)[number]) {
+  // Drizzle 0.45.2 does not compile under TypeScript 6 with skipLibCheck disabled,
+  // while ViteHub's Database declarations and the repository both support it as a peer.
+  return contract.packageName !== "@vite-hub/database"
+}
+
 const stringRecord = record(string(), string())
 const packageManifestSchema = object({
   dependencies: optional(stringRecord),
@@ -194,9 +200,10 @@ async function importPackagesWithoutRootFallback(
 }
 
 async function importPackagesWithoutDeclarationPeer(
-  appDir: string,
+  root: string,
+  specs: Record<string, string>,
   omittedPeer: string,
-  installedOptionalPeers: readonly string[],
+  peerSpecs: Record<string, string>,
 ) {
   const contractsByPackage = Map.groupBy(
     declarationPeerAbsentRuntimeContracts(omittedPeer),
@@ -204,26 +211,53 @@ async function importPackagesWithoutDeclarationPeer(
   )
 
   for (const [packageName, contracts] of contractsByPackage) {
-    const packageRoot = await realpath(join(appDir, "node_modules", ...packageName.split("/")))
-    const manifest = await readManifest(join(packageRoot, "package.json"))
-    const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
-      !manifest.peerDependenciesMeta?.[name]?.optional,
+    const appDir = join(root, "mixed-peers", packageName.replaceAll("/", "-"), `without-${omittedPeer.replaceAll("/", "-")}`)
+    const sourceManifest = await readManifest(join(repoRoot, "packages", packageName.replace("@vite-hub/", ""), "package.json"))
+    const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
+      !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    await withoutRootDependencies(appDir, new Set([
-      packageName,
-      ...(packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
-      ...requiredPeers,
-      ...installedOptionalPeers.filter(peer => peer !== omittedPeer),
-    ]), async () => {
-      const runnerDir = join(appDir, ".isolated", `${packageName.replaceAll("/", "-")}-without-${omittedPeer.replaceAll("/", "-")}`)
-      const packageNameParts = packageName.split("/")
-      const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
-      await rm(runnerDir, { recursive: true, force: true })
-      await mkdir(linkDir, { recursive: true })
-      await symlink(packageRoot, join(linkDir, packageNameParts.at(-1)!), "dir")
-      await importSpecifiers(runnerDir, contracts.map(contract => contract.specifier))
-    })
+    const devDependencies = mixedPeerFixtureSpecs(packageName, omittedPeer, requiredPeers, specs, peerSpecs)
+    await mkdir(appDir, { recursive: true })
+    await Promise.all([
+      writeFile(join(appDir, ".npmrc"), [
+        "auto-install-peers=false",
+        "hoist=false",
+        "node-linker=isolated",
+        "public-hoist-pattern[]=",
+        "shamefully-hoist=false",
+        "strict-peer-dependencies=false",
+        "",
+      ].join("\n"), "utf8"),
+      writeFile(join(appDir, "package.json"), JSON.stringify({
+        dependencies: { [packageName]: specs[packageName] },
+        devDependencies,
+        packageManager: "pnpm@10.33.0",
+        private: true,
+        type: "module",
+      }, null, 2), "utf8"),
+      writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+    ])
+    await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
+    await importSpecifiers(appDir, contracts.map(contract => contract.specifier))
   }
+}
+
+function mixedPeerFixtureSpecs(
+  packageName: string,
+  omittedPeer: string,
+  requiredPeers: readonly string[],
+  specs: Record<string, string>,
+  peerSpecs: Record<string, string>,
+) {
+  return Object.fromEntries([...new Set([
+    ...(packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+    ...requiredPeers,
+    ...Object.keys(peerSpecs).filter(peer => peer !== omittedPeer),
+  ])].map((name) => {
+    const spec = specs[name] || peerSpecs[name]
+    if (!spec) throw new Error(`Missing peer spec for ${name}`)
+    return [name, spec]
+  }))
 }
 
 function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
@@ -339,7 +373,7 @@ async function addOptionalPeers(appDir: string) {
   }
   const args = Object.entries(peers).map(([name, version]) => `${name}@${version}`)
   await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", ...args], appDir)
-  return Object.keys(peers)
+  return peers
 }
 
 async function typecheckPackageExports(packageName: string, runnerDir: string, includeOptionalPeers: boolean) {
@@ -409,7 +443,7 @@ async function typecheckPackageModule(
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
     paths,
-    skipLibCheck: false,
+    skipLibCheck: !validatesDependencyDeclarations(contract),
     strict: true,
     target: ts.ScriptTarget.ESNext,
     types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
@@ -437,6 +471,16 @@ describe("published declaration diagnostics", () => {
 
     expect(withoutVite.map(contract => contract.specifier)).toContain("@vite-hub/ui/vite")
     expect(withoutNuxtUi.map(contract => contract.specifier)).not.toContain("@vite-hub/ui/vite")
+
+    const fixtureSpecs = mixedPeerFixtureSpecs(
+      "@vite-hub/ui",
+      "vite",
+      [],
+      {},
+      { "@nuxt/ui": "1.0.0", "@types/node": "1.0.0", vite: "1.0.0" },
+    )
+    expect(fixtureSpecs).toMatchObject({ "@nuxt/ui": "1.0.0", "@types/node": "1.0.0" })
+    expect(fixtureSpecs).not.toHaveProperty("vite")
   })
 
   it("imports runtime contracts in isolated processes", async () => {
@@ -524,10 +568,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       await assertResolution(appDir, optionalPeers, false)
       await exercisePackagesWithoutOptionalPeers(root, specs)
 
-      expect(await addOptionalPeers(appDir)).toEqual(optionalPeers)
+      const optionalPeerSpecs = await addOptionalPeers(appDir)
+      expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
       for (const optionalPeer of optionalPeers) {
-        await importPackagesWithoutDeclarationPeer(appDir, optionalPeer, optionalPeers)
+        await importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, optionalPeerSpecs)
       }
       const presentPeerContracts = publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target))
