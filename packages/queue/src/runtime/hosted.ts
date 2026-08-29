@@ -1,5 +1,3 @@
-/// <reference types="ws" preserve="true" />
-
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
@@ -20,6 +18,7 @@ async function toRequest(event: {
     return event.request
   }
 
+  // SAFETY: Non-Request callback inputs use the H3 event shape accepted by these helpers.
   const h3Event = event as never
   const body = await readRawBody(h3Event)
   return new Request(getRequestURL(h3Event), {
@@ -31,8 +30,10 @@ async function toRequest(event: {
 
 function createVercelJobHandler(definition: QueueDefinition) {
   return async (payload: unknown, metadata?: unknown) => {
+    // SAFETY: Vercel supplies this optional delivery metadata shape to queue callbacks.
     const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
     await definition.handler({
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel metadata is untyped at this boundary and must be validated before use.
       attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
       id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
       metadata,
@@ -46,8 +47,10 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
   return {
     ...options,
     retry(error, metadata) {
+      // SAFETY: Vercel supplies this optional delivery metadata shape to retry callbacks.
       const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
       reportQueueDeliveryError(error, {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel metadata is untyped at this boundary and must be validated before use.
         attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
         id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
         provider: "vercel",
