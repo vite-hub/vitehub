@@ -170,7 +170,11 @@ describe("host documentation fixtures", () => {
       }
 
       for (let index = 0; index < hostFixtures.length; index += 2) {
-        await Promise.all(hostFixtures.slice(index, index + 2).map(buildHost))
+        const results = await Promise.allSettled(hostFixtures.slice(index, index + 2).map(buildHost))
+        const failures = results
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map(result => result.reason)
+        if (failures.length > 0) throw new AggregateError(failures, "Host fixture build batch failed.")
       }
     }
     finally {
