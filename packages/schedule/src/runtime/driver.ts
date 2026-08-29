@@ -367,7 +367,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   }
   async function flushWaitUntil(): Promise<void> {
     while (pendingWork.size > 0) {
-      await Promise.allSettled([...pendingWork])
+      await Promise.allSettled(pendingWork)
     }
   }
   const serialize = createSerializer()
@@ -469,7 +469,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
       closing = true
       return closePromise = (async () => {
         while (activeWakes.size > 0) {
-          await Promise.allSettled([...activeWakes])
+          await Promise.allSettled(activeWakes)
         }
         await serialize(async () => {})
         await flushWaitUntil()
