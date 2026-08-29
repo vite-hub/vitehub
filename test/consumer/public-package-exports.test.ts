@@ -523,12 +523,18 @@ describe("published declaration diagnostics", () => {
   it("reports diagnostics reached through dependency declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-declaration-diagnostics-"))
     const dependencyDir = join(root, "node_modules/@vite-hub/database/dist")
+    const typesDir = join(root, "node_modules/@types/example")
 
     try {
-      await mkdir(dependencyDir, { recursive: true })
+      await Promise.all([
+        mkdir(dependencyDir, { recursive: true }),
+        mkdir(typesDir, { recursive: true }),
+      ])
       await Promise.all([
         writeFile(join(root, "node_modules/@vite-hub/database/package.json"), JSON.stringify({ name: "@vite-hub/database", types: "dist/index.d.ts" })),
-        writeFile(join(dependencyDir, "index.d.ts"), "export type BrokenDependency = MissingDependency\n"),
+        writeFile(join(dependencyDir, "index.d.ts"), 'import type { BrokenTypes } from "example"\nexport type BrokenDependency = MissingDependency | BrokenTypes\n'),
+        writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/example", types: "index.d.ts" })),
+        writeFile(join(typesDir, "index.d.ts"), "export type BrokenTypes = MissingTypes\n"),
       ])
 
       const contract = publicPackageExportContracts.find(item => item.specifier === "@vite-hub/database")
@@ -543,7 +549,10 @@ describe("published declaration diagnostics", () => {
         .filter(diagnostic => diagnostic.code === 2304)
         .map(diagnostic => diagnostic.file?.fileName)
 
-      expect(diagnosticFiles).toContain(join(dependencyDir, "index.d.ts"))
+      expect(diagnosticFiles).toEqual(expect.arrayContaining([
+        join(dependencyDir, "index.d.ts"),
+        join(typesDir, "index.d.ts"),
+      ]))
     }
     finally {
       await rm(root, { recursive: true, force: true })
