@@ -37,6 +37,12 @@ test('keeps pull request discovery bounded while preserving feedback fingerprint
   assert.match(runner, /reviews\(last:1\)\{totalCount nodes\{id\}\}/)
 })
 
+test('reads required checks when an optional check has already failed', async () => {
+  const runner = await readFile(new URL('../server/babysitter.schedule.ts', import.meta.url), 'utf8')
+
+  assert.match(runner, /if \(pullRequestCheckState\(pullRequest\.statusCheckRollup\) === 'passed'\) return pullRequest/)
+})
+
 test('ships the systemd drain helper in the immutable server output', async () => {
   const config = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8')
   assert.match(config, /copyFile\(drainHelper, output\)/)

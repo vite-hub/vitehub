@@ -466,7 +466,7 @@ function parseFeedbackConnection(value: unknown) {
 }
 
 async function readRequiredCheckState(repository: string, pullRequest: PullRequest) {
-  if (pullRequestCheckState(pullRequest.statusCheckRollup) !== 'pending') return pullRequest
+  if (pullRequestCheckState(pullRequest.statusCheckRollup) === 'passed') return pullRequest
   const requiredStatusCheckRollup = await readRequiredChecks(repository, pullRequest.number)
   return requiredStatusCheckRollup === undefined ? pullRequest : { ...pullRequest, requiredStatusCheckRollup }
 }
