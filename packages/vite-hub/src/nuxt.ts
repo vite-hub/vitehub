@@ -636,11 +636,14 @@ async function applyNitroConfig(
   return config
 }
 
-function resolvedKVFromPlugin(plugin: Plugin | undefined): ReturnType<typeof resolveKVViteConfig>["kv"] {
-  const candidate = plugin as Plugin & {
+function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOptions | undefined): ReturnType<typeof resolveKVViteConfig>["kv"] {
+  if (configured !== undefined) return resolveKVViteConfig(configured).kv
+  const candidate: unknown = plugin
+  // SAFETY: The canonical KV plugin name identifies the framework-owned configuration API.
+  const kvPlugin = candidate as (Plugin & {
     api?: { getConfig?: () => ReturnType<typeof resolveKVViteConfig> }
-  }
-  return candidate.api?.getConfig?.().kv ?? false
+  }) | undefined
+  return kvPlugin?.api?.getConfig?.().kv ?? false
 }
 
 type ViteHubNuxtModule = {
@@ -880,7 +883,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
     if (options.console) {
-      const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin)
+      const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
       const resolvedSections = resolveConsoleSectionIds({ ...options, kv: resolvedKV })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)
       consoleKVStores.splice(

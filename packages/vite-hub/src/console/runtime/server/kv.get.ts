@@ -53,16 +53,17 @@ function valueType(value: unknown): string {
 
 function truncateValue(value: string): { truncated: boolean; value: string } {
   const encoder = new TextEncoder()
-  if (encoder.encode(value).byteLength <= maximumValueBytes) return { truncated: false, value }
   let bytes = 0
   let end = 0
   for (const character of value) {
     const characterBytes = encoder.encode(character).byteLength
-    if (bytes + characterBytes > maximumValueBytes) break
+    if (bytes + characterBytes > maximumValueBytes) {
+      return { truncated: true, value: value.slice(0, end) }
+    }
     bytes += characterBytes
     end += character.length
   }
-  return { truncated: true, value: value.slice(0, end) }
+  return { truncated: false, value }
 }
 
 function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated" | "type" | "value"> {

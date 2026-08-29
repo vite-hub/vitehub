@@ -108,6 +108,8 @@ describe("Console KV inspection", () => {
     })
     installConsoleKV("/project", storage)
 
+    const encode = vi.spyOn(TextEncoder.prototype, "encode")
+
     await expect(kvHandler(event("?key="))).resolves.toMatchObject({
       found: true,
       key: "",
@@ -156,6 +158,7 @@ describe("Console KV inspection", () => {
       type: "bytes",
       value: "ab".repeat(128 * 1_024),
     })
+    expect(encode.mock.calls.reduce((maximum, [value]) => Math.max(maximum, value.length), 0)).toBeLessThanOrEqual(2)
     expect(writes).not.toHaveBeenCalled()
   })
 

@@ -11,6 +11,7 @@ import {
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
+import { hubKv } from "@vite-hub/kv/vite"
 
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -617,6 +618,28 @@ describe("ViteHub Nuxt integration", () => {
 
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","sessions"])`,
+    )
+  })
+
+  it("prefers top-level KV configuration over retained plugin options", async () => {
+    const retained = createNuxt(true, [hubKv({
+      stores: {
+        default: { driver: "fs-lite" },
+        sessions: { driver: "fs-lite" },
+      },
+    })])
+    retained.nuxt.options.vite.kv = {
+      stores: {
+        cache: { driver: "fs-lite" },
+        default: { driver: "fs-lite" },
+      },
+    }
+
+    await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, retained.nuxt)
+    await retained.runNitroConfigHook(nitroOptions(retained.nuxt))
+
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`,
     )
   })
 
