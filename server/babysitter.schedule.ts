@@ -32,6 +32,7 @@ import {
   type PullRequestFeedback,
   pullRequestCheckState,
   prioritizePullRequestJobs,
+  retryPassFingerprint,
   resolveMaxOwners,
   resolveRepositories,
   selectPullRequestJobs,
@@ -268,6 +269,11 @@ export async function reconcileBabysitterWork(reason: string) {
       }
       else if (current.state === 'OPEN') {
         outcome = 'retry'
+        const retryFingerprint = retryPassFingerprint(repository, current, policyFingerprint, Date.now(), pullRequest)
+        if (retryFingerprint) {
+          const [error] = await kv.set(job.completionKey, retryFingerprint)
+          if (error) throw error
+        }
       }
     }
     catch (error) {

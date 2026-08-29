@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
+export const retryCooldownMs = 15 * 60 * 1000
 export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v3'
 const parkDisposition = '<!-- babysitter:disposition:park -->'
+const retryFingerprintPattern = /^retry:v1:(\d+):([0-9a-f]+)$/
 const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
 export type PullRequestFeedback = {
@@ -60,6 +62,7 @@ export async function selectPullRequestJobs(
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
   readCompletion: (key: string) => Promise<string | null>,
   policyFingerprint: string,
+  now = Date.now(),
 ) {
   const byRepository = await Promise.all(repositories.map(async (repository) => {
     try {
@@ -85,7 +88,10 @@ export async function selectPullRequestJobs(
     const previousCompletionFingerprint = completionFingerprint
       ? pullRequestFingerprint(repository, { ...pullRequest, statusCheckRollup: pullRequestCheckState(pullRequest.statusCheckRollup) }, policyFingerprint)
       : undefined
-    return completionFingerprint && (completed === completionFingerprint || completed === previousCompletionFingerprint || completed === fingerprint)
+    return completionFingerprint && (completed === completionFingerprint
+      || completed === previousCompletionFingerprint
+      || completed === fingerprint
+      || retryCompletionActive(completed, completionFingerprint, now))
       ? undefined
       : { completionKey: key, fingerprint, pullRequest, repository }
   }))
@@ -191,6 +197,22 @@ export function completedPassFingerprint(
   return passResultText(result)?.split(/\r?\n/).includes(parkDisposition)
     ? successfulPassFingerprint(repository, pullRequest, policyFingerprint, observedPullRequest)
     : undefined
+}
+
+export function retryPassFingerprint(
+  repository: string,
+  pullRequest: PullRequest,
+  policyFingerprint: string,
+  now = Date.now(),
+  observedPullRequest: PullRequest = pullRequest,
+) {
+  const fingerprint = successfulPassFingerprint(repository, pullRequest, policyFingerprint, observedPullRequest)
+  return fingerprint ? `retry:v1:${now + retryCooldownMs}:${fingerprint}` : undefined
+}
+
+function retryCompletionActive(completed: string | null, fingerprint: string, now: number) {
+  const match = completed?.match(retryFingerprintPattern)
+  return Boolean(match && match[2] === fingerprint && Number(match[1]) > now)
 }
 
 function passResultText(result: unknown) {

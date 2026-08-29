@@ -43,6 +43,13 @@ test('reads required checks when an optional check has already failed', async ()
   assert.match(runner, /if \(pullRequestCheckState\(pullRequest\.statusCheckRollup\) === 'passed'\) return pullRequest/)
 })
 
+test('persists a cooldown after an explicit retry pass', async () => {
+  const runner = await readFile(new URL('../server/babysitter.schedule.ts', import.meta.url), 'utf8')
+
+  assert.match(runner, /const retryFingerprint = retryPassFingerprint\(repository, current, policyFingerprint, Date\.now\(\), pullRequest\)/)
+  assert.match(runner, /kv\.set\(job\.completionKey, retryFingerprint\)/)
+})
+
 test('ships the systemd drain helper in the immutable server output', async () => {
   const config = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8')
   assert.match(config, /copyFile\(drainHelper, output\)/)

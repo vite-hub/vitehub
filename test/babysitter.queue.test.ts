@@ -10,6 +10,8 @@ import {
   prioritizePullRequestJobs,
   type PullRequest,
   pullRequestFingerprint,
+  retryCooldownMs,
+  retryPassFingerprint,
   resolveRepositories,
   runPullRequestJobs,
   selectPullRequestJobs,
@@ -294,6 +296,38 @@ test('completes only an explicitly parkable pass', () => {
     ),
     undefined,
   )
+})
+
+test('cools down explicit retries while waking immediately for state changes', async () => {
+  const now = Date.parse('2026-08-29T23:00:00Z')
+  const current = pullRequest(1)
+  const retry = retryPassFingerprint('vite-hub/vitehub', current, policyFingerprint, now)
+
+  assert.equal(typeof retry, 'string')
+  if (!retry) throw new Error('Expected an open pull request retry fingerprint.')
+  assert.deepEqual(await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [current],
+    async () => retry,
+    policyFingerprint,
+    now + retryCooldownMs - 1,
+  ), [])
+  assert.equal((await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [current],
+    async () => retry,
+    policyFingerprint,
+    now + retryCooldownMs,
+  )).length, 1)
+
+  const changed = { ...current, feedback: { comments: { count: 1, latestId: 'new-comment' }, reviews: { count: 0, latestId: null } } }
+  assert.equal((await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [changed],
+    async () => retry,
+    policyFingerprint,
+    now + 1,
+  )).length, 1)
 })
 
 test('accepts existing full-snapshot completion fingerprints', async () => {
