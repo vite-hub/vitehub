@@ -261,8 +261,7 @@ function createVercelSession(
     },
     ...(ports?.length
       ? {
-          async getPortUrl({ abortSignal, port, protocol = "http" }: { abortSignal?: AbortSignal; port: number; protocol?: "http" | "https" | "ws" }) {
-            abortSignal?.throwIfAborted();
+          async getPortUrl({ port, protocol = "http" }: { port: number; protocol?: "http" | "https" | "ws" }) {
             if (!ports.includes(port)) throw new Error(`[vitehub] Vercel Box port ${port} was not declared in runtime.ports.`);
             const url = new URL(instance.domain(port));
             url.protocol = protocol === "ws"

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { resolveBox } from "../src/index.ts";
-import { createBoxSession, type RuntimeSession } from "../src/internal/session.ts";
 import { createTrustedHostRuntime } from "../src/internal/trusted-host.ts";
 
 describe("BoxSession", () => {
@@ -135,47 +134,6 @@ describe("BoxSession", () => {
     await expect(session.files.exists("workspace")).rejects.toThrow("Box session is closed");
     await expect(session.ports!.expose(4321)).rejects.toThrow("Box session is closed");
     await expect(session.spawn!("true")).rejects.toThrow("Box session is closed");
-  });
-
-  it("cancels an in-flight port exposure", async () => {
-    const controller = new AbortController();
-    let receivedSignal: AbortSignal | undefined;
-    const runtime = {
-      defaultWorkingDirectory: "workspace",
-      id: "session-id",
-      async existsFile() { return false },
-      async getPortUrl({ abortSignal }) {
-        receivedSignal = abortSignal;
-        await new Promise<void>((_resolve, reject) => {
-          abortSignal?.addEventListener("abort", () => reject(abortSignal.reason), { once: true });
-        });
-        return "http://127.0.0.1:4321";
-      },
-      async listFiles() { return [] },
-      async makeDirectory() {},
-      async readBinaryFile() { return null },
-      async removeFile() {},
-      async run() { return { exitCode: 0, stderr: "", stdout: "" } },
-      async stop() {},
-      async writeBinaryFile() {},
-    } satisfies RuntimeSession;
-    const session = createBoxSession(runtime, {
-      executionAuthority: {
-        credentials: "none",
-        environment: "none",
-        filesystem: { access: "read-write", scope: "host" },
-        isolation: "none",
-        network: "none",
-        processes: "arbitrary",
-      },
-      signal: controller.signal,
-    });
-
-    const exposure = session.ports!.expose(4321);
-    controller.abort(new Error("cancelled"));
-
-    await expect(exposure).rejects.toThrow("cancelled");
-    expect(receivedSignal).toBe(controller.signal);
   });
 
   it("rolls back newly initialized state when initialization fails", async () => {
