@@ -5952,8 +5952,7 @@ async function executeAgentInvocationWithCapacityLease<
       }
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
         if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
-          const reason = outcome.failed ? outcome.error : undefined
-          await Promise.allSettled([...uiMessageSources.values()].map(source => source.cancel(reason)))
+          await Promise.allSettled([...uiMessageSources.values()].map(source => source.cancel(undefined)))
           const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
           void finishTask.catch(() => {})
           return
