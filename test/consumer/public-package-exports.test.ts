@@ -27,12 +27,6 @@ function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts
   return true
 }
 
-function validatesDependencyDeclarations(contract: (typeof publicPackageExportContracts)[number]) {
-  // Drizzle 0.45.2 does not compile under TypeScript 6 with skipLibCheck disabled,
-  // while ViteHub's Database declarations and the repository both support it as a peer.
-  return contract.packageName !== "@vite-hub/database"
-}
-
 const stringRecord = record(string(), string())
 const packageManifestSchema = object({
   dependencies: optional(stringRecord),
@@ -443,13 +437,13 @@ async function typecheckPackageModule(
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
     paths,
-    skipLibCheck: !validatesDependencyDeclarations(contract),
+    skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
     types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
   }
   const program = ts.createProgram(rootNames, options)
-  const diagnostics = declarationDiagnostics(program)
+  const diagnostics = declarationDiagnostics(program, packageName)
   expect(
     ts.formatDiagnosticsWithColorAndContext(diagnostics, {
       getCanonicalFileName: file => file,
@@ -460,8 +454,21 @@ async function typecheckPackageModule(
   ).toBe("")
 }
 
-function declarationDiagnostics(program: ts.Program) {
-  return ts.getPreEmitDiagnostics(program)
+function declarationDiagnostics(program: ts.Program, packageName?: string) {
+  return ts.getPreEmitDiagnostics(program).filter(diagnostic =>
+    packageName !== "@vite-hub/database" || !isKnownDrizzleTypeScript6Diagnostic(diagnostic),
+  )
+}
+
+function isKnownDrizzleTypeScript6Diagnostic(diagnostic: ts.Diagnostic) {
+  const path = diagnostic.file?.fileName.replaceAll("\\", "/") || ""
+  if (!path.includes("/node_modules/drizzle-orm/")) return false
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+  return (diagnostic.code === 2307 && /Cannot find module '(?:gel|mysql2(?:\/promise)?)'/.test(message))
+    || ([2420, 2515].includes(diagnostic.code) && /(?:getSQL|generatedAlwaysAs)/.test(message))
+    || (diagnostic.code === 2416 && message.includes("generatedAlwaysAs"))
+    || (diagnostic.code === 2344 && /Type '(?:string|\w+SetOperatorExcludedMethods)' does not satisfy the constraint/.test(message))
+    || (diagnostic.code === 2559 && /Role' has no properties in common with type '.+RoleConfig'/.test(message))
 }
 
 describe("published declaration diagnostics", () => {
@@ -499,7 +506,7 @@ describe("published declaration diagnostics", () => {
 
   it("reports diagnostics reached through dependency declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-declaration-diagnostics-"))
-    const dependencyDir = join(root, "node_modules/dependency")
+    const dependencyDir = join(root, "node_modules/@vite-hub/database/dist")
     const typesDir = join(root, "node_modules/@types/example")
     const sourcePath = join(root, "consumer.ts")
 
@@ -509,11 +516,11 @@ describe("published declaration diagnostics", () => {
         mkdir(typesDir, { recursive: true }),
       ])
       await Promise.all([
-        writeFile(join(dependencyDir, "package.json"), JSON.stringify({ name: "dependency", types: "index.d.ts" })),
+        writeFile(join(root, "node_modules/@vite-hub/database/package.json"), JSON.stringify({ name: "@vite-hub/database", types: "dist/index.d.ts" })),
         writeFile(join(dependencyDir, "index.d.ts"), "export type BrokenDependency = MissingDependency\n"),
         writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/example", types: "index.d.ts" })),
         writeFile(join(typesDir, "index.d.ts"), "export type BrokenTypes = MissingTypes\n"),
-        writeFile(sourcePath, 'import type { BrokenDependency } from "dependency"\nimport type { BrokenTypes } from "example"\nvoid (undefined as unknown as BrokenDependency | BrokenTypes)\n'),
+        writeFile(sourcePath, 'import type { BrokenDependency } from "@vite-hub/database"\nimport type { BrokenTypes } from "example"\nvoid (undefined as unknown as BrokenDependency | BrokenTypes)\n'),
       ])
 
       const program = ts.createProgram([sourcePath], {
@@ -522,7 +529,7 @@ describe("published declaration diagnostics", () => {
         noEmit: true,
         skipLibCheck: false,
       })
-      const diagnosticFiles = declarationDiagnostics(program)
+      const diagnosticFiles = declarationDiagnostics(program, "@vite-hub/database")
         .filter(diagnostic => diagnostic.code === 2304)
         .map(diagnostic => diagnostic.file?.fileName)
 
