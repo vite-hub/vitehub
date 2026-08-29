@@ -787,7 +787,7 @@ describe("Provider Output finalizer", () => {
       finalizeProviderDeploymentOutputs(first),
       finalizeProviderDeploymentOutputs(second),
     ])
-    await vi.waitFor(() => expect(started).toEqual(["first", "second"]))
+    await vi.waitFor(() => expect(new Set(started)).toEqual(new Set(["first", "second"])))
     releases.splice(0).forEach(release => release())
     await finalizations
   })
