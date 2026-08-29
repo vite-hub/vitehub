@@ -1,3 +1,5 @@
+/// <reference types="ws" preserve="true" />
+
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { createVercelHostedServer } from "@vite-hub/internal/runtime/vercel-hosted"
 

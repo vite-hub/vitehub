@@ -1,3 +1,5 @@
+/// <reference types="ws" preserve="true" />
+
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
