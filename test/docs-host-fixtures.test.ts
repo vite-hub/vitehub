@@ -151,41 +151,33 @@ describe("host documentation fixtures", () => {
     }
   }, 120_000)
 
-  it("builds one credential-free fixture for every documented host", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-doc-hosts-"))
+  it.each(hostFixtures)("builds the %s credential-free fixture", async (host) => {
+    const root = await mkdtemp(join(tmpdir(), `vitehub-doc-host-${host}-`))
+    const appRoot = join(root, host)
 
     try {
-      const buildHost = async (host: (typeof hostFixtures)[number]) => {
-        const appRoot = join(root, host)
-        await cp(join(fixturesRoot, host), appRoot, { recursive: true })
-        await symlink(join(repoRoot, "node_modules"), join(appRoot, "node_modules"), "dir")
-        await mkdir(join(appRoot, "src"), { recursive: true })
-        await writeFile(join(appRoot, "index.html"), '<main id="app">ViteHub host fixture</main><script type="module" src="/src/main.ts"></script>\n', "utf8")
-        await writeFile(join(appRoot, "src/main.ts"), 'document.querySelector("#app")!.textContent = "ViteHub host fixture"\n', "utf8")
+      await cp(join(fixturesRoot, host), appRoot, { recursive: true })
+      await symlink(join(repoRoot, "node_modules"), join(appRoot, "node_modules"), "dir")
+      await mkdir(join(appRoot, "src"), { recursive: true })
+      await writeFile(join(appRoot, "index.html"), '<main id="app">ViteHub host fixture</main><script type="module" src="/src/main.ts"></script>\n', "utf8")
+      await writeFile(join(appRoot, "src/main.ts"), 'document.querySelector("#app")!.textContent = "ViteHub host fixture"\n', "utf8")
 
-        await run("corepack", ["pnpm", "exec", "vp", "build", appRoot, "--config", join(appRoot, "vite.config.ts")], repoRoot, {
-          VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host,
-        })
+      await run("corepack", ["pnpm", "exec", "vp", "build", appRoot, "--config", join(appRoot, "vite.config.ts")], repoRoot, {
+        VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host,
+      })
 
-        for (const artifact of hostArtifacts[host]) {
-          await expect(
-            readFile(join(appRoot, artifact), "utf8"),
-            `${host} should emit ${artifact}`,
-          ).resolves.not.toHaveLength(0)
-        }
-        if (host === "deno") await expectDenoLauncherToStart(appRoot)
+      for (const artifact of hostArtifacts[host]) {
+        await expect(
+          readFile(join(appRoot, artifact), "utf8"),
+          `${host} should emit ${artifact}`,
+        ).resolves.not.toHaveLength(0)
       }
-
-      const results = await Promise.allSettled(hostFixtures.map(buildHost))
-      const failures = results
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map(result => result.reason)
-      if (failures.length > 0) throw new AggregateError(failures, "Host fixture build failed.")
+      if (host === "deno") await expectDenoLauncherToStart(appRoot)
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  }, 600_000)
+  }, 300_000)
 
   it("declares exactly one representative build per documented host", async () => {
     const contracts = parseSnippetContracts(await readFile(join(fixturesRoot, "manifest.json"), "utf8"))
