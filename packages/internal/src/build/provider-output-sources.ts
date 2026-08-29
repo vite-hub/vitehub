@@ -20,6 +20,10 @@ const ignoredSourceDirectories = new Set([
   "node_modules",
 ])
 
+function isTransientSourceDirectory(path: string): boolean {
+  return basename(path).startsWith(".drizzle-generate-")
+}
+
 function pathContains(parent: string, child: string): boolean {
   const nested = relative(parent, child)
   return !nested || (!nested.startsWith(`..${sep}`) && nested !== ".." && !isAbsolute(nested))
@@ -111,6 +115,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         filter(source) {
           const resolvedSource = resolve(source)
           if (pathContains(artifactDir, resolvedSource)) return false
+          if (isTransientSourceDirectory(resolvedSource)) return false
           const nested = relative(root, resolvedSource)
           if (!nested) return true
           const first = nested.split(sep)[0]!

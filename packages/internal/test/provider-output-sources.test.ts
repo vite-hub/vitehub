@@ -38,6 +38,30 @@ it("retains a generation's source-root layout and generated dependencies", async
   await expect(readFile(retained.resolve(schema), "utf8")).resolves.toContain("old")
 })
 
+it("excludes transient Drizzle generation directories from retained workspaces", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-transient-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const handler = join(rootDir, "server.ts")
+  const transientFile = join(workspace, "packages", "database", "test", ".drizzle-generate-one", "migration.sql")
+  await Promise.all([mkdir(rootDir, { recursive: true }), mkdir(dirname(transientFile), { recursive: true })])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, "export default {}\n"),
+    writeFile(transientFile, "select 1;\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await expect(readFile(join(dirname(dirname(retained.resolve(handler))), "packages", "database", "test", ".drizzle-generate-one", "migration.sql"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains an aliased package with its relative import base", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-alias-"))
   tempDirs.push(workspace)
