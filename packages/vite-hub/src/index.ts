@@ -24,7 +24,7 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
@@ -85,6 +85,21 @@ const generatedOwnerPackageNames = Object.entries(generatedOwnerPackageAccess)
   .filter(([, allowed]) => allowed)
   .map(([name]) => name)
 
+const generatedOwnerProviderImportAliases = Object.fromEntries(generatedOwnerPackageNames.flatMap((packageName) => {
+  const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`))
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { exports?: Record<string, unknown> }
+  return Object.keys(manifest.exports ?? {}).flatMap((subpath) => {
+    if (subpath !== "." && !subpath.startsWith("./")) return []
+    const specifier = subpath === "." ? packageName : `${packageName}/${subpath.slice(2)}`
+    try {
+      return [[specifier, fileURLToPath(import.meta.resolve(specifier))] as const]
+    }
+    catch {
+      return []
+    }
+  })
+}))
+
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
   "\0#vitehub/env/server",
@@ -144,9 +159,14 @@ function frameworkDependencyResolver(
   providerImportAliases: Record<string, string>,
   blobEnabled: boolean,
   presetKVOptions?: KVModuleOptions,
-): Plugin {
+): Plugin & ViteHubProviderImportContributor {
   return {
     name: "vite-hub/dependencies",
+    vitehub: {
+      providerOutput: {
+        getImportAliases: () => generatedOwnerProviderImportAliases,
+      },
+    },
     enforce: "pre",
     config() {
       const aliases = { ...frameworkProviderImportAliases }

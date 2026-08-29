@@ -164,6 +164,13 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "no
   return plugin
 }
 
+async function providerOutputAliases(plugin: Plugin): Promise<Record<string, string>> {
+  const extension = plugin as Plugin & {
+    vitehub?: { providerOutput?: { getImportAliases?: () => Promise<Record<string, string>> | Record<string, string> } }
+  }
+  return await extension.vitehub?.providerOutput?.getImportAliases?.() ?? {}
+}
+
 async function applyDeploymentConfig(
   options: Parameters<typeof vitehub>[0],
   config: Record<string, unknown> = {},
@@ -701,6 +708,15 @@ describe("vitehub", () => {
 
     expect(upstashAliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
     expect(providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)).toBe(upstashAliases)
+  })
+
+  it("exposes owner package aliases to deferred provider bundlers", async () => {
+    const aliases = await providerOutputAliases(dependencyPlugin({ agent: true, preset: "vercel", schedule: true, workflow: true }))
+
+    expect(aliases["@vite-hub/agent"]).toMatch(/packages\/agent\/dist\/index\.js$/)
+    expect(aliases["@vite-hub/agent/runtime/workflow"]).toMatch(/packages\/agent\/dist\/runtime\/workflow\.js$/)
+    expect(aliases["@vite-hub/markdown-template"]).toMatch(/packages\/markdown-template\/dist\/index\.js$/)
+    expect(aliases["@vite-hub/workflow/runtime/state"]).toMatch(/packages\/workflow\/dist\/runtime\/state\.js$/)
   })
 
   it.each([
