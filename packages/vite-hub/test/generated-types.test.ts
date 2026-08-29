@@ -1195,7 +1195,7 @@ describe("framework generated types", () => {
     const replacementRefresh = replacementListeners.get("unlink")?.(collection)
     await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(2))
     await replacementRefresh
-    expect(replacementRestart).toHaveBeenCalledOnce()
+    expect(replacementRestart).not.toHaveBeenCalled()
 
     await closeBundle(plugin, oldEnvironment)()
     finishObserver?.()
