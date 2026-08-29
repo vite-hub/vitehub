@@ -493,7 +493,9 @@ describe("published declaration diagnostics", () => {
     const withoutNuxtUi = declarationPeerAbsentRuntimeContracts("@nuxt/ui")
 
     expect(withoutVite.map(contract => contract.specifier)).toContain("@vite-hub/ui/vite")
+    expect(withoutVite.map(contract => contract.specifier)).toContain("vite-hub/ui/vite")
     expect(withoutNuxtUi.map(contract => contract.specifier)).not.toContain("@vite-hub/ui/vite")
+    expect(withoutNuxtUi.map(contract => contract.specifier)).not.toContain("vite-hub/ui/vite")
 
     const fixtureSpecs = mixedPeerFixtureSpecs(
       "@vite-hub/ui",

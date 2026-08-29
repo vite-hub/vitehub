@@ -77,6 +77,7 @@ const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/workspace/vite", ["vite"]],
   ["vite-hub/browser/controllers/playwright", ["playwright-core"]],
   ["vite-hub/ui/nuxt", ["vue"]],
+  ["vite-hub/ui/vite", ["vite"]],
 ])
 
 function optionalDeclarationPeersForExport(specifier: string, subpath: string) {
