@@ -146,7 +146,7 @@ it("preserves pnpm dependencies when the package entry uses its top-level symlin
   const rootDir = join(workspace, "app")
   const dependencyRoot = join(rootDir, "node_modules", ".pnpm", "fixture-package@1.0.0", "node_modules")
   const packageDir = join(dependencyRoot, "fixture-package")
-  const dependencyDir = join(dependencyRoot, "fixture-dependency")
+  const dependencyDir = join(rootDir, "node_modules", ".pnpm", "fixture-dependency@1.0.0", "node_modules", "fixture-dependency")
   const entry = join(rootDir, "node_modules", "fixture-package", "dist", "index.js")
   await Promise.all([
     mkdir(join(packageDir, "dist"), { recursive: true }),
@@ -158,6 +158,7 @@ it("preserves pnpm dependencies when the package entry uses its top-level symlin
     writeFile(join(packageDir, "dist", "index.js"), 'export { value } from "fixture-dependency"\n'),
     writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
     writeFile(join(dependencyDir, "index.js"), 'export const value = "retained"\n'),
+    symlink("../../fixture-dependency@1.0.0/node_modules/fixture-dependency", join(dependencyRoot, "fixture-dependency"), process.platform === "win32" ? "junction" : "dir"),
     symlink(packageDir, join(rootDir, "node_modules", "fixture-package"), process.platform === "win32" ? "junction" : "dir"),
   ])
 

@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs"
-import { cp, mkdir, mkdtemp, rename, rm, symlink } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, rename, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
@@ -45,6 +45,20 @@ function dependencyRoot(root: string): string | undefined {
     current = dirname(current)
   }
   return undefined
+}
+
+async function linkDependencies(source: string, target: string): Promise<void> {
+  await mkdir(target, { recursive: true })
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (entry.name === ".bin" || entry.name === ".pnpm") continue
+    const sourceEntry = resolve(source, entry.name)
+    const targetEntry = resolve(target, entry.name)
+    if (entry.name.startsWith("@") && entry.isDirectory() && !entry.isSymbolicLink()) {
+      await linkDependencies(sourceEntry, targetEntry)
+      continue
+    }
+    await symlink(realpathSync(sourceEntry), targetEntry, process.platform === "win32" ? "junction" : "dir")
+  }
 }
 
 function sourceClosureRoot(root: string): string {
@@ -108,7 +122,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       }
       const dependencies = dependencyRoot(root)
       if (dependencies) {
-        await symlink(dependencies, resolve(retainedRoot, "node_modules"), process.platform === "win32" ? "junction" : "dir")
+        await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"))
       }
     }
     finally {
