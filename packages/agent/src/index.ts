@@ -3688,20 +3688,18 @@ function assignResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecor
 function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): ReturnType<typeof cancellableAsyncIterableSource> & {
   settleCancellation: (reason?: unknown) => Promise<void>
 } {
+  let readableCancelTask: Promise<void> | undefined
   const readableReader = isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
-    ? (stream as ReadableStream<unknown>).getReader()
+    ? stream.getReader() as ReadableStreamDefaultReader<unknown>
     : undefined
   const iterator: AsyncIterator<unknown> = readableReader
     ? {
         next: () => readableReader.read(),
-        async return(reason) {
-          try {
-            await readableReader.cancel(reason)
-          }
-          finally {
-            readableReader.releaseLock()
-          }
-          return { done: true, value: undefined }
+        return(reason) {
+          readableCancelTask ||= Promise.resolve(readableReader.cancel(reason))
+            .finally(() => readableReader.releaseLock())
+          void readableCancelTask.catch(() => {})
+          return Promise.resolve({ done: true, value: undefined })
         },
       }
     : stream[Symbol.asyncIterator]()
@@ -3715,6 +3713,7 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
   const settleCancellation = async (reason?: unknown) => {
     await cancel(reason)
     await cancelTask
+    await readableCancelTask
   }
   return {
     cancel,
