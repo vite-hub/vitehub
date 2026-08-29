@@ -3684,15 +3684,32 @@ function withDrivenStreamResultProperties(stream: AsyncIterable<StreamEvent>, re
       return buffered.shift()!
     },
     async return(value?: unknown) {
-      if (hasRuntimeType(directCancel, "function")) await directCancel(value)
-      await iterator.return?.(value)
+      const [cancelled, returned] = await Promise.allSettled([
+        Promise.resolve().then(() => hasRuntimeType(directCancel, "function") ? directCancel(value) : undefined),
+        Promise.resolve().then(() => iterator.return?.(value)),
+      ])
+      if (cancelled.status === "rejected") throw cancelled.reason
+      if (returned.status === "rejected") throw returned.reason
       if (drainTask) await drainTask
       return { done: true as const, value: undefined }
     },
     async throw(error?: unknown) {
-      if (hasRuntimeType(directCancel, "function")) await directCancel(error)
-      if (iterator.throw) return await iterator.throw(error)
-      await iterator.return?.()
+      const cancellation = Promise.resolve().then(() => hasRuntimeType(directCancel, "function") ? directCancel(error) : undefined)
+      if (iterator.throw) {
+        const [cancelled, thrown] = await Promise.allSettled([
+          cancellation,
+          Promise.resolve().then(() => iterator.throw!(error)),
+        ])
+        if (cancelled.status === "rejected") throw cancelled.reason
+        if (thrown.status === "rejected") throw thrown.reason
+        return thrown.value
+      }
+      const [cancelled, terminated] = await Promise.allSettled([
+        cancellation,
+        Promise.resolve().then(() => iterator.return?.()),
+      ])
+      if (cancelled.status === "rejected") throw cancelled.reason
+      if (terminated.status === "rejected") throw terminated.reason
       throw error
     },
   }
