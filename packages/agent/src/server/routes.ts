@@ -4454,6 +4454,38 @@ function captureStaticChatFinishMessage(message: AgentChatMessage, capture: Chat
   capture.truncated = content.length > 16 * 1024
 }
 
+function captureStreamedChatFinishMessage(
+  source: AsyncIterable<string>,
+  capture: ChatFinishDeliveryCapture,
+): AsyncIterable<string> {
+  return {
+    [Symbol.asyncIterator]() {
+      const iterator = source[Symbol.asyncIterator]()
+      return {
+        async next() {
+          const result = await iterator.next()
+          if (result.done) return result
+          const chunk = result.value
+          if (capture.content.length < 16 * 1024) {
+            const remaining = 16 * 1024 - capture.content.length
+            capture.content += chunk.slice(0, remaining)
+            if (chunk.length > remaining) capture.truncated = true
+          }
+          else if (chunk.length > 0) capture.truncated = true
+          return result
+        },
+        async return() {
+          return await iterator.return?.() ?? { done: true as const, value: undefined }
+        },
+        async throw(error?: unknown) {
+          if (iterator.throw) return await iterator.throw(error)
+          throw error
+        },
+      }
+    },
+  }
+}
+
 async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
@@ -4466,18 +4498,7 @@ async function flushChatFinishExtensionMessages(
     let { message } = queued
     const capture: ChatFinishDeliveryCapture = { content: "", truncated: false }
     if (isAsyncIterable(message) && callbacks.length) {
-      const source = message
-      message = (async function* () {
-        for await (const chunk of source) {
-          if (capture.content.length < 16 * 1024) {
-            const remaining = 16 * 1024 - capture.content.length
-            capture.content += chunk.slice(0, remaining)
-            if (chunk.length > remaining) capture.truncated = true
-          }
-          else if (chunk.length > 0) capture.truncated = true
-          yield chunk
-        }
-      })()
+      message = captureStreamedChatFinishMessage(message, capture)
     }
     else if (callbacks.length) captureStaticChatFinishMessage(message, capture)
     try {

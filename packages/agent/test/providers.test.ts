@@ -16213,7 +16213,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      await expect(handler(chatWebhookRequest(91_035), "telegram")).rejects.toThrow("model timeout")
+      await expect(handler(chatWebhookRequest(91_135), "telegram")).rejects.toThrow("model timeout")
       expect(completedToolResults).toEqual([
         {
           output: { changes: 1 },
@@ -16228,9 +16228,9 @@ describe("server helpers", () => {
   })
 
   it.each([
-    ["streamed text", { stream: true }, 91_033],
+    ["streamed text", { stream: true }, 91_133],
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    ["phased replies", { commentary: "hidden" as const, stream: false }, 91_034],
+    ["phased replies", { commentary: "hidden" as const, stream: false }, 91_134],
   ])("exposes completed tool results to automatic %s error fallbacks", async (_delivery, messages, messageId) => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
