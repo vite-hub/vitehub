@@ -111,7 +111,14 @@ async function expectDenoLauncherToStart(appRoot: string) {
     ])
   }
   finally {
-    child.kill("SIGTERM")
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM")
+      await Promise.race([
+        exit,
+        new Promise<void>(resolve => setTimeout(resolve, 1_000)),
+      ])
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+    }
     await exit
   }
 }
