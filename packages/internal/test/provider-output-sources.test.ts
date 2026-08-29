@@ -140,6 +140,31 @@ it("preserves installed package dependency resolution", async () => {
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
+it("preserves dependency resolution for a workspace-linked package", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-package-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const packageDir = join(workspace, "packages", "fixture-package")
+  const dependencyDir = join(workspace, "node_modules", "fixture-dependency")
+  const entry = join(packageDir, "dist", "index.js")
+  await Promise.all([mkdir(rootDir, { recursive: true }), mkdir(dirname(entry), { recursive: true }), mkdir(dependencyDir, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "fixture-dependency"\n'),
+    writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
+    writeFile(join(dependencyDir, "index.js"), 'export const value = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
 it("preserves dependency resolution for packages installed in a pnpm store", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-pnpm-package-"))
   tempDirs.push(workspace)

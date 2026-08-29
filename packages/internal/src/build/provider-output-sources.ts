@@ -37,10 +37,10 @@ function packageRoot(file: string): string {
 
 function dependencyRoot(root: string): string | undefined {
   const resolvedRoot = realpathSync(root)
-  const nested = resolve(resolvedRoot, "node_modules")
-  if (existsSync(nested)) return nested
-  let current = dirname(resolvedRoot)
+  let current = resolvedRoot
   while (current !== dirname(current)) {
+    const nested = resolve(current, "node_modules")
+    if (existsSync(nested)) return nested
     if (basename(current) === "node_modules") return current
     current = dirname(current)
   }
