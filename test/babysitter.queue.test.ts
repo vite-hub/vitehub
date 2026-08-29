@@ -328,6 +328,16 @@ test('cools down explicit retries while waking immediately for state changes', a
     policyFingerprint,
     now + 1,
   )).length, 1)
+
+})
+
+test('tolerates numeric completion hashes decoded by filesystem storage', async () => {
+  assert.equal((await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [pullRequest(1)],
+    async () => 4_832_032_699_677_103,
+    policyFingerprint,
+  )).length, 1)
 })
 
 test('accepts existing full-snapshot completion fingerprints', async () => {

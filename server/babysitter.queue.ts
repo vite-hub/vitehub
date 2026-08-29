@@ -60,7 +60,7 @@ export function resolveMaxOwners(value: string) {
 export async function selectPullRequestJobs(
   repositories: string[],
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
-  readCompletion: (key: string) => Promise<string | null>,
+  readCompletion: (key: string) => Promise<unknown>,
   policyFingerprint: string,
   now = Date.now(),
 ) {
@@ -210,8 +210,8 @@ export function retryPassFingerprint(
   return fingerprint ? `retry:v1:${now + retryCooldownMs}:${fingerprint}` : undefined
 }
 
-function retryCompletionActive(completed: string | null, fingerprint: string, now: number) {
-  const match = completed?.match(retryFingerprintPattern)
+function retryCompletionActive(completed: unknown, fingerprint: string, now: number) {
+  const match = typeof completed === 'string' ? completed.match(retryFingerprintPattern) : null
   return Boolean(match && match[2] === fingerprint && Number(match[1]) > now)
 }
 
