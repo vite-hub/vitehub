@@ -280,7 +280,7 @@ export function installConsoleInvocationFallback(
   invocations: AgentInvocations,
   projectRoot: string,
   scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-  identity = projectRoot,
+  identity: string = projectRoot,
   revision?: string,
 ): void {
   scope[consoleInvocationsKey] = invocations

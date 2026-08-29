@@ -9,7 +9,6 @@ interface UpstashClient {
 
 interface UpstashCursor {
   cursor: string
-  pending?: string[]
 }
 
 function decodeCursor(cursor?: string): UpstashCursor {
@@ -19,7 +18,7 @@ function decodeCursor(cursor?: string): UpstashCursor {
     // SAFETY: value remains confined to this parser until its required fields pass the checks below.
     const value = JSON.parse(decodeURIComponent(cursor)) as UpstashCursor
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cursor JSON crosses the HTTP boundary and needs a representation check.
-    if (typeof value.cursor !== "string" || (value.pending && !Array.isArray(value.pending))) throw new Error()
+    if (typeof value.cursor !== "string") throw new Error()
     return value
   }
   catch {
@@ -31,27 +30,20 @@ function encodeCursor(cursor: UpstashCursor): string {
   return encodeURIComponent(JSON.stringify(cursor))
 }
 
+function escapeRedisGlob(value: string): string {
+  return value.replaceAll(/([*?[\\\]])/g, "\\$1")
+}
+
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => UpstashClient }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
     const state = decodeCursor(cursor)
-    const keys = state.pending?.splice(0, limit) ?? []
-    let providerCursor = state.cursor
-    while (keys.length < limit && (providerCursor !== "0" || !cursor)) {
-      const [nextCursor, scanned] = await driver.getInstance().scan(providerCursor, {
-        count: limit - keys.length,
-        match: `${prefix}*`,
-      })
-      providerCursor = nextCursor
-      keys.push(...scanned)
-      if (providerCursor === "0") break
-    }
-    const pageKeys = keys.slice(0, limit)
-    const pending = keys.slice(limit)
-    return providerCursor === "0" && pending.length === 0
-      ? { keys: pageKeys }
-      : { keys: pageKeys, cursor: encodeCursor({ cursor: providerCursor, ...(pending.length ? { pending } : {}) }) }
+    const [providerCursor, keys] = await driver.getInstance().scan(state.cursor, {
+      count: limit,
+      match: `${escapeRedisGlob(prefix)}*`,
+    })
+    return providerCursor === "0" ? { keys } : { keys, cursor: encodeCursor({ cursor: providerCursor }) }
   }
   return driver
 }

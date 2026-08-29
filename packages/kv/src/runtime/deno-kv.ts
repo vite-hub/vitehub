@@ -14,7 +14,7 @@ interface DenoKV {
   delete: (key: DenoKVKey) => Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
   get: <T = unknown>(key: DenoKVKey) => Promise<DenoKVEntry<T>>
-  list: <T = unknown>(selector: { prefix: [] }, options?: { cursor?: string }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
+  list: <T = unknown>(selector: { prefix: [] }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
   set: <T = unknown>(key: DenoKVKey, value: T) => Promise<unknown>
 }
 
@@ -82,14 +82,13 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      const iterator = (await open()).list({ prefix: [] }, { cursor })
+      const iterator = (await open()).list({ prefix: [] }, { cursor, limit })
       const keys: string[] = []
       for await (const entry of iterator) {
         const key = fromDenoKey(entry.key)
         if (key?.startsWith(prefix)) keys.push(key)
-        if (keys.length === limit) return { keys, cursor: iterator.cursor }
       }
-      return { keys }
+      return iterator.cursor ? { keys, cursor: iterator.cursor } : { keys }
     },
     async hasItem(key) {
       return (await (await open()).get(toDenoKey(key))).value !== null

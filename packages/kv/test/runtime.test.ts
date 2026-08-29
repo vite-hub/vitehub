@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createStorage } from "unstorage"
 import type { Driver } from "unstorage"
@@ -19,6 +23,7 @@ const mountedDrivers: {
 
 let cloudflareDriver: Driver | undefined
 let fsLiteDriver: Driver | Error | undefined
+let upstashScan: ReturnType<typeof vi.fn> | undefined
 const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
 
 function resetStorage() {
@@ -27,6 +32,7 @@ function resetStorage() {
   delete mountedDrivers.cloudflare
   delete mountedDrivers.fsLite
   delete mountedDrivers.upstash
+  upstashScan = undefined
 }
 
 function createInspectableDriver(name: "upstash") {
@@ -107,6 +113,13 @@ vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
     mountedDrivers.cloudflare = options
     return cloudflareDriver || memoryDriver()
   }),
+}))
+
+vi.mock("unstorage/drivers/upstash", () => ({
+  default: vi.fn(() => ({
+    ...memoryDriver(),
+    getInstance: () => ({ scan: upstashScan }),
+  })),
 }))
 
 describe("kv runtime", () => {
@@ -330,5 +343,71 @@ describe("kv runtime", () => {
     await driver.dispose?.()
     expect(openKv).toHaveBeenCalledWith(":memory:")
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("bounds and resumes fs-lite listing in filesystem traversal order", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-list-"))
+    try {
+      await mkdir(join(root, "a"))
+      await writeFile(join(root, "a", "x"), "x")
+      await writeFile(join(root, "a0"), "a0")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      const first = await driver.listKeys({ limit: 1, prefix: "missing" })
+      const second = await driver.listKeys({ cursor: first.cursor, limit: 1, prefix: "" })
+
+      expect(first).toMatchObject({ keys: [], cursor: expect.any(String) })
+      expect(second.keys).toEqual(["a0"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("treats a missing fs-lite directory as an empty store", async () => {
+    const root = join(tmpdir(), `vitehub-kv-missing-${crypto.randomUUID()}`)
+    const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+    const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+    await expect(driver.listKeys({ limit: 10 })).resolves.toEqual({ keys: [] })
+  })
+
+  it("uses one bounded Upstash scan with a literal prefix", async () => {
+    upstashScan = vi.fn(async () => ["next", ["user:*literal"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    await expect(driver.listKeys({ limit: 2, prefix: "user:*?[\\" })).resolves.toMatchObject({
+      keys: ["user:*literal"],
+      cursor: expect.any(String),
+    })
+    expect(upstashScan).toHaveBeenCalledOnce()
+    expect(upstashScan).toHaveBeenCalledWith("0", { count: 2, match: "user:\\*\\?\\[\\\\*" })
+  })
+
+  it("passes a bounded page size to Deno KV for selective prefixes", async () => {
+    const list = vi.fn((_selector: { prefix: [] }, _options: { cursor?: string; limit?: number } = {}) => {
+      const iterator = (async function* () {
+        yield { key: ["other"], value: null }
+      })()
+      return Object.assign(iterator, { cursor: "deno-next" })
+    })
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({
+        delete: vi.fn(),
+        get: vi.fn(),
+        list,
+        set: vi.fn(),
+      }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver()
+
+    await expect(driver.listKeys({ cursor: "deno-before", limit: 3, prefix: "missing" })).resolves.toEqual({
+      keys: [],
+      cursor: "deno-next",
+    })
+    expect(list).toHaveBeenCalledWith({ prefix: [] }, { cursor: "deno-before", limit: 3 })
   })
 })
