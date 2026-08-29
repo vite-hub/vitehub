@@ -7,6 +7,45 @@ import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
 import type { ServerResponse } from "node:http"
 
 describe("Agent Invocation Stream", () => {
+  it("cancels the invocation when its reader stops early", async () => {
+    let signal: AbortSignal | undefined
+    const response = createAgentInvocationStreamResponse(async (emit, runSignal) => {
+      signal = runSignal
+      emit({ text: "first", type: "text-delta" })
+      await new Promise<void>(resolve => runSignal.addEventListener("abort", () => resolve(), { once: true }))
+    })
+
+    for await (const event of readAgentInvocationStream(response.body!)) {
+      expect(event).toEqual({ text: "first", type: "text-delta" })
+      break
+    }
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it("preserves parser errors when stream cancellation also fails", async () => {
+    const cleanupFailure = new Error("cleanup failed")
+    const cancel = vi.fn(async () => { throw cleanupFailure })
+    const body = new ReadableStream<Uint8Array>({
+      cancel,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("not json\n"))
+      },
+    })
+
+    let failure: unknown
+    try {
+      for await (const _event of readAgentInvocationStream(body)) {}
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(failure).toBeInstanceOf(SyntaxError)
+    expect(failure).not.toBe(cleanupFailure)
+    expect(cancel).toHaveBeenCalledWith(failure)
+  })
+
   it("closes timed-out streams even when the run does not settle", async () => {
     let aborted = false
     const response = createAgentInvocationStreamResponse(async (_emit, signal) => {

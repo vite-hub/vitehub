@@ -38,11 +38,16 @@ export type AgentInvocationStreamEvent =
 
 export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
   const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+  let completed = false
+  let error: unknown
   let pending = ""
   try {
     for (;;) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) {
+        completed = true
+        break
+      }
       pending += value
       const lines = pending.split("\n")
       pending = lines.pop() || ""
@@ -52,7 +57,12 @@ export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array
     }
     if (pending.trim()) yield JSON.parse(pending) as AgentInvocationStreamEvent
   }
+  catch (cause) {
+    error = cause
+    throw cause
+  }
   finally {
+    if (!completed) await reader.cancel(error).catch(() => undefined)
     reader.releaseLock()
   }
 }
