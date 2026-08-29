@@ -196,6 +196,30 @@ describe("Agent Invocation controllers", () => {
     expect(cancel).not.toHaveBeenCalled()
   })
 
+  it("stops observing parent cancellation when a backed invocation result settles", async () => {
+    const parent = new AbortController()
+    const removeEventListener = vi.spyOn(parent.signal, "removeEventListener")
+    const cancel = vi.fn(async () => ({ id: "child", status: "cancelled" as const }))
+    let settle!: () => void
+    const result = new Promise<void>((resolve) => {
+      settle = resolve
+    })
+    createBackedAgentInvocationController({
+      cancel,
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      parentAbortSignal: parent.signal,
+      result,
+    })
+
+    settle()
+    await result
+    expect(removeEventListener).toHaveBeenCalledOnce()
+    parent.abort("too late")
+    expect(cancel).not.toHaveBeenCalled()
+  })
+
   it("keeps subagents serializable while assigning fresh trusted identities", async () => {
     const child = defineAgent({ driver: { run: ({ run }) => run?.runId }, runtime: false })
     const parent = defineAgent({

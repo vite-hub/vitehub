@@ -190,10 +190,13 @@ export function createBackedAgentInvocationController<TOutput = unknown, CALL_OP
   options: BackedAgentInvocationOptions<TOutput>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS> {
   let removeParentAbortListener: (() => void) | undefined
+  const stopObservingParent = () => {
+    removeParentAbortListener?.()
+    removeParentAbortListener = undefined
+  }
   const observeTerminalSnapshot = (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot && isTerminalAgentInvocationStatus(snapshot.status)) {
-      removeParentAbortListener?.()
-      removeParentAbortListener = undefined
+      stopObservingParent()
     }
     return snapshot
   }
@@ -239,5 +242,6 @@ export function createBackedAgentInvocationController<TOutput = unknown, CALL_OP
       removeParentAbortListener = () => parentAbortSignal.removeEventListener("abort", cancel)
     }
   }
+  void options.result.then(stopObservingParent, stopObservingParent)
   return controller
 }
