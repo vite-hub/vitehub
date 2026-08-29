@@ -792,6 +792,7 @@ describe("GitHub workspace store", () => {
   });
 
   it("preserves binary sizes for cross-realm writes", async () => {
+    // SAFETY: The isolated expression constructs a Uint8Array in a separate VM realm.
     const content = runInNewContext("new Uint8Array([0, 1, 2, 255])") as Uint8Array;
     const bytes = new Uint8Array(content);
     const sha = gitBlobSha(bytes);
