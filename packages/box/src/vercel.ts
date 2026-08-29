@@ -198,6 +198,10 @@ async function loadVercelSandbox() {
   }
 }
 
+function isMissingFile(error: unknown) {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
+}
+
 function createVercelSession(
   id: string,
   instance: VercelSandboxInstance,
@@ -253,8 +257,9 @@ function createVercelSession(
         try {
           await fs.access(path, { signal: abortSignal });
           return true;
-        } catch {
-          return false;
+        } catch (error) {
+          if (isMissingFile(error)) return false;
+          throw error;
         }
       }
       return (await run({ abortSignal, command: `test -e ${shellQuote(path)}` })).exitCode === 0;
@@ -324,7 +329,7 @@ function createVercelSession(
           : await instance.readFileToBuffer({ path }, { signal: abortSignal });
         return contents === null ? null : new Uint8Array(contents);
       } catch (error) {
-        if (!(await this.existsFile({ abortSignal, path }))) return null;
+        if (isMissingFile(error)) return null;
         throw error;
       }
     },
