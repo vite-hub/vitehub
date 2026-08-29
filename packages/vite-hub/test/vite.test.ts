@@ -157,18 +157,19 @@ function pluginAliases(plugin: Plugin): Record<string, string> {
   return alias as Record<string, string>
 }
 
-function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "node" }): Plugin {
+type ProviderImportPlugin = Plugin & {
+  vitehub: { providerOutput: { getImportAliases: () => Promise<Record<string, string>> | Record<string, string> } }
+}
+
+function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "node" }): ProviderImportPlugin {
   // SAFETY: The test asserts below that the named plugin exists before returning it.
-  const plugin = vitehub(options).find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin | undefined
+  const plugin = vitehub(options).find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as ProviderImportPlugin | undefined
   if (!plugin) throw new TypeError("Expected the framework dependency resolver.")
   return plugin
 }
 
-async function providerOutputAliases(plugin: Plugin): Promise<Record<string, string>> {
-  const extension = plugin as Plugin & {
-    vitehub?: { providerOutput?: { getImportAliases?: () => Promise<Record<string, string>> | Record<string, string> } }
-  }
-  return await extension.vitehub?.providerOutput?.getImportAliases?.() ?? {}
+async function providerOutputAliases(plugin: ProviderImportPlugin): Promise<Record<string, string>> {
+  return await plugin.vitehub.providerOutput.getImportAliases() ?? {}
 }
 
 async function applyDeploymentConfig(

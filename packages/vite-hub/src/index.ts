@@ -85,10 +85,17 @@ const generatedOwnerPackageNames = Object.entries(generatedOwnerPackageAccess)
   .filter(([, allowed]) => allowed)
   .map(([name]) => name)
 
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
 const generatedOwnerProviderImportAliases = Object.fromEntries(generatedOwnerPackageNames.flatMap((packageName) => {
   const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`))
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { exports?: Record<string, unknown> }
-  return Object.keys(manifest.exports ?? {}).flatMap((subpath) => {
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+  if (!isRecord(manifest) || !("exports" in manifest)) return []
+  const packageExports = manifest.exports
+  if (!isRecord(packageExports)) return []
+  return Object.keys(packageExports).flatMap((subpath) => {
     if (subpath !== "." && !subpath.startsWith("./")) return []
     const specifier = subpath === "." ? packageName : `${packageName}/${subpath.slice(2)}`
     try {

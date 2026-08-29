@@ -81,12 +81,15 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   const paths = [...new Set((options.paths ?? []).filter(isAbsolute).map(path => resolve(path)).filter(existsSync))]
   const configuredRoots = [...new Set(options.roots.map(root => resolve(root)).filter(existsSync))]
   const sourceRootByPath = new Map<string, string>()
+  const packageRoots = new Set<string>()
   for (const path of paths) {
     const configuredRoot = configuredRoots
       .filter(root => pathContains(root, path))
       .sort((left, right) => right.length - left.length)[0]
     const nestedInDependencies = configuredRoot && relative(configuredRoot, path).split(sep).includes("node_modules")
-    sourceRootByPath.set(path, configuredRoot && !nestedInDependencies ? sourceClosureRoot(configuredRoot) : packageRoot(path))
+    const sourceRoot = configuredRoot && !nestedInDependencies ? sourceClosureRoot(configuredRoot) : packageRoot(path)
+    sourceRootByPath.set(path, sourceRoot)
+    if (!configuredRoot || nestedInDependencies) packageRoots.add(sourceRoot)
   }
   for (const root of configuredRoots) sourceRootByPath.set(root, sourceClosureRoot(root))
 
@@ -107,7 +110,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (!nested) return true
           const first = nested.split(sep)[0]!
           if (first === "node_modules") return false
-          if (first === ".vitehub" || ignoredSourceDirectories.has(first)) {
+          if (first === ".vitehub" || (ignoredSourceDirectories.has(first) && !(packageRoots.has(root) && first === "dist"))) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
           }
           return true

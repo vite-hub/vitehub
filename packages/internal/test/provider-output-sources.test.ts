@@ -63,6 +63,31 @@ it("retains an aliased package with its relative import base", async () => {
   await expect(readFile(join(dirname(retained.resolve(alias)), "config.ts"), "utf8")).resolves.toContain("old")
 })
 
+it("retains sibling chunks behind an installed package alias", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-chunk-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const packageDir = join(rootDir, "node_modules", "fixture-package")
+  const entry = join(packageDir, "dist", "index.js")
+  const chunk = join(packageDir, "dist", "chunk.js")
+  await mkdir(dirname(entry), { recursive: true })
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "./chunk.js"\n'),
+    writeFile(chunk, 'export const value = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+  await writeFile(chunk, 'export const value = "changed"\n')
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
 it("retains relative imports that escape a package-scoped Vite root", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-"))
   tempDirs.push(workspace)
