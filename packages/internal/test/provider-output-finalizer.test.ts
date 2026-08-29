@@ -55,6 +55,7 @@ describe("Provider Output finalizer", () => {
     const rootDir = await createTempProject()
     const write = vi.fn(async () => undefined)
     first.capture(firstContext, catalog)
+    await Promise.resolve()
     second.capture(secondContext, catalog)
     contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write }, first.get(firstContext))
 
