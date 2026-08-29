@@ -608,6 +608,7 @@ describe("Vite provider outputs", () => {
       expect(contents).not.toMatch(/(?:from\s+|import\s*\()["']@vite-hub\/blob\/drivers\//)
     }
     for (const functionDir of [join(functionsRoot, "__queue.func"), callbackFunctionDir]) {
+      expect(existsSync(join(functionDir, "node_modules", "@vite-hub", "blob", "package.json"))).toBe(true)
       expect(existsSync(join(functionDir, "node_modules", "files-sdk", "package.json"))).toBe(false)
       expect(existsSync(join(functionDir, "node_modules", "@aws-sdk", "client-s3", "package.json"))).toBe(false)
       expect(existsSync(join(functionDir, "node_modules", "@google-cloud", "storage", "package.json"))).toBe(false)

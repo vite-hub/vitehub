@@ -623,8 +623,17 @@ export async function generateProviderOutputs(
   options: GenerateProviderOutputsOptions,
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<GeneratedQueueArtifacts> {
-  const providerRuntimeInputs = options.providerRuntimeInputs
+  const capturedProviderRuntimeInputs = options.providerRuntimeInputs
     ?? captureQueueProviderRuntimeInputs(options.providerOutput, options.providerImportAliases)
+  const vercelPackages = [...capturedProviderRuntimeInputs.vercelPackages]
+  if (capturedProviderRuntimeInputs.aliases.vercel["@vite-hub/blob"]
+    && !vercelPackages.some(runtimePackage => runtimePackage.name === "@vite-hub/blob")) {
+    vercelPackages.push({ name: "@vite-hub/blob", resolveFrom: resolve(options.rootDir, "package.json") })
+  }
+  const providerRuntimeInputs: QueueProviderRuntimeInputs = {
+    aliases: capturedProviderRuntimeInputs.aliases,
+    vercelPackages,
+  }
   const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions, options.sourceRootDir, options.artifactDir)
   options.signal?.throwIfAborted()
   const cloudflareQueueConfig = resolveOutputQueueConfig(options.queue, "cloudflare")
