@@ -99,6 +99,7 @@ it("preserves installed package dependency resolution", async () => {
   await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dependencyDir, { recursive: true })])
   await Promise.all([
     writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(join(rootDir, "node_modules", ".package-lock.json"), "{}\n"),
     writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
     writeFile(entry, 'export { value } from "fixture-dependency"\n'),
     writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),

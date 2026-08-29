@@ -53,11 +53,13 @@ async function linkDependencies(source: string, target: string): Promise<void> {
     if (entry.name === ".bin" || entry.name === ".pnpm") continue
     const sourceEntry = resolve(source, entry.name)
     const targetEntry = resolve(target, entry.name)
+    const resolvedSourceEntry = realpathSync(sourceEntry)
+    if (!statSync(resolvedSourceEntry).isDirectory()) continue
     if (entry.name.startsWith("@") && entry.isDirectory() && !entry.isSymbolicLink()) {
       await linkDependencies(sourceEntry, targetEntry)
       continue
     }
-    await symlink(realpathSync(sourceEntry), targetEntry, process.platform === "win32" ? "junction" : "dir")
+    await symlink(resolvedSourceEntry, targetEntry, process.platform === "win32" ? "junction" : "dir")
   }
 }
 
