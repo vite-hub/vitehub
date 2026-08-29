@@ -673,13 +673,6 @@ export async function generateProviderOutputs(
       if (createVercel) {
         options.signal?.throwIfAborted()
         const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName)
-        await copyVercelRuntimePackages({
-          packages: providerRuntimeInputs.vercelPackages,
-          rootDir: options.rootDir,
-          serverFunctionName: vercelFunctionName,
-          signal: options.signal,
-        })
-        options.signal?.throwIfAborted()
         const contents = await readFile(resolve(functionRoot, "index.mjs"))
         options.signal?.throwIfAborted()
         const digest = hash("sha256", contents, "hex")
@@ -713,5 +706,14 @@ export async function generateProviderOutputs(
     await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
   }
   await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, providerRuntimeInputs.aliases.vercel, providerRuntimeInputs.vercelPackages, options.signal)
+  if (createVercel) {
+    options.signal?.throwIfAborted()
+    await copyVercelRuntimePackages({
+      packages: providerRuntimeInputs.vercelPackages,
+      rootDir: options.rootDir,
+      serverFunctionName: vercelFunctionName,
+      signal: options.signal,
+    })
+  }
   return artifacts
 }
