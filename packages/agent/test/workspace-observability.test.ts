@@ -34,7 +34,7 @@ describe("Workspace setup observability", () => {
 
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "vitehub.workspace.materialization.start",
-      "vitehub.workspace.materialized",
+      "vitehub.workspace.materialization.completed",
     ])
     expect(traceLog.entries()[1]).toMatchObject({
       attributes: {

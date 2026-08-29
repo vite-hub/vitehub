@@ -117,7 +117,7 @@ export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOp
           ...revisionAttributes(event.revision),
         },
         name: event.status === "completed"
-          ? "vitehub.workspace.materialized"
+          ? "vitehub.workspace.materialization.completed"
           : event.status === "failed"
             ? "vitehub.workspace.error"
             : `vitehub.workspace.materialization.${eventSuffix(event.status)}`,
