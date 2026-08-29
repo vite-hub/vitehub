@@ -23,7 +23,9 @@ const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
+const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
 const CANONICAL_TRACE_ATTRIBUTE_KEYS = new Set([
+  AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE,
   "vitehub.activity.owner",
   "vitehub.activity.phase",
   "vitehub.payload.summary",
@@ -100,6 +102,7 @@ export interface AgentInvocationStore {
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   release(id: string, claimId: string): MaybePromise<void>
+  /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
 }
 
@@ -137,6 +140,22 @@ function cloneObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
     ...(observation.payload ? { payload: structuredClone(observation.payload) } : {}),
     ...(observation.trace ? { trace: { ...observation.trace } } : {}),
   }
+}
+
+function observationIdentity(observation: TraceEventLogEntry): string | undefined {
+  const identity = observation.attributes?.[AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]
+  return hasRuntimeType(identity, "string") ? identity : undefined
+}
+
+function sameObservation(left: TraceEventLogEntry, right: TraceEventLogEntry): boolean {
+  if (left === right) return true
+  const leftIdentity = observationIdentity(left)
+  const rightIdentity = observationIdentity(right)
+  return leftIdentity !== undefined && rightIdentity !== undefined && leftIdentity === rightIdentity
+}
+
+function observationPersistenceKey(observation: TraceEventLogEntry): string | number {
+  return observationIdentity(observation) ?? observation.sequence
 }
 
 function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
@@ -196,7 +215,7 @@ function normalizeLimit(limit: number | undefined): number {
 
 function normalizeSearch(search: string | undefined): string | undefined {
   if (search === undefined) return
-  if (typeof search !== "string") {
+  if (!hasRuntimeType(search, "string")) {
     throw new TypeError("[vitehub] Agent Invocation search must be a string.")
   }
   const value = search.trim()
@@ -529,6 +548,7 @@ function boundedObservation(
     stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
     truncated: false,
   }
+  const identity = observationIdentity(observation)
   const payloadBudget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
     stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
@@ -536,6 +556,7 @@ function boundedObservation(
   }
   const payload = boundedObservationPayload(observation.payload, payloadBudget, builtIns)
   const canonicalAttributes: Record<string, unknown> = {}
+  if (identity !== undefined) canonicalAttributes[AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE] = identity
   if (observation.activity) {
     canonicalAttributes["vitehub.activity.owner"] = observation.activity.owner
     canonicalAttributes["vitehub.activity.phase"] = observation.activity.phase
@@ -646,9 +667,19 @@ function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
     || (observation.name === "agent.stream.error" && observation.attributes?.["error.recoverable"] !== true)
 }
 
+function deliveryOutcomeObservation(observation: TraceEventLogEntry): boolean {
+  return observation.name === "agent.channel.delivery.effect"
+}
+
 function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
   if (failureEvidenceObservation(observation)) return 0
   if (terminalObservation(observation)) return 1
+  if (deliveryOutcomeObservation(observation)) return 2
+}
+
+function recoverableOutcomeObservation(observation: TraceEventLogEntry): boolean {
+  return deliveryOutcomeObservation(observation)
+    || (observationIdentity(observation) !== undefined && outcomeObservationPriority(observation) !== undefined)
 }
 
 function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
@@ -658,30 +689,45 @@ function truncatedObservation(observation: TraceEventLogEntry): TraceEventLogEnt
   }
 }
 
+function retainedPriorityOutcomes(
+  observations: readonly TraceEventLogEntry[],
+  limit: number,
+): TraceEventLogEntry[] {
+  if (limit <= 0) return []
+  const identified = new Map<string, TraceEventLogEntry>()
+  for (const observation of observations) {
+    if (outcomeObservationPriority(observation) === undefined) continue
+    const identity = observationIdentity(observation)
+    if (identity !== undefined) identified.set(identity, observation)
+  }
+  const candidates = observations.filter((observation) => {
+    if (outcomeObservationPriority(observation) === undefined) return false
+    const identity = observationIdentity(observation)
+    return identity === undefined || identified.get(identity) === observation
+  })
+  const hasLifecycleTerminal = candidates.some(observation => outcomeObservationPriority(observation) === 1)
+  const retained: TraceEventLogEntry[] = []
+  for (const priority of [0, 1, 2]) {
+    const remaining = limit - retained.length
+    if (remaining === 0) break
+    const available = priority === 0 && hasLifecycleTerminal ? Math.max(0, remaining - 1) : remaining
+    const matching = candidates.filter(observation => outcomeObservationPriority(observation) === priority)
+    if (available > 0) retained.push(...matching.slice(-available))
+  }
+  const candidateOrder = new Map(candidates.map((observation, index) => [observation, index]))
+  return retained.sort((left, right) => left.sequence - right.sequence
+    || (candidateOrder.get(left) ?? 0) - (candidateOrder.get(right) ?? 0))
+}
+
 function prioritizePendingOutcomes(
   pending: TraceEventLogEntry[],
   incoming: TraceEventLogEntry,
   active: TraceEventLogEntry | undefined,
-  retryIncoming = false,
 ): void {
-  const activeFatal = active && failureEvidenceObservation(active)
-  const fatal = retryIncoming && failureEvidenceObservation(incoming)
-    ? incoming
-    : activeFatal
-      ? undefined
-      : pending.find(failureEvidenceObservation)
-        ?? (failureEvidenceObservation(incoming) ? incoming : undefined)
-  const pendingTerminal = pending.findLast(terminalObservation)
-  const terminal = retryIncoming
-    ? pendingTerminal ?? (terminalObservation(incoming) ? incoming : undefined)
-    : terminalObservation(incoming)
-      ? incoming
-      : pendingTerminal
-  const outcomes: TraceEventLogEntry[] = []
-  if (fatal) outcomes.push(fatal)
-  if (terminal && terminal !== fatal) outcomes.push(terminal)
-  const ordinary = pending.filter(observation => !failureEvidenceObservation(observation) && !terminalObservation(observation))
-  const ordinaryLimit = Math.max(0, MAX_OBSERVATIONS - (active ? 1 : 0) - outcomes.length)
+  const limit = MAX_OBSERVATIONS - (active ? 1 : 0)
+  const outcomes = retainedPriorityOutcomes([...pending, incoming], limit)
+  const ordinary = pending.filter(observation => outcomeObservationPriority(observation) === undefined)
+  const ordinaryLimit = Math.max(0, limit - outcomes.length)
   pending.splice(0, pending.length, ...outcomes, ...ordinary.slice(0, ordinaryLimit))
 }
 
@@ -695,55 +741,53 @@ export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
-  if (terminalStatus(record.status) && !input.observationsTruncated) return record
+  if (terminalStatus(record.status) && input.observation && !recoverableOutcomeObservation(input.observation)) return record
+  if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
+  const incomingObservation = input.observation
+  const duplicateObservation = incomingObservation !== undefined
+    && record.observations.some(observation => sameObservation(observation, incomingObservation))
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
-  const observations = input.observation
+  const observations = input.observation && !duplicateObservation
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
           const observation = cloneObservation(boundedObservation(input.observation))
-          const priority = outcomeObservationPriority(observation)
-          const insertAt = record.observations.findIndex((candidate) => {
-            const candidatePriority = outcomeObservationPriority(candidate)
-            return candidatePriority !== undefined && (priority === undefined || candidatePriority > priority)
-          })
+          const insertAt = record.observations.findIndex(candidate => candidate.sequence > observation.sequence)
           return insertAt < 0
             ? [...record.observations, observation]
             : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
         })()
       : (() => {
-          const failureEvidence = record.observations.find(failureEvidenceObservation)
-            ?? (failureEvidenceObservation(input.observation) ? input.observation : undefined)
-          const terminal = terminalObservation(input.observation)
-            ? input.observation
-            : record.observations.findLast(terminalObservation)
-          const retained = record.observations.filter(observation => observation !== failureEvidence && observation !== terminal)
-          if (failureEvidence && terminal && failureEvidence !== terminal) {
-            return [
-              ...retained.slice(0, MAX_OBSERVATIONS - 2),
-              cloneObservation(boundedObservation(truncatedObservation(failureEvidence))),
-              cloneObservation(boundedObservation(truncatedObservation(terminal))),
-            ]
-          }
-          const outcome = failureEvidence || terminal
+          const outcomes = retainedPriorityOutcomes(
+            [...record.observations, input.observation],
+            MAX_OBSERVATIONS,
+          )
+          if (outcomes.length === 0) outcomes.push(record.observations.at(-1)!)
+          const retainedOutcomeIdentities = new Set(outcomes.map(observationIdentity).filter(identity => identity !== undefined))
+          const retained = record.observations.filter((observation) => {
+            const identity = observationIdentity(observation)
+            return identity === undefined ? !outcomes.includes(observation) : !retainedOutcomeIdentities.has(identity)
+          })
           return [
-            ...retained.slice(0, MAX_OBSERVATIONS - 1),
-            cloneObservation(boundedObservation(truncatedObservation(outcome || record.observations.at(-1)!))),
-          ]
+            ...retained.slice(0, MAX_OBSERVATIONS - outcomes.length),
+            ...outcomes.map(observation => cloneObservation(boundedObservation(truncatedObservation(observation)))),
+          ].sort((left, right) => left.sequence - right.sequence)
         })()
     : record.observations
   return {
     ...record,
     ...(input.error ? { error: input.error } : {}),
     observations,
-    ...(input.observationsTruncated ? { observationsTruncated: true } : {}),
+    ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)
+      ? { observationsTruncated: true }
+      : {}),
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
     ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
     ...(status === "cancelled" && !record.cancelledAt ? { cancelledAt: input.timestamp } : {}),
     status,
-    updatedAt: input.timestamp,
+    updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt,
   }
 }
 
@@ -817,12 +861,21 @@ function journalTraceLog(
   content: TraceEventContentPolicy,
   metadataContent: ReadonlySet<string>,
 ): TraceEventLog {
+  const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
   const messageDeltaChunkEvents = 32
   let pendingMessageDelta: TraceEventLogEntry | undefined
   let pendingMessageDeltaEvents = 0
   const emit = (entry: TraceEventLogEntry) => {
-    void observe({ ...entry, sequence: nextSequence() })
+    const sequence = nextSequence()
+    const identity = outcomeObservationPriority(entry) !== undefined
+      ? { [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: `${journalId}:${sequence}` }
+      : undefined
+    void observe({
+      ...entry,
+      ...((entry.attributes || identity) ? { attributes: { ...entry.attributes, ...identity } } : {}),
+      sequence,
+    })
   }
   const flushMessageDelta = () => {
     if (!pendingMessageDelta) return
@@ -974,6 +1027,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
+      let boundToTerminalRecord = false
       let finishing = false
       let ownsRecord = false
       let observationCount = 0
@@ -994,7 +1048,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let observationWrite: Promise<void> | undefined
       let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
-      const persistedObservationSequences = new Set<number>()
+      const terminalRetryObservations: TraceEventLogEntry[] = []
+      const terminalObservationRecoveries: Array<() => Promise<void>> = []
+      const ambiguouslyPersistingObservations = new Set<string | number>()
+      const persistedObservations = new Set<string | number>()
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
@@ -1022,6 +1079,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               truncationPersisted = result.record.observationsTruncated === true
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
               finished = terminalStatus(result.record.status)
+              boundToTerminalRecord = finished
               created = true
             }
             else if (creationTask === task) {
@@ -1084,8 +1142,23 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         let updated = false
         await write(async () => {
           if (!await renew(force)) return
-          const result = await boundedStoreOperation(() => store.update(recordId, input, claimId))
+          const operation = Promise.resolve().then(() => store.update(recordId, input, claimId))
+          const result = await boundedStoreOperation(() => operation)
           updated = result !== undefined && result !== storeOperationTimedOut
+          if (result === storeOperationTimedOut && input.observation && recoverableOutcomeObservation(input.observation)) {
+            const observation = input.observation
+            const key = observationPersistenceKey(observation)
+            ambiguouslyPersistingObservations.add(key)
+            terminalObservationRecoveries.push(async () => {
+              const record = await boundedStoreOperation(() => store.get(recordId))
+              if (record && record !== storeOperationTimedOut
+                && record.observations.some(candidate => sameObservation(candidate, observation))) {
+                persistedObservations.add(key)
+                return
+              }
+              await persistLateObservation(observation)
+            })
+          }
         })
         return updated
       }
@@ -1109,12 +1182,15 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               timestamp,
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             })
+            const previousObservationCount = observationCount
             const persistence = Promise.resolve().then(() => store.update(recordId, {
               observation: persistedObservation,
               timestamp,
             }, claimId)).then((updated) => {
-              if (updated?.observations.some(candidate => candidate.sequence === observation.sequence)) {
-                persistedObservationSequences.add(observation.sequence)
+              if (updated && (observationIdentity(observation) === undefined
+                ? updated.observations.length > previousObservationCount
+                : updated.observations.some(candidate => sameObservation(candidate, observation)))) {
+                persistedObservations.add(observationPersistenceKey(observation))
               }
               return updated
             })
@@ -1123,7 +1199,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               observationCount = updated.observations.length
               persisted = true
             }
-            else if (updated === undefined) failed = true
+            else if (updated === undefined
+              || (updated === storeOperationTimedOut && recoverableOutcomeObservation(observation))) failed = true
           }
           finally {
             if (failed && !finished) {
@@ -1133,12 +1210,16 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (!persisted
               && !finished
               && !finishing
-              && outcomeObservationPriority(observation) !== undefined
-              && !retriedObservations.has(observation)) {
-              observationsTruncated = true
-              const retry = truncatedObservation(observation)
-              retriedObservations.add(retry)
-              prioritizePendingOutcomes(pendingObservations, retry, undefined, true)
+              && outcomeObservationPriority(observation) !== undefined) {
+              if (!retriedObservations.has(observation)) {
+                observationsTruncated = true
+                const retry = truncatedObservation(observation)
+                retriedObservations.add(retry)
+                prioritizePendingOutcomes(pendingObservations, retry, undefined)
+              }
+              else if (failed) {
+                terminalRetryObservations.push(observation)
+              }
             }
           }
         })().catch(() => {})
@@ -1151,8 +1232,51 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         observationWrite = settled
       }
+      const persistLateObservation = async (observation: TraceEventLogEntry): Promise<void> => {
+        const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
+        let persisted = false
+        while (!persisted && Date.now() < deadline) {
+          await write(async () => {
+            if (!await ensureCreated()) return
+            const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, true))
+            if (claimed !== true) return
+            try {
+              const timestamp = normalizedTimestamp(observation.timestamp)
+              const persistedObservation = { ...observation, timestamp }
+              if (observation.trace) persistedObservation.trace = { ...observation.trace, id: traceId }
+              const update = Promise.resolve().then(() => store.update(recordId, {
+                observation: boundedObservation(persistedObservation),
+                timestamp,
+              }, claimId))
+              const boundedUpdate = await boundedStoreOperation(() => update)
+              const updated = boundedUpdate === storeOperationTimedOut
+                ? await boundedStoreOperation(() => update, Math.max(0, deadline - Date.now()))
+                : boundedUpdate
+              persisted = updated !== undefined && updated !== storeOperationTimedOut
+            }
+            finally {
+              await boundedStoreOperation(() => store.release(recordId, claimId))
+            }
+          })
+          if (!persisted && Date.now() < deadline) {
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
+              unrefTimer(timer)
+            })
+          }
+        }
+      }
       const observe = (observation: TraceEventLogEntry) => {
-        if (finished || finishing) return
+        if (finished) {
+          if (!boundToTerminalRecord && recoverableOutcomeObservation(observation)) {
+            registerAgentInvocationRecovery(context, persistLateObservation(observation))
+          }
+          return
+        }
+        if (finishing) {
+          if (recoverableOutcomeObservation(observation)) terminalRetryObservations.push(observation)
+          return
+        }
         const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
         const priority = outcomeObservationPriority(observation)
         const queuedObservation = priority !== undefined && (atCapacity || observationsTruncated)
@@ -1187,29 +1311,30 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
           const outcomeObservations = [...finishingObservations, activeObservation, ...pendingObservations]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
-            .filter((observation, index, observations) => observations.findIndex(candidate => candidate.sequence === observation.sequence) === index)
-          const unpersistedOutcomes = outcomeObservations.filter(observation => !persistedObservationSequences.has(observation.sequence))
-          const pendingFailure = unpersistedOutcomes.find(failureEvidenceObservation)
-          const pendingTerminal = unpersistedOutcomes.findLast(terminalObservation)
-          const pendingOutcomes = await Promise.all([pendingFailure, pendingTerminal]
-            .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
-            .filter((observation, index, outcomes) => outcomes.indexOf(observation) === index)
-            .map(async observation => await boundedJournalObservation({
+            .filter((observation, index, observations) => observations.findIndex(candidate => sameObservation(candidate, observation)) === index)
+          const unpersistedOutcomes = outcomeObservations
+            .filter(observation => !persistedObservations.has(observationPersistenceKey(observation)))
+          const pendingOutcomes = await Promise.all(retainedPriorityOutcomes(unpersistedOutcomes, MAX_OBSERVATIONS)
+            .map(observation => boundedJournalObservation({
               ...observation,
               timestamp: normalizedTimestamp(observation.timestamp),
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
             })))
-          const pendingOutcomeSequences = new Set(pendingOutcomes.map(observation => observation.sequence))
-          const discardedObservationSequences = unpersistedOutcomes
-            .filter(observation => !pendingOutcomeSequences.has(observation.sequence))
-            .map(observation => observation.sequence)
+          const pendingOutcomeKeys = new Set(pendingOutcomes.map(observationPersistenceKey))
+          const discardedObservationKeys = unpersistedOutcomes
+            .filter(observation => !pendingOutcomeKeys.has(observationPersistenceKey(observation)))
+            .map(observationPersistenceKey)
           pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
           }
           const failure = errorDetails(error)
           for (const observation of pendingOutcomes.slice(0, -1)) {
-            await update({ observation, timestamp: observation.timestamp })
+            const persisted = await update({ observation, timestamp: observation.timestamp })
+            if (!persisted && recoverableOutcomeObservation(observation)
+              && !ambiguouslyPersistingObservations.has(observationPersistenceKey(observation))) {
+              terminalRetryObservations.push(observation)
+            }
           }
           const terminalOutcome = pendingOutcomes.at(-1)
           const finishInput: AgentInvocationStoreUpdateInput = {
@@ -1220,24 +1345,40 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
           const finishOnce = async () => {
             if (finished) return false
-            const updated = await update(finishInput, bindOptions.terminalTakeover)
-              || terminalOutcome !== undefined && await update({
+            let updated = await update(finishInput, bindOptions.terminalTakeover)
+            let terminalOutcomePersisted = updated || terminalOutcome === undefined
+            if (!updated && terminalOutcome !== undefined) {
+              updated = await update({
                 ...(failure ? { error: failure } : {}),
                 status,
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
+              terminalOutcomePersisted = false
+            }
             if (!updated) return false
-            if (discardedObservationSequences.some(sequence => !persistedObservationSequences.has(sequence))) {
+            if (!terminalOutcomePersisted && terminalOutcome && recoverableOutcomeObservation(terminalOutcome)
+              && !ambiguouslyPersistingObservations.has(observationPersistenceKey(terminalOutcome))) {
+              terminalRetryObservations.push(terminalOutcome)
+            }
+            if (discardedObservationKeys.some(key => !persistedObservations.has(key))) {
               await markTruncated(bindOptions.terminalTakeover)
             }
             finished = true
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
             ownsRecord = false
+            const recoveries = terminalObservationRecoveries.splice(0)
+            const observations = terminalRetryObservations.splice(0)
+            if (recoveries.length > 0 || observations.length > 0) {
+              registerAgentInvocationRecovery(context, Promise.all([
+                ...recoveries.map(recover => recover()),
+                ...observations.map(persistLateObservation),
+              ]).then(() => undefined))
+            }
             return true
           }
           if (await finishOnce() || terminalRetry) return
-          const retry = (async () => {
+          const retryWork = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
@@ -1251,10 +1392,17 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
               ownsRecord = false
             }
-          })().finally(() => {
+          })()
+          const retry = retryWork.finally(async () => {
             if (!finished && terminalRetry === retry) {
               terminalRetry = undefined
               finishing = false
+              const recoveries = terminalObservationRecoveries.splice(0)
+              const observations = terminalRetryObservations.splice(0)
+              await Promise.all([
+                ...recoveries.map(recover => recover()),
+                ...observations.map(persistLateObservation),
+              ])
             }
           })
           terminalRetry = retry

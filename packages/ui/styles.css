@@ -1405,6 +1405,18 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   text-align: center;
 }
 
+.vh-invocation-delivery__body {
+  color: var(--vh-ui-text);
+  margin: 0.125rem 0 0 2rem;
+  max-width: 42rem;
+  padding-block-end: 0.75rem;
+}
+
+.vh-invocation-delivery__body .vh-invocation-event__markdown {
+  font-size: 0.875rem;
+  line-height: 1.625;
+}
+
 .vh-invocation-event__body,
 .vh-invocation-command {
   background: transparent;

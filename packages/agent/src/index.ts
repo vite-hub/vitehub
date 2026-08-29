@@ -46,12 +46,15 @@ import {
   http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
+  messageChannelDeliveredReplyBody,
+  messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
   slack as builtInSlack,
   teams as builtInTeams,
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
+import { registerMessageChannelDeferredReplyTrace, setChatFinishDirectReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
@@ -1185,7 +1188,58 @@ async function applyChannelDeliveryEffectIntents<
 
     let delivered = true
     for (const handler of handlers) {
+      let streamedReplyContent = ""
+      let streamedReplyContentTruncated = false
+      const deliveredIntent = intent.kind === "reply" && isAsyncIterable(intent.payload)
+        ? {
+            ...intent,
+            payload: {
+              [Symbol.asyncIterator]() {
+                // SAFETY: isAsyncIterable establishes the asserted stream contract above.
+                const iterator = (intent.payload as AsyncIterable<string>)[Symbol.asyncIterator]()
+                return {
+                  async next() {
+                    const result = await iterator.next()
+                    if (result.done) return result
+                    const chunk = result.value
+                    if (streamedReplyContent.length < 16 * 1024) {
+                      const remaining = 16 * 1024 - streamedReplyContent.length
+                      streamedReplyContent += chunk.slice(0, remaining)
+                      if (chunk.length > remaining) streamedReplyContentTruncated = true
+                    }
+                    else if (chunk.length > 0) streamedReplyContentTruncated = true
+                    return result
+                  },
+                  async return() {
+                    return await iterator.return?.() ?? { done: true, value: undefined }
+                  },
+                  async throw(error?: unknown) {
+                    if (iterator.throw) return await iterator.throw(error)
+                    throw error
+                  },
+                }
+              },
+            } satisfies AsyncIterable<string>,
+          }
+        : intent
       let handlerCompleted = false
+      const deliveryEffectContext = {
+        ...context.runtimeContext,
+        channel: active.channel,
+        context: context.context,
+        effect: deliveredIntent,
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        ...(finish ? { finish: finish as never } : {}),
+        input: context.input,
+        request: context.runtimeContext.request,
+        run: context.run,
+        trigger: {
+          channelId: active.channelId,
+          ...(active.trigger?.id ? { id: active.trigger.id } : {}),
+          ...(active.trigger?.name ? { name: active.trigger.name } : {}),
+        },
+        workspace: context.workspace,
+      }
       try {
         await verifyOwnership?.()
         try {
@@ -1200,24 +1254,27 @@ async function applyChannelDeliveryEffectIntents<
           phase: "effect",
         }, async () => {
           await verifyOwnership?.()
-          await handler({
-            ...context.runtimeContext,
-            channel: active.channel,
-            context: context.context,
-            effect: intent,
-            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            ...(finish ? { finish: finish as never } : {}),
-            input: context.input,
-            request: context.runtimeContext.request,
-            run: context.run,
-            trigger: {
-              channelId: active.channelId,
-              ...(active.trigger?.id ? { id: active.trigger.id } : {}),
-              ...(active.trigger?.name ? { name: active.trigger.name } : {}),
-            },
-            workspace: context.workspace,
+          await handler(deliveryEffectContext)
+          const deliveredContent = messageChannelDeliveredReplyBody(deliveryEffectContext)
+            ?? (intent.kind === "reply" ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }) : undefined)
+          const deliveredContentTruncated = streamedReplyContentTruncated
+            || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
+          const deferredTrace = intent.kind === "reply" && registerMessageChannelDeferredReplyTrace(deliveryEffectContext, async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
+              ...metadata,
+              "channel.effect.content": capture.content,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
           })
-          await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
+          if (!deferredTrace) {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
+              ...metadata,
+              ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+              ...(deliveredContentTruncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          }
         })
         handlerCompleted = true
       }
@@ -1239,9 +1296,15 @@ async function applyChannelDeliveryEffectIntents<
           await delivery?.event({ error: agentErrorMessage(error), type: "outbound.failed", runId: context.run?.runId })
         }
         catch {}
-        await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+        const deliveredContent = messageChannelDeliveredReplyBody(deliveryEffectContext)
+          ?? (intent.kind === "reply" ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }) : undefined)
+        await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
+          ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+          ...(streamedReplyContentTruncated || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
+            ? { "vitehub.observation.truncated": true }
+            : {}),
         })
       }
       if (handlerCompleted) {
@@ -2401,7 +2464,7 @@ function agentTelemetryUsesContent(registration: { content?: AgentTelemetryConte
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
-  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "vitehub.activity.body") return content.outputs === true
+  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
   return false
 }
 
@@ -4868,6 +4931,21 @@ async function finishAgentInvocation<
               () => createAgentInvocationExtensions(eventBase as never, finishExtensionProviders),
             )
         const finishEvent = { ...eventBase, extensions }
+        const chatFinish = extensions.get("chat")
+        if (chatFinish && isRuntimeObject(chatFinish)) {
+          setChatFinishDirectReplyTrace(chatFinish, message => async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), {
+              kind: "reply",
+              payload: message,
+            }, {
+              "channel.effect.content": capture.content,
+              "channel.effect.supported": true,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          })
+        }
         const activeDeliveryProviders = await runFinishActivity(
           deliveryActivity,
           () => {
