@@ -148,7 +148,7 @@ describe("host documentation fixtures", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-doc-hosts-"))
 
     try {
-      for (const host of hostFixtures) {
+      const buildHost = async (host: (typeof hostFixtures)[number]) => {
         const appRoot = join(root, host)
         await cp(join(fixturesRoot, host), appRoot, { recursive: true })
         await symlink(join(repoRoot, "node_modules"), join(appRoot, "node_modules"), "dir")
@@ -167,6 +167,10 @@ describe("host documentation fixtures", () => {
           ).resolves.not.toHaveLength(0)
         }
         if (host === "deno") await expectDenoLauncherToStart(appRoot)
+      }
+
+      for (let index = 0; index < hostFixtures.length; index += 2) {
+        await Promise.all(hostFixtures.slice(index, index + 2).map(buildHost))
       }
     }
     finally {
