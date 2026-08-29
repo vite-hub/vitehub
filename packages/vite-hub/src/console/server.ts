@@ -1,6 +1,8 @@
 import {
   createConsoleInvocations,
+  createConsoleFixtureInvocations,
   getConsoleInvocations,
+  installConsoleFixtureInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
 import {
@@ -12,11 +14,13 @@ import { getConsoleSections, installConsoleSections } from "./runtime/server/sec
 
 export {
   createConsoleInvocations,
+  createConsoleFixtureInvocations,
   getConsoleAgents,
   getConsoleInvocations,
   getConsoleSections,
   installConsoleAgentDefinitions,
   installConsoleAgents,
+  installConsoleFixtureInvocations,
   installConsoleInvocations,
   installConsoleSections,
 }
