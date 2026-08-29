@@ -5976,12 +5976,6 @@ async function executeAgentInvocationWithCapacityLease<
         }
       }
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        if (!outcome.failed && !outcome.completed) {
-          await Promise.allSettled([...uiMessageSources.values()].map(source => source.cancel(undefined)))
-          const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
-          void finishTask.catch(() => {})
-          return
-        }
         await finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
       }, {
         abortSignal: invocation.input.abortSignal,
