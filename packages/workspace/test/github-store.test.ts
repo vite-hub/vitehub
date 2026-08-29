@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env";
 import { resolveGitHubWorkspaceRoot } from "../src/providers/github/shared.ts";
@@ -788,6 +789,29 @@ describe("GitHub workspace store", () => {
     await store.snapshot({ name: "unchanged" });
 
     expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  it("preserves binary sizes for cross-realm writes", async () => {
+    const content = runInNewContext("new Uint8Array([0, 1, 2, 255])") as Uint8Array;
+    const bytes = new Uint8Array(content);
+    const sha = gitBlobSha(bytes);
+    blobs.set(sha, bytes);
+    remoteTree.push({
+      path: ".vitehub/workspaces/docs/data.bin",
+      sha,
+      size: bytes.byteLength,
+      type: "blob",
+    });
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+
+    await store.writeFile("data.bin", { content, path: "data.bin" });
+
+    await expect(store.stat("data.bin")).resolves.toMatchObject({ size: bytes.byteLength });
+    expect(requests.filter(request => request.method !== "GET")).toEqual([]);
   });
 
   it("reads GitHub symlink blobs from their in-workspace target", async () => {

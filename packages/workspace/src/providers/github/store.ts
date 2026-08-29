@@ -89,7 +89,7 @@ function isReservedWorkspacePath(path: string): boolean {
 }
 
 function contentLength(content: string | Uint8Array): number {
-  return content instanceof Uint8Array
+  return ArrayBuffer.isView(content)
     ? content.byteLength
     : new TextEncoder().encode(content).byteLength;
 }
