@@ -15,6 +15,10 @@ export interface WorkspaceSourceRequestExecutionTarget {
 
 const sourceRequestExecutions = new WeakMap<object, WorkspaceSourceRequestExecutionTarget>()
 
+function isWeakKey(value: unknown): value is object {
+  return Object(value) === value
+}
+
 export function attachWorkspaceSourceRequestExecution<T extends object>(
   target: T,
   executor: WorkspaceSourceRequestExecutionTarget | undefined,
@@ -24,7 +28,8 @@ export function attachWorkspaceSourceRequestExecution<T extends object>(
   return target
 }
 
-export function getWorkspaceSourceRequestExecution(input: object): WorkspaceSourceRequestExecutionTarget | undefined {
+export function getWorkspaceSourceRequestExecution(input: unknown): WorkspaceSourceRequestExecutionTarget | undefined {
+  if (!isWeakKey(input)) return undefined
   return sourceRequestExecutions.get(input)
 }
 
@@ -97,8 +102,8 @@ function requestShapeMatches(descriptor: WorkspaceSourceRequestDescriptor, input
 
 function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor["request"]> | undefined, input: WorkspaceSourceRequestExecutionInput): boolean {
   if (request?.bodySchema) return true
-  if (typeof request?.body !== "undefined") return jsonEqual(input.body, request.body)
-  return typeof input.body === "undefined"
+  if (request && "body" in request) return jsonEqual(input.body, request.body)
+  return input.body === undefined
 }
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
