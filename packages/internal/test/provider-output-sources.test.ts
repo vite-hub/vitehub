@@ -167,7 +167,8 @@ it("preserves dependency resolution for a workspace-linked package", async () =>
 
 it("preserves workspace dependencies beyond a package-local dependency tree", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-dependencies-"))
-  tempDirs.push(workspace)
+  const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-artifact-"))
+  tempDirs.push(workspace, artifactRoot)
   const rootDir = join(workspace, "apps", "web")
   const packageDir = join(workspace, "packages", "fixture-package")
   const dependencyDir = join(workspace, "node_modules", "fixture-dependency")
@@ -187,7 +188,7 @@ it("preserves workspace dependencies beyond a package-local dependency tree", as
   ])
 
   const retained = await retainProviderOutputSources({
-    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    artifactDir: join(artifactRoot, "sources"),
     paths: [entry],
     roots: [rootDir],
   })
