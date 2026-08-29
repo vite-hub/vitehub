@@ -3690,6 +3690,7 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
 } {
   let readableCancelTask: Promise<void> | undefined
   const readableReader = isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+    // SAFETY: The runtime guard establishes the ReadableStream reader contract used below.
     ? stream.getReader() as ReadableStreamDefaultReader<unknown>
     : undefined
   const iterator: AsyncIterator<unknown> = readableReader
@@ -3705,10 +3706,11 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
     : stream[Symbol.asyncIterator]()
   let cancelTask: Promise<void> | undefined
   let completed = false
-  const cancel = async (reason?: unknown) => {
-    if (completed) return
+  const cancel = (reason?: unknown): Promise<void> => {
+    if (completed) return Promise.resolve()
     cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
     void cancelTask.catch(() => {})
+    return Promise.resolve()
   }
   const settleCancellation = async (reason?: unknown) => {
     await cancel(reason)
@@ -3732,9 +3734,9 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
             }
             return { done: false, value: chunk.value }
           },
-          async return(reason?: unknown) {
-            await cancel(reason)
-            return { done: true, value: undefined }
+          return(reason?: unknown) {
+            void cancel(reason)
+            return Promise.resolve({ done: true, value: undefined })
           },
         }
       },
