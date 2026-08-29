@@ -182,11 +182,15 @@ function createCloudflareSession(
     },
     ...(hostname && stub.exposePort
       ? {
-          async getPortUrl({ port, protocol = "http" }: { port: number; protocol?: "http" | "https" | "ws" }) {
-            const result = await request("exposePort", async () => await stub.exposePort!(port, {
-              hostname,
-              protocol: protocol === "ws" ? "http" : protocol,
-            }));
+          async getPortUrl({ abortSignal, port, protocol = "http" }: { abortSignal?: AbortSignal; port: number; protocol?: "http" | "https" | "ws" }) {
+            const result = await abortable(
+              request("exposePort", async () => await stub.exposePort!(port, {
+                hostname,
+                protocol: protocol === "ws" ? "http" : protocol,
+              })),
+              abortSignal,
+              destroy,
+            );
             return protocol === "ws" ? result.url.replace(/^http/, "ws") : result.url;
           },
         }

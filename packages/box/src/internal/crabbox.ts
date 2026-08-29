@@ -726,10 +726,11 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       }
       if (failure) throw failure
     },
-    async getPortUrl({ port, protocol = "http" }: { port: number, protocol?: "http" | "https" | "ws" }) {
+    async getPortUrl({ abortSignal, port, protocol = "http" }: { abortSignal?: AbortSignal, port: number, protocol?: "http" | "https" | "ws" }) {
+      abortSignal?.throwIfAborted()
       if (state.options.network === "direct") return `${protocol}://127.0.0.1:${port}`
       const tunnel = state.tunnels.get(port) || startTunnel(state, port)
-      return `${protocol}://127.0.0.1:${await tunnel.localPort}`
+      return `${protocol}://127.0.0.1:${await abortTunnel(tunnel, abortSignal)}`
     },
     async existsFile({ abortSignal, path }: { abortSignal?: AbortSignal, path: string }) {
       const target = resolveSessionPath(state.root, path)
@@ -1023,6 +1024,29 @@ function startTunnel(state: CrabboxSessionState, remotePort: number) {
     if (state.tunnels.get(remotePort) === tunnel) state.tunnels.delete(remotePort)
   })
   return tunnel
+}
+
+async function abortTunnel(tunnel: CrabboxTunnel, signal: AbortSignal | undefined) {
+  if (!signal) return await tunnel.localPort
+  signal.throwIfAborted()
+  return await new Promise<number>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort)
+      tunnel.child.kill()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", onAbort, { once: true })
+    void tunnel.localPort.then(
+      (port) => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(port)
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(error)
+      },
+    )
+  })
 }
 
 async function validateRequirements(

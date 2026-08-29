@@ -448,12 +448,15 @@ async function createTrustedHostSession(options: {
       }
     },
     async getPortUrl({
+      abortSignal,
       port,
       protocol = "http",
     }: {
+      abortSignal?: AbortSignal;
       port: number;
       protocol?: "http" | "https" | "ws";
     }) {
+      abortSignal?.throwIfAborted();
       return `${protocol}://127.0.0.1:${port}`;
     },
     async existsFile({ path }: { path: string }) {

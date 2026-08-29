@@ -25,6 +25,7 @@ export interface RuntimeSession {
   destroy?(): Promise<void>;
   existsFile(options: { abortSignal?: AbortSignal; path: string }): Promise<boolean>;
   getPortUrl?(options: {
+    abortSignal?: AbortSignal;
     port: number;
     protocol?: "http" | "https" | "ws";
   }): Promise<string>;
@@ -231,9 +232,9 @@ export function createBoxSession(
           ports: {
             values: runtime.ports ?? [0],
             async expose(port: number, options?: { protocol?: "http" | "https" | "ws" }) {
-              operationSignal();
+              const abortSignal = operationSignal();
               assertPort(port);
-              return new URL(await runtime.getPortUrl!({ port, protocol: options?.protocol }));
+              return new URL(await runtime.getPortUrl!({ abortSignal, port, protocol: options?.protocol }));
             },
           },
         }
