@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
@@ -3688,7 +3688,23 @@ function assignResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecor
 function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): ReturnType<typeof cancellableAsyncIterableSource> & {
   settleCancellation: (reason?: unknown) => Promise<void>
 } {
-  const iterator = stream[Symbol.asyncIterator]()
+  const readableReader = isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+    ? (stream as ReadableStream<unknown>).getReader()
+    : undefined
+  const iterator: AsyncIterator<unknown> = readableReader
+    ? {
+        next: () => readableReader.read(),
+        async return(reason) {
+          try {
+            await readableReader.cancel(reason)
+          }
+          finally {
+            readableReader.releaseLock()
+          }
+          return { done: true, value: undefined }
+        },
+      }
+    : stream[Symbol.asyncIterator]()
   let cancelTask: Promise<void> | undefined
   let completed = false
   const cancel = async (reason?: unknown) => {
@@ -3712,6 +3728,7 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
             const chunk = await iterator.next()
             if (chunk.done) {
               completed = true
+              readableReader?.releaseLock()
               return { done: true, value: undefined }
             }
             return { done: false, value: chunk.value }
