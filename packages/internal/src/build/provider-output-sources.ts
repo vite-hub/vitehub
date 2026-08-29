@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs"
+import { existsSync, realpathSync, statSync } from "node:fs"
 import { cp, mkdir, mkdtemp, rename, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path"
@@ -36,9 +36,10 @@ function packageRoot(file: string): string {
 }
 
 function dependencyRoot(root: string): string | undefined {
-  const nested = resolve(root, "node_modules")
+  const resolvedRoot = realpathSync(root)
+  const nested = resolve(resolvedRoot, "node_modules")
   if (existsSync(nested)) return nested
-  let current = dirname(root)
+  let current = dirname(resolvedRoot)
   while (current !== dirname(current)) {
     if (basename(current) === "node_modules") return current
     current = dirname(current)

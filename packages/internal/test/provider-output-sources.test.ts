@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -129,6 +129,36 @@ it("preserves dependency resolution for packages installed in a pnpm store", asy
     writeFile(entry, 'export { value } from "fixture-dependency"\n'),
     writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
     writeFile(join(dependencyDir, "index.js"), 'export const value = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
+it("preserves pnpm dependencies when the package entry uses its top-level symlink", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-pnpm-symlink-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const dependencyRoot = join(rootDir, "node_modules", ".pnpm", "fixture-package@1.0.0", "node_modules")
+  const packageDir = join(dependencyRoot, "fixture-package")
+  const dependencyDir = join(dependencyRoot, "fixture-dependency")
+  const entry = join(rootDir, "node_modules", "fixture-package", "dist", "index.js")
+  await Promise.all([
+    mkdir(join(packageDir, "dist"), { recursive: true }),
+    mkdir(dependencyDir, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(join(packageDir, "dist", "index.js"), 'export { value } from "fixture-dependency"\n'),
+    writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
+    writeFile(join(dependencyDir, "index.js"), 'export const value = "retained"\n'),
+    symlink(packageDir, join(rootDir, "node_modules", "fixture-package"), process.platform === "win32" ? "junction" : "dir"),
   ])
 
   const retained = await retainProviderOutputSources({
