@@ -14,6 +14,7 @@ describe("BoxSession", () => {
         name: "opaque",
         async open() { throw new Error("unreachable") },
         async prepare({ identity }) {
+          // SAFETY: This invalid-runtime fixture supplies only the shape needed to reach authority validation.
           return {
             cache: { state: "disposable" },
             environment: { env: {} },
