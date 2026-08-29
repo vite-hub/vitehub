@@ -323,7 +323,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
               providerImportAliases: retainedProviderImportAliases,
               providerRuntimeInputs: {
                 aliases: typedRetainedRuntimeAliases,
-                vercelPackages: [],
+                vercelPackages: providerRuntimeInputs.vercelPackages.filter(runtimePackage => runtimePackage.name === "@vite-hub/blob"),
               },
               queue: queue ?? (resolveNitroHosting(cloneNitroConfig(nitro))
                 ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }

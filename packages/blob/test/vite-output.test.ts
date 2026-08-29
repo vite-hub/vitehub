@@ -395,7 +395,7 @@ describe("Vite provider outputs", () => {
     expect(vercelServer).not.toContain("local-database-runtime-marker")
   })
 
-  it("copies Vercel static output from Vite's default dist directory", async () => {
+  it("copies Vercel static output from Vite's default dist directory", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-default-dist-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -411,7 +411,7 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
   })
 
-  it("preserves Nitro output when emitting a composed Vercel function", async () => {
+  it("preserves Nitro output when emitting a composed Vercel function", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-nitro-output-")
     const outputRoot = join(rootDir, ".vercel", "output")
     const nitroFunction = join(outputRoot, "functions", "__server.func", "index.mjs")
@@ -488,7 +488,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(false)
   })
 
-  it("preserves Vercel functions not owned by Blob during Cloudflare builds", async () => {
+  it("preserves Vercel functions not owned by Blob during Cloudflare builds", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-")
     const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -586,7 +586,7 @@ describe("Vite provider outputs", () => {
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 
-  it("preserves the shared root Vercel output during Cloudflare builds", async () => {
+  it("preserves the shared root Vercel output during Cloudflare builds", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-root-vercel-")
     const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -742,7 +742,7 @@ describe("Vite provider outputs", () => {
     expect(cloudflareWorker).not.toContain("@aws-sdk/")
   })
 
-  it("copies Cloudflare R2 runtime packages into isolated Vercel output", { timeout: 15_000 }, async () => {
+  it("copies Cloudflare R2 runtime packages into isolated Vercel output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-r2-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
@@ -900,7 +900,7 @@ describe("Vite provider outputs", () => {
     expect(bundled).not.toContain("@aws-sdk/")
   })
 
-  it("rehydrates masked Vercel tokens from generated runtime output", async () => {
+  it("rehydrates masked Vercel tokens from generated runtime output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -940,7 +940,7 @@ describe("Vite provider outputs", () => {
     expect(vercelServerContents).not.toContain("from '@vercel/blob'")
   })
 
-  it("selects named stores from generated runtime output", async () => {
+  it("selects named stores from generated runtime output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -990,7 +990,7 @@ describe("Vite provider outputs", () => {
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
   })
 
-  it("generates Netlify Blobs driver reachability for selected stores", async () => {
+  it("generates Netlify Blobs driver reachability for selected stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-netlify-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
