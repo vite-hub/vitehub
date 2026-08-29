@@ -1422,7 +1422,10 @@ describe("framework generated types", () => {
   it("resumes the old Source lifecycle after replacement config validation fails", async () => {
     const { root } = await createNestedProject()
     const meals = join(root, "server/collections/meals.ts")
+    const generatedMeals = join(root, ".vitehub/source/routes/meals.mjs")
+    const generatedDrinks = join(root, ".vitehub/source/routes/drinks.mjs")
     const drinks = join(root, "server/collections/drinks.ts")
+    const replacementDrinks = join(root, "api/collections/drinks.ts")
     await mkdir(dirname(meals), { recursive: true })
     await writeFile(meals, collectionModule("meals"))
     const plugin = sourcePlugin()
@@ -1435,10 +1438,15 @@ describe("framework generated types", () => {
       watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
     })
 
+    await mkdir(dirname(replacementDrinks), { recursive: true })
+    await writeFile(replacementDrinks, collectionModule("drinks"))
     await expect(config(plugin)({
-      nitro: { handlers: [{ handler: "server/api/meals.ts", method: "get", route: "/api/meals" }] },
+      nitro: { handlers: [{ handler: "api/drinks.ts", method: "get", route: "/api/drinks" }] },
       root,
-    })).rejects.toThrow('Generated Collection route "/api/meals" conflicts with an existing GET handler')
+      [VITEHUB_SERVER_DIRS]: ["api"],
+    })).rejects.toThrow('Generated Collection route "/api/drinks" conflicts with an existing GET handler')
+    expect(await readFile(generatedMeals, "utf8")).toContain("server/collections/meals.ts")
+    await expect(readFile(generatedDrinks, "utf8")).rejects.toThrow()
 
     await writeFile(drinks, collectionModule("drinks"))
     await oldListeners.get("add")?.(drinks)

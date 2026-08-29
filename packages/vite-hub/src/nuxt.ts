@@ -923,7 +923,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     return restart
   }, { handlesHostRestart: true, projectRoot })
   if (removeGeneratedHandlersListener) {
-    nuxt.hook?.("close", () => {
+    nuxt.hook?.("close", async () => {
       generatedSourceRestartClosed = true
       removeGeneratedHandlersListener()
     })

@@ -456,6 +456,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
       const previousLifecycle = hostRefreshLifecycleByRoot.get(projectRoot)
+      const previousConfiguredState = configuredStateByRoot.get(projectRoot)
       previousLifecycle?.pause()
       const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       try {
@@ -475,7 +476,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         return contribution
       }
       catch (error) {
-        previousLifecycle?.resume()
+        try {
+          if (previousLifecycle) {
+            await prepareSources({
+              projectRoot,
+              serverDirs: previousConfiguredState?.serverDirs,
+            })
+          }
+        }
+        finally {
+          previousLifecycle?.resume()
+        }
         throw error
       }
     },
