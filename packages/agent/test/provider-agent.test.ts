@@ -2956,12 +2956,13 @@ cli_auth_credentials_store = "keyring"
       provider: "codex" as const,
     }
     const adapter = createProviderAgentAdapter(options)
+    const runtimeCalls = createProviderRuntime.mock.calls.length
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
 
-    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
     controller.abort(new DOMException("cancelled", "AbortError"))
     await expect(result).rejects.toMatchObject({ name: "AbortError" })
     resolveRuntime(lateRuntime)
@@ -3004,6 +3005,7 @@ cli_auth_credentials_store = "keyring"
 
   it("removes the Workspace root when late runtime creation rejects", async () => {
     const threadId = "thread-late-runtime-rejection"
+    const runtimeCalls = createProviderRuntime.mock.calls.length
     let rejectRuntime!: (reason: unknown) => void
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     createProviderRuntime.mockImplementationOnce(() => new Promise((_resolve, reject) => rejectRuntime = reject) as never)
@@ -3012,7 +3014,7 @@ cli_auth_credentials_store = "keyring"
       input: { prompt: "hello", timeout: 20 },
     }) as never)
 
-    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     const runtimeCall = createProviderRuntime.mock.lastCall
     expect(runtimeCall).toBeDefined()

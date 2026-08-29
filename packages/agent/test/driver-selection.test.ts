@@ -85,6 +85,7 @@ describe("built-in Agent Driver selection", () => {
         credentialProfile: "support",
         credentials,
         kind: "codex",
+        model: "gpt-5.6-sol",
         reasoningEffort: "high",
         reasoningSummary: "detailed",
       },
@@ -132,7 +133,7 @@ describe("built-in Agent Driver selection", () => {
       // SAFETY: This fixture deliberately supplies a string-coercible object.
       driver: { kind: "codex", reasoningEffort: { toString: () => "high" } } as never,
     })).toThrow("must be a non-empty model-advertised value")
-    expect(normalizeAgentDriver({ driver: { kind: "codex", reasoningEffort: "ultra" } })).toMatchObject({ reasoningEffort: "ultra" })
+    expect(normalizeAgentDriver({ driver: { kind: "codex", model: "gpt-5.6-sol", reasoningEffort: "ultra" } })).toMatchObject({ reasoningEffort: "ultra" })
   })
 
   it("preserves provider environment keys that overlap object prototype accessors", () => {
