@@ -33,9 +33,25 @@ async function loadChromium(): Promise<Pick<BrowserType, "connectOverCDP">> {
   }
 }
 
+function asPlaywrightBrowser(browser: unknown): Browser {
+  // SAFETY: Both Playwright packages expose the Browser surface consumed by ViteHub's controller.
+  return browser as Browser
+}
+
 async function loadCloudflare(): Promise<NonNullable<PlaywrightControllerOptions["cloudflare"]>> {
   try {
-    return await import("@cloudflare/playwright") as unknown as NonNullable<PlaywrightControllerOptions["cloudflare"]>
+    const cloudflare = await import("@cloudflare/playwright")
+    return {
+      connect(binding, sessionId) {
+        // SAFETY: Cloudflare supplies the Browser Worker binding accepted by its Playwright adapter.
+        return cloudflare.connect(binding as never, sessionId)
+      },
+      async launch(binding, options) {
+        // SAFETY: Cloudflare supplies the Browser endpoint accepted by its Playwright adapter.
+        const browser = await cloudflare.launch(binding as never, options)
+        return asPlaywrightBrowser(browser)
+      },
+    }
   }
   catch (error) {
     throw browserProviderError("playwright", "load @cloudflare/playwright", { cause: error })
