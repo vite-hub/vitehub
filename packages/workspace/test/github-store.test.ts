@@ -6,7 +6,15 @@ import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts
 
 import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts";
 
-const requests: Array<{ body?: unknown; headers: Headers; method: string; path: string }> = [];
+interface GitHubRequestBody {
+  content?: string;
+  force?: boolean;
+  ref?: string;
+  sha?: string | null;
+  tree?: Array<{ mode?: string; path: string; sha: string | null; type: "blob" }>;
+}
+
+const requests: Array<{ body?: GitHubRequestBody; headers: Headers; method: string; path: string }> = [];
 let refSha = "base-sha";
 let remoteTreeSha = "base-tree";
 let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number; type: "blob" }> = [];
@@ -25,6 +33,10 @@ function gitBlobSha(bytes: Uint8Array): string {
 
 function textBytes(content: string): Uint8Array {
   return new TextEncoder().encode(content);
+}
+
+function isGitHubRequestBody(value: unknown): value is GitHubRequestBody {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function textSha(content: string): string {
@@ -68,16 +80,8 @@ beforeEach(() => {
     vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       const method = init.method || "GET";
-      const body =
-        typeof init.body === "string"
-          ? (JSON.parse(init.body) as {
-              content?: string;
-              force?: boolean;
-              ref?: string;
-              sha?: string | null;
-              tree?: Array<{ mode?: string; path: string; sha: string | null; type: "blob" }>;
-            })
-          : undefined;
+      const parsedBody: unknown = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+      const body = isGitHubRequestBody(parsedBody) ? parsedBody : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
 
       if (url.hostname === "codeload.github.com") {
@@ -527,6 +531,10 @@ describe("GitHub workspace store", () => {
       content: "ship it\n",
       mediaType: "text/markdown",
     });
+    await expect(store.glob("**/*.{md,json}")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "data/existing.json", type: "file" }),
+      expect.objectContaining({ path: "tasks/todo.md", type: "file" }),
+    ]));
     await store.setMeta!("loader", { digest: "abc" });
 
     const snapshot = await store.snapshot({ name: "sync workspace" });

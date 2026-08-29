@@ -1,0 +1,36 @@
+diff --git a/dist/chunk-FWVYH726.js b/dist/chunk-FWVYH726.js
+--- a/dist/chunk-FWVYH726.js
++++ b/dist/chunk-FWVYH726.js
+@@ -163,7 +163,7 @@ var InvalidBlobsRegionError = class extends Error {
+ 
+ // src/retry.ts
+ import { getEnvironment as getEnvironment2 } from "@netlify/runtime-utils";
+-var DEFAULT_RETRY_DELAY = getEnvironment2().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ var MIN_RETRY_DELAY = 1e3;
+ var MAX_RETRY = 5;
+ var RATE_LIMIT_HEADER = "X-RateLimit-Reset";
+diff --git a/dist/main.cjs b/dist/main.cjs
+--- a/dist/main.cjs
++++ b/dist/main.cjs
+@@ -152,7 +152,7 @@ var InvalidBlobsRegionError = class extends Error {
+ 
+ // src/retry.ts
+ var import_runtime_utils4 = require("@netlify/runtime-utils");
+-var DEFAULT_RETRY_DELAY = (0, import_runtime_utils4.getEnvironment)().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ var MIN_RETRY_DELAY = 1e3;
+ var MAX_RETRY = 5;
+ var RATE_LIMIT_HEADER = "X-RateLimit-Reset";
+diff --git a/dist/server.cjs b/dist/server.cjs
+--- a/dist/server.cjs
++++ b/dist/server.cjs
+@@ -71,7 +71,7 @@ var decodeMetadata = (header) => {
+ 
+ // src/retry.ts
+ var import_runtime_utils3 = require("@netlify/runtime-utils");
+-var DEFAULT_RETRY_DELAY = (0, import_runtime_utils3.getEnvironment)().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ 
+ // src/util.ts
+ var import_node_process = __toESM(require("process"), 1);

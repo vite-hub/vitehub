@@ -1,20 +1,77 @@
-import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
+import { EventEmitter } from "node:events"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
+import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string> }) => providerRuntimes.shift()))
-const resolveInstalledCodexExecutable = vi.hoisted(() => vi.fn<() => string | undefined>(() => "/app/node_modules/@openai/codex/bin/codex.js"))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: {
+  environment?: Record<string, string>
+  settings?: Record<string, unknown>
+}) => providerRuntimes.shift()))
+const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
+  ? "/app/node_modules/@openai/codex/bin/codex.js"
+  : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
+const readCodexSharedHome = vi.hoisted(() => vi.fn())
+const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
+const beforeCodexCredentialChmod = vi.hoisted(() => vi.fn())
+const beforeCodexHomeCopyFile = vi.hoisted(() => vi.fn())
+const beforeCodexHomeSymlink = vi.hoisted(() => vi.fn())
+const beforeCodexHomeLink = vi.hoisted(() => vi.fn())
+const readCodexHomeStat = vi.hoisted(() => vi.fn())
+const spawnProviderProcess = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
-vi.mock("../src/internal/codex-runtime-package.ts", () => ({ resolveInstalledCodexExecutable }))
+vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>()
+  return {
+    ...original,
+    spawn: (...args: Parameters<typeof original.spawn>) => spawnProviderProcess.getMockImplementation()
+      ? spawnProviderProcess(...args)
+      : original.spawn(...args),
+  }
+})
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...original,
+    chmod: async (...args: Parameters<typeof original.chmod>) => {
+      await beforeCodexCredentialChmod(...args)
+      return await original.chmod(...args)
+    },
+    copyFile: async (...args: Parameters<typeof original.copyFile>) => {
+      await beforeCodexHomeCopyFile(...args)
+      return await original.copyFile(...args)
+    },
+    link: async (...args: Parameters<typeof original.link>) => {
+      await beforeCodexHomeLink(...args)
+      return await original.link(...args)
+    },
+    readdir: (...args: Parameters<typeof original.readdir>) => readCodexSharedHome.getMockImplementation()
+      ? readCodexSharedHome(...args)
+      : original.readdir(...args),
+    realpath: (...args: Parameters<typeof original.realpath>) => canonicalizeCodexSharedHome.getMockImplementation()
+      ? canonicalizeCodexSharedHome(...args)
+      : original.realpath(...args),
+    stat: (...args: Parameters<typeof original.stat>) => readCodexHomeStat.getMockImplementation()
+      ? readCodexHomeStat(...args)
+      : original.stat(...args),
+    symlink: async (...args: Parameters<typeof original.symlink>) => {
+      await beforeCodexHomeSymlink(...args)
+      return await original.symlink(...args)
+    },
+  }
+})
 
-import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
+import { createProviderAgentAdapter, localWorkspaceHost, restrictWindowsCodexCredentialHome } from "../src/provider-agent.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -102,9 +159,40 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
+  it("passes cancellation to the Windows credential ACL helper", async () => {
+    const child = Object.assign(new EventEmitter(), {
+      stderr: new EventEmitter(),
+      stdout: new EventEmitter(),
+    })
+    spawnProviderProcess.mockImplementation((_command, _args, options) => {
+      // SAFETY: The production helper always supplies an AbortSignal to the spawned process.
+      const signal = options.signal as AbortSignal
+      signal.addEventListener("abort", () => child.emit("error", signal.reason), { once: true })
+      return child
+    })
+    const controller = new AbortController()
+    const cancelled = new DOMException("cancelled", "AbortError")
+
+    try {
+      const restriction = restrictWindowsCodexCredentialHome("C:\\codex-shadow", controller.signal)
+      await vi.waitFor(() => expect(spawnProviderProcess).toHaveBeenCalledWith(
+        "powershell.exe",
+        expect.any(Array),
+        expect.objectContaining({ signal: controller.signal }),
+      ))
+      controller.abort(cancelled)
+
+      await expect(restriction).rejects.toBe(cancelled)
+    }
+    finally {
+      controller.abort(cancelled)
+      spawnProviderProcess.mockReset()
+    }
+  })
+
   it("passes only host process essentials and explicitly selected environment values", async () => {
     const threadId = "thread-environment"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
     const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
 
@@ -119,18 +207,1182 @@ describe("Provider Agent Driver", () => {
     const lastRuntimeCall = createProviderRuntime.mock.lastCall
     expect(lastRuntimeCall).toBeDefined()
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    expect(provider.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ modelOptions: expect.anything() }))
     vi.unstubAllEnvs()
   })
 
   it("keeps the host Codex executable fallback when the package is absent", async () => {
     const threadId = "thread-host-codex"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    resolveInstalledCodexExecutable.mockReturnValueOnce(undefined)
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
+  })
+
+  it("keeps the installed Codex executable when provider setting overrides are undefined", async () => {
+    const threadId = "thread-undefined-provider-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const providerContext = context(threadId) as never
+    await createProviderAgentAdapter({
+      provider: "codex",
+      providerSettings: { binaryPath: undefined, launchArgs: undefined },
+    }).generate(providerContext)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
+    }))
+  })
+
+  it("uses the installed Claude SDK executable", async () => {
+    const threadId = "thread-project-claude"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: { binaryPath: "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude" },
+    }))
+  })
+
+  it("isolates resolved Codex credentials in a private shadow home and removes it after runtime shutdown", async () => {
+    const threadId = "thread-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    let shadowHome: string | undefined
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      expect(options.settings?.homePath).toEqual(expect.any(String))
+      shadowHome = String(options.settings?.homePath)
+      expect(options.settings).toMatchObject({
+        binaryPath: "/custom/codex",
+        homePath: expect.stringContaining("vitehub-codex-shadow-home-"),
+        launchArgs: "--enable responses_websockets_v2",
+      })
+      expect(options.settings).not.toHaveProperty("shadowHomePath")
+      expect((await lstat(shadowHome)).mode & 0o777).toBe(0o700)
+      expect((await lstat(join(shadowHome, "auth.json"))).mode & 0o777).toBe(0o600)
+      expect((await lstat(join(shadowHome, "auth.json"))).isSymbolicLink()).toBe(false)
+      expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
+      expect(await readlink(join(shadowHome, "sessions"))).toBe(join(sharedHome, "sessions"))
+      expect(await readlink(join(shadowHome, "config.toml"))).toBe(join(sharedHome, "config.toml"))
+      return providerRuntimes.shift()
+    })
+    const credentials = vi.fn(async (metadata: { actor: { id: string } }) => {
+      expect(metadata.actor.id).toBe("actor")
+      return { unseal: () => '{ "tokens": { "access_token": "secret" } }' }
+    })
+
+    const adapter = createProviderAgentAdapter({
+      credentials,
+      provider: "codex",
+      providerSettings: {
+        binaryPath: "/custom/codex",
+        homePath: sharedHome,
+        launchArgs: "--enable responses_websockets_v2",
+      },
+    })
+    const runContext = context(threadId)
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await adapter.generate(runContext as never)
+
+    expect(credentials).toHaveBeenCalledOnce()
+    expect(shadowHome).toBeDefined()
+    if (!shadowHome) throw new Error("Expected a Codex shadow home")
+    await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(access(join(sharedHome, "sessions"))).resolves.toBeUndefined()
+    await rm(sharedHome, { force: true, recursive: true })
+  })
+
+  it("removes written Codex credentials when preparation stalls after the write", async () => {
+    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
+    let finishRestriction!: () => void
+    const restriction = new Promise<void>(resolve => finishRestriction = resolve)
+    beforeCodexCredentialChmod.mockImplementation(async (path) => {
+      if (String(path).endsWith("auth.json")) await restriction
+    })
+    const controller = new AbortController()
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const result = Promise.resolve(adapter.generate(context("thread-stalled-credential-preparation", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never))
+
+    try {
+      await vi.waitFor(() => expect(beforeCodexCredentialChmod).toHaveBeenCalledWith(expect.stringContaining("auth.json"), 0o600))
+      controller.abort("cancelled")
+      await expect(result).rejects.toBe("cancelled")
+      await vi.waitFor(async () => {
+        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
+      })
+    }
+    finally {
+      finishRestriction()
+      beforeCodexCredentialChmod.mockReset()
+      controller.abort("cancelled")
+      await result.catch(() => undefined)
+    }
+  })
+
+  it.each(["linux", "win32"] as const)("preserves Codex history through a private shadow home on %s", async (platformName) => {
+    const threadId = `thread-history-${platformName}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue(platformName)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await writeFile(join(shadowHome, "history.jsonl"), `${JSON.stringify({ session_id: threadId })}\n`)
+      await writeFile(join(shadowHome, "config.toml"), "model_reasoning_effort = \"high\"\n", { flag: "a" })
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(await readFile(join(sharedHome, "history.jsonl"), "utf8")).toBe(`${JSON.stringify({ session_id: threadId })}\n`)
+      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\nmodel_reasoning_effort = \"high\"\n")
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("makes existing Codex memories available and persists new memories", async () => {
+    const threadId = "thread-codex-memories"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await mkdir(join(sharedHome, "memories"))
+    await writeFile(join(sharedHome, "memories", "existing.md"), "existing memory\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const memories = join(String(options.settings?.homePath), "memories")
+      expect(await readFile(join(memories, "existing.md"), "utf8")).toBe("existing memory\n")
+      await writeFile(join(memories, "new.md"), "new memory\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(await readFile(join(sharedHome, "memories", "existing.md"), "utf8")).toBe("existing memory\n")
+      expect(await readFile(join(sharedHome, "memories", "new.md"), "utf8")).toBe("new memory\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps renamed Codex credentials out of the shared home", async () => {
+    const threadId = "thread-renamed-codex-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "auth.json"), join(shadowHome, "auth.json.backup"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(join(sharedHome, "auth.json.backup"))).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists deletion of an existing top-level Codex home entry", async () => {
+    const threadId = "thread-delete-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const sharedConfig = join(sharedHome, "config.toml")
+    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      await rm(join(String(options.settings?.homePath), "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists rename of an existing top-level Codex home entry", async () => {
+    const threadId = "thread-rename-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const sharedConfig = join(sharedHome, "config.toml")
+    const renamedConfig = join(sharedHome, "config.previous.toml")
+    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "config.toml"), join(shadowHome, "config.previous.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists case-only rename on case-sensitive Codex homes", async () => {
+    const threadId = "thread-case-rename-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const originalConfig = join(sharedHome, "Config.toml")
+    const renamedConfig = join(sharedHome, "config.toml")
+    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(originalConfig)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists case-only rename on case-insensitive Codex homes", async () => {
+    const threadId = "thread-insensitive-case-rename-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const originalConfig = join(sharedHome, "Config.toml")
+    const renamedConfig = join(sharedHome, "config.toml")
+    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
+    const originalEntry = await lstat(originalConfig)
+    readCodexHomeStat.mockImplementation(async (path) => String(path).toLowerCase().includes(".vitehub-case-probe-")
+      ? { dev: 1, ino: 1 }
+      : lstat(originalConfig))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect((await readdir(sharedHome)).filter(entry => entry.toLowerCase() === "config.toml")).toEqual(["config.toml"])
+      const renamedEntry = await lstat(renamedConfig)
+      expect({ dev: renamedEntry.dev, ino: renamedEntry.ino }).toEqual({ dev: originalEntry.dev, ino: originalEntry.ino })
+      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+    }
+    finally {
+      readCodexHomeStat.mockReset()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists case-only rename from a case-insensitive shadow to a case-sensitive Codex home", async () => {
+    const threadId = "thread-mixed-case-rename-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const originalConfig = join(sharedHome, "Config.toml")
+    const renamedConfig = join(sharedHome, "config.toml")
+    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
+    readCodexHomeStat.mockImplementation(async (path) => {
+      const value = String(path)
+      if (value.toLowerCase().includes(".vitehub-case-probe-")) {
+        if (value.includes("vitehub-codex-shadow-home-")) return { dev: 1, ino: 1 }
+        return { dev: 1, ino: value.includes(".VITEHUB-CASE-PROBE-") ? 2 : 1 }
+      }
+      return { isDirectory: () => false, isFile: () => true }
+    })
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(originalConfig)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+    }
+    finally {
+      readCodexHomeStat.mockReset()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists tracked directory renames without following nested links or removing external referents", async () => {
+    const threadId = "thread-rename-linked-codex-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const externalRules = join(externalHome, "rules")
+    const nestedReferent = join(externalHome, "nested.rules")
+    const sharedRules = join(sharedHome, "rules")
+    const renamedRules = join(sharedHome, "archived-rules")
+    await mkdir(externalRules)
+    await writeFile(join(externalRules, "default.rules"), "allow read\n")
+    await writeFile(nestedReferent, "allow nested\n")
+    await symlink(nestedReferent, join(externalRules, "nested.rules"))
+    await symlink(externalRules, sharedRules)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rename(join(shadowHome, "rules"), join(shadowHome, "archived-rules"))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(sharedRules)).rejects.toMatchObject({ code: "ENOENT" })
+      expect((await lstat(renamedRules)).isDirectory()).toBe(true)
+      expect(await readFile(join(renamedRules, "default.rules"), "utf8")).toBe("allow read\n")
+      expect((await lstat(join(renamedRules, "nested.rules"))).isSymbolicLink()).toBe(true)
+      expect(await readlink(join(renamedRules, "nested.rules"))).toBe(nestedReferent)
+      expect(await readFile(join(externalRules, "default.rules"), "utf8")).toBe("allow read\n")
+      expect(await readFile(nestedReferent, "utf8")).toBe("allow nested\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("persists independent deletion of case-distinct Codex home entries", async () => {
+    for (const [index, removedEntries] of [["State.toml"], ["State.toml", "state.toml"]].entries()) {
+      const threadId = `thread-case-delete-codex-state-${index}`
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+      await writeFile(join(sharedHome, "State.toml"), "upper = true\n")
+      await writeFile(join(sharedHome, "state.toml"), "lower = true\n")
+      createProviderRuntime.mockImplementationOnce(async (options) => {
+        const shadowHome = String(options.settings?.homePath)
+        for (const entry of removedEntries) await rm(join(shadowHome, entry))
+        return providerRuntimes.shift()
+      })
+
+      try {
+        const adapter = createProviderAgentAdapter({
+          credentials: '{"tokens":{"access_token":"secret"}}',
+          provider: "codex",
+          providerSettings: { homePath: sharedHome },
+        })
+        // SAFETY: This test fixture intentionally constructs the exact provider run context.
+        await adapter.generate(context(threadId) as never)
+
+        await expect(access(join(sharedHome, "State.toml"))).rejects.toMatchObject({ code: "ENOENT" })
+        if (removedEntries.length === 1) expect(await readFile(join(sharedHome, "state.toml"), "utf8")).toBe("lower = true\n")
+        else await expect(access(join(sharedHome, "state.toml"))).rejects.toMatchObject({ code: "ENOENT" })
+      }
+      finally {
+        await rm(sharedHome, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("replaces a tracked non-empty Codex home directory", async () => {
+    const threadId = "thread-replace-codex-state-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const sharedRules = join(sharedHome, "rules")
+    await mkdir(sharedRules)
+    await writeFile(join(sharedRules, "old.rules"), "allow old\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowRules = join(String(options.settings?.homePath), "rules")
+      await rm(shadowRules)
+      await mkdir(shadowRules)
+      await writeFile(join(shadowRules, "new.rules"), "allow new\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(join(sharedRules, "old.rules"))).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(join(sharedRules, "new.rules"), "utf8")).toBe("allow new\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("removes owned Codex home links without removing or replacing their referents", async () => {
+    const threadId = "thread-delete-linked-codex-state"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const originalReferent = join(externalHome, "original.toml")
+    const replacementReferent = join(externalHome, "replacement.toml")
+    const removedLink = join(sharedHome, "removed.toml")
+    const replacedLink = join(sharedHome, "replaced.toml")
+    await writeFile(originalReferent, "original = true\n")
+    await writeFile(replacementReferent, "replacement = true\n")
+    await symlink(originalReferent, removedLink)
+    await symlink(originalReferent, replacedLink)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rm(join(shadowHome, "removed.toml"))
+      await rm(join(shadowHome, "replaced.toml"))
+      await rm(replacedLink)
+      await symlink(replacementReferent, replacedLink)
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      await expect(access(removedLink)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(await readFile(originalReferent, "utf8")).toBe("original = true\n")
+      expect(await readlink(replacedLink)).toBe(replacementReferent)
+      expect(await readFile(replacementReferent, "utf8")).toBe("replacement = true\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform === "win32")("restricts Codex credential home ACLs on Windows", async () => {
+    const threadId = "thread-windows-credential-acl"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      const script = String.raw`
+$ErrorActionPreference = "Stop"
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_CODEX_CREDENTIAL_HOME "auth.json"))) {
+  $entry = Get-Item -LiteralPath $path
+  $security = $entry.GetAccessControl()
+  $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier])
+  $rules = @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+  if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $identity.Value -or $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+    throw "Credential ACL is not restricted to the current principal: $path"
+  }
+}
+`
+      const command = Buffer.from(script, "utf16le").toString("base64")
+      const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command], {
+        env: { ...process.env, VITEHUB_CODEX_CREDENTIAL_HOME: shadowHome },
+        encoding: "utf8",
+        windowsHide: true,
+      })
+      expect(result.status, result.stderr || result.stdout).toBe(0)
+      return providerRuntimes.shift()
+    })
+
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await adapter.generate(context(threadId) as never)
+  }, 15_000)
+
+  it("uses CODEX_HOME as the shared Codex home", async () => {
+    const threadId = "thread-environment-codex-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-environment-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        env: { CODEX_HOME: sharedHome },
+        provider: "codex",
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("uses ambient CODEX_HOME as the shared Codex home", async () => {
+    const threadId = "thread-ambient-codex-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-ambient-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    vi.stubEnv("CODEX_HOME", sharedHome)
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists new top-level Codex state directories", async () => {
+    const threadId = "thread-new-codex-state-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await mkdir(join(shadowHome, "rules"))
+      await writeFile(join(shadowHome, "rules", "default.rules"), "allow read\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(await readFile(join(sharedHome, "rules", "default.rules"), "utf8")).toBe("allow read\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves case-distinct Codex home entries on case-sensitive macOS volumes", async () => {
+    const threadId = "thread-macos-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
+    await writeFile(join(sharedHome, "Auth.json"), "ambient credentials\n")
+    await mkdir(join(sharedHome, "Sessions"))
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
+    let shadowHome: string | undefined
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      shadowHome = String(options.settings?.homePath)
+      const config = await lstat(join(shadowHome, "config.toml"))
+      expect(config.isSymbolicLink()).toBe(true)
+      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
+      await expect(access(join(shadowHome, "Auth.json"))).rejects.toMatchObject({ code: "ENOENT" })
+      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions").sort()
+      expect(sessionEntries).toEqual(["Sessions", "sessions"])
+      await Promise.all(sessionEntries.map(async entry => expect(await readlink(join(String(shadowHome), entry))).toBe(join(sharedHome, entry))))
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+
+    expect(shadowHome).toBeDefined()
+    if (!shadowHome) throw new Error("Expected a Codex shadow home")
+    await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("deduplicates case-equivalent shared entries when the shadow home rejects them", async () => {
+    const threadId = "thread-case-insensitive-shadow-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await mkdir(join(sharedHome, "Sessions"))
+    await writeFile(join(sharedHome, "Sessions", "existing.jsonl"), "existing session\n")
+    const linkedShadowEntries = new Set<string>()
+    beforeCodexHomeSymlink.mockImplementation((_source, target) => {
+      const path = String(target)
+      if (!path.includes("vitehub-codex-shadow-home-")) return
+      const key = path.toLowerCase()
+      if (linkedShadowEntries.has(key)) {
+        throw Object.assign(new Error("case-equivalent shadow entry"), { code: "EEXIST" })
+      }
+      linkedShadowEntries.add(key)
+    })
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions")
+      expect(sessionEntries).toEqual(["Sessions"])
+      expect(await readFile(join(shadowHome, "Sessions", "existing.jsonl"), "utf8")).toBe("existing session\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+    }
+    finally {
+      beforeCodexHomeSymlink.mockReset()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("ignores dangling links in the shared Codex home", async () => {
+    const threadId = "thread-dangling-codex-home-link"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    await symlink(join(sharedHome, "missing-skills"), join(sharedHome, "skills"))
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await expect(adapter.generate(context(threadId) as never)).resolves.toBeDefined()
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("uses Windows junctions for linked shared Codex home directories", async () => {
+    const threadId = "thread-windows-linked-codex-home-directory"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    await mkdir(join(externalHome, "skills"))
+    await symlink(join(externalHome, "skills"), join(sharedHome, "skills"))
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(beforeCodexHomeSymlink).toHaveBeenCalledWith(
+        join(sharedHome, "skills"),
+        expect.stringContaining("vitehub-codex-shadow-home-"),
+        "junction",
+      )
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("copies linked shared Codex home files on Windows", async () => {
+    const threadId = "thread-windows-linked-codex-home-file"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const externalConfig = join(externalHome, "config.toml")
+    await writeFile(externalConfig, "model = \"gpt-5.6-sol\"\n")
+    await symlink(externalConfig, join(sharedHome, "config.toml"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await writeFile(join(shadowHome, "config.toml"), "model = \"gpt-5.6-terra\"\n")
+      return providerRuntimes.shift()
+    })
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect(beforeCodexHomeLink).not.toHaveBeenCalledWith(
+        join(sharedHome, "config.toml"),
+        expect.any(String),
+      )
+      expect(await readFile(externalConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
+      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-terra\"\n")
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("preserves unchanged linked shared Codex home files on Windows", async () => {
+    const threadId = "thread-windows-unchanged-linked-codex-home-file"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const externalConfig = join(externalHome, "config.toml")
+    const sharedConfig = join(sharedHome, "config.toml")
+    await writeFile(externalConfig, "model = \"gpt-5.6-sol\"\n")
+    await symlink(externalConfig, sharedConfig)
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect((await lstat(sharedConfig)).isSymbolicLink()).toBe(true)
+      expect(await readlink(sharedConfig)).toBe(externalConfig)
+    }
+    finally {
+      platform.mockRestore()
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("replaces shared Codex home links without writing through them", async () => {
+    const threadId = "thread-shared-codex-home-link"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
+    const externalConfig = join(externalHome, "config.toml")
+    await writeFile(externalConfig, "external = true\n")
+    await symlink(externalConfig, join(sharedHome, "config.toml"))
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      const shadowHome = String(options.settings?.homePath)
+      await rm(join(shadowHome, "config.toml"))
+      await writeFile(join(shadowHome, "config.toml"), "sandbox = true\n")
+      return providerRuntimes.shift()
+    })
+
+    try {
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      await adapter.generate(context(threadId) as never)
+
+      expect((await lstat(join(sharedHome, "config.toml"))).isFile()).toBe(true)
+      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("sandbox = true\n")
+      expect(await readFile(externalConfig, "utf8")).toBe("external = true\n")
+    }
+    finally {
+      await rm(sharedHome, { force: true, recursive: true })
+      await rm(externalHome, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes credential overlays that share a Codex home", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
+    const first = runtime("thread-shared-home-first", [event("turn.completed", "thread-shared-home-first", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => firstBlocked,
+    })
+    runtime("thread-shared-home-second", [event("turn.completed", "thread-shared-home-second", { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const firstInvocation = adapter.generate(context("thread-shared-home-first") as never)
+      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const secondInvocation = adapter.generate(context("thread-shared-home-second") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseFirst()
+      await expect(firstInvocation).resolves.toBeDefined()
+      await expect(secondInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseFirst()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes direct Codex runs with credential overlays that share a home", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let releaseCredentialRun!: () => void
+    const credentialRunBlocked = new Promise<void>(resolve => releaseCredentialRun = resolve)
+    const credentialRuntime = runtime("thread-shared-home-credential", [event("turn.completed", "thread-shared-home-credential", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => credentialRunBlocked,
+    })
+    runtime("thread-shared-home-direct", [event("turn.completed", "thread-shared-home-direct", { state: "completed" }, { turnId: "turn-1" })])
+    const credentialAdapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const directAdapter = createProviderAgentAdapter({
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const credentialInvocation = credentialAdapter.generate(context("thread-shared-home-credential") as never)
+      await vi.waitFor(() => expect(credentialRuntime.sendTurn).toHaveBeenCalledOnce())
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const directInvocation = directAdapter.generate(context("thread-shared-home-direct") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseCredentialRun()
+      await expect(credentialInvocation).resolves.toBeDefined()
+      await expect(directInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseCredentialRun()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("retains the Codex home lock through overlapping materialization and persistence", async () => {
+    vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
+    let finishMaterialization!: () => void
+    const materialization = new Promise<string[]>(resolve => finishMaterialization = () => resolve([]))
+    let finishPersistence!: () => void
+    const persistence = new Promise<string[]>(resolve => finishPersistence = () => resolve([]))
+    readCodexSharedHome
+      .mockImplementationOnce(async (path: string) => {
+        expect(path).toBe(sharedHome)
+        return await materialization
+      })
+      .mockImplementationOnce(async (path: string) => {
+        expect(path).toContain("vitehub-codex-shadow-home-")
+        return await persistence
+      })
+    const controller = new AbortController()
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const firstResult = Promise.resolve(adapter.generate(context("thread-stalled-home-first", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never))
+
+    try {
+      await vi.waitFor(() => expect(readCodexSharedHome).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+      const outcome = await Promise.race([
+        firstResult.then(() => "resolved", error => error),
+        new Promise(resolve => setTimeout(() => resolve("still pending"), 100)),
+      ])
+      expect(outcome).toBe("cancelled")
+      await vi.advanceTimersByTimeAsync(10_000)
+      await vi.waitFor(async () => {
+        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
+      })
+
+      const second = runtime("thread-stalled-home-second", [event("turn.completed", "thread-stalled-home-second", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const secondResult = adapter.generate(context("thread-stalled-home-second") as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+
+      finishMaterialization()
+      await vi.advanceTimersByTimeAsync(25)
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+
+      finishPersistence()
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(secondResult).resolves.toBeDefined()
+      expect(second.startSession).toHaveBeenCalledOnce()
+    }
+    finally {
+      finishMaterialization()
+      finishPersistence()
+      controller.abort("cancelled")
+      await firstResult.catch(() => undefined)
+      vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("bounds stalled Codex shared-home canonicalization after abort", async () => {
+    vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
+    const canonicalization = new Promise<string>(() => undefined)
+    canonicalizeCodexSharedHome.mockImplementationOnce(async (path: string) => {
+      expect(path).toBe(sharedHome)
+      return await canonicalization
+    })
+    const controller = new AbortController()
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const invocation = context("thread-stalled-home-canonicalization", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    })
+    const backgroundTasks: Promise<unknown>[] = []
+    invocation.runtime.waitUntil = (task?: Promise<unknown>) => {
+      if (task) backgroundTasks.push(task)
+    }
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const result = Promise.resolve(adapter.generate(invocation as never))
+
+    try {
+      await vi.waitFor(() => expect(canonicalizeCodexSharedHome).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+      await expect(result).rejects.toBe("cancelled")
+      await vi.waitFor(async () => {
+        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
+      })
+      expect(backgroundTasks.length).toBeGreaterThan(0)
+      let workflowSettled = false
+      void Promise.all(backgroundTasks).then(() => workflowSettled = true)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(workflowSettled).toBe(true)
+    }
+    finally {
+      controller.abort("cancelled")
+      await result.catch(() => undefined)
+      vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("serializes symlink aliases for the same Codex home", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const aliasRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-home-alias-"))
+    const alias = join(aliasRoot, "codex")
+    await symlink(sharedHome, alias)
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
+    const first = runtime("thread-home-alias-first", [event("turn.completed", "thread-home-alias-first", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => firstBlocked,
+    })
+    runtime("thread-home-alias-second", [event("turn.completed", "thread-home-alias-second", { state: "completed" }, { turnId: "turn-1" })])
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      const sharedHomeAdapter = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: sharedHome } })
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const firstInvocation = sharedHomeAdapter.generate(context("thread-home-alias-first") as never)
+      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      const aliasHomeAdapter = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: alias } })
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const secondInvocation = aliasHomeAdapter.generate(context("thread-home-alias-second") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseFirst()
+      await expect(firstInvocation).resolves.toBeDefined()
+      await expect(secondInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseFirst()
+      await Promise.all([
+        rm(sharedHome, { force: true, recursive: true }),
+        rm(aliasRoot, { force: true, recursive: true }),
+      ])
+    }
+  })
+
+  it.runIf(process.platform !== "win32")("serializes case-equivalent Codex homes on case-insensitive volumes", async () => {
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const equivalentHome = sharedHome.toUpperCase()
+    if (!await access(equivalentHome).then(() => true, () => false)) {
+      await rm(sharedHome, { force: true, recursive: true })
+      return
+    }
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
+    const first = runtime("thread-macos-home-first", [event("turn.completed", "thread-macos-home-first", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => firstBlocked,
+    })
+    runtime("thread-macos-home-second", [event("turn.completed", "thread-macos-home-second", { state: "completed" }, { turnId: "turn-1" })])
+    const firstAdapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+    const secondAdapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: equivalentHome },
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    try {
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const firstInvocation = firstAdapter.generate(context("thread-macos-home-first") as never)
+      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+      // SAFETY: These fixtures intentionally construct the exact provider run context.
+      const secondInvocation = secondAdapter.generate(context("thread-macos-home-second") as never)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      releaseFirst()
+      await expect(firstInvocation).resolves.toBeDefined()
+      await expect(secondInvocation).resolves.toBeDefined()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
+    }
+    finally {
+      releaseFirst()
+      await Promise.all([
+        rm(sharedHome, { force: true, recursive: true }),
+        rm(equivalentHome, { force: true, recursive: true }),
+      ])
+    }
+  })
+
+  it("passes Codex reasoning selections to provider session startup", async () => {
+    const threadId = "thread-reasoning-options"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    const adapter = createProviderAgentAdapter({
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
+    const runContext = context(threadId)
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await adapter.generate(runContext as never)
+
+    expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-5.6-sol",
+      modelOptions: { reasoningEffort: "high", reasoningSummary: "detailed" },
+    }))
+  })
+
+  it("rejects malformed Codex credentials before starting a provider runtime", async () => {
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+
+    const adapter = createProviderAgentAdapter({
+      credentials: "not-json",
+      provider: "codex",
+    })
+    const runContext = context("thread-invalid-credentials")
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    await expect(adapter.generate(runContext as never)).rejects.toThrow("must be valid JSON")
+
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
   })
 
   it("does not request another provider event after the turn completes", async () => {
@@ -1751,6 +3003,164 @@ describe("Provider Agent Driver", () => {
     await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
   })
 
+  it("removes Codex credentials when aborted provider cleanup never settles", async () => {
+    vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const otherHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let finishClose: (() => void) | undefined
+    try {
+      const threadId = "thread-cancel-provider-cleanup"
+      const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+      provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
+      const controller = new AbortController()
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      const runContext = context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const result = adapter.generate(runContext as never)
+
+      await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+      expect(createProviderRuntime.mock.lastCall?.[0].settings?.homePath).toEqual(expect.any(String))
+      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
+      const root = (runtimeCall![0] as { cwd: string }).cwd
+      await expect(access(shadowHome)).resolves.toBeUndefined()
+      await expect(access(root)).resolves.toBeUndefined()
+      await writeFile(join(shadowHome, "aborted-state.json"), "must not persist\n")
+      controller.abort("cancelled")
+      await expect(result).rejects.toBe("cancelled")
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+      await expect(access(join(sharedHome, "aborted-state.json"))).rejects.toMatchObject({ code: "ENOENT" })
+
+      const runtimeCalls = createProviderRuntime.mock.calls.length
+      const concurrentEvents = [
+        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+        event("turn.completed", "thread-after-stalled-home", { state: "completed" }, { turnId: "turn-1" }),
+      ]
+      const sameSessionProvider = runtime(threadId, concurrentEvents)
+      const sameHomeProvider = runtime("thread-after-stalled-home", concurrentEvents)
+      const otherHomeAdapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: otherHome },
+      })
+      // SAFETY: This fixture intentionally reuses the stalled invocation's session with another credential home.
+      const sameSessionResult = otherHomeAdapter.generate(context(threadId) as never)
+      // SAFETY: This fixture intentionally reuses the stalled invocation's credential home with another session.
+      const sameHomeResult = adapter.generate(context("thread-after-stalled-home") as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+
+      finishClose?.()
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(sameSessionResult).resolves.toBeDefined()
+      await expect(sameHomeResult).resolves.toBeDefined()
+      expect(sameSessionProvider.startSession).toHaveBeenCalledOnce()
+      expect(sameHomeProvider.startSession).toHaveBeenCalledOnce()
+    }
+    finally {
+      finishClose?.()
+      vi.useRealTimers()
+      await Promise.all([
+        rm(sharedHome, { force: true, recursive: true }),
+        rm(otherHome, { force: true, recursive: true }),
+      ])
+    }
+  })
+
+  it("removes Codex credentials when aborted provider startup never settles", async () => {
+    vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let finishStartup: (() => void) | undefined
+    try {
+      const threadId = "thread-cancel-provider-startup"
+      const runtimeCalls = createProviderRuntime.mock.calls.length
+      const lateProvider = runtime(threadId, [])
+      providerRuntimes.pop()
+      createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => finishStartup = () => resolve(lateProvider)))
+      const controller = new AbortController()
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
+      const runContext = context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const result = adapter.generate(runContext as never)
+
+      await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+      expect(createProviderRuntime.mock.lastCall?.[0].settings?.homePath).toEqual(expect.any(String))
+      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
+      await expect(access(shadowHome)).resolves.toBeUndefined()
+      controller.abort("cancelled")
+      await expect(result).rejects.toBe("cancelled")
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      const nextThreadId = "thread-after-cancelled-provider-startup"
+      const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const nextResult = adapter.generate(context(nextThreadId) as never)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+
+      finishStartup?.()
+      await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2))
+      await expect(nextResult).resolves.toBeDefined()
+      expect(nextProvider.startSession).toHaveBeenCalledOnce()
+    }
+    finally {
+      finishStartup?.()
+      vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("releases provider resources when Capability tool-server startup stalls after abort", async () => {
+    const threadId = "thread-cancel-tool-server-startup"
+    const provider = runtime(threadId, [])
+    const controller = new AbortController()
+    let finishConnect!: () => void
+    const connect = vi.spyOn(McpServer.prototype, "connect").mockImplementationOnce(() => new Promise<void>(resolve => finishConnect = resolve))
+    const close = vi.spyOn(McpServer.prototype, "close")
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact provider run context.
+    const result = Promise.resolve(adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+      tools: { search: { execute: vi.fn(), name: "search" } },
+    }) as never))
+    const settled = vi.fn()
+    void result.then(settled, settled)
+
+    try {
+      await vi.waitFor(() => expect(connect).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+      await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce())
+      await expect(result).rejects.toBe("cancelled")
+      expect(provider.close).toHaveBeenCalledOnce()
+
+      finishConnect()
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+    }
+    finally {
+      finishConnect?.()
+      connect.mockRestore()
+      close.mockRestore()
+    }
+  })
+
   it("times out a provider turn and releases its resources", async () => {
     const threadId = "thread-timeout"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
@@ -1766,26 +3176,107 @@ describe("Provider Agent Driver", () => {
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
-  it("keeps a completed turn successful when provider cleanup stalls", async () => {
+  it("retains the shared-home lock after forced credential removal until runtime shutdown", async () => {
     vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    let finishClose: (() => void) | undefined
     try {
-      const threadId = "thread-cleanup-timeout"
+      const threadId = "thread-cleanup-timeout-first"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      provider.close.mockImplementationOnce(() => new Promise(() => {}))
-      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
+      const adapter = createProviderAgentAdapter({
+        credentials: '{"tokens":{"access_token":"secret"}}',
+        provider: "codex",
+        providerSettings: { homePath: sharedHome },
+      })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const stream = await adapter.stream!(context(threadId) as never)
       const result = collect(stream)
 
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      expect(runtimeCall?.[0].settings?.homePath).toEqual(expect.any(String))
+      const shadowHome = String(runtimeCall?.[0].settings?.homePath)
+      await expect(access(shadowHome)).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10_000)
 
       await expect(result).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ recoverable: true, type: "error" }),
       ]))
+      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
+      const nextThreadId = "thread-cleanup-timeout-second"
+      const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact provider run context.
+      const nextResult = adapter.generate(context(nextThreadId) as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(nextProvider.startSession).not.toHaveBeenCalled()
+
+      finishClose?.()
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(nextResult).resolves.toBeDefined()
+      expect(nextProvider.startSession).toHaveBeenCalledOnce()
     }
     finally {
+      finishClose?.()
       vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it("persists completed Codex state before forcing credentials cleanup when close stalls", async () => {
+    vi.useFakeTimers()
+    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
+    const threadId = "thread-completed-state-stalled-close"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    providerRuntimes.pop()
+    let finishClose!: () => void
+    provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
+    let shadowHome: string | undefined
+    let finishPersistenceCopy: (() => void) | undefined
+    let persistenceCopies = 0
+    beforeCodexHomeCopyFile.mockImplementation(async (source) => {
+      if (String(source) !== join(String(shadowHome), "completed-state.json")) return
+      persistenceCopies += 1
+      await new Promise<void>(resolve => finishPersistenceCopy = resolve)
+    })
+    createProviderRuntime.mockImplementationOnce(async (options) => {
+      shadowHome = String(options.settings?.homePath)
+      await writeFile(join(shadowHome, "completed-state.json"), "persist me\n")
+      return provider
+    })
+    const adapter = createProviderAgentAdapter({
+      credentials: '{"tokens":{"access_token":"secret"}}',
+      provider: "codex",
+      providerSettings: { homePath: sharedHome },
+    })
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const stream = await adapter.stream!(context(threadId) as never)
+      const result = collect(stream)
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10_000)
+      await vi.waitFor(() => expect(finishPersistenceCopy).toBeDefined())
+
+      finishClose()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(persistenceCopies).toBe(1)
+      finishPersistenceCopy?.()
+
+      await expect(result).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ recoverable: true, type: "error" }),
+      ]))
+      await vi.waitFor(async () => await expect(access(shadowHome!)).rejects.toMatchObject({ code: "ENOENT" }))
+      expect(await readFile(join(sharedHome, "completed-state.json"), "utf8")).toBe("persist me\n")
+      expect(persistenceCopies).toBe(1)
+    }
+    finally {
+      finishClose?.()
+      finishPersistenceCopy?.()
+      beforeCodexHomeCopyFile.mockReset()
+      vi.useRealTimers()
+      await rm(sharedHome, { force: true, recursive: true })
     }
   })
 
@@ -2064,12 +3555,54 @@ describe("Provider Agent Driver", () => {
     expect(waitUntil).toHaveBeenCalledOnce()
   })
 
-  it("stops deferred provider work before closing the Workspace", async () => {
+  it("keeps the session lock until a stalled deferred runtime close settles", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-late-start-lock"
+      let finishStartup!: () => void
+      let finishClose!: () => void
+      const first = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
+      first.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
+      const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const firstResult = adapter.generate(context(threadId, { input: { prompt: "hello", timeout: 50 } }) as never)
+
+      await vi.advanceTimersByTimeAsync(50)
+      await expect(firstResult).rejects.toMatchObject({ name: "TimeoutError" })
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const secondResult = adapter.generate(context(threadId) as never)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(second.startSession).not.toHaveBeenCalled()
+
+      finishStartup()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(first.close).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(second.startSession).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(second.startSession).not.toHaveBeenCalled()
+
+      finishClose()
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(secondResult).resolves.toBeDefined()
+      expect(second.startSession).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("retains the session and provider root until deferred Workspace cleanup settles", async () => {
     const threadId = "thread-late-start-workspace"
     let finishStartup!: () => void
+    let finishWorkspaceClose!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
+    const nextProvider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const session = {
-      close: vi.fn(async () => undefined),
+      close: vi.fn(() => new Promise<void>(resolve => finishWorkspaceClose = resolve)),
       commit: vi.fn(async () => undefined),
       diff: vi.fn(async () => ({ entries: [] })),
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
@@ -2085,9 +3618,23 @@ describe("Provider Agent Driver", () => {
 
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(session.close).not.toHaveBeenCalled()
+    const runtimeCall = createProviderRuntime.mock.lastCall
+    expect(runtimeCall).toBeDefined()
+    // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
+    const root = (runtimeCall![0] as { cwd: string }).cwd
     finishStartup()
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     await vi.waitFor(() => expect(session.close).toHaveBeenCalledOnce())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const nextResult = adapter.generate(context(threadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(nextProvider.startSession).not.toHaveBeenCalled()
+    await expect(access(root)).resolves.toBeUndefined()
+
+    finishWorkspaceClose()
+    await expect(nextResult).resolves.toBeDefined()
+    await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(nextProvider.startSession).toHaveBeenCalledOnce()
     expect(provider.stopSession).toHaveBeenCalledWith(threadId)
     expect(provider.close.mock.invocationCallOrder[0]).toBeLessThan(session.close.mock.invocationCallOrder[0]!)
   })

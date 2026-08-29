@@ -21,18 +21,23 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
     name: "files",
     async load(ctx: LoaderContext) {
       for (const source of ctx.sources) {
+        ctx.abortSignal?.throwIfAborted()
         const sourceContext = createSourceContext({
           name: ctx.workspace,
           rootDir: ctx.rootDir,
           sourceRootDir: ctx.sourceRootDir,
-        }, { key: source.key, mountPath: "" }, ctx.store)
+        }, { key: source.key, mountPath: "" }, ctx.store, { abortSignal: ctx.abortSignal })
         await prepareWorkspaceSource(source, sourceContext)
+        ctx.abortSignal?.throwIfAborted()
         for (const key of await source.getKeys(sourceContext)) {
+          ctx.abortSignal?.throwIfAborted()
           const rawItem = await source.getItem(key, sourceContext)
+          ctx.abortSignal?.throwIfAborted()
           const rawPath = normalizeWorkspacePath(rawItem.path || rawItem.key)
           if (!shouldLoad(rawPath, options)) continue
 
           const transformed = options.transform ? await options.transform(rawItem) : rawItem
+          ctx.abortSignal?.throwIfAborted()
           const item = typeof transformed === "string" || transformed instanceof Uint8Array
             ? { ...rawItem, content: transformed }
             : transformed
@@ -41,6 +46,7 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
           const digest = ctx.generateDigest({ content, metadata: item.metadata, mediaType: item.mediaType })
           const metaKey = `loader:files:${source.key}:${path}:digest`
           const previousDigest = await ctx.store.getMeta?.(metaKey)
+          ctx.abortSignal?.throwIfAborted()
 
           if (previousDigest === digest && await ctx.store.stat(path)) continue
 
@@ -50,6 +56,7 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
             mediaType: item.mediaType,
             metadata: item.metadata,
           })
+          ctx.abortSignal?.throwIfAborted()
           await ctx.store.setMeta?.(metaKey, digest)
         }
       }

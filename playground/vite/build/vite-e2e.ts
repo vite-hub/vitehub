@@ -192,7 +192,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   ].join("\n")
 }
 
-function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModuleOptions | undefined) {
+function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModuleOptions | undefined, hosting: HostedProvider) {
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "ensure")))}`,
     `import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "storage")))}`,
@@ -200,17 +200,15 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   ]
 
   if (config?.store.driver === "cloudflare-r2") {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/cloudflare")))}`)
+    const driver = hosting === "cloudflare" ? "drivers/cloudflare-native" : "drivers/cloudflare"
+    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, driver)))}`)
   }
   else if (config?.store.driver === "vercel-blob") {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "config")))}`)
     imports.push(`import { createBundledVercelBlobDriver } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/drivers/vercel-bundled.ts")))}`)
   }
-  else if (config?.store.driver === "fs") {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/fs")))}`)
-  }
   else if (config) {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/files")))}`)
+    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, `drivers/${config.store.driver}`)))}`)
   }
 
   const storageExpression = !config
@@ -742,7 +740,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   if (typeof options.blob !== "undefined") {
     const blobRuntimeFile = resolve(generatedDir, "blob-runtime.mjs")
     alias["@vite-hub/blob"] = blobRuntimeFile
-    runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob), "utf8"))
+    runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob, options.hosting), "utf8"))
   }
 
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.

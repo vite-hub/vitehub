@@ -21,7 +21,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolveRuntimeContext, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -253,6 +253,7 @@ export type {
   AgentCapabilitiesList,
   AgentCapabilitiesResolver,
   AgentCapabilitiesResolverContext,
+  AgentCallbackContext,
   AgentChannelDelivery,
   AgentChannelDeliveryEvent,
   AgentChannelDeliveryEventInput,
@@ -1055,7 +1056,7 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
+  return createExecutionContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
 function createTraceId(run?: AgentRunMetadata): string {
@@ -1414,13 +1415,17 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
-        ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+          ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+            credentials: driver.credentials,
             env: driver.env,
             execution: driver.execution,
             instructions: driver.instructions,
             model: driver.model,
             permissions: driver.permissions,
             provider: driver.provider,
+            providerSettings: driver.providerSettings,
+            reasoningEffort: driver.reasoningEffort,
+            reasoningSummary: driver.reasoningSummary,
           })))
         : undefined
     if (!resolvedAdapter) {
@@ -1916,6 +1921,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
       ? { ...(settings.driver as AgentModelDriver), instructions }
       : {
           capacity: driver.capacity,
+          credentials: driver.credentials,
           env: driver.env,
           execution: driver.execution,
           instructions,
@@ -1923,6 +1929,9 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
           model: driver.model,
           output: driver.output,
           permissions: driver.permissions,
+          providerSettings: driver.providerSettings,
+          reasoningEffort: driver.reasoningEffort,
+          reasoningSummary: driver.reasoningSummary,
         },
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.

@@ -1,6 +1,6 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { createRuntimeWaitUntilController, resolveRuntimeContext } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
 import {
@@ -113,6 +113,7 @@ import type {
   AgentToolStepItem,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  ResolvedAgentRuntimeContext,
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
@@ -144,7 +145,7 @@ interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
 }
 
-interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRouteRuntimeConfig> {
+interface ViteAgentRouteRuntimeContext extends ResolvedAgentRuntimeContext<ViteAgentRouteRuntimeConfig> {
   request: Request
   runtime: AgentRuntimeName
   runtimeConfig: ViteAgentRouteRuntimeConfig
@@ -526,8 +527,8 @@ function createRuntimeContext(
 ): ViteAgentRouteRuntimeContext {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
   const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
-  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-  return createAgentRuntimeContext({
+  // SAFETY: This constructor supplies the required route request and runtime configuration before normalization.
+  const context = createAgentRuntimeContext<ViteAgentRouteRuntimeConfig>({
     ...(capabilities ? { capabilities } : {}),
     ...(agentIdentity ? { agentIdentity } : {}),
     ...(cloudflare ? { cloudflare } : {}),
@@ -538,7 +539,8 @@ function createRuntimeContext(
     runtimeConfig: {},
     ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
     waitUntil: waitUntilController.waitUntil,
-  }) as ViteAgentRouteRuntimeContext
+  }) as AgentRuntimeContext<ViteAgentRouteRuntimeConfig> & { request: Request, runtimeConfig: ViteAgentRouteRuntimeConfig }
+  return createExecutionContext(context)
 }
 
 function createRuntimeRequest(request: Request, body?: string | Uint8Array): Request {
@@ -1395,7 +1397,7 @@ async function executeQueuedWebhookDelivery(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
           agent as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          resolveRuntimeContext(context as never) as never,
+          createExecutionContext(context as never) as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           match.trigger.id,
           input,
@@ -3340,7 +3342,7 @@ async function postDurableSteerErrorFallback(
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
   const deliveryContext: ViteAgentRouteRuntimeContext = {
     ...context,
-    capabilities: delivery.capabilities,
+    capabilities: delivery.capabilities || {},
     ...(delivery.requestUrl ? { request: new Request(delivery.requestUrl) } : {}),
     ...(delivery.run ? { run: delivery.run } : {}),
   }

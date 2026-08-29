@@ -29,6 +29,7 @@ import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPrese
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
+import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -617,6 +618,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
+  const consoleSections = resolveConsoleSectionIds(options)
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -650,6 +652,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   if (options.console) {
+    const invocationRootState = {}
     plugins.push(consoleVitePlugin({
       console: options.console === true ? true : options.console,
       preset: plan.preset,
@@ -660,7 +663,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
-    }), consoleInvocationRootPlugin())
+      invocationRootState,
+      sections: consoleSections,
+    }))
+    if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
   if (options.auth) {
@@ -713,7 +719,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.email) {
     const emailOptions = options.email === true
-      ? { driver: "unemail/driver/cloudflare-email" as const }
+      ? { driver: "cloudflare-email" as const }
       : options.email
     plugins.push(hubEmail({
       ...emailOptions,

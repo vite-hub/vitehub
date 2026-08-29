@@ -452,10 +452,11 @@ describe("hubWorkspace", () => {
 
     const { env, hubEnv } = await import("@vite-hub/env/vite")
     const envPlugin = hubEnv()
-    const envConfig = envPlugin.config as (config: { env?: unknown, root: string }, env: { command: "build", mode: string }) => Promise<unknown>
+    // SAFETY: this focused test preserves the Env config hook's private state for configResolved.
+    const envConfig = envPlugin.config as (config: { env?: unknown, root: string }, env: { command: "build", mode: string }) => Promise<Record<string, unknown>>
     const envConfigResolved = envPlugin.configResolved as unknown as (config: { logger: { info: () => void }, root: string }) => Promise<void>
 
-    await envConfig({
+    const envConfigResult = await envConfig({
       env: {
         server: {
           airtableToken: env({ secret: true }),
@@ -463,7 +464,11 @@ describe("hubWorkspace", () => {
       },
       root,
     }, { command: "build", mode: "production" })
-    await envConfigResolved({ logger: { info: vi.fn() }, root })
+    await envConfigResolved({
+      ...envConfigResult,
+      logger: { info: vi.fn() },
+      root,
+    })
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -1174,7 +1179,7 @@ describe("hubWorkspace", () => {
     })
   })
 
-  it("materializes @vercel/blob for Vercel Blob workspace build output", async () => {
+  it("ships Vercel Blob inside Workspace build output", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
@@ -1191,15 +1196,12 @@ describe("hubWorkspace", () => {
     await closeBundle.handler()
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
-      packages: [
-        { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
-        { name: "@vercel/blob" },
-      ],
+      packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
     })
   })
 
-  it("materializes @vercel/blob for definition-level Vercel Blob workspace build output", async () => {
+  it("ships definition-level Vercel Blob inside Workspace build output", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src/docs.workspace.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
@@ -1218,10 +1220,7 @@ describe("hubWorkspace", () => {
     await closeBundle.handler()
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
-      packages: [
-        { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
-        { name: "@vercel/blob" },
-      ],
+      packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
     })
   })
