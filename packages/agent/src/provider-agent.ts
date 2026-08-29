@@ -199,6 +199,7 @@ const unavailableCodexCredentialProfiles = new Map<string, unknown>()
 const codexCredentialUnknownProcessIdentity = "unavailable"
 const codexCredentialProcessIdentity = processStartIdentity(process.pid)
   .then(identity => identity ?? codexCredentialUnknownProcessIdentity)
+const codexCredentialProcessNamespace = readlink("/proc/self/ns/pid").catch(() => undefined)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 const codexCredentialSeedMaxBytes = 65
 const codexCredentialConfigMaxBytes = 1_048_576
@@ -384,8 +385,11 @@ async function processStartIdentity(pid: number): Promise<string | undefined> {
   return identity
 }
 
-async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, startedAt: string }): Promise<boolean> {
+async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, processNamespace?: string, startedAt: string }): Promise<boolean> {
   if (owner.hostname !== hostname()) return true
+  const processNamespace = await codexCredentialProcessNamespace
+  if (processNamespace !== undefined && owner.processNamespace !== processNamespace) return true
+  if (processNamespace === undefined && owner.processNamespace !== undefined) return true
   if (owner.pid === process.pid) return owner.startedAt === await codexCredentialProcessIdentity
   try {
     process.kill(owner.pid, 0)
@@ -418,9 +422,10 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
         || !hasRuntimeType(owner.pid, "number")
         || !Number.isSafeInteger(owner.pid)
         || owner.pid < 1
+        || owner.processNamespace !== undefined && !hasRuntimeType(owner.processNamespace, "string")
         || !hasRuntimeType(owner.startedAt, "string")
         || !owner.startedAt
-        || await codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, startedAt: owner.startedAt })) return
+        || await codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, processNamespace: owner.processNamespace, startedAt: owner.startedAt })) return
       await rm(root, { force: true, recursive: true }).catch(() => undefined)
     }))
 }
@@ -434,7 +439,8 @@ async function createTemporaryCodexCredentialHome(credentials: string): Promise<
   try {
     await chmod(root, 0o700)
     const startedAt = await codexCredentialProcessIdentity
-    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, startedAt })}\n`)
+    const processNamespace = await codexCredentialProcessNamespace
+    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, processNamespace, startedAt })}\n`)
     await mkdir(homePath, { mode: 0o700 })
     await configureCodexCredentialHome(homePath)
     await writeCodexCredentials(homePath, credentials)

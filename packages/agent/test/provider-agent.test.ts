@@ -735,9 +735,11 @@ cli_auth_credentials_store = "keyring"
 
   it("scavenges an invocation-private credential root abandoned by a dead process", async () => {
     const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
     await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
       hostname: hostname(),
       pid: 2_147_483_647,
+      processNamespace,
       startedAt: "stale process identity",
     })}\n`, { mode: 0o600 })
     await mkdir(join(staleRoot, "home"), { mode: 0o700 })
@@ -756,9 +758,11 @@ cli_auth_credentials_store = "keyring"
     const spawned = once(liveProcess, "spawn")
     const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
     await spawned
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
     await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
       hostname: hostname(),
       pid: liveProcess.pid,
+      processNamespace,
       startedAt: "reused process identity",
     })}\n`, { mode: 0o600 })
     await mkdir(join(staleRoot, "home"), { mode: 0o700 })
@@ -786,9 +790,11 @@ cli_auth_credentials_store = "keyring"
     }).stdout.trim()
     expect(startedAt).not.toBe("")
     const liveRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
     await writeFile(join(liveRoot, ".vitehub-owner.json"), `${JSON.stringify({
       hostname: hostname(),
       pid: process.pid,
+      processNamespace,
       startedAt,
     })}\n`, { mode: 0o600 })
     await mkdir(join(liveRoot, "home"), { mode: 0o700 })
@@ -806,6 +812,31 @@ cli_auth_credentials_store = "keyring"
     finally {
       if (previousLocale === undefined) delete process.env.LC_ALL
       else process.env.LC_ALL = previousLocale
+      await rm(liveRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a credential root owned by another PID namespace", async () => {
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    if (processNamespace === undefined) return
+    const liveRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await writeFile(join(liveRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace: `${processNamespace}-other`,
+      startedAt: "foreign namespace process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(liveRoot, "home"), { mode: 0o700 })
+    try {
+      const threadId = "thread-live-private-credentials-foreign-pid-namespace"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(liveRoot)).resolves.toBeUndefined()
+    }
+    finally {
       await rm(liveRoot, { force: true, recursive: true })
     }
   })
