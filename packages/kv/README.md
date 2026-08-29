@@ -54,6 +54,12 @@ Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to
 
 Providers include local `fs-lite`, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 
+## Listing keys
+
+`kv.keys(prefix)` is exhaustive. Use `kv.list({ prefix, limit, cursor })` when the caller needs bounded work. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete.
+
+Cursors are opaque and provider-specific. Pass a returned cursor back to the same store with the same prefix. Cloudflare KV, Upstash, Deno KV, and `fs-lite` stop enumeration when the requested page is full.
+
 KV operations return `[error, value]`. Provider failures use `ViteHubError` with code `KV_OPERATION_FAILED`, operation/store details, and the provider failure in `cause`. Invalid configuration and unknown named stores still throw before provider execution.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

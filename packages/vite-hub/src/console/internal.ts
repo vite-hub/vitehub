@@ -14,7 +14,6 @@ export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.
 export const consoleKVKey: unique symbol = Symbol.for("vitehub.console.kv")
 export const consoleKVRegistryKey: unique symbol = Symbol.for("vitehub.console.kv.registry")
 export const consoleKVRootKey: unique symbol = Symbol.for("vitehub.console.kv.root")
-export const consoleProjectRootKey: unique symbol = Symbol.for("vitehub.console.project.root")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
@@ -38,9 +37,11 @@ type ConsoleKVByRoot = {
   get(key: string): ConsoleKVInspection | undefined
   set(key: string, value: ConsoleKVInspection): unknown
   readonly size: number
+}
+
 type ConsoleInvocationRegistry = Record<
   symbol,
-  AgentInvocations | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleSectionsByRoot | undefined
+  AgentInvocations | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleSectionsByRoot | undefined
 >
 
 type ConsoleInvocationIdentitiesByRoot = {
@@ -56,18 +57,6 @@ type ConsoleSectionsByRoot = {
   set(key: string, value: readonly ConsoleSectionId[]): unknown
   readonly size: number
 }
-
-type ConsoleRuntimeRegistry = Record<
-  symbol,
-  | AgentInvocations
-  | ConsoleInvocationsByRoot
-  | ConsoleKVByRoot
-  | ConsoleKVInspection
-  | ConsoleSectionsByRoot
-  | readonly ConsoleSectionId[]
-  | string
-  | undefined
->
 
 export type ConsoleInvocationScope = {
   process?: unknown
@@ -129,11 +118,14 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
   // SAFETY: The structural checks below validate every ConsoleInvocationsByRoot member before use.
   const registry = value as Partial<ConsoleInvocationsByRoot>
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
-  if (typeof registry.get !== "function"
-    || typeof registry.set !== "function"
-    || !Number.isInteger(registry.size)) return
-  // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
-  return registry as ConsoleInvocationsByRoot
+  return typeof registry.get === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+    && typeof registry.delete === "function"
+    && typeof registry.set === "function"
+    && Number.isInteger(registry.size)
+    // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
+    ? registry as ConsoleInvocationsByRoot
+    : undefined
 }
 
 function kvByRoot(value: unknown): ConsoleKVByRoot | undefined {
@@ -145,14 +137,6 @@ function kvByRoot(value: unknown): ConsoleKVByRoot | undefined {
   if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
   // SAFETY: The preceding checks validate every ConsoleKVByRoot member.
   return registry as ConsoleKVByRoot
-  return typeof registry.get === "function"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
-    && typeof registry.delete === "function"
-    && typeof registry.set === "function"
-    && Number.isInteger(registry.size)
-    // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
-    ? registry as ConsoleInvocationsByRoot
-    : undefined
 }
 
 function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
@@ -161,9 +145,6 @@ function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
   // SAFETY: The structural checks below validate every ConsoleSectionsByRoot member before use.
   const registry = value as Partial<ConsoleSectionsByRoot>
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
-  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
-  // SAFETY: The preceding checks validate every ConsoleSectionsByRoot member.
-  return registry as ConsoleSectionsByRoot
   return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
     ? // SAFETY: The preceding checks validate every ConsoleSectionsByRoot member.
       registry as ConsoleSectionsByRoot

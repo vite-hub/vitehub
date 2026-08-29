@@ -40,6 +40,13 @@ function memoryKV(stores: Record<string, Map<string, unknown>>): { storage: KVSt
       get: async <T>(key: string) => success((values.get(key) ?? null) as T | null),
       has: async key => success(values.has(key)),
       keys: async base => success([...values.keys()].filter(key => key.startsWith(base ?? ""))),
+      list: async ({ cursor, limit, prefix = "" }) => {
+        const matching = [...values.keys()].filter(key => key.startsWith(prefix)).sort()
+        const start = cursor ? Number(cursor) : 0
+        const keys = matching.slice(start, start + limit)
+        const next = start + keys.length
+        return success({ keys, ...(next < matching.length ? { cursor: String(next) } : {}) })
+      },
       set: async () => { writes("set"); return success(undefined) },
       store: storage,
     }
@@ -80,12 +87,15 @@ describe("Console KV inspection", () => {
 
     await expect(kvHandler(event("?prefix=user:&limit=1"))).resolves.toEqual({
       keys: ["user:1"],
+      cursor: "1",
       limit: 1,
       prefix: "user:",
       store: "default",
       stores: ["default", "cache"],
-      total: 2,
-      truncated: true,
+    })
+    await expect(kvHandler(event("?prefix=user:&limit=1&cursor=1"))).resolves.toMatchObject({
+      keys: ["user:2"],
+      store: "default",
     })
     await expect(kvHandler(event("?store=cache"))).resolves.toMatchObject({
       keys: ["session:2"],

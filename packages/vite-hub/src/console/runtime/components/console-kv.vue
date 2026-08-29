@@ -9,13 +9,12 @@ import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 
 interface KVListResponse {
+  cursor?: string;
   keys: string[];
   limit: number;
   prefix: string;
   store: string;
   stores: string[];
-  total: number;
-  truncated: boolean;
 }
 
 interface KVValueResponse {
@@ -41,8 +40,7 @@ const stores = ref<string[]>([]);
 const selectedStore = ref("default");
 const prefix = ref("");
 const keys = ref<string[]>([]);
-const total = ref(0);
-const listTruncated = ref(false);
+const nextCursor = ref<string>();
 const selectedKey = ref<string>();
 const selectedValue = ref<KVValueResponse>();
 const listLoading = ref(true);
@@ -67,6 +65,8 @@ function parseList(value: unknown): KVListResponse {
     throw new TypeError("The Console returned an invalid KV key list.");
   }
   return {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    cursor: typeof source.cursor === "string" ? source.cursor : undefined,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every key before rendering it.
     keys: source.keys.filter((key): key is string => typeof key === "string"),
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional limit at this boundary.
@@ -77,9 +77,6 @@ function parseList(value: unknown): KVListResponse {
     store: typeof source.store === "string" ? source.store : "default",
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every store identity before rendering it.
     stores: source.stores.filter((store): store is string => typeof store === "string"),
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional total at this boundary.
-    total: typeof source.total === "number" ? source.total : source.keys.length,
-    truncated: source.truncated === true,
   };
 }
 
@@ -136,21 +133,20 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   }
 }
 
-async function loadKeys(options: { keepSelection?: boolean } = {}): Promise<void> {
+async function loadKeys(options: { append?: boolean; keepSelection?: boolean } = {}): Promise<void> {
   listRequest?.abort();
   const controller = new AbortController();
   listRequest = controller;
   listLoading.value = true;
   try {
     const value = parseList(await requestConsole(props.kvBase, {
-      query: { prefix: prefix.value || undefined, store: selectedStore.value },
+      query: { cursor: options.append ? nextCursor.value : undefined, prefix: prefix.value || undefined, store: selectedStore.value },
       signal: controller.signal,
     }));
     if (listRequest !== controller) return;
     stores.value = value.stores;
-    keys.value = value.keys;
-    total.value = value.total;
-    listTruncated.value = value.truncated;
+    keys.value = options.append ? [...keys.value, ...value.keys] : value.keys;
+    nextCursor.value = value.cursor;
     listError.value = undefined;
     const current = options.keepSelection ? selectedKey.value : undefined;
     selectedKey.value = current !== undefined && value.keys.includes(current) ? current : value.keys[0];
@@ -174,6 +170,10 @@ async function selectKey(key: string): Promise<void> {
 
 async function refresh(): Promise<void> {
   await loadKeys({ keepSelection: true });
+}
+
+async function loadMore(): Promise<void> {
+  await loadKeys({ append: true, keepSelection: true });
 }
 
 watch(selectedStore, () => {
@@ -234,7 +234,7 @@ onBeforeUnmount(() => {
             <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">KV storage</span>
             <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Keys</h1>
           </div>
-          <span class="text-xs text-muted">{{ total }}</span>
+          <span class="text-xs text-muted">{{ keys.length }}</span>
         </div>
         <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
           <UDashboardSearchButton
@@ -299,9 +299,9 @@ onBeforeUnmount(() => {
             <UIcon name="i-lucide-key-round" class="size-3.5 shrink-0 text-dimmed" />
             <span class="truncate font-mono text-xs">{{ key || "(empty key)" }}</span>
           </button>
-          <p v-if="listTruncated" class="px-2 pt-3 text-xs leading-5 text-muted">
-            Showing the first {{ keys.length }} of {{ total }} keys. Narrow the prefix to inspect more.
-          </p>
+          <UButton v-if="nextCursor" block class="mt-2" color="neutral" variant="ghost" :loading="listLoading" @click="loadMore">
+            Load more
+          </UButton>
         </nav>
         <UEmpty
           v-else-if="!listLoading && !listError && !collapsed"

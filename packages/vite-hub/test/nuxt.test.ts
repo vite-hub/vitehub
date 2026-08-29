@@ -138,7 +138,6 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       serverDir: "/tmp/vitehub-nuxt/custom-server",
       srcDir: "/tmp/vitehub-nuxt/app",
       vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions },
-      vite: { plugins } as UserConfig,
       vitehubCliDiscovery: undefined as true | undefined,
       watch: undefined as string[] | undefined,
     },

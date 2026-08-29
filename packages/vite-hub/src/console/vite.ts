@@ -159,9 +159,6 @@ function renderConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   kvStores: readonly string[],
-): string {
-  const agentsEnabled = sections.includes("agents")
-  const kvEnabled = sections.includes("kv")
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
@@ -204,11 +201,6 @@ async function writeConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   kvStores: readonly string[],
-): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores)
-  if ((await readFile(file, "utf8").catch(() => undefined)) === contents) return
-  await mkdir(resolve(file, ".."), { recursive: true })
-  await writeFile(file, contents, "utf8")
   fixture?: string,
   runtimeBinding?: string,
   active: () => boolean = () => true,
@@ -221,7 +213,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -257,7 +249,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
 
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(root, serverDirs) : [], kvStores)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(root, serverDirs) : [], kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
+    if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
   function resolveKVRegistration(kv: unknown): void {
@@ -279,21 +272,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     nitro.handlers = handlers
   }
 
-  return {
-    const identity = await writeConsoleNitroPlugin(
-      generatedPlugin,
-      projectRoot,
-      sections,
-      sections.includes("agents") ? discoverAgentDefinitionEntries(root, serverDirs) : [],
-      fixture,
-      options.invocationRootState?.binding,
-      () => !options.invocationRootState?.closed,
-    )
-    if (options.invocationRootState) {
-      updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
-    }
-  })
-
   const plugin: Plugin & ViteHubCliContributingPlugin = {
     name: "vite-hub/console",
     async config(config, environment) {
@@ -304,10 +282,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
         kv?: unknown
-      }
-      resolveKVRegistration(viteConfig.kv)
         vitehubCliDiscovery?: true
       }
+      resolveKVRegistration(viteConfig.kv)
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
         agentsEnabled: sections.includes("agents"),
@@ -318,8 +295,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         preset: options.preset,
       })
       projectRoot = resolveViteHubProjectRoot(root)
-      generatedPlugin = resolve(root, generatedConsolePlugin)
-      await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(root) : [], kvStores)
       const configuredFixture = viteConfig.vitehubCliDiscovery
         ? undefined
         : process.env[consoleFixtureEnvironmentVariable]
@@ -341,6 +316,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           projectRoot,
           sections,
           sections.includes("agents") ? discoverAgentDefinitionEntries(root) : [],
+          kvStores,
           fixture,
           options.invocationRootState?.binding,
         )
@@ -393,7 +369,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       )
       nitro.handlers = handlers
       reconcileKVHandler(nitro)
-      const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter((candidate) => !generatedRegistration(candidate, generatedConsolePlugin)) : []
       const plugins = Array.isArray(nitro.plugins)
         ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []

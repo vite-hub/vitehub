@@ -109,7 +109,7 @@ function selectStore(storage: KVStorage, stores: readonly string[], requested: s
 
 export default async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
   | ConsoleKVValue
-  | { keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[]; total: number; truncated: boolean }
+  | { cursor?: string; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
 > {
   assertConsoleRequest(event)
   const url = consoleRequestURL(event)
@@ -133,14 +133,14 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
   const prefix = url.searchParams.get("prefix") ?? ""
   if (prefix.length > maximumKeyLength) throw requestError(400, "prefix is too long.")
   const limit = limitParameter(url.searchParams.get("limit"))
-  const allKeys = [...new Set(unwrap(await selected.storage.keys(prefix)))].sort((left, right) => left.localeCompare(right))
+  const cursor = url.searchParams.get("cursor") || undefined
+  const page = unwrap(await selected.storage.list({ cursor, limit, prefix }))
   return {
-    keys: allKeys.slice(0, limit),
+    ...(page.cursor ? { cursor: page.cursor } : {}),
+    keys: page.keys,
     limit,
     prefix,
     store: selected.name,
     stores: inspection.stores,
-    total: allKeys.length,
-    truncated: allKeys.length > limit,
   }
 }

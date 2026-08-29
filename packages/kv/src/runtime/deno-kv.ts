@@ -1,6 +1,5 @@
-import type { Driver } from "unstorage"
-
-import type { ResolvedDenoKVStoreConfig } from "../types.ts"
+import type { KVListOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
+import type { KVRuntimeDriver } from "./driver.ts"
 
 type DenoKVKey = [unknown, ...unknown[]]
 type ViteHubDenoKVKey = [string]
@@ -13,8 +12,9 @@ interface DenoKVEntry<T = unknown> {
 interface DenoKV {
   close?: () => void
   delete: (key: DenoKVKey) => Promise<void>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
   get: <T = unknown>(key: DenoKVKey) => Promise<DenoKVEntry<T>>
-  list: <T = unknown>(selector: { prefix: [] }) => AsyncIterable<DenoKVEntry<T>>
+  list: <T = unknown>(selector: { prefix: [] }, options?: { cursor?: string }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
   set: <T = unknown>(key: DenoKVKey, value: T) => Promise<unknown>
 }
 
@@ -23,6 +23,7 @@ interface DenoRuntime {
 }
 
 function getDenoRuntime(): DenoRuntime | undefined {
+  // SAFETY: The optional global is checked for openKv before invocation.
   return (globalThis as typeof globalThis & { Deno?: DenoRuntime }).Deno
 }
 
@@ -31,10 +32,11 @@ function toDenoKey(key: string): ViteHubDenoKVKey {
 }
 
 function fromDenoKey(key: DenoKVKey): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Deno KV keys are untrusted structured values and only one-string keys belong to this adapter.
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
 }
 
-export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = { driver: "deno-kv" }): Driver {
+export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = { driver: "deno-kv" }): KVRuntimeDriver {
   let kvPromise: Promise<DenoKV> | undefined
 
   const open = () => kvPromise ||= (async () => {
@@ -78,6 +80,16 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     },
     async getKeys(base = "") {
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
+    },
+    async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
+      const iterator = (await open()).list({ prefix: [] }, { cursor })
+      const keys: string[] = []
+      for await (const entry of iterator) {
+        const key = fromDenoKey(entry.key)
+        if (key?.startsWith(prefix)) keys.push(key)
+        if (keys.length === limit) return { keys, cursor: iterator.cursor }
+      }
+      return { keys }
     },
     async hasItem(key) {
       return (await (await open()).get(toDenoKey(key))).value !== null

@@ -260,10 +260,6 @@ function renderConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
   kvStores: readonly string[],
-): string {
-  const agentsEnabled = sections.includes("agents")
-  const kvEnabled = sections.includes("kv")
-  agents: readonly { handler: string, name: string }[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
@@ -306,12 +302,6 @@ async function writeConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
   kvStores: readonly string[],
-): Promise<void> {
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores)
-  if ((await readFile(file, "utf8").catch(() => undefined)) === contents) return
-  await mkdir(resolve(file, ".."), { recursive: true })
-  await writeFile(file, contents, "utf8")
-  agents: readonly { handler: string, name: string }[],
   fixture?: string,
   runtimeBinding?: string,
   active: () => boolean = () => true,
@@ -324,7 +314,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -458,12 +448,12 @@ async function installConsole(
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
-    await writeConsoleNitroPlugin(plugin, projectRoot, sections, sections.includes("agents") ? discoverAgentDefinitionEntries(discoveryRoot, serverDirs) : [], kvStores)
     const identity = await writeConsoleNitroPlugin(
       plugin,
       projectRoot,
       sections,
       sections.includes("agents") ? discoverAgentDefinitionEntries(discoveryRoot, serverDirs) : [],
+      kvStores,
       fixture,
       invocationRootState?.binding,
       () => !invocationRootState?.closed,
@@ -773,24 +763,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     : []
   const consoleInvocationRootState = createConsoleInvocationRootState()
   let resolvedConsoleFixture: string | undefined
-  const consoleSections = resolveConsoleSectionIds(options)
   if (options.console) {
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
     const effectiveAuth = viteAuth ?? options.auth
-    assertConsoleProductionAccess(configuredConsole, {
-      agentsEnabled: consoleSections.includes("agents"),
-      auth: configuredConsole !== true && configuredConsole.access === "auth" && effectiveAuth
-        ? resolveAuthViteConfig(
-            effectiveAuth === true ? undefined : effectiveAuth,
-            viteRoot,
-            { serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined },
-          )
-        : undefined,
-      development: Boolean(nuxt.options.dev),
-      preset: plan.preset,
-    })
-    await installConsole(nuxt, projectRoot, viteRoot, consoleSections, consoleKVStores, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined)
     if (!nuxt.options.vitehubCliDiscovery) {
       assertConsoleProductionAccess(configuredConsole, {
         agentsEnabled: consoleSections.includes("agents"),
@@ -811,6 +787,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (fixture && !nuxt.options.dev) throw new Error("[vitehub] Console fixture mode is development-only.")
     resolvedConsoleFixture = fixture ? resolve(projectRoot, fixture) : undefined
     if (resolvedConsoleFixture) readConsoleFixture(resolvedConsoleFixture)
+    await installConsole(nuxt, projectRoot, viteRoot, consoleSections, consoleKVStores, resolvedConsoleFixture, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined, true, true, consoleInvocationRootState)
   }
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
