@@ -103,7 +103,7 @@ export default defineConfig({
   })],
   env: {
     public: {
-      appName: env({ default: 'Acme' }),
+      appName: env({ default: 'Acme', mode: 'build' }),
     },
     server: {
       apiToken: env({ secret: true, source: env.source('API_TOKEN') }),

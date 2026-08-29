@@ -137,6 +137,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
     },
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
+    name: "fetch",
     probeKeys: options.probeKeys || (key ? [key] : undefined),
     sync: options.sync,
     async getKeys() {
@@ -196,6 +197,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
       sourceResolution: "fetch",
     },
     materialize: "lazy",
+    name: "fetch",
     async getKeys() {
       return []
     },

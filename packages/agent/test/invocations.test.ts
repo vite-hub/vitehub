@@ -435,6 +435,13 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("rejects reserved trace attributes in metadataContent", () => {
+    expect(() => defineAgentInvocations({
+      metadataContent: ["vitehub.payload.value"],
+      store: createMemoryAgentInvocationStore(),
+    })).toThrow("metadataContent cannot include reserved trace attributes")
+  })
+
   it("excludes generated cursors from memory-store search", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({
@@ -911,8 +918,44 @@ describe("Agent Invocations", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    // SAFETY: This fixture supplies the custom Trace Event Log shape accepted by the runtime boundary.
     await expect(runAgent(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it("handles journal normalization rejection while the wrapped trace log is pending", async () => {
+    let releaseAppend!: () => void
+    const appendPending = new Promise<void>(resolve => { releaseAppend = resolve })
+    const traceLog = {
+      append: vi.fn(async (event: Record<string, unknown>) => {
+        await appendPending
+        return { ...event, timestamp: new Date().toISOString() }
+      }),
+      entries: () => [],
+    }
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    // SAFETY: This fixture supplies a valid custom Trace Event Log with a deliberately pending append.
+    const journal = await bindAgentInvocations(invocations, { ...runtime("pending-malformed-trace"), traceLog } as never)
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+
+    try {
+      // SAFETY: This malformed event deliberately bypasses the Trace Event timestamp contract.
+      const appended = journal.context.traceLog?.append({
+        name: "malformed",
+        timestamp: new Date(Number.NaN),
+        type: "run",
+      } as never)
+      await new Promise(resolve => setImmediate(resolve))
+      expect(unhandled).not.toHaveBeenCalled()
+      releaseAppend()
+      await expect(appended).resolves.toMatchObject({ name: "malformed" })
+    }
+    finally {
+      releaseAppend()
+      process.off("unhandledRejection", unhandled)
+    }
   })
 
   it("isolates invocation persistence from a rejecting caller trace log", async () => {
@@ -939,6 +982,64 @@ describe("Agent Invocations", () => {
       "resolved.configuration",
       "agent.invocation.finish",
     ]))
+  })
+
+  it("guards metadata content inspection for custom trace attributes", async () => {
+    const invocations = defineAgentInvocations({
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const append = vi.spyOn(traceLog, "append")
+    const journal = await bindAgentInvocations(invocations, { ...runtime("hostile-metadata-content"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const attributes = new Proxy({ "message.content": "persisted" }, {
+      has() {
+        throw new Error("membership unavailable")
+      },
+    })
+
+    await expect(journal.context.traceLog?.append({ attributes, name: "custom", type: "run" })).resolves.toBeDefined()
+    await journal.finish("completed")
+
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ name: "custom" }))
+    const observation = (await invocations.getByRunId("hostile-metadata-content"))?.observations
+      .find(entry => entry.name === "custom")
+    expect(observation?.attributes?.["message.content"]).toBe("persisted")
+  })
+
+  it("keeps omission markers when selected metadata content cannot be captured", async () => {
+    const invocations = defineAgentInvocations({
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("uncaptured-metadata-content"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const accessorAttributes: Record<string, unknown> = {}
+    Object.defineProperty(accessorAttributes, "message.content", {
+      enumerable: true,
+      get: () => "accessor content",
+    })
+
+    await journal.context.traceLog?.append({ attributes: accessorAttributes, name: "accessor", type: "run" })
+    await journal.context.traceLog?.append({
+      attributes: { "message.content": () => "uncloneable content" },
+      name: "uncloneable",
+      type: "run",
+    })
+    await journal.context.traceLog?.append({
+      attributes: { "message.content": undefined },
+      name: "undefined",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("uncaptured-metadata-content"))?.observations
+    for (const name of ["accessor", "uncloneable", "undefined"]) {
+      const observation = observations?.find(entry => entry.name === name)
+      expect(observation?.attributes?.["content.omitted"]).toEqual(["message.content"])
+      expect(observation?.attributes).not.toHaveProperty("message.content")
+    }
   })
 
   it("marks bounded Agent configuration as truncated", async () => {
@@ -973,6 +1074,364 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
   })
 
+  it("reserves the observation attribute limit for the truncation marker", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-attribute-count"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const attributes = Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`key-${index}`, index]))
+    await journal.context.traceLog?.append({ attributes, name: "tool.finish", type: "run" })
+    const exactLimitAttributes = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`exact-${index}`, index]))
+    await journal.context.traceLog?.append({ attributes: exactLimitAttributes, name: "tool.exact-limit", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("bounded-attribute-count"))?.observations
+    const observation = observations?.find(entry => entry.name === "tool.finish")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(Object.keys(observation?.attributes || {})).toHaveLength(32)
+    const exactLimitObservation = observations?.find(entry => entry.name === "tool.exact-limit")
+    expect(exactLimitObservation?.attributes).toEqual(exactLimitAttributes)
+  })
+
+  it("bounds public trace payloads before persisting invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: { value: { files: "x".repeat(100_000) }, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(JSON.stringify(observation?.payload).length).toBeLessThan(100_000)
+  })
+
+  it("serializes structured public payload values before persisting invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          createdAt: new Date("2026-08-27T00:00:00.000Z"),
+          data: new Uint8Array([1, 2, 3]),
+          files: new Map([["README.md", 42]]),
+          invalidDate: new Date(Number.NaN),
+          paths: new Set(["README.md", "package.json"]),
+          pattern: /vitehub/gi,
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        createdAt: { type: "Date", value: "2026-08-27T00:00:00.000Z" },
+        data: { bytes: [1, 2, 3], type: "Uint8Array" },
+        files: [["README.md", 42]],
+        invalidDate: { type: "Date", value: "Invalid Date" },
+        paths: ["README.md", "package.json"],
+        pattern: { flags: "gi", lastIndex: 0, source: "vitehub" },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("retains RegExp state and Error details when bounding invocation observations", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "built-in-details",
+      observations: [],
+      status: "running",
+      traceId: "built-in-details-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const pattern = /vitehub/gi
+    pattern.lastIndex = 3
+    const error = new AggregateError([new Error("first")], "outer", { cause: { code: "inner" } })
+    Object.assign(error, { code: "E_OUTER" })
+
+    await store.update("built-in-details", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error, pattern }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("built-in-details"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          cause: { code: "inner" },
+          code: "E_OUTER",
+          errors: [{ message: "first", name: "Error" }],
+          message: "outer",
+          name: "AggregateError",
+        },
+        pattern: { flags: "gi", lastIndex: 3, source: "vitehub" },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("remaining-structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          blob: new Blob([new Uint8Array([1, 2])], { type: "application/octet-stream" }),
+          boxedBigInt: Object(9n),
+          boxedBoolean: new Boolean(false),
+          boxedNumber: new Number(5),
+          boxedString: new String("one"),
+          file: new File([new Uint8Array([3, 4])], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" }),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("remaining-structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        blob: { bytes: [1, 2], mediaType: "application/octet-stream", size: 2, type: "Blob" },
+        boxedBigInt: { type: "BigInt", value: "9" },
+        boxedBoolean: { type: "Boolean", value: false },
+        boxedNumber: { type: "Number", value: 5 },
+        boxedString: { type: "String", value: "one" },
+        file: {
+          bytes: [3, 4],
+          lastModified: 1_768_435_200_000,
+          mediaType: "text/plain",
+          name: "report.txt",
+          size: 2,
+          type: "File",
+        },
+      },
+      visibility: "public",
+    })
+    expect(observation?.attributes?.["vitehub.payload.value"]).toEqual(observation?.payload?.visibility === "public"
+      ? observation.payload.value
+      : undefined)
+  })
+
+  it("marks undefined public payload values as truncated and preserves their positions", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("undefined-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          array: [undefined],
+          direct: undefined,
+          files: new Map([["README.md", undefined]]),
+          paths: new Set([undefined]),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.undefined",
+      payload: { value: undefined, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.undefined-array",
+      payload: { value: [undefined], visibility: "public" },
+      type: "lifecycle",
+    })
+    Object.defineProperty(Array.prototype, "0", { configurable: true, value: "inherited-secret", writable: true })
+    try {
+      await journal.context.traceLog?.append({
+        name: "workspace.sparse-array",
+        payload: { value: Array(1), visibility: "public" },
+        type: "lifecycle",
+      })
+    }
+    finally {
+      delete Array.prototype[0]
+    }
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("undefined-public-payload"))?.observations
+    const observation = observations?.find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        array: [null],
+        direct: null,
+        files: [["README.md", null]],
+        paths: [null],
+      },
+      visibility: "public",
+    })
+    expect(observations?.find(entry => entry.name === "workspace.undefined")?.payload).toEqual({
+      value: null,
+      visibility: "public",
+    })
+    for (const name of ["workspace.undefined-array", "workspace.sparse-array"]) {
+      const arrayObservation = observations?.find(entry => entry.name === name)
+      expect(arrayObservation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+      expect(arrayObservation?.payload).toEqual({ value: [null], visibility: "public" })
+    }
+  })
+
+  it("marks each lossy public payload scalar as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("lossy-public-payload-scalars"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.bigint",
+      payload: { value: 1n, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.nan",
+      payload: { value: Number.NaN, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.negative-zero",
+      payload: { value: -0, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("lossy-public-payload-scalars"))?.observations
+    expect(observations?.find(entry => entry.name === "workspace.bigint")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: "1", visibility: "public" },
+    })
+    expect(observations?.find(entry => entry.name === "workspace.nan")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: null, visibility: "public" },
+    })
+    expect(observations?.find(entry => entry.name === "workspace.negative-zero")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: -0, visibility: "public" },
+    })
+  })
+
+  it("persists the base log payload snapshot", async () => {
+    let releaseEntry!: () => void
+    const entryReleased = new Promise<void>(resolve => {
+      releaseEntry = resolve
+    })
+    const onEntry = vi.fn(async () => {
+      await entryReleased
+    })
+    const traceLog = createTraceEventLog({ onEntry })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, { ...runtime("payload-snapshot"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const value = { message: "original" }
+
+    const appended = journal.context.traceLog?.append({
+      name: "workspace.snapshot",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+    await vi.waitFor(() => expect(onEntry).toHaveBeenCalledOnce())
+    value.message = "mutated"
+    releaseEntry()
+    await appended
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("payload-snapshot"))?.observations
+      .find(entry => entry.name === "workspace.snapshot")
+    expect(observation?.payload).toEqual({ value: { message: "original" }, visibility: "public" })
+  })
+
+  it("uses the wrapped trace log timestamp for the persisted observation", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const wrappedTimestamp = "2000-01-01T00:00:00.000Z"
+    const traceLog = {
+      append: vi.fn(async event => ({ ...event, sequence: 1, timestamp: wrappedTimestamp })),
+      entries: () => [],
+    }
+    const journal = await bindAgentInvocations(invocations, { ...runtime("wrapped-timestamp"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+
+    const entry = await journal.context.traceLog?.append({ name: "custom.event", type: "run" })
+
+    expect(entry?.timestamp).toBe(wrappedTimestamp)
+    await vi.waitFor(async () => {
+      const observation = (await invocations.getByRunId("wrapped-timestamp"))?.observations
+        .find(item => item.name === "custom.event")
+      expect(observation?.timestamp).toBe(wrappedTimestamp)
+    })
+  })
+
+  it("bounds large structured public payload values before persistence", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          bytes: new Uint8Array(100_000),
+          files: new Map(Array.from({ length: 100_000 }, (_, index) => [index, index])),
+          paths: new Set(Array.from({ length: 100_000 }, (_, index) => index)),
+          pattern: new RegExp("x".repeat(100_000)),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(JSON.stringify(observation?.payload).length).toBeLessThan(70_000)
+  })
+
+  it("preserves canonical trace attributes when bounding invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-trace-attributes"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`ordinary.${index}`, index])),
+      name: "workspace.materialized",
+      payload: { summary: "Workspace ready", visibility: "summary" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-trace-attributes"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes).toMatchObject({
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+      "vitehub.observation.truncated": true,
+      "vitehub.payload.summary": "Workspace ready",
+      "vitehub.payload.visibility": "summary",
+    })
+  })
+
   it("keeps resolved instructions out of metadata-only invocation journals", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -998,6 +1457,13 @@ describe("Agent Invocations", () => {
 
     const configured = (await invocations.getByRunId("metadata-only-instructions"))?.observations
       .findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured).toMatchObject({
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: {
+        "vitehub.activity.owner": "vitehub",
+        "vitehub.activity.phase": "setup",
+      },
+    })
     expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
   })
 
@@ -2577,6 +3043,11 @@ describe("Agent Invocations", () => {
       const agent = defineAgent({
         driver: { async run(context) {
           await context.traceLog?.append({ attributes: { nan: Number.NaN }, name: "numbers", type: "run" })
+          await context.traceLog?.append({
+            name: "negative-zero",
+            payload: { value: -0, visibility: "public" },
+            type: "run",
+          })
           return "persisted"
         } },
         invocations,
@@ -2606,9 +3077,14 @@ describe("Agent Invocations", () => {
         "vitehub.agent.configured",
         "agent.invocation.start",
         "numbers",
+        "negative-zero",
         "agent.invocation.finish",
       ])
       expect((await restored.getByRunId("durable-run"))?.observations[2]?.attributes).toMatchObject({ nan: null })
+      expect((await restored.getByRunId("durable-run"))?.observations[3]).toMatchObject({
+        attributes: { "vitehub.observation.truncated": true },
+        payload: { value: 0, visibility: "public" },
+      })
       await expect(restored.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
