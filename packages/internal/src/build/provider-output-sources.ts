@@ -35,16 +35,17 @@ function packageRoot(file: string): string {
   }
 }
 
-function dependencyRoot(root: string): string | undefined {
+function dependencyRoots(root: string): string[] {
   const resolvedRoot = realpathSync(root)
+  const roots: string[] = []
   let current = resolvedRoot
   while (current !== dirname(current)) {
     const nested = resolve(current, "node_modules")
-    if (existsSync(nested)) return nested
-    if (basename(current) === "node_modules") return current
+    if (existsSync(nested)) roots.push(nested)
+    if (basename(current) === "node_modules") roots.push(current)
     current = dirname(current)
   }
-  return undefined
+  return [...new Set(roots)]
 }
 
 async function linkDependencies(source: string, target: string): Promise<void> {
@@ -59,6 +60,7 @@ async function linkDependencies(source: string, target: string): Promise<void> {
       await linkDependencies(sourceEntry, targetEntry)
       continue
     }
+    if (existsSync(targetEntry)) continue
     await symlink(resolvedSourceEntry, targetEntry, process.platform === "win32" ? "junction" : "dir")
   }
 }
@@ -125,8 +127,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error
         await cp(stagedRoot, retainedRoot, { recursive: true })
       }
-      const dependencies = dependencyRoot(root)
-      if (dependencies) {
+      for (const dependencies of dependencyRoots(root)) {
         await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"))
       }
     }
