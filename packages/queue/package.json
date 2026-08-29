@@ -45,6 +45,7 @@
     "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
+    "@types/ws": "^8.18.1",
     "@vercel/functions": "catalog:vercel",
     "@vercel/queue": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",

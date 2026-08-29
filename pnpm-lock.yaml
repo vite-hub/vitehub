@@ -1351,6 +1351,9 @@ importers:
 
   packages/queue:
     dependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.3)
