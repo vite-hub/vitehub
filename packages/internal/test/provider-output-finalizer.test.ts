@@ -322,6 +322,8 @@ describe("Provider Output finalizer", () => {
     const outputFile = join(outputRoot, "index.js")
     const customOutputRoot = join(rootDir, "custom-cloudflare")
     const customOutputFile = join(customOutputRoot, "owner.js")
+    const agentNetlifyFunction = join(rootDir, ".vitehub/agent/netlify-function.mjs")
+    const agentScheduleRegistry = join(rootDir, ".vitehub/agent/schedule-registry.js")
     const ownershipFile = join(rootDir, ".vitehub/blob/cloudflare-output.json")
     const queueRegistry = join(rootDir, ".vitehub/queue/registry.mjs")
     const rateLimitManifest = join(rootDir, ".vitehub/rate-limit/manifest.json")
@@ -330,6 +332,7 @@ describe("Provider Output finalizer", () => {
     await Promise.all([
       mkdir(outputRoot, { recursive: true }),
       mkdir(customOutputRoot, { recursive: true }),
+      mkdir(dirname(agentNetlifyFunction), { recursive: true }),
       mkdir(dirname(ownershipFile), { recursive: true }),
       mkdir(dirname(queueRegistry), { recursive: true }),
       mkdir(dirname(rateLimitManifest), { recursive: true }),
@@ -338,6 +341,8 @@ describe("Provider Output finalizer", () => {
     await Promise.all([
       writeFile(outputFile, "previous\n"),
       writeFile(customOutputFile, "previous\n"),
+      writeFile(agentNetlifyFunction, "previous\n"),
+      writeFile(agentScheduleRegistry, "previous\n"),
       writeFile(ownershipFile, "previous\n"),
       writeFile(queueRegistry, "previous\n"),
       writeFile(rateLimitManifest, "previous\n"),
@@ -360,6 +365,8 @@ describe("Provider Output finalizer", () => {
         })
         await writeFile(ownershipFile, "replacement\n")
         await Promise.all([
+          writeFile(agentNetlifyFunction, "replacement\n"),
+          writeFile(agentScheduleRegistry, "replacement\n"),
           writeFile(queueRegistry, "replacement\n"),
           writeFile(rateLimitManifest, "replacement\n"),
           writeFile(scheduleRegistry, "replacement\n"),
@@ -376,6 +383,8 @@ describe("Provider Output finalizer", () => {
     await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("database failed")
     await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(customOutputFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(agentNetlifyFunction, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(agentScheduleRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(queueRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(rateLimitManifest, "utf8")).resolves.toBe("previous\n")
