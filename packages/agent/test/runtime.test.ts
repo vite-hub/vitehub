@@ -1336,10 +1336,18 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("captures yielded usage in runAgent invocation data", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+  it("captures yielded usage in runAgent invocation data after final rendering", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "final-usage-output",
+          output(context) {
+            context.output.final(result => result)
+          },
+        }),
+      ],
       hooks: { "agent:finish": finish },
       driver: { run: () => (async function* () {
           yield { text: "hello", type: "text-delta" }
@@ -1364,6 +1372,55 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.attributes).toMatchObject({
       "usage.record": {
         run: { runId: "run-streamed-usage" },
+        usage: { totalTokens: 5 },
+      },
+    })
+  })
+
+  it("captures yielded usage in streamAgent invocation data after final rendering", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "final-stream-usage-output",
+          output(context) {
+            context.output.final(result => result)
+          },
+        }),
+      ],
+      hooks: { "agent:finish": finish },
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { text: "hello", type: "text-delta" }
+            yield {
+              type: "usage",
+              usageRecord: {
+                run: { annotations: { provider: "streamed" } },
+                usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+              },
+            }
+            yield { type: "finish" }
+          })(),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "stream-streamed-usage" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      run: { annotations: { provider: "streamed" }, runId: "stream-streamed-usage" },
+      usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        run: { runId: "stream-streamed-usage" },
         usage: { totalTokens: 5 },
       },
     })
@@ -6071,6 +6128,7 @@ describe("agent message protocol", () => {
   it("does not resolve unused usage for invocations without finish work", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const usage = {
+      // eslint-disable-next-line unicorn/no-thenable -- verifies invocations without finish work do not await usage
       then() {
         throw new Error("usage should be unused")
       },
@@ -6351,6 +6409,414 @@ describe("agent message protocol", () => {
       result: expect.objectContaining({
         text: "run stream:final",
       }),
+    }))
+  })
+
+  it("does not re-await pending raw usage before final output renderers", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = new Promise<never>(() => {})
+    const raw = Object.assign((async function* () {
+      yield { text: "complete", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "pending-usage-output",
+          output(context) {
+            context.output.final(result => result)
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ raw, text: "complete" })
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
+  })
+
+  it("preserves settled raw usage when an output renderer replaces the stream", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const raw = Object.assign((async function* () {
+      yield { text: "provider", type: "text-delta" }
+      resolveUsage({ totalTokens: 3 })
+    })(), { usage })
+    const replacement = (async function* () {
+      yield { text: "rendered", type: "text-delta" }
+    })()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "replace-stream",
+          output(context) {
+            context.output.render(async (source) => {
+              for await (const _event of source as AsyncIterable<unknown>) {}
+              return replacement
+            })
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish.mock.calls[0]![0].result).toMatchObject({
+      raw: replacement,
+      text: "rendered",
+      usage: { totalTokens: 3 },
+    })
+  })
+
+  it.each(["runAgent", "streamAgent"] as const)("preserves raw usage settled while a lazy replacement stream is consumed by %s", async (method) => {
+    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const raw = Object.assign((async function* () {
+      yield { text: "provider", type: "text-delta" }
+      resolveUsage({ totalTokens: 5 })
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "lazy-replace-stream",
+          output(context) {
+            context.output.render(source => (async function* () {
+              for await (const _event of source as AsyncIterable<unknown>) {}
+              yield { text: "rendered", type: "text-delta" }
+            })())
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = method === "runAgent"
+      ? await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+      : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(finish).not.toHaveBeenCalled()
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish.mock.calls[0]![0].result).toMatchObject({
+      text: "rendered",
+      usage: { totalTokens: 5 },
+    })
+  })
+
+  it.each([
+    ["runAgent", "fullStream"],
+    ["runAgent", "stream"],
+    ["streamAgent", "fullStream"],
+    ["streamAgent", "stream"],
+  ] as const)("preserves raw usage settled while %s consumes a nested lazy renderer %s", async (method, streamProperty) => {
+    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const raw = Object.assign((async function* () {
+      yield { text: "provider", type: "text-delta" }
+      resolveUsage({ totalTokens: 7 })
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "nested-lazy-renderer-stream",
+          output(context) {
+            context.output.render(source => ({
+              usageRecord: { model: "renderer-model" },
+              [streamProperty]: (async function* () {
+                for await (const _event of source as AsyncIterable<unknown>) {}
+                yield { text: "rendered", type: "text-delta" }
+              })(),
+            }))
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = method === "runAgent"
+      ? await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+      : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(finish).not.toHaveBeenCalled()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const stream = method === "runAgent"
+      ? (result as Record<typeof streamProperty, AsyncIterable<unknown>>)[streamProperty]
+      : result as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].result).toMatchObject({
+      usage: { totalTokens: 7 },
+      usageRecord: {
+        model: "renderer-model",
+        usage: { totalTokens: 7 },
+      },
+    })
+    if (method === "runAgent") {
+      expect(result).toMatchObject({
+        usage: { totalTokens: 7 },
+        usageRecord: { model: "renderer-model", usage: { totalTokens: 7 } },
+      })
+    }
+  })
+
+  it.each(["runAgent", "streamAgent"] as const)("preserves raw usage settled while %s consumes a lazy UI renderer", async (method) => {
+    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const raw = Object.assign((async function* () {
+      yield { text: "provider", type: "text-delta" }
+      resolveUsage({ totalTokens: 11 })
+    })(), { usage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "lazy-ui-renderer",
+          output(context) {
+            context.output.render(source => ({
+              toUIMessageStream: () => new ReadableStream({
+                async start(controller) {
+                  for await (const _event of source as AsyncIterable<unknown>) {}
+                  controller.enqueue({ messageId: "assistant", type: "start" })
+                  controller.enqueue({ id: "text", type: "text-start" })
+                  controller.enqueue({ delta: "rendered", id: "text", type: "text-delta" })
+                  controller.enqueue({ id: "text", type: "text-end" })
+                  controller.enqueue({ type: "finish" })
+                  controller.close()
+                },
+              }),
+              usageRecord: { model: "renderer-model" },
+            }))
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = method === "runAgent"
+      ? await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+      : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
+    expect(finish).not.toHaveBeenCalled()
+    // SAFETY: Each invocation method returns the UI stream form selected above.
+    const stream = method === "runAgent"
+      ? (result as { toUIMessageStream: () => ReadableStream<unknown> }).toUIMessageStream()
+      : result as ReadableStream<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].result).toMatchObject({
+      usage: { totalTokens: 11 },
+      usageRecord: {
+        model: "renderer-model",
+        usage: { totalTokens: 11 },
+      },
+    })
+    if (method === "runAgent") {
+      expect(result).toMatchObject({
+        usage: { totalTokens: 11 },
+        usageRecord: { model: "renderer-model", usage: { totalTokens: 11 } },
+      })
+    }
+  })
+
+  it.each(["runAgent", "streamAgent"] as const)("does not await pending raw usage when %s cancels a lazy UI renderer", async (method) => {
+    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const pendingUsage = new Promise<never>(() => {})
+    let releaseReturn!: () => void
+    const returnGate = new Promise<void>((resolve) => {
+      releaseReturn = resolve
+    })
+    const returnStarted = vi.fn()
+    let read = false
+    const raw = Object.assign({
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            if (read) return await new Promise<IteratorResult<unknown>>(() => {})
+            read = true
+            return { done: false as const, value: { text: "provider", type: "text-delta" } }
+          },
+          async return() {
+            returnStarted()
+            await returnGate
+            return { done: true as const, value: undefined }
+          },
+        }
+      },
+    }, { usage: pendingUsage })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "cancelled-lazy-ui-renderer",
+          output(context) {
+            context.output.render((source) => {
+              // SAFETY: The output renderer receives the raw async iterable created by this fixture.
+              const iterator = (source as AsyncIterable<unknown>)[Symbol.asyncIterator]()
+              return {
+                toUIMessageStream: () => new ReadableStream({
+                  async cancel(reason) {
+                    await iterator.return?.(reason)
+                  },
+                  async pull(controller) {
+                    const chunk = await iterator.next()
+                    if (chunk.done) controller.close()
+                    else controller.enqueue({ messageId: "assistant", type: "start" })
+                  },
+                }),
+                usageRecord: { model: "renderer-model" },
+              }
+            })
+          },
+        }),
+      ],
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = method === "runAgent"
+      ? await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+      : await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
+    // SAFETY: Each invocation method returns the UI stream form selected above.
+    const stream = method === "runAgent"
+      ? (result as { toUIMessageStream: () => ReadableStream<unknown> }).toUIMessageStream()
+      : result as ReadableStream<unknown>
+    const reader = stream.getReader()
+    await reader.read()
+    await expect(Promise.race([
+      reader.cancel().then(() => "cancelled"),
+      new Promise(resolve => setTimeout(() => resolve("timed out"), 100)),
+    ])).resolves.toBe("cancelled")
+
+    expect(returnStarted).toHaveBeenCalledOnce()
+    expect(finish).not.toHaveBeenCalled()
+    releaseReturn()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ usageRecord: { model: "renderer-model" } })
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
+  })
+
+  it("finishes direct UI cancellation after source cleanup without blocking the caller", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let releaseCancel!: () => void
+    const cancelGate = new Promise<void>((resolve) => {
+      releaseCancel = resolve
+    })
+    const cancelStarted = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ messageId: "assistant", type: "start" })
+            },
+            async cancel() {
+              cancelStarted()
+              await cancelGate
+            },
+          }),
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    await reader.read()
+    await expect(Promise.race([
+      reader.cancel().then(() => "cancelled"),
+      new Promise(resolve => setTimeout(() => resolve("timed out"), 100)),
+    ])).resolves.toBe("cancelled")
+
+    expect(cancelStarted).toHaveBeenCalledOnce()
+    expect(finish).not.toHaveBeenCalled()
+    releaseCancel()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
+  })
+
+  it("does not re-await pending raw usage after UI message stream consumption", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const usage = new Promise<never>(() => {})
+    const raw = Object.assign((async function* () {
+      yield { text: "complete", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    // SAFETY: UI message stream output is a readable stream consumed by the caller.
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    const consumed = (async () => {
+      for await (const _event of stream) {}
+      return "finished"
+    })()
+
+    await expect(consumed).resolves.toBe("finished")
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ raw, text: "complete" })
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
+  })
+
+  it("preserves raw usage after early UI message stream termination", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
+    const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const raw = Object.assign((async function* () {
+      resolveUsage({ inputTokens: 2, outputTokens: 1, totalTokens: 3 })
+      yield { text: "partial", type: "text-delta" }
+      yield { text: " ignored", type: "text-delta" }
+    })(), { usage })
+    const agent = defineAgent({
+      driver: { run: () => raw },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    await expect(reader.read()).resolves.toMatchObject({ done: false })
+    await reader.cancel()
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({ usage: expect.objectContaining({
+        usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+      }) }),
+      result: expect.objectContaining({ usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 } }),
     }))
   })
 
@@ -9716,6 +10182,11 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     const finish = vi.fn()
+    const finalRenderer = vi.fn((result: unknown) => {
+      expect(result).toBeInstanceOf(Response)
+      expect(result).toHaveProperty("text", expect.any(Function))
+      return result
+    })
     const providerResult = vi.fn()
     const downstreamProviderResult = vi.fn()
     const agent = defineAgent({
@@ -9746,6 +10217,7 @@ describe("agent message protocol", () => {
               expect(renderContext.output.extensions.get("rendered-response", "decorated")).toBe(true)
               return result
             })
+            context.output.final(finalRenderer)
           },
         }),
       ],
@@ -9789,7 +10261,9 @@ describe("agent message protocol", () => {
     const body = await response.text()
     expect(body).not.toContain("private")
     expect(body).toContain("public")
+    expect(finalRenderer).toHaveBeenCalledOnce()
     expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toBeInstanceOf(Response)
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.message.delta",
