@@ -3622,11 +3622,10 @@ function withStreamResultCancellation<T extends AsyncIterable<StreamEvent>>(stre
 function withDrivenStreamResultProperties(
   stream: AsyncIterable<StreamEvent>,
   result: unknown,
-  cancelSource?: (reason?: unknown) => Promise<void>,
 ): AsyncIterable<StreamEvent> {
   if (!hasRuntimeType(stream, "object") || stream === null || !hasRuntimeType(result, "object") || result === null) return stream
   const iterator = stream[Symbol.asyncIterator]()
-  const directCancel = cancelSource ?? Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
+  const directCancel = Reflect.get(stream, Symbol.for("vitehub.agent.stream.cancel"))
   const buffered: IteratorResult<StreamEvent>[] = []
   let read = Promise.resolve<IteratorResult<StreamEvent>>({ done: true, value: undefined })
   let drainTask: Promise<void> | undefined
@@ -6596,7 +6595,7 @@ async function executeAgentInvocationWithCapacityLease<
       finishResult: rendered,
       value: isAsyncIterable(value)
         ? shouldWrapOutput
-          ? withDrivenStreamResultProperties(value, rendered, source?.cancel)
+          ? withDrivenStreamResultProperties(value, rendered)
           : withStreamResultProperties(value, rendered)
         : value,
     }

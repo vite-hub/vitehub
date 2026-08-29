@@ -176,32 +176,50 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>, o
     ]).then(() => {})
     await cancelTask
   }
+  const exposedStream = (async function* () {
+    try {
+      for (;;) {
+        const chunk = await getIterator().next()
+        if (chunk.done) {
+          completed = true
+          return
+        }
+        yield chunk.value
+      }
+    }
+    finally {
+      if (!completed) await cancel()
+      else readableReader?.releaseLock()
+    }
+  })()
+  Object.defineProperty(exposedStream, Symbol.for("vitehub.agent.stream.cancel"), { value: cancel })
   return {
     cancel,
     get completed() {
       return completed
     },
-    stream: (async function* () {
-      try {
-        for (;;) {
-          const chunk = await getIterator().next()
-          if (chunk.done) {
-            completed = true
-            return
-          }
-          yield chunk.value
-        }
-      }
-      finally {
-        if (!completed) await cancel()
-        else readableReader?.releaseLock()
-      }
-    })(),
+    stream: exposedStream,
   }
 }
 
 function isReadableAsyncIterable(stream: AsyncIterable<unknown>): stream is AsyncIterable<unknown> & ReadableStream<unknown> {
   return isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+}
+
+async function settleStreamCancellation(
+  stream: AsyncIterable<unknown>,
+  iterator: AsyncIterator<unknown>,
+  directCancel: unknown,
+  reason: unknown,
+): Promise<void> {
+  const results = await Promise.allSettled([
+    Promise.resolve().then(() => hasRuntimeType(directCancel, "function")
+      ? Reflect.apply(directCancel, stream, [reason])
+      : undefined),
+    Promise.resolve().then(() => iterator.return?.(reason)),
+  ])
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+  if (failure) throw failure.reason
 }
 
 export function withReadableStreamCleanup<T>(
@@ -407,9 +425,10 @@ export function uiMessageStreamFromEvents(events: AsyncIterable<unknown>): Reada
       const directCancel = hasRuntimeType(events, "object")
         ? Reflect.get(events, Symbol.for("vitehub.agent.stream.cancel"))
         : undefined
+      let cancellation: Promise<void> | undefined
       const cancel = () => {
-        if (hasRuntimeType(directCancel, "function")) directCancel(abortSignal.reason)
-        void Promise.resolve(iterator.return?.(abortSignal.reason)).catch(() => {})
+        cancellation ||= settleStreamCancellation(events, iterator, directCancel, abortSignal.reason)
+        void cancellation.catch(() => {})
       }
       abortSignal.addEventListener("abort", cancel, { once: true })
       try {
@@ -417,6 +436,7 @@ export function uiMessageStreamFromEvents(events: AsyncIterable<unknown>): Reada
       }
       finally {
         abortSignal.removeEventListener("abort", cancel)
+        if (cancellation) await cancellation
       }
     },
   })
@@ -611,9 +631,10 @@ export async function finalizeUiMessageStreamOutput(
           execute: async ({ abortSignal, writer }) => {
             const iterator = rendered[Symbol.asyncIterator]()
             const directCancel = Reflect.get(rendered, Symbol.for("vitehub.agent.stream.cancel"))
+            let cancellation: Promise<void> | undefined
             const cancel = () => {
-              if (hasRuntimeType(directCancel, "function")) directCancel(abortSignal.reason)
-              void Promise.resolve(iterator.return?.(abortSignal.reason)).catch(() => {})
+              cancellation ||= settleStreamCancellation(rendered, iterator, directCancel, abortSignal.reason)
+              void cancellation.catch(() => {})
             }
             abortSignal.addEventListener("abort", cancel, { once: true })
             try {
@@ -624,6 +645,7 @@ export async function finalizeUiMessageStreamOutput(
             }
             finally {
               abortSignal.removeEventListener("abort", cancel)
+              if (cancellation) await cancellation
             }
           },
         })
