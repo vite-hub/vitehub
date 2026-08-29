@@ -3708,7 +3708,14 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
   let completed = false
   const cancel = (reason?: unknown): Promise<void> => {
     if (completed) return Promise.resolve()
-    cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
+    if (!cancelTask) {
+      try {
+        cancelTask = Promise.resolve(iterator.return?.(reason)).then(() => {})
+      }
+      catch (error) {
+        cancelTask = Promise.reject(error)
+      }
+    }
     void cancelTask.catch(() => {})
     return Promise.resolve()
   }
@@ -5969,7 +5976,7 @@ async function executeAgentInvocationWithCapacityLease<
         }
       }
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
+        if (!outcome.failed && !outcome.completed) {
           await Promise.allSettled([...uiMessageSources.values()].map(source => source.cancel(undefined)))
           const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
           void finishTask.catch(() => {})
