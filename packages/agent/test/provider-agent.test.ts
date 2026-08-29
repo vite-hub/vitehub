@@ -237,6 +237,36 @@ describe("Provider Agent Driver", () => {
     await rm(homePath, { force: true, recursive: true })
   })
 
+  it("removes abandoned credential writes when reopening a named profile", async () => {
+    const profile = `provider-abandoned-write-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const abandonedAuth = join(homePath, `.auth.json-${crypto.randomUUID()}.next`)
+    const unrelatedFile = join(homePath, ".auth.json-manual.next")
+    const adapter = createProviderAgentAdapter({
+      credentialProfile: profile,
+      credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+      provider: "codex",
+    })
+
+    try {
+      runtime("thread-abandoned-write-first", [event("turn.completed", "thread-abandoned-write-first", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-abandoned-write-first") as never)
+      await writeFile(abandonedAuth, '{"OPENAI_API_KEY":"old"}\n', { mode: 0o600 })
+      await writeFile(unrelatedFile, "preserve\n", { mode: 0o600 })
+
+      runtime("thread-abandoned-write-reopen", [event("turn.completed", "thread-abandoned-write-reopen", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-abandoned-write-reopen") as never)
+
+      await expect(access(abandonedAuth)).rejects.toThrow()
+      await expect(readFile(unrelatedFile, "utf8")).resolves.toBe("preserve\n")
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
   it("updates a credential-store setting after multiline TOML content", async () => {
     const profile = `provider-multiline-config-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`

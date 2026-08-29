@@ -200,6 +200,7 @@ const codexCredentialProcessIdentity = processStartIdentity(process.pid)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 const codexCredentialSeedMaxBytes = 65
 const codexCredentialConfigMaxBytes = 1_048_576
+const codexCredentialNextFilePattern = /^\.(?:auth\.json|\.vitehub-seed\.sha256)-[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}\.next$/i
 let codexCredentialScavenging = Promise.resolve()
 
 function codexRuntimeCleanupFailure(reason: unknown): unknown {
@@ -472,6 +473,13 @@ async function ensureCodexProfileHome(profile: string): Promise<string> {
 
 async function openCodexProfileHome(profile: string, credentials: string): Promise<string> {
   const homePath = await ensureCodexProfileHome(profile)
+  await Promise.all((await readdir(homePath, { withFileTypes: true }))
+    .filter(entry => entry.isFile() && codexCredentialNextFilePattern.test(entry.name))
+    .map(async (entry) => {
+      const nextPath = join(homePath, entry.name)
+      const next = await lstat(nextPath).catch(() => undefined)
+      if (next?.isFile() && !next.isSymbolicLink() && next.nlink === 1) await rm(nextPath, { force: true })
+    }))
   const seedPath = join(homePath, ".vitehub-seed.sha256")
   const seed = await lstat(seedPath).catch(() => undefined)
   if (seed && (!seed.isFile() || seed.isSymbolicLink() || seed.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile seed must be a singly linked file: ${seedPath}`)
