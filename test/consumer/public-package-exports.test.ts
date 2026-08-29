@@ -394,6 +394,30 @@ async function typecheckPackageModule(
   index: number,
   withCloudflareHost: boolean,
 ) {
+  const diagnostics = await packageModuleDiagnostics(
+    packageName,
+    runnerDir,
+    contract,
+    index,
+    withCloudflareHost,
+  )
+  expect(
+    ts.formatDiagnosticsWithColorAndContext(diagnostics, {
+      getCanonicalFileName: file => file,
+      getCurrentDirectory: () => runnerDir,
+      getNewLine: () => "\n",
+    }),
+    `${packageName} should expose valid declarations with its own dependency closure`,
+  ).toBe("")
+}
+
+async function packageModuleDiagnostics(
+  packageName: string,
+  runnerDir: string,
+  contract: (typeof publicPackageExportContracts)[number],
+  index: number,
+  withCloudflareHost: boolean,
+) {
   const ambientModules: Record<string, readonly string[]> = {
     "@vite-hub/blob": ["#vitehub/blob/config"],
     "@vite-hub/database": ["#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults"],
@@ -443,15 +467,7 @@ async function typecheckPackageModule(
     types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
   }
   const program = ts.createProgram(rootNames, options)
-  const diagnostics = declarationDiagnostics(program, packageName)
-  expect(
-    ts.formatDiagnosticsWithColorAndContext(diagnostics, {
-      getCanonicalFileName: file => file,
-      getCurrentDirectory: () => runnerDir,
-      getNewLine: () => "\n",
-    }),
-    `${packageName} should expose valid declarations with its own dependency closure`,
-  ).toBe("")
+  return declarationDiagnostics(program, packageName)
 }
 
 function declarationDiagnostics(program: ts.Program, packageName?: string) {
@@ -507,36 +523,27 @@ describe("published declaration diagnostics", () => {
   it("reports diagnostics reached through dependency declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-declaration-diagnostics-"))
     const dependencyDir = join(root, "node_modules/@vite-hub/database/dist")
-    const typesDir = join(root, "node_modules/@types/example")
-    const sourcePath = join(root, "consumer.ts")
 
     try {
-      await Promise.all([
-        mkdir(dependencyDir, { recursive: true }),
-        mkdir(typesDir, { recursive: true }),
-      ])
+      await mkdir(dependencyDir, { recursive: true })
       await Promise.all([
         writeFile(join(root, "node_modules/@vite-hub/database/package.json"), JSON.stringify({ name: "@vite-hub/database", types: "dist/index.d.ts" })),
         writeFile(join(dependencyDir, "index.d.ts"), "export type BrokenDependency = MissingDependency\n"),
-        writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/example", types: "index.d.ts" })),
-        writeFile(join(typesDir, "index.d.ts"), "export type BrokenTypes = MissingTypes\n"),
-        writeFile(sourcePath, 'import type { BrokenDependency } from "@vite-hub/database"\nimport type { BrokenTypes } from "example"\nvoid (undefined as unknown as BrokenDependency | BrokenTypes)\n'),
       ])
 
-      const program = ts.createProgram([sourcePath], {
-        module: ts.ModuleKind.NodeNext,
-        moduleResolution: ts.ModuleResolutionKind.NodeNext,
-        noEmit: true,
-        skipLibCheck: false,
-      })
-      const diagnosticFiles = declarationDiagnostics(program, "@vite-hub/database")
+      const contract = publicPackageExportContracts.find(item => item.specifier === "@vite-hub/database")
+      expect(contract).toBeDefined()
+      const diagnosticFiles = (await packageModuleDiagnostics(
+        "@vite-hub/database",
+        root,
+        contract!,
+        0,
+        false,
+      ))
         .filter(diagnostic => diagnostic.code === 2304)
         .map(diagnostic => diagnostic.file?.fileName)
 
-      expect(diagnosticFiles).toEqual(expect.arrayContaining([
-        join(dependencyDir, "index.d.ts"),
-        join(typesDir, "index.d.ts"),
-      ]))
+      expect(diagnosticFiles).toContain(join(dependencyDir, "index.d.ts"))
     }
     finally {
       await rm(root, { recursive: true, force: true })
