@@ -135,7 +135,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       modules: undefined as unknown[] | undefined,
       nitro: {} as Record<string, unknown>,
       rootDir: "/tmp/vitehub-nuxt",
-      serverDir: "/tmp/vitehub-nuxt/custom-server",
+      serverDir: "/tmp/vitehub-nuxt/custom-server" as string | undefined,
       srcDir: "/tmp/vitehub-nuxt/app",
       vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions; workflow?: boolean },
       vitehubCliDiscovery: undefined as true | undefined,
@@ -180,7 +180,8 @@ function nitroPlugins(nuxt: ReturnType<typeof createNuxt>["nuxt"]): string[] {
 function nitroHandlerRoutes(config: Record<string, unknown>): Array<string | undefined> {
   const handlers = config.handlers
   if (!Array.isArray(handlers)) return []
-  return handlers.map(handler => isTestRecord(handler) && typeof handler.route === "string" ? handler.route : undefined)
+  // SAFETY: These fixtures install Nitro handlers with the route shape asserted below.
+  return (handlers as Array<{ route?: string }>).map(handler => handler.route)
 }
 
 describe("ViteHub Nuxt integration", () => {
