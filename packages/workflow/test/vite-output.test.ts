@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
+import { buildSync } from "esbuild"
 import { afterAll, describe, expect, it } from "vitest"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
@@ -121,7 +122,8 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   expect(registryContents).toContain(pathToFileURL(retainedWorkflowFile).href)
   expect(registryContents).toContain(`import("./vercel-native/`)
   const [vercelNativeFile] = artifacts.vercelNativeFiles
-  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(pathToFileURL(retainedWorkflowFile).href)
+  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(retainedWorkflowFile)
+  expect(() => buildSync({ bundle: true, entryPoints: [vercelNativeFile!], platform: "node", write: false })).not.toThrow()
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-vite"`)
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-runner"`)
   await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/vercel-vite"`)
@@ -159,7 +161,8 @@ it("preserves staged Workflow imports from configured external server directorie
   expect(registryContents).toContain(pathToFileURL(externalHandler).href)
   expect(registryContents).toContain(pathToFileURL(externalStep).href)
   const [vercelNativeFile] = artifacts.vercelNativeFiles
-  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(pathToFileURL(externalStep).href)
+  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(externalStep)
+  expect(() => buildSync({ bundle: true, entryPoints: [vercelNativeFile!], platform: "node", write: false })).not.toThrow()
 })
 
 it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {

@@ -816,7 +816,7 @@ function createVercelNativeWorkflowContents(
   const stepNames = steps.map((step, index) => {
     const implementation = `${workflowExport}Step${index}Implementation`
     const name = `${workflowExport}Step${index}`
-    imports.push(`import ${implementation} from ${JSON.stringify(pathToFileURL(step).href)}`)
+    imports.push(`import ${implementation} from ${JSON.stringify(step)}`)
     workflows.push(`async function ${name}(input) {\n  "use step"\n  return await ${implementation}(input)\n}`)
     return name
   })
