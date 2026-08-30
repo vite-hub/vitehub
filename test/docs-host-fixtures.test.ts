@@ -81,15 +81,15 @@ async function expectDenoLauncherToStart(appRoot: string) {
     "--unstable-cron",
     "--allow-env",
     "--allow-read=.output",
-    `--allow-net=0.0.0.0:${port}`,
+    `--allow-net=127.0.0.1:${port}`,
     ".output/main.ts",
   ], {
     cwd: appRoot,
     env: {
       ...process.env,
       DENO_NO_UPDATE_CHECK: "1",
-      NITRO_HOST: "0.0.0.0",
-      NITRO_PORT: String(port),
+      HOST: "127.0.0.1",
+      PORT: String(port),
     },
     stdio: ["ignore", "pipe", "pipe"],
   })
