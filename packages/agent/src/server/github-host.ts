@@ -485,7 +485,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
           const outstanding = [...(reservations.get(key) ?? [])]
-            .filter(reservation => reservation.resetAt === limit.resetAt && reservation.submittedAtVersion === undefined)
+            .filter(reservation => reservation.resetAt === limit.resetAt)
             .reduce((points, reservation) => points + reservation.points, 0)
           const current = limits.get(key)
           const reconciled = current !== limitBeforeCheck

@@ -315,18 +315,21 @@ describe("GitHub host", () => {
       .resolves.toMatchObject({ remaining: 49 })
   })
 
-  it("does not double-count a query settled after a budget refresh", async () => {
+  it("keeps submitted GraphQL reservations until settlement", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ cacheMs: 5, credentials: () => ({ token: "token" }), reserve: 10 })
 
     const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
     reservation.submit()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+
+    reservation.settle(40)
     process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "60"
     await new Promise(resolve => setTimeout(resolve, 10))
-    await host.ensureGraphQLBudget("vite-hub/another", { cost: 1 })
-    reservation.settle(40)
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 9 }))
-      .resolves.toMatchObject({ remaining: 50 })
+      .resolves.toMatchObject({ remaining: 51 })
   })
 
   it("rejects an actual GraphQL cost above its reservation", async () => {
