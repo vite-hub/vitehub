@@ -1109,6 +1109,22 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("does not recover Artifact stores overridden by a later spread", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "memory-store.ts"), `export default { provider: "memory" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import artifactOptions from "./artifact-store"`,
+      `import memoryOptions from "./memory-store"`,
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store: { ...artifactOptions, ...memoryOptions } }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.not.toHaveProperty("cloudflare.wrangler.artifacts")
+  })
+
   it("preserves environment-selected overrides for factored Artifact stores", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)

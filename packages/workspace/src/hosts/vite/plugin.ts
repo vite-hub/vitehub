@@ -664,8 +664,8 @@ function sourceImportsFeedingWorkspaceStore(
 }
 
 type InlineWorkspaceStoreOperation =
-  | { kind: "spread", localName: string }
-  | { kind: "property", name: string, value?: string }
+  | { kind: "spread", localName: string, position: number }
+  | { kind: "property", name: string, position: number, value?: string }
 
 function sourceInlineWorkspaceStoreOperations(
   loaded: { file: string, source: string },
@@ -689,7 +689,11 @@ function sourceInlineWorkspaceStoreOperations(
               || argument?.type !== "Identifier"
               || !argument.name
             ) return
-            operations.push({ kind: "spread", localName: argument.name })
+            operations.push({
+              kind: "spread",
+              localName: argument.name,
+              position: (path.node as BabelNode & { start?: number }).start ?? 0,
+            })
           },
           ObjectProperty(path: BabelObjectPropertyPath) {
             if (!babelPathBelongsToExportedStore(path)) return
@@ -711,13 +715,20 @@ function sourceInlineWorkspaceStoreOperations(
               if (typeof key === "string") value = env[key]
             }
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names and values cross the Babel boundary as unknown values.
-            if (typeof name === "string") operations.push({ kind: "property", name, value: typeof value === "string" ? value : undefined })
+            if (typeof name === "string") {
+              operations.push({
+                kind: "property",
+                name,
+                position: (path.node as BabelNode & { start?: number }).start ?? 0,
+                value: typeof value === "string" ? value : undefined,
+              })
+            }
           },
         },
       })],
     },
   })
-  return operations
+  return operations.sort((left, right) => left.position - right.position)
 }
 
 async function loadFactoredCloudflareArtifactStore(
@@ -747,7 +758,8 @@ async function loadFactoredCloudflareArtifactStore(
         const reconstructed: Record<string, unknown> = {}
         for (const operation of operations) {
           if (operation.kind === "spread") {
-            if (operation.localName === localName) Object.assign(reconstructed, store)
+            if (operation.localName !== localName) return
+            Object.assign(reconstructed, store)
             continue
           }
           if (operation.value === undefined) return
@@ -869,7 +881,10 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       const store = inspection?.artifactsOnly
         ? await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
         : undefined
-      if (!store) throw error
+      if (!store) {
+        if (inspection?.artifactsOnly) continue
+        throw error
+      }
       loaded = { store }
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
