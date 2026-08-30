@@ -10,7 +10,7 @@ An Agent Invocation is one request to an Agent. ViteHub prepares its input, Acto
 
 ## Run an Agent
 
-Use `runAgent()` when the caller needs the final result.
+Use `runAgent()` when the caller needs to invoke the Agent directly. Inline runtimes return the Agent output, while Workflow runtimes return a Workflow Run for durable inspection and control.
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from 'vite-hub/agent'
@@ -222,4 +222,4 @@ The Console guide covers Vite and Nuxt setup, fallback storage, production limit
 
 ## Control child work
 
-Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. A model-facing application Capability tool can use that controller when it needs child control, or `runAgent()` when it must return the completed result.
+Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. A model-facing application Capability tool can use that controller when it needs child control, or `runAgent()` when it handles the configured runtime's return value.
