@@ -14,6 +14,7 @@ describe("BoxSession", () => {
         name: "opaque",
         async open() { throw new Error("unreachable") },
         async prepare({ identity }) {
+          // SAFETY: This invalid-runtime fixture supplies only the shape needed to reach authority validation.
           return {
             cache: { state: "disposable" },
             environment: { env: {} },
@@ -112,7 +113,8 @@ describe("BoxSession", () => {
 
   it("advertises optional process and port capabilities and closes idempotently", async () => {
     const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
-    const session = await box.open({ id: "session-id" });
+    const controller = new AbortController();
+    const session = await box.open({ id: "session-id", signal: controller.signal });
 
     expect(session.id).toBe("session-id");
     expect(session.spawn).toBeTypeOf("function");
@@ -125,9 +127,14 @@ describe("BoxSession", () => {
     await expect(new Response(processHandle.stdout).text()).resolves.toBe("ok");
     await expect(processHandle.wait()).resolves.toEqual({ code: 0 });
 
+    controller.abort(new Error("cancelled"));
+    await expect(session.ports!.expose(4321)).rejects.toThrow("cancelled");
+
     await session.close();
     await session.close();
     await expect(session.files.exists("workspace")).rejects.toThrow("Box session is closed");
+    await expect(session.ports!.expose(4321)).rejects.toThrow("Box session is closed");
+    await expect(session.spawn!("true")).rejects.toThrow("Box session is closed");
   });
 
   it("rolls back newly initialized state when initialization fails", async () => {

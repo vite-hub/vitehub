@@ -6,7 +6,6 @@ import {
   contributeProviderDeploymentOutput,
   createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
-  resetProviderDeploymentOutputs,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -165,12 +164,16 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   }
 
   function runtimeContents() {
+    const config = enabled ? {
+      binding: resolvedOptions.binding,
+      engine: resolvedOptions.engine,
+      provider: "cloudflare",
+    } : {}
     return [
-      `export default ${JSON.stringify(enabled ? {
-        binding: resolvedOptions.binding,
-        engine: resolvedOptions.engine,
-        provider: "cloudflare",
-      } : {}, null, 2)}`,
+      ...(enabled && resolvedOptions.engine === "chromium"
+        ? ["export const loadCloudflarePlaywright = () => import(\"@cloudflare/playwright\")"]
+        : ["export const loadCloudflarePlaywright = undefined"]),
+      `export default ${JSON.stringify(config, null, 2)}`,
       "",
     ].join("\n")
   }
@@ -231,7 +234,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     },
     async buildEnd(error) {
       if (error) {
-        await resetProviderDeploymentOutputs(providerOutput, error)
+        await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
@@ -265,7 +268,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
       }, providerOutputGenerations.get(this))
     },
     async renderError(error) {
-      await resetProviderDeploymentOutputs(providerOutput, error)
+      await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {
       order: "post",

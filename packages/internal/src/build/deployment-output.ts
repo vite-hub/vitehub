@@ -25,6 +25,7 @@ export {
   resetProviderOutputRuntime,
   useProviderOutputCatalog,
 } from "./provider-output-catalog.ts"
+export type { ProviderDeploymentOutputGeneration } from "./provider-output-catalog.ts"
 export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
@@ -42,7 +43,6 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
-  wranglerConfigDefaults?: object
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
   wranglerConfig: object
 }
@@ -158,6 +158,8 @@ interface ProviderDeploymentOutputReset {
 const providerDeploymentOutputRegistry: typeof globalThis & {
   __vitehubProviderDeploymentOutputCompletedResets?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputReset>
   __vitehubProviderDeploymentOutputEnvironmentGenerations?: WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>
+  __vitehubProviderDeploymentOutputGenerationEnvironments?: WeakMap<ProviderDeploymentOutputGeneration, { catalog: ProviderOutputCatalogType, environment: object }>
+  __vitehubProviderDeploymentOutputFallbackEnvironment?: object
   __vitehubProviderDeploymentOutputFinalizations?: WeakMap<ProviderOutputCatalogType, ProviderDeploymentOutputFinalization>
   __vitehubProviderDeploymentOutputRootStates?: Map<string, ProviderDeploymentOutputRootState>
   __vitehubProviderDeploymentOutputWrites?: Map<string, Promise<unknown>>
@@ -251,7 +253,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
   }
   const backupRoot = copiesStaticOutput
-    ? await mkdtemp(resolve(dirname(clientDir), ".vitehub-cloudflare-output-"))
+    ? await mkdtemp(resolve(options.rootDir, ".vitehub-cloudflare-output-"))
     : undefined
   const previousOutputRoot = backupRoot ? resolve(backupRoot, "output") : `${outputRoot}.previous`
   const previousStaticOutputDir = backupRoot ? resolve(backupRoot, "static") : `${staticOutputDir}.previous`
@@ -289,7 +291,6 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       outputRoot,
       rootDir: options.rootDir,
       wranglerConfig: options.wranglerConfig,
-      wranglerConfigDefaults: options.wranglerConfigDefaults,
       wranglerConfigOwnership: options.wranglerConfigOwnership ?? { keys: options.wranglerConfigKeys },
     }),
     options.bundleEntry && staticIndex
@@ -746,8 +747,11 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     createDefaultCloudflareOutputRoot(rootDir),
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
+    resolve(rootDir, ".vitehub/agent/netlify-function.mjs"),
+    resolve(rootDir, ".vitehub/agent/schedule-registry.js"),
     resolve(rootDir, ".vitehub/blob/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/queue/registry.mjs"),
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/manifest.json"),
@@ -837,6 +841,7 @@ export function contributeProviderDeploymentOutput(
   contribution: ProviderDeploymentOutputContribution,
   generation?: ProviderDeploymentOutputGeneration,
 ): void {
+  closeProviderDeploymentOutputGenerationCapture(generation)
   catalog?.replaceDeploymentContribution(contribution, generation)
 }
 
@@ -850,6 +855,19 @@ interface ProviderDeploymentOutputPluginContext {
 
 const providerDeploymentOutputEnvironmentGenerations = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputEnvironmentGenerations
   ??= new WeakMap<ProviderOutputCatalogType, WeakMap<object, ProviderDeploymentOutputGeneration>>()
+const providerDeploymentOutputGenerationEnvironments = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputGenerationEnvironments
+  ??= new WeakMap<ProviderDeploymentOutputGeneration, { catalog: ProviderOutputCatalogType, environment: object }>()
+const providerDeploymentOutputFallbackEnvironment = providerDeploymentOutputRegistry.__vitehubProviderDeploymentOutputFallbackEnvironment
+  ??= {}
+
+function closeProviderDeploymentOutputGenerationCapture(generation: ProviderDeploymentOutputGeneration | undefined): void {
+  if (!generation) return
+  const captured = providerDeploymentOutputGenerationEnvironments.get(generation)
+  if (!captured) return
+  const generations = providerDeploymentOutputEnvironmentGenerations.get(captured.catalog)
+  if (generations?.get(captured.environment) === generation) generations.delete(captured.environment)
+  providerDeploymentOutputGenerationEnvironments.delete(generation)
+}
 
 export function createProviderDeploymentOutputGenerationState(): {
   capture: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined) => void
@@ -857,34 +875,36 @@ export function createProviderDeploymentOutputGenerationState(): {
   reset: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined, failure?: unknown) => Promise<void>
 } {
   const generations = new WeakMap<object, ProviderDeploymentOutputGeneration | undefined>()
-  const fallback = {}
-  const environment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context
-    ? context.environment ?? context
-    : fallback
+  const localEnvironment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context?.environment ?? context ?? providerDeploymentOutputFallbackEnvironment
+  const sharedEnvironment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context?.environment ?? providerDeploymentOutputFallbackEnvironment
   return {
     capture(context, catalog) {
-      const environmentKey = environment(context)
+      const localEnvironmentKey = localEnvironment(context)
       if (!catalog) {
-        generations.set(environmentKey, undefined)
+        generations.set(localEnvironmentKey, undefined)
         return
       }
+      const environmentKey = sharedEnvironment(context)
       let catalogGenerations = providerDeploymentOutputEnvironmentGenerations.get(catalog)
       if (!catalogGenerations) {
         catalogGenerations = new WeakMap()
         providerDeploymentOutputEnvironmentGenerations.set(catalog, catalogGenerations)
       }
-      const generation = catalogGenerations.get(environmentKey) ?? catalog.createDeploymentGeneration()
+      const sharedGeneration = catalogGenerations.get(environmentKey)
+      const generation = !sharedGeneration || generations.get(localEnvironmentKey) === sharedGeneration
+        ? catalog.createDeploymentGeneration()
+        : sharedGeneration
       catalogGenerations.set(environmentKey, generation)
-      generations.set(environmentKey, generation)
-      queueMicrotask(() => {
-        if (catalogGenerations.get(environmentKey) === generation) catalogGenerations.delete(environmentKey)
-      })
+      providerDeploymentOutputGenerationEnvironments.set(generation, { catalog, environment: environmentKey })
+      generations.set(localEnvironmentKey, generation)
     },
     get(context) {
-      return generations.get(environment(context))
+      return generations.get(localEnvironment(context))
     },
     async reset(context, catalog, failure) {
-      await resetProviderDeploymentOutputs(catalog, failure, generations.get(environment(context)))
+      const generation = generations.get(localEnvironment(context))
+      closeProviderDeploymentOutputGenerationCapture(generation)
+      await resetProviderDeploymentOutputs(catalog, failure, generation)
     },
   }
 }

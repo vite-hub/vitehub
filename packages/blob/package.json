@@ -30,26 +30,69 @@
     ".": "./dist/index.js",
     "./config": "./dist/config.js",
     "./content-type": "./dist/content-type.js",
-    "./drivers/akamai": "./dist/drivers/akamai.js",
-    "./drivers/azure": "./dist/drivers/azure.js",
-    "./drivers/box": "./dist/drivers/box.js",
+    "./drivers/akamai": {
+      "types": "./dist/drivers/akamai.d.ts",
+      "default": "./dist/drivers/akamai.js"
+    },
+    "./drivers/azure": {
+      "types": "./dist/drivers/azure.d.ts",
+      "default": "./dist/drivers/azure.js"
+    },
+    "./drivers/box": {
+      "types": "./dist/drivers/box.d.ts",
+      "default": "./dist/drivers/box.js"
+    },
     "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
     "./drivers/cloudflare-native": "./dist/drivers/cloudflare-native.js",
-    "./drivers/digitalocean-spaces": "./dist/drivers/digitalocean-spaces.js",
-    "./drivers/dropbox": "./dist/drivers/dropbox.js",
-    "./drivers/files": "./dist/drivers/files.js",
-    "./drivers/files-sdk": "./dist/drivers/files-sdk.js",
-    "./drivers/fs": "./dist/drivers/fs.js",
-    "./drivers/gcs": "./dist/drivers/gcs.js",
-    "./drivers/google-drive": "./dist/drivers/google-drive.js",
-    "./drivers/hetzner": "./dist/drivers/hetzner.js",
-    "./drivers/minio": "./dist/drivers/minio.js",
+    "./drivers/digitalocean-spaces": {
+      "types": "./dist/drivers/digitalocean-spaces.d.ts",
+      "default": "./dist/drivers/digitalocean-spaces.js"
+    },
+    "./drivers/dropbox": {
+      "types": "./dist/drivers/dropbox.d.ts",
+      "default": "./dist/drivers/dropbox.js"
+    },
+    "./drivers/fs": {
+      "types": "./dist/drivers/fs.d.ts",
+      "default": "./dist/drivers/fs.js"
+    },
+    "./drivers/gcs": {
+      "types": "./dist/drivers/gcs.d.ts",
+      "default": "./dist/drivers/gcs.js"
+    },
+    "./drivers/google-drive": {
+      "types": "./dist/drivers/google-drive.d.ts",
+      "default": "./dist/drivers/google-drive.js"
+    },
+    "./drivers/hetzner": {
+      "types": "./dist/drivers/hetzner.d.ts",
+      "default": "./dist/drivers/hetzner.js"
+    },
+    "./drivers/minio": {
+      "types": "./dist/drivers/minio.d.ts",
+      "default": "./dist/drivers/minio.js"
+    },
     "./drivers/netlify-blobs": "./dist/drivers/netlify-blobs.js",
-    "./drivers/onedrive": "./dist/drivers/onedrive.js",
-    "./drivers/s3": "./dist/drivers/s3.js",
-    "./drivers/storj": "./dist/drivers/storj.js",
-    "./drivers/supabase": "./dist/drivers/supabase.js",
-    "./drivers/uploadthing": "./dist/drivers/uploadthing.js",
+    "./drivers/onedrive": {
+      "types": "./dist/drivers/onedrive.d.ts",
+      "default": "./dist/drivers/onedrive.js"
+    },
+    "./drivers/s3": {
+      "types": "./dist/drivers/s3.d.ts",
+      "default": "./dist/drivers/s3.js"
+    },
+    "./drivers/storj": {
+      "types": "./dist/drivers/storj.d.ts",
+      "default": "./dist/drivers/storj.js"
+    },
+    "./drivers/supabase": {
+      "types": "./dist/drivers/supabase.d.ts",
+      "default": "./dist/drivers/supabase.js"
+    },
+    "./drivers/uploadthing": {
+      "types": "./dist/drivers/uploadthing.d.ts",
+      "default": "./dist/drivers/uploadthing.js"
+    },
     "./drivers/vercel": "./dist/drivers/vercel.js",
     "./ensure": "./dist/ensure.js",
     "./errors": "./dist/errors.js",
@@ -67,8 +110,6 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
-    "@netlify/blobs": "catalog:storage",
-    "@vercel/blob": "catalog:storage",
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
     "defu": "catalog:unjs",
@@ -77,8 +118,12 @@
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.0.1",
+    "@vercel/blob": "catalog:storage",
     "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
@@ -92,7 +137,16 @@
     "@aws-sdk/lib-storage": "^3.700.0",
     "@aws-sdk/s3-presigned-post": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
-    "files-sdk": "catalog:storage",
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@microsoft/microsoft-graph-client": "catalog:storage",
+    "@supabase/storage-js": "catalog:storage",
+    "box-typescript-sdk-gen": "catalog:storage",
+    "dropbox": "catalog:storage",
+    "google-auth-library": "catalog:storage",
+    "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -108,7 +162,34 @@
     "@aws-sdk/s3-request-presigner": {
       "optional": true
     },
-    "files-sdk": {
+    "@azure/identity": {
+      "optional": true
+    },
+    "@azure/storage-blob": {
+      "optional": true
+    },
+    "@google-cloud/storage": {
+      "optional": true
+    },
+    "@googleapis/drive": {
+      "optional": true
+    },
+    "@microsoft/microsoft-graph-client": {
+      "optional": true
+    },
+    "@supabase/storage-js": {
+      "optional": true
+    },
+    "box-typescript-sdk-gen": {
+      "optional": true
+    },
+    "dropbox": {
+      "optional": true
+    },
+    "google-auth-library": {
+      "optional": true
+    },
+    "uploadthing": {
       "optional": true
     },
     "vite": {

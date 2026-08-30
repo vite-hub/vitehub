@@ -1,5 +1,5 @@
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { createExecutionContext, getViteHubErrorShape } from "@vite-hub/runtime"
 
 import { createAgentRuntimeContext } from "./context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
@@ -36,6 +36,7 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentRuntimeName,
+  ResolvedAgentRuntimeContext,
 } from "../types.ts"
 
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
@@ -299,7 +300,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   const backgroundTasks: Promise<unknown>[] = []
   const workflowRetryTasks: Promise<unknown>[] = []
   // SAFETY: The workflow payload's runtimeConfig was serialized from the same generic Agent runtime definition.
-  const runtimeConfig = (payload.runtimeConfig || {}) as TRuntimeConfig
+  const runtimeConfig = (payload.runtimeConfig ?? {}) as TRuntimeConfig
   const runtimeInput: Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & { memo?: AgentRuntimeContext<TRuntimeConfig>["memo"] } = {
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
     runtimeConfig,
@@ -313,10 +314,16 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   if (payload.requestUrl) runtimeInput.request = new Request(payload.requestUrl)
   if (runId) runtimeInput.run = { origin: `workflow:${context.provider}`, ...payload.run, runId }
   if (payload.trace) runtimeInput.trace = payload.trace
-  let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>(runtimeInput)
+  // SAFETY: runtimeConfig was normalized to TRuntimeConfig above before the Runtime boundary completes the context.
+  let runtimeContext = createExecutionContext({
+    ...createAgentRuntimeContext<TRuntimeConfig>(runtimeInput),
+    runtimeConfig,
+  }) as ResolvedAgentRuntimeContext<TRuntimeConfig>
   if (payload.run?.runId && payload.run.runId !== runId) {
-    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    ;(runtimeContext as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
+    Object.defineProperty(runtimeContext, agentInvocationRunId, {
+      enumerable: true,
+      value: payload.run.runId,
+    })
   }
 
   Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, {

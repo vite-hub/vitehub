@@ -98,7 +98,7 @@ describe("Agent model materialization", () => {
       },
     })
 
-    await runAgent(agent, { ...runtime, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
+    await runAgent(agent, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
 
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "tenant-token" })
   })
@@ -121,7 +121,7 @@ describe("Agent model materialization", () => {
           }))
         },
       })],
-    }, { ...runtime, runtimeConfig: { gatewayKey: "capability-token" } }, {})
+    }, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "capability-token" } }, {})
 
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "capability-token" })
     expect(selectModel).toHaveBeenCalledWith("zai/glm-5v-turbo")
@@ -154,7 +154,8 @@ describe("Agent model materialization", () => {
       async doGenerate() { return generateResult }
       async doStream() { return { stream: new ReadableStream() } }
     }
-    const model = new ClassBackedModel() as unknown as AgentModelInput
+    // SAFETY: This fixture implements the model members materializeAgentModel reads.
+    const model = new ClassBackedModel() as AgentModelInput
     const { materializeAgentModel } = await import("../src/internal/agent-model.ts")
 
     expect(Object.keys(model as object)).toEqual(["id"])

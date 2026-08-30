@@ -1,4 +1,4 @@
-import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "../types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -65,6 +65,24 @@ function metadataIcon(kind: "agent" | "provider") {
     : [h("path", { d: "M5 7h14M5 12h14M5 17h14" }), h("path", { d: "M7 5v4M17 10v4M10 15v4" })]);
 }
 
+const invocationStatusPriority: Record<AgentInvocationStatus, number> = {
+  running: 0,
+  pending: 1,
+  completed: 2,
+  failed: 2,
+  cancelled: 2,
+};
+
+function invocationUpdatedAt(item: AgentInvocationListItem): number {
+  const timestamp = Date.parse(item.updatedAt ?? item.startedAt ?? "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortInvocationItems(items: readonly AgentInvocationListItem[]): AgentInvocationListItem[] {
+  return [...items].sort((left, right) => invocationStatusPriority[left.status] - invocationStatusPriority[right.status]
+    || invocationUpdatedAt(right) - invocationUpdatedAt(left));
+}
+
 function renderItem(
   item: AgentInvocationListItem,
   selectedId: string | undefined,
@@ -83,6 +101,7 @@ function renderItem(
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
       class: "vh-invocation-list__item",
+      "data-invocation-id": item.id,
       "data-relative-time": time?.short,
       "data-status": item.status,
       onClick: () => select(item),
@@ -113,7 +132,9 @@ export const AgentInvocationList = defineComponent({
   name: "AgentInvocationList",
   props: {
     ariaLabel: { default: "Agent sessions", type: String },
+    continuationKey: [Number, String],
     hasMore: Boolean,
+    remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,
     now: Number,
@@ -127,38 +148,153 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
+    const automaticallyRequestedVisibleKey = ref<string>();
+    const continuedHiddenPageForVisibleKey = ref<string>();
+    const queuedOpen = ref(true);
+    const doneOpen = ref(props.items.some(item => item.id === props.selectedId
+      && item.status !== "running"
+      && item.status !== "pending"));
+    let focusedItemBeforeUpdate: { element: HTMLButtonElement; id: string; status: string | undefined } | undefined;
+    const groups = computed(() => {
+      const sorted = sortInvocationItems(props.items);
+      return [
+        { collapsible: false, items: sorted.filter(item => item.status === "running"), key: "working", label: "Working" },
+        { collapsible: true, defaultOpen: true, items: sorted.filter(item => item.status === "pending"), key: "queued", label: "Queued" },
+        { collapsible: true, defaultOpen: false, items: sorted.filter(item => item.status !== "running" && item.status !== "pending"), key: "done", label: "Done" },
+      ].filter(group => group.items.length > 0);
+    });
+    const visibleItems = computed(() => props.items.filter((item) => {
+      if (item.status === "running") return true;
+      if (item.status === "pending") return queuedOpen.value;
+      return doneOpen.value;
+    }));
+    const visibleKey = computed(() => visibleItems.value.map(item => `${item.id}:${item.status}`).join("\0"));
+    const activeKey = computed(() => props.items
+      .filter(item => item.status === "running" || item.status === "pending")
+      .map(item => `${item.id}:${item.status}`)
+      .join("\0"));
+    const paginationKey = computed(() => props.remainingStatuses.length > 0 ? visibleKey.value : activeKey.value);
     let resizeObserver: ResizeObserver | undefined;
     const requestMoreIfNeeded = () => {
       const element = viewport.value;
       const length = props.items.length;
-      if (!element || element.clientHeight <= 0 || !props.hasMore || props.loading || !length || requestedLength.value === length) return;
+      if (!element || element.clientHeight <= 0 || !props.hasMore || props.loading || !length || requestedLength.value === length) return false;
       if (element.scrollTop + element.clientHeight >= element.scrollHeight - invocationListPaginationThreshold) {
         requestedLength.value = length;
         emit("endReached");
+        return true;
       }
+      return false;
     };
-    watch([() => props.items.length, () => props.hasMore, () => props.loading], ([length], [previous]) => {
-      if (length < previous) requestedLength.value = undefined;
-      requestMoreIfNeeded();
+    const requestMoreAutomatically = () => {
+      if (props.remainingStatuses.length === 0) {
+        const hasCollapsedGroup = Boolean(viewport.value?.querySelector("details:not([open])"));
+        const key = activeKey.value;
+        if (hasCollapsedGroup && (!visibleItems.value.length || (automaticallyRequestedVisibleKey.value === key && continuedHiddenPageForVisibleKey.value === key))) return;
+        if (requestMoreIfNeeded()) {
+          continuedHiddenPageForVisibleKey.value = automaticallyRequestedVisibleKey.value === key ? key : undefined;
+          automaticallyRequestedVisibleKey.value = key;
+        }
+        return;
+      }
+      const hasMoreVisible = props.remainingStatuses.length === 0 || props.remainingStatuses.some((status) => {
+        if (status === "running") return true;
+        if (status === "pending") return queuedOpen.value;
+        return doneOpen.value;
+      });
+      if (hasMoreVisible) requestMoreIfNeeded();
+    };
+    const requestMoreOnScroll = () => props.remainingStatuses.length > 0
+      ? requestMoreAutomatically()
+      : requestMoreIfNeeded();
+    watch([() => props.items.length, paginationKey, () => props.hasMore, () => props.loading, () => props.remainingStatuses], ([length, key], [previous, previousKey]) => {
+      if (length < previous || (length === previous && key !== previousKey)) requestedLength.value = undefined;
+      requestMoreAutomatically();
     }, { flush: "post" });
     watch(() => props.retryKey, () => {
       requestedLength.value = undefined;
       requestMoreIfNeeded();
     });
+    watch(() => props.continuationKey, () => {
+      requestedLength.value = undefined;
+      requestMoreAutomatically();
+    });
+    watch([
+      () => props.selectedId,
+      () => props.items.find(item => item.id === props.selectedId)?.status,
+    ], ([selectedId, status], [previousSelectedId, previousStatus]) => {
+      if ((selectedId === previousSelectedId && status === previousStatus) || status === undefined || status === "running") return;
+      if (status === "pending") queuedOpen.value = true;
+      else doneOpen.value = true;
+    });
     onMounted(() => {
-      requestMoreIfNeeded();
+      requestMoreAutomatically();
       if ("ResizeObserver" in globalThis && viewport.value) {
-        resizeObserver = new ResizeObserver(requestMoreIfNeeded);
+        resizeObserver = new ResizeObserver(requestMoreAutomatically);
         resizeObserver.observe(viewport.value);
       }
     });
     onBeforeUnmount(() => resizeObserver?.disconnect());
     const select = (item: AgentInvocationListItem) => emit("select", item);
+    const rememberFocusedItem = () => {
+      const element = document.activeElement;
+      focusedItemBeforeUpdate = element instanceof HTMLButtonElement
+        && element.classList.contains("vh-invocation-list__item")
+        && viewport.value?.contains(element)
+        && element.dataset.invocationId
+        ? { element, id: element.dataset.invocationId, status: element.dataset.status }
+        : undefined;
+    };
+    const restoreMovedItemFocus = async () => {
+      const focused = focusedItemBeforeUpdate;
+      focusedItemBeforeUpdate = undefined;
+      if (!focused || focused.element.isConnected) return;
+      await nextTick();
+      const element = [...(viewport.value?.querySelectorAll<HTMLButtonElement>("[data-invocation-id]") ?? [])]
+        .find(candidate => candidate.dataset.invocationId === focused.id);
+      if (!element || element.dataset.status === focused.status) return;
+      if (element.dataset.status === "pending") queuedOpen.value = true;
+      else if (element.dataset.status !== "running") doneOpen.value = true;
+      const disclosure = element.closest("details");
+      if (disclosure) disclosure.open = true;
+      element.focus();
+    };
+    const renderRows = (group: (typeof groups.value)[number]) => h("ul", {
+      class: "vh-invocation-list__group-items",
+      "data-group": group.key,
+    }, group.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)));
+    const renderGroupHeading = (group: (typeof groups.value)[number]) => [
+      h("span", { class: "vh-invocation-list__group-label" }, group.label),
+      h("span", {
+        "aria-label": `${group.items.length} ${group.items.length === 1 ? "session" : "sessions"}`,
+        class: "vh-invocation-list__group-count",
+      }, String(group.items.length)),
+    ];
+    const renderGroup = (group: (typeof groups.value)[number]) => group.collapsible
+      ? h("details", {
+          class: "vh-invocation-list__group vh-invocation-list__group--collapsible",
+          "data-group": group.key,
+          key: group.key,
+          onToggle: (event: Event) => {
+            if (!(event.currentTarget instanceof HTMLDetailsElement)) return;
+            if (group.key === "queued") queuedOpen.value = event.currentTarget.open;
+            else doneOpen.value = event.currentTarget.open;
+            if (event.currentTarget.open) requestMoreAutomatically();
+          },
+          open: group.key === "queued" ? queuedOpen.value : doneOpen.value,
+        }, [h("summary", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)])
+      : h("section", {
+          class: "vh-invocation-list__group vh-invocation-list__group--static",
+          "data-group": group.key,
+          key: group.key,
+        }, [h("header", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)]);
 
     return () => h("nav", {
       "aria-label": props.ariaLabel,
       class: "vh-invocation-list",
-      onScroll: requestMoreIfNeeded,
+      onScroll: requestMoreOnScroll,
+      onVnodeBeforeUpdate: rememberFocusedItem,
+      onVnodeUpdated: restoreMovedItemFocus,
       ref: viewport,
     }, [
       slots.header?.({ items: props.items }),
@@ -166,7 +302,7 @@ export const AgentInvocationList = defineComponent({
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
       props.items.length
-        ? h("ul", { "aria-busy": props.loading ? "true" : undefined }, props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
+        ? h("div", { "aria-busy": props.loading ? "true" : undefined, class: "vh-invocation-list__groups" }, groups.value.map(renderGroup))
         : null,
       props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading", role: "status" }, "Loading sessions…") : null,
       slots.footer?.({ items: props.items }),

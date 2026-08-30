@@ -11,3 +11,15 @@ updates:
       github-actions:
         patterns:
           - "*"
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: pkg-pr-new
+      - dependency-name: wrangler
+    groups:
+      ci-executables:
+        patterns:
+          - pkg-pr-new
+          - wrangler

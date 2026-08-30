@@ -4,6 +4,7 @@ import type { ViteHubErrorOptions } from "@vite-hub/runtime"
 
 const envErrorMessages = {
   ENV_DECLARATION_INVALID: "[vitehub] Env declaration is invalid.",
+  ENV_ASYNC_REQUIRED: "[vitehub] Server Env requires asynchronous loading.",
   ENV_REQUIRED_MISSING: "[vitehub] Required Env value is missing.",
   ENV_RUNTIME_VALUE_INVALID: "[vitehub] Runtime Env value is invalid.",
   ENV_SOURCE_FAILED: "[vitehub] Env source resolution failed.",
@@ -18,12 +19,14 @@ const envSourceIdentifiers = [
   "git:sha",
   "git:tag",
   "package.json",
+  "provider",
 ] as const
 
 export type EnvErrorCode = keyof typeof envErrorMessages
 export type EnvSourceIdentifier = typeof envSourceIdentifiers[number]
 
 interface EnvErrorDetailsByCode {
+  ENV_ASYNC_REQUIRED: { path?: string }
   ENV_DECLARATION_INVALID: { path?: string }
   ENV_REQUIRED_MISSING: { path?: string, source?: EnvSourceIdentifier }
   ENV_RUNTIME_VALUE_INVALID: { source?: EnvSourceIdentifier }
@@ -71,6 +74,14 @@ export function invalidEnvDeclaration(path: string, diagnostic: string): ViteHub
   return createEnvError({
     cause: new TypeError(diagnostic),
     code: "ENV_DECLARATION_INVALID",
+    details: optionalPath(path),
+  })
+}
+
+export function asyncServerEnvRequired(path: string): ViteHubError<"ENV_ASYNC_REQUIRED", EnvErrorDetails<"ENV_ASYNC_REQUIRED">> {
+  return createEnvError({
+    cause: new TypeError(`Server Env at ${path} uses env.provider(). Use loadServerEnv() or runWithServerEnv().`),
+    code: "ENV_ASYNC_REQUIRED",
     details: optionalPath(path),
   })
 }
@@ -127,11 +138,11 @@ function normalizeDetails<TCode extends EnvErrorCode>(
   if (details === undefined) return undefined
   if (typeof details !== "object" || details === null || Array.isArray(details)) invalidOptions()
   const normalized: { path?: string, source?: EnvSourceIdentifier } = {}
-  if (code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING") {
+  if (code === "ENV_ASYNC_REQUIRED" || code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING") {
     const path = safePath(own(details, "path"))
     if (path) normalized.path = path
   }
-  if (code !== "ENV_DECLARATION_INVALID") {
+  if (code !== "ENV_ASYNC_REQUIRED" && code !== "ENV_DECLARATION_INVALID") {
     const source = own(details, "source")
     if (envSourceIdentifierSet.has(source as EnvSourceIdentifier)) normalized.source = source as EnvSourceIdentifier
   }

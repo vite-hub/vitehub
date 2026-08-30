@@ -8,8 +8,9 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
-import { hubQueue } from "../src/vite.ts"
+import { createQueueNitroConfig, hubQueue } from "../src/vite.ts"
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
@@ -27,6 +28,37 @@ async function runProviderOutputHooks(plugin: ReturnType<typeof hubQueue>) {
 }
 
 describe("hubQueue", () => {
+  it("registers absolute generated paths when Nitro owns the Vite config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-owned-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const plugin = hubQueue({ provider: "cloudflare" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
+    const userConfig = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      nitro: { preset: "cloudflare_module" },
+      root,
+    }
+
+    config(userConfig)
+
+    expect(userConfig.nitro).toMatchObject({
+      handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
+      plugins: [resolve(root, ".vitehub/nitro/queue/plugin.ts")],
+    })
+
+    const nitro = await createQueueNitroConfig(plugin, {
+      nitro: userConfig.nitro,
+      projectRoot: root,
+      root,
+    })
+    expect(nitro).toMatchObject({
+      handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
+      plugins: [resolve(root, ".vitehub/nitro/queue/plugin.ts")],
+    })
+  })
+
   it("registers and generates the Nitro queue runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
@@ -134,10 +166,34 @@ describe("hubQueue", () => {
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     const nitroMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
-    expect(nitroPlugin).toContain("import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'")
+    expect(nitroPlugin).toContain("import * as vitehubCloudflareWorkers from 'cloudflare:workers'")
+    expect(nitroPlugin).toContain("const { env: vitehubEnv, waitUntil: vitehubWaitUntil } = vitehubCloudflareWorkers as unknown as")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
-    expect(nitroMiddleware).toContain("import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'")
+    expect(nitroMiddleware).toContain("import * as vitehubCloudflareWorkers from 'cloudflare:workers'")
     expect(nitroMiddleware).toContain("Object.assign(event, { env: runtimeEvent.env")
+
+    await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "runtime-types.d.ts"), [
+      "declare namespace CloudflareWorkersModule { const __brand: unknown }",
+      "declare module 'cloudflare:workers' { export = CloudflareWorkersModule }",
+      "",
+    ].join("\n"))
+    await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+      compilerOptions: {
+        module: "Preserve",
+        moduleResolution: "Bundler",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        types: [],
+      },
+      files: ["runtime-types.d.ts", ".vitehub/nitro/queue/middleware.ts"],
+    }, null, 2)}\n`)
+    await execFileAsync(process.execPath, [join(workspaceRoot, "node_modules/typescript/bin/tsc"), "-p", root], { cwd: root })
+      .catch((error: unknown) => {
+        const output = Reflect.get(Object(error), "stdout") || Reflect.get(Object(error), "stderr")
+        throw new Error(String(output || error))
+      })
   })
 
   it("keeps inferred Cloudflare queue prefixes aligned across bindings and runtime definitions", async () => {

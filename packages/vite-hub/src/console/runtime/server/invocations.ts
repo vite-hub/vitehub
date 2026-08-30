@@ -3,15 +3,31 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
-import { defineAgentInvocations } from "@vite-hub/agent/server"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import {
+  createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
-  resolveConsoleInvocationsRoot,
+  resolveConsoleInvocationsByIdentity,
+  resolveConsoleInvocationsIdentity,
+  resolveConsoleInvocationsRevision,
 } from "../../internal.ts"
+import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
+import type { ConsoleFixture } from "../../fixture.ts"
+
+const consoleMetadataContent = [
+  "channel.effect.content",
+  "input.messages",
+  "input.prompt",
+  "message.content",
+  "result.text",
+  "tool.input",
+  "tool.output",
+  "vitehub.activity.progress",
+] as const
 
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
@@ -55,15 +71,7 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
 
 export function createConsoleInvocations(projectRoot: string): AgentInvocations {
   return defineAgentInvocations({
-    metadataContent: [
-      "input.messages",
-      "input.prompt",
-      "message.content",
-      "result.text",
-      "tool.input",
-      "tool.output",
-      "vitehub.activity.progress",
-    ],
+    metadataContent: consoleMetadataContent,
     store: createLibsqlAgentInvocationStore({
       maxAgeMs: false,
       maxRecords: false,
@@ -72,11 +80,47 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
   })
 }
 
+function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): AgentInvocations {
+  const store = createMemoryAgentInvocationStore()
+  for (const record of fixture.invocations) {
+    const { cursor: _cursor, ...input } = record
+    store.create(input)
+  }
+  return defineAgentInvocations({ metadataContent: consoleMetadataContent, store })
+}
+
+export function createConsoleFixtureInvocations(file: string): AgentInvocations {
+  return createConsoleFixtureInvocationsFromSnapshot(readConsoleFixture(file))
+}
+
 export function installConsoleInvocations(projectRoot: string): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
+  const identity = createConsoleInvocationsIdentity(resolvedRoot)
   const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsRoot() === resolvedRoot) return installed
+  if (installed && resolveConsoleInvocationsIdentity() === identity) return installed
   const invocations = createConsoleInvocations(resolvedRoot)
-  installConsoleInvocationFallback(invocations, resolvedRoot)
+  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
+  return invocations
+}
+
+export function installConsoleFixtureInvocations(
+  projectRoot: string,
+  file: string,
+  generatedFixture?: ConsoleFixture,
+  generatedRevision?: string,
+  runtimeBinding?: string,
+): AgentInvocations {
+  const resolvedRoot = resolve(projectRoot)
+  const resolvedFile = resolve(file)
+  const fixture = generatedFixture ?? readConsoleFixture(resolvedFile)
+  const revision = generatedRevision ?? consoleFixtureRevision(fixture)
+  const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile, revision, runtimeBinding)
+  const installed = resolveConsoleInvocationsByIdentity(identity)
+  if (installed && resolveConsoleInvocationsRevision(identity) === revision) {
+    installConsoleInvocationFallback(installed, resolvedRoot, globalThis, identity, revision)
+    return installed
+  }
+  const invocations = createConsoleFixtureInvocationsFromSnapshot(fixture)
+  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity, revision)
   return invocations
 }

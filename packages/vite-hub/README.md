@@ -51,7 +51,7 @@ vitehub({
   auth: true,
   database: true,
   email: {
-    driver: "unemail/driver/resend",
+    driver: "resend",
   },
   kv: true,
   queue: true,
@@ -63,15 +63,9 @@ vitehub({
 });
 ```
 
-| Preset       | Blob                           | Queue             | Rate Limit                      | Sandbox               | Schedule    |
-| ------------ | ------------------------------ | ----------------- | ------------------------------- | --------------------- | ----------- |
-| `cloudflare` | R2                             | Cloudflare Queues | Cloudflare                      | Cloudflare Containers | Supported   |
-| `netlify`    | Netlify Blobs                  | Unsupported       | Unsupported                     | Unsupported           | Supported   |
-| `vercel`     | Vercel Blob                    | Vercel Queues     | Unsupported                     | Vercel Sandbox        | Supported   |
-| `deno`       | Unsupported                    | Unsupported       | Unsupported                     | Unsupported           | Unsupported |
-| `node`       | Local filesystem (single host) | Unsupported       | Process memory (single process) | Unsupported           | Supported   |
+See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for the providers, limitations, and proof available on each host.
 
-Selecting an unsupported opt-in capability fails the build with the preset policy. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
+If an enabled capability is not supported by the preset, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
 The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
 

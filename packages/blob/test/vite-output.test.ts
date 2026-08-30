@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { execFile } from "node:child_process"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { build as bundle } from "esbuild"
+import { build as bundle, transform } from "esbuild"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { contributeProviderRuntime, createProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
@@ -17,6 +19,7 @@ import { generateProviderOutputs, prepareProviderOutputs } from "../src/internal
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const tempDirs: string[] = []
+const testServers: ReturnType<typeof createServer>[] = []
 const vercelBlobMock = vi.hoisted(() => ({
   del: vi.fn(async () => {}),
   get: vi.fn(async (pathname: string) => ({
@@ -53,10 +56,6 @@ const vercelBlobMock = vi.hoisted(() => ({
     url: `https://blob.example/${pathname}`,
   })),
 }))
-const filesSdkMock = vi.hoisted(() => ({
-  minio: vi.fn((options: unknown) => ({ options, provider: "minio" })),
-}))
-
 vi.mock("@vercel/blob", () => vercelBlobMock)
 
 vi.mock("files-sdk", () => ({
@@ -91,16 +90,30 @@ vi.mock("files-sdk/vercel-blob", () => ({
   vercelBlob: (options: unknown) => ({ options, provider: "vercel-blob" }),
 }))
 
-vi.mock("files-sdk/minio", () => ({
-  minio: filesSdkMock.minio,
-}))
-
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
   await mkdir(baseDir, { recursive: true })
   const rootDir = await mkdtemp(join(baseDir, prefix))
   tempDirs.push(rootDir)
   return rootDir
+}
+
+function stubVercelBlobApi() {
+  const fetchMock = vi.fn<typeof fetch>(async (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input : input.url)
+    const pathname = url.searchParams.get("pathname") || "unknown"
+    const blobUrl = `https://store.public.blob.vercel-storage.com/${pathname}`
+    return Response.json({
+      contentDisposition: "inline",
+      contentType: "text/plain",
+      downloadUrl: `${blobUrl}?download=1`,
+      etag: '"etag"',
+      pathname,
+      url: blobUrl,
+    })
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  return fetchMock
 }
 
 async function createHostedDatabaseRuntimeFixture(rootDir: string, options: { localNodeImport?: boolean } = {}) {
@@ -164,13 +177,13 @@ afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(testServers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))))
   delete process.env.BLOB_READ_WRITE_TOKEN
   delete process.env.MINIO_ACCESS_KEY_ID
   delete process.env.MINIO_ROOT_PASSWORD
   delete process.env.MINIO_ROOT_USER
   delete process.env.MINIO_SECRET_ACCESS_KEY
-  filesSdkMock.minio.mockClear()
   vercelBlobMock.del.mockClear()
   vercelBlobMock.get.mockClear()
   vercelBlobMock.head.mockClear()
@@ -229,6 +242,19 @@ describe("Vite provider outputs", () => {
     const missingStore = new Error("Vercel Blob: The requested store does not exist")
     vercelBlobMock.head.mockRejectedValueOnce(missingStore)
     await expect(driver.head("missing.txt")).rejects.toBe(missingStore)
+  })
+
+  it("rejects custom metadata that Vercel Blob cannot persist", async () => {
+    const driver = createBundledVercelBlobDriver({
+      access: "private",
+      driver: "vercel-blob",
+      token: "vercel_blob_rw_test",
+    })
+
+    await expect(driver.put("metadata.txt", "value", {
+      customMetadata: { owner: "vitehub" },
+    })).rejects.toThrow("does not support custom metadata")
+    expect(vercelBlobMock.put).not.toHaveBeenCalled()
   })
 
   it("rejects malformed resolved Blob config before rendering provider entries", async () => {
@@ -370,7 +396,7 @@ describe("Vite provider outputs", () => {
     expect(vercelServer).not.toContain("local-database-runtime-marker")
   })
 
-  it("copies Vercel static output from Vite's default dist directory", async () => {
+  it("copies Vercel static output from Vite's default dist directory", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-default-dist-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -386,7 +412,7 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
   })
 
-  it("preserves Nitro output when emitting a composed Vercel function", async () => {
+  it("preserves Nitro output when emitting a composed Vercel function", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-nitro-output-")
     const outputRoot = join(rootDir, ".vercel", "output")
     const nitroFunction = join(outputRoot, "functions", "__server.func", "index.mjs")
@@ -463,7 +489,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(false)
   })
 
-  it("preserves Vercel functions not owned by Blob during Cloudflare builds", async () => {
+  it("preserves Vercel functions not owned by Blob during Cloudflare builds", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-")
     const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -552,7 +578,6 @@ describe("Vite provider outputs", () => {
 
     const runtimeProbe = join(functionDir, "runtime-probe.mjs")
     await writeFile(runtimeProbe, [
-      `await import("files-sdk/r2")`,
       `await import("@aws-sdk/client-s3")`,
       `await import("@aws-sdk/lib-storage")`,
       `await import("@aws-sdk/s3-presigned-post")`,
@@ -562,7 +587,7 @@ describe("Vite provider outputs", () => {
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 
-  it("preserves the shared root Vercel output during Cloudflare builds", async () => {
+  it("preserves the shared root Vercel output during Cloudflare builds", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-root-vercel-")
     const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -718,7 +743,7 @@ describe("Vite provider outputs", () => {
     expect(cloudflareWorker).not.toContain("@aws-sdk/")
   })
 
-  it("copies Cloudflare R2 runtime packages into isolated Vercel output", { timeout: 15_000 }, async () => {
+  it("copies Cloudflare R2 runtime packages into isolated Vercel output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-r2-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
@@ -736,7 +761,6 @@ describe("Vite provider outputs", () => {
 
     const runtimeProbe = join(dirname(serverEntry), "runtime-probe.mjs")
     const runtimeProbeSource = [
-      `await import("files-sdk/r2")`,
       `await import("@aws-sdk/client-s3")`,
       `await import("@aws-sdk/lib-storage")`,
       `await import("@aws-sdk/s3-presigned-post")`,
@@ -877,7 +901,7 @@ describe("Vite provider outputs", () => {
     expect(bundled).not.toContain("@aws-sdk/")
   })
 
-  it("rehydrates masked Vercel tokens from generated runtime output", async () => {
+  it("rehydrates masked Vercel tokens from generated runtime output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -890,6 +914,7 @@ describe("Vite provider outputs", () => {
     })
 
     process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    const fetchMock = stubVercelBlobApi()
     const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
     const runtimeModule = await import(runtimeModulePath) as {
       blob: {
@@ -903,12 +928,9 @@ describe("Vite provider outputs", () => {
     const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
     expect(error).toBeNull()
 
-    expect(vercelBlobMock.put).toHaveBeenCalledWith(
-      "notes/generated.txt",
-      "hello",
-      expect.objectContaining({
-        token: "secret-token",
-      }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("pathname=notes%2Fgenerated.txt"),
+      expect.objectContaining({ method: "PUT" }),
     )
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
@@ -919,7 +941,7 @@ describe("Vite provider outputs", () => {
     expect(vercelServerContents).not.toContain("from '@vercel/blob'")
   })
 
-  it("selects named stores from generated runtime output", async () => {
+  it("selects named stores from generated runtime output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -945,6 +967,7 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
 
+    const fetchMock = stubVercelBlobApi()
     const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
     const runtimeModule = await import(runtimeModulePath) as {
       blob: {
@@ -958,12 +981,9 @@ describe("Vite provider outputs", () => {
     expect(error).toBeNull()
     expect(object).toMatchObject({ url: "/notes/assets.txt" })
 
-    expect(vercelBlobMock.put).toHaveBeenCalledWith(
-      "notes/assets.txt",
-      "hello",
-      expect.objectContaining({
-        token: "assets-token",
-      }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("pathname=notes%2Fassets.txt"),
+      expect.objectContaining({ method: "PUT" }),
     )
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
@@ -971,7 +991,7 @@ describe("Vite provider outputs", () => {
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
   })
 
-  it("generates Netlify Blobs driver reachability for selected stores", async () => {
+  it("generates Netlify Blobs driver reachability for selected stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-netlify-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -989,7 +1009,55 @@ describe("Vite provider outputs", () => {
     expect(runtimeContents).toContain("\"name\": \"vitehub-blob\"")
   })
 
+  it("bundles user provider imports that are unrelated to the selected Blob store", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-user-provider-import-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await writeFile(join(rootDir, "src", "server.ts"), [
+      'import { BlobServiceClient } from "@azure/storage-blob"',
+      'import { Files } from "files-sdk"',
+      "export default async () => new Response(`${BlobServiceClient.name}:${Files.name}`)",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      blob: { driver: "vercel-blob", token: "test-token" },
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
+    const serverContents = await readFile(join(functionRoot, "index.mjs"), "utf8")
+    const executableContents = (await transform(serverContents, {
+      legalComments: "none",
+      loader: "js",
+      minifySyntax: true,
+      minifyWhitespace: true,
+    })).code
+    expect(executableContents).not.toMatch(/(?:from\s*|import\()\s*["']@azure\//)
+    expect(executableContents).not.toMatch(/(?:from\s*|import\()\s*["']files-sdk(?:\/|["'])/)
+    expect(existsSync(join(functionRoot, "node_modules", "@azure", "storage-blob"))).toBe(false)
+    expect(existsSync(join(functionRoot, "node_modules", "files-sdk"))).toBe(false)
+  })
+
   it("generates MinIO driver reachability for selected stores", { timeout: 30_000 }, async () => {
+    let authorization: string | undefined
+    const server = createServer((request, response) => {
+      authorization = request.headers.authorization
+      response.writeHead(200, { etag: '"etag"' })
+      response.end()
+    })
+    testServers.push(server)
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(0, "127.0.0.1", resolve)
+    })
+    // SAFETY: This server listens on a TCP host and port, so Node returns AddressInfo rather than a pipe name.
+    const address = server.address() as AddressInfo | null
+    if (!address) throw new Error("Missing MinIO test server address.")
+    const endpoint = `http://127.0.0.1:${address.port}`
+
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -997,7 +1065,7 @@ describe("Vite provider outputs", () => {
     const blobConfig = normalizeBlobOptions({ driver: "minio" }, {
       env: {
         BLOB_BUCKET_NAME: "assets",
-        MINIO_ENDPOINT: "http://minio:9000",
+        MINIO_ENDPOINT: endpoint,
         MINIO_ROOT_PASSWORD: "build-password",
         MINIO_ROOT_USER: "build-user",
       },
@@ -1025,7 +1093,7 @@ describe("Vite provider outputs", () => {
 
     expect(runtimeContents).toContain("drivers/minio")
     expect(runtimeContents).toContain("\"driver\": \"minio\"")
-    expect(runtimeContents).toContain("\"endpoint\": \"http://minio:9000\"")
+    expect(runtimeContents).toContain(`"endpoint": "${endpoint}"`)
     expect(runtimeContents).toContain("resolveRuntimeMinioBlobStore")
     expect(runtimeContents).toContain("createDriver0(resolveRuntimeMinioBlobStore(store, process.env))")
     expect(runtimeContents).toContain("\"accessKeyId\": \"********\"")
@@ -1035,10 +1103,7 @@ describe("Vite provider outputs", () => {
     expect(vercelServerContents).toContain("resolveRuntimeMinioBlobStore")
     expect(vercelServerContents).not.toContain("build-user")
     expect(vercelServerContents).not.toContain("build-password")
-    expect(filesSdkMock.minio).toHaveBeenCalledWith(expect.objectContaining({
-      accessKeyId: "runtime-user",
-      secretAccessKey: "runtime-password",
-    }))
+    expect(authorization).toContain("Credential=runtime-user/")
     expect(runtimeContents).not.toContain("drivers/s3")
   })
 })

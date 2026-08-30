@@ -13,7 +13,7 @@ import { normalizeWorkflowOptions } from "./config.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
-import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -89,8 +89,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   const buildEnvironment = (context: { environment?: object } | undefined): object =>
     context?.environment ?? context ?? fallbackEnvironment
 
-  function providerRuntimeImportAliases(provider: "cloudflare" | "vercel"): Record<string, string> {
-    const database = getProviderRuntimeModule(providerOutput, "database", provider)
+  function providerRuntimeImportAliases(provider: "cloudflare" | "vercel", generation?: ProviderDeploymentOutputGeneration): Record<string, string> {
+    const database = getProviderRuntimeModule(providerOutput, "database", provider, generation)
     return database ? { "@vite-hub/database/drizzle": database } : {}
   }
 
@@ -220,8 +220,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       try {
         const importAliases = await providerImportAliases()
         const runtimeImportAliases = {
-          cloudflare: providerRuntimeImportAliases("cloudflare"),
-          vercel: providerRuntimeImportAliases("vercel"),
+          cloudflare: providerRuntimeImportAliases("cloudflare", generation),
+          vercel: providerRuntimeImportAliases("vercel", generation),
         }
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),

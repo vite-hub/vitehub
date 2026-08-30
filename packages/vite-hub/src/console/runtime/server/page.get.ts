@@ -8,8 +8,8 @@ const page = `<!doctype html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#ffffff">
-    <meta name="description" content="Read-only ViteHub Agent sessions">
-    <title>Agents · ViteHub Console</title>
+    <meta name="description" content="Read-only ViteHub project inspection">
+    <title>ViteHub Console</title>
     <link rel="stylesheet" href="/_vitehub/assets/console.css">
   </head>
   <body>

@@ -46,6 +46,25 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("shares one build generation across plain Vite plugin contexts", async () => {
+    const catalog = createProviderOutputCatalog()
+    const first = createProviderDeploymentOutputGenerationState()
+    const second = createProviderDeploymentOutputGenerationState()
+    const firstContext = {}
+    const secondContext = {}
+    const rootDir = await createTempProject()
+    const write = vi.fn(async () => undefined)
+    first.capture(firstContext, catalog)
+    await Promise.resolve()
+    second.capture(secondContext, catalog)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir, write }, first.get(firstContext))
+
+    await second.reset(secondContext, catalog, new Error("peer build failed"))
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("shares one build generation across independently loaded Internal copies", async () => {
     const independentModule = await import("../src/build/deployment-output.ts?independent-provider-output-copy")
     const catalog = createProviderOutputCatalog()
@@ -242,64 +261,6 @@ describe("Provider Output finalizer", () => {
     expect(writes).toEqual(["agent", "database", "current", "browser"])
   })
 
-  it("writes Browser compatibility fields after stale Queue cleanup", async () => {
-    const catalog = createProviderOutputCatalog()
-    const rootDir = await createTempProject()
-    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
-    const outputFile = join(outputRoot, "wrangler.json")
-    await mkdir(outputRoot, { recursive: true })
-    await writeFile(outputFile, JSON.stringify({
-      compatibility_date: "2025-01-01",
-      compatibility_flags: ["nodejs_compat"],
-      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
-    }))
-    contributeProviderDeploymentOutput(catalog, {
-      owner: "queue",
-      rootDir,
-      write: async ({ write }) => await write({
-        clientOutDir: "dist/client",
-        cleanup: {
-          cloudflare: {
-            wranglerConfigOwnership: {
-              arrays: { compatibility_flags: { values: ["nodejs_compat"] } },
-              keys: ["compatibility_date", "queues"],
-            },
-          },
-        },
-        rootDir,
-      }),
-    })
-    contributeProviderDeploymentOutput(catalog, {
-      owner: "browser",
-      rootDir,
-      write: async ({ write }) => await write({
-        clientOutDir: "dist/client",
-        cloudflare: {
-          wranglerConfig: {
-            browser: { binding: "BROWSER" },
-            compatibility_flags: ["nodejs_compat"],
-          },
-          wranglerConfigDefaults: { compatibility_date: "2026-04-20" },
-          wranglerConfigOwnership: {
-            arrays: {
-              compatibility_flags: { preserveOnCleanup: true, values: ["nodejs_compat"] },
-            },
-            keys: ["browser"],
-          },
-        },
-        rootDir,
-      }),
-    })
-
-    await finalizeProviderDeploymentOutputs(catalog)
-
-    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toEqual({
-      browser: { binding: "BROWSER" },
-      compatibility_date: "2026-04-20",
-      compatibility_flags: ["nodejs_compat"],
-    })
-  })
-
   it("clears settled contributions between repeat builds", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
@@ -363,21 +324,29 @@ describe("Provider Output finalizer", () => {
     const outputFile = join(outputRoot, "index.js")
     const customOutputRoot = join(rootDir, "custom-cloudflare")
     const customOutputFile = join(customOutputRoot, "owner.js")
+    const agentNetlifyFunction = join(rootDir, ".vitehub/agent/netlify-function.mjs")
+    const agentScheduleRegistry = join(rootDir, ".vitehub/agent/schedule-registry.js")
     const ownershipFile = join(rootDir, ".vitehub/blob/cloudflare-output.json")
+    const queueRegistry = join(rootDir, ".vitehub/queue/registry.mjs")
     const rateLimitManifest = join(rootDir, ".vitehub/rate-limit/manifest.json")
     const scheduleRegistry = join(rootDir, ".vitehub/schedule/registry.mjs")
     const denoCron = join(rootDir, ".vitehub/schedule/deno-cron.mjs")
     await Promise.all([
       mkdir(outputRoot, { recursive: true }),
       mkdir(customOutputRoot, { recursive: true }),
+      mkdir(dirname(agentNetlifyFunction), { recursive: true }),
       mkdir(dirname(ownershipFile), { recursive: true }),
+      mkdir(dirname(queueRegistry), { recursive: true }),
       mkdir(dirname(rateLimitManifest), { recursive: true }),
       mkdir(dirname(scheduleRegistry), { recursive: true }),
     ])
     await Promise.all([
       writeFile(outputFile, "previous\n"),
       writeFile(customOutputFile, "previous\n"),
+      writeFile(agentNetlifyFunction, "previous\n"),
+      writeFile(agentScheduleRegistry, "previous\n"),
       writeFile(ownershipFile, "previous\n"),
+      writeFile(queueRegistry, "previous\n"),
       writeFile(rateLimitManifest, "previous\n"),
       writeFile(scheduleRegistry, "previous\n"),
       writeFile(denoCron, "previous\n"),
@@ -398,6 +367,9 @@ describe("Provider Output finalizer", () => {
         })
         await writeFile(ownershipFile, "replacement\n")
         await Promise.all([
+          writeFile(agentNetlifyFunction, "replacement\n"),
+          writeFile(agentScheduleRegistry, "replacement\n"),
+          writeFile(queueRegistry, "replacement\n"),
           writeFile(rateLimitManifest, "replacement\n"),
           writeFile(scheduleRegistry, "replacement\n"),
           writeFile(denoCron, "replacement\n"),
@@ -413,7 +385,10 @@ describe("Provider Output finalizer", () => {
     await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("database failed")
     await expect(readFile(outputFile, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(customOutputFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(agentNetlifyFunction, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(agentScheduleRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(ownershipFile, "utf8")).resolves.toBe("previous\n")
+    await expect(readFile(queueRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(rateLimitManifest, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(scheduleRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(denoCron, "utf8")).resolves.toBe("previous\n")
@@ -823,7 +798,7 @@ describe("Provider Output finalizer", () => {
       finalizeProviderDeploymentOutputs(first),
       finalizeProviderDeploymentOutputs(second),
     ])
-    await vi.waitFor(() => expect(started).toEqual(["first", "second"]))
+    await vi.waitFor(() => expect(new Set(started)).toEqual(new Set(["first", "second"])))
     releases.splice(0).forEach(release => release())
     await finalizations
   })

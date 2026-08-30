@@ -82,6 +82,7 @@ export class ProviderOutputCatalog {
   #appliedCloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #cloudflareContributions = new Map<CloudflareProviderOutputContribution["owner"], CloudflareProviderOutputValue>()
   #runtimeContributions = new Map<ProviderOutputProduct, ProviderRuntimeContribution>()
+  #runtimeContributionsByGeneration = new WeakMap<ProviderDeploymentOutputGeneration, Map<ProviderOutputProduct, ProviderRuntimeContribution>>()
   #deploymentContributionSequence = 0
   #deploymentContributions = new Map<ProviderDeploymentOutputContribution["owner"], ProviderDeploymentOutputEntry[]>()
   #deploymentGenerationRefs = new WeakMap<ProviderDeploymentOutputGeneration, WeakRef<ProviderDeploymentOutputGeneration>>()
@@ -125,16 +126,26 @@ export class ProviderOutputCatalog {
     this.#cloudflareContributions.set(owner, contribution)
   }
 
-  replaceRuntimeContribution(contribution: ProviderRuntimeContribution): void {
-    this.#runtimeContributions.set(contribution.owner, contribution)
+  replaceRuntimeContribution(contribution: ProviderRuntimeContribution, generation?: ProviderDeploymentOutputGeneration): void {
+    if (!generation) {
+      this.#runtimeContributions.set(contribution.owner, contribution)
+      return
+    }
+    let contributions = this.#runtimeContributionsByGeneration.get(generation)
+    if (!contributions) {
+      contributions = new Map()
+      this.#runtimeContributionsByGeneration.set(generation, contributions)
+    }
+    contributions.set(contribution.owner, contribution)
   }
 
-  runtimeContribution(product: ProviderOutputProduct): ProviderRuntimeContribution | undefined {
-    return this.#runtimeContributions.get(product)
+  runtimeContribution(product: ProviderOutputProduct, generation?: ProviderDeploymentOutputGeneration): ProviderRuntimeContribution | undefined {
+    return (generation ? this.#runtimeContributionsByGeneration.get(generation) : this.#runtimeContributions)?.get(product)
   }
 
-  runtimeContributions(): IterableIterator<[ProviderOutputProduct, ProviderRuntimeContribution]> {
-    return this.#runtimeContributions.entries()
+  runtimeContributions(generation?: ProviderDeploymentOutputGeneration): IterableIterator<[ProviderOutputProduct, ProviderRuntimeContribution]> {
+    return (generation ? this.#runtimeContributionsByGeneration.get(generation) : this.#runtimeContributions)?.entries()
+      ?? new Map<ProviderOutputProduct, ProviderRuntimeContribution>().entries()
   }
 
   resetRuntimeContributions(): void {
@@ -349,8 +360,8 @@ export function contributeCloudflareProviderOutput(catalog: ProviderOutputCatalo
   catalog.replaceCloudflareContribution(owner, value)
 }
 
-export function contributeProviderRuntime(catalog: ProviderOutputCatalog | undefined, contribution: ProviderRuntimeContribution): void {
-  catalog?.replaceRuntimeContribution(contribution)
+export function contributeProviderRuntime(catalog: ProviderOutputCatalog | undefined, contribution: ProviderRuntimeContribution, generation?: ProviderDeploymentOutputGeneration): void {
+  catalog?.replaceRuntimeContribution(contribution, generation)
 }
 
 export function resetProviderOutputRuntime(catalog: ProviderOutputCatalog | undefined): void {
@@ -360,8 +371,8 @@ export function resetProviderOutputRuntime(catalog: ProviderOutputCatalog | unde
 export function getProviderRuntimeModule<
   Product extends ProviderOutputProduct,
   Provider extends keyof ProviderRuntimeModulesByProduct[Product],
->(catalog: ProviderOutputCatalog | undefined, product: Product, provider: Provider): string | undefined {
-  const contribution = catalog?.runtimeContribution(product)
+>(catalog: ProviderOutputCatalog | undefined, product: Product, provider: Provider, generation?: ProviderDeploymentOutputGeneration): string | undefined {
+  const contribution = catalog?.runtimeContribution(product, generation)
   if (!contribution) return
   const runtimeModules = contribution.runtimeModules as ProviderRuntimeModulesByProduct[Product]
   return runtimeModules[provider] as string | undefined
@@ -370,14 +381,14 @@ export function getProviderRuntimeModule<
 export function hasProviderRuntimeModule(
   catalog: ProviderOutputCatalog | undefined,
   provider: ProviderRuntimeKind,
-  options: { except?: ProviderOutputProduct } = {},
+  options: { except?: ProviderOutputProduct, generation?: ProviderDeploymentOutputGeneration } = {},
 ): boolean {
   if (!catalog) return false
-  return [...catalog.runtimeContributions()]
+  return [...catalog.runtimeContributions(options.generation)]
     .some(([product, contribution]) => product !== options.except && provider in contribution.runtimeModules)
 }
 
-export function getVercelRuntimePackages(catalog: ProviderOutputCatalog | undefined, product: "blob"): VercelFunctionRuntimePackage[] {
-  const contribution = catalog?.runtimeContribution(product)
+export function getVercelRuntimePackages(catalog: ProviderOutputCatalog | undefined, product: "blob", generation?: ProviderDeploymentOutputGeneration): VercelFunctionRuntimePackage[] {
+  const contribution = catalog?.runtimeContribution(product, generation)
   return contribution?.owner === "blob" ? contribution.vercelRuntimePackages ?? [] : []
 }

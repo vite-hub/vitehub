@@ -17,7 +17,7 @@ Start with a short `recipients` allowlist, `policy: 'require-approval'`, a provi
 
 ## Configure the Email primitive first
 
-Configure one Unemail provider in the ViteHub preset. Runtime Env resolves the credential on the server for every send.
+Configure one built-in ViteHub Email provider in the preset. Runtime Env resolves the credential on the server for every send.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -29,7 +29,7 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       email: {
-        driver: 'unemail/driver/resend',
+        driver: 'resend',
         options: {
           apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
         },
@@ -39,7 +39,7 @@ export default defineConfig({
 })
 ```
 
-Follow [Configure Resend](/docs/server-primitives/email#configure-resend), or select another `unemail/driver/*` provider through the same `driver` option.
+Follow [Configure Resend](/docs/server-primitives/email#configure-resend), or select the `cloudflare-email` provider through the same `driver` option.
 Keep credentials in Server Env or the deployment platform's secret store and reference them with an Env declaration without a default. Literal options and non-secret Env defaults are included in build output; ViteHub rejects defaults on declarations marked secret. The Capability never exposes runtime credentials to the model.
 
 ## Requirements

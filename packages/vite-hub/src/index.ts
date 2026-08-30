@@ -24,11 +24,12 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
+import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -83,6 +84,28 @@ const generatedOwnerPackageAccess = {
 const generatedOwnerPackageNames = Object.entries(generatedOwnerPackageAccess)
   .filter(([, allowed]) => allowed)
   .map(([name]) => name)
+
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+const generatedOwnerProviderImportAliases = Object.fromEntries(generatedOwnerPackageNames.flatMap((packageName) => {
+  const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`))
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+  if (!isRecord(manifest) || !("exports" in manifest)) return []
+  const packageExports = manifest.exports
+  if (!isRecord(packageExports)) return []
+  return Object.keys(packageExports).flatMap((subpath) => {
+    if (subpath !== "." && !subpath.startsWith("./")) return []
+    const specifier = subpath === "." ? packageName : `${packageName}/${subpath.slice(2)}`
+    try {
+      return [[specifier, fileURLToPath(import.meta.resolve(specifier))] as const]
+    }
+    catch {
+      return []
+    }
+  })
+}))
 
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
@@ -143,9 +166,14 @@ function frameworkDependencyResolver(
   providerImportAliases: Record<string, string>,
   blobEnabled: boolean,
   presetKVOptions?: KVModuleOptions,
-): Plugin {
+): Plugin & ViteHubProviderImportContributor {
   return {
     name: "vite-hub/dependencies",
+    vitehub: {
+      providerOutput: {
+        getImportAliases: () => generatedOwnerProviderImportAliases,
+      },
+    },
     enforce: "pre",
     config() {
       const aliases = { ...frameworkProviderImportAliases }
@@ -635,6 +663,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
+  const consoleSections = resolveConsoleSectionIds(options)
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -668,6 +697,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   if (options.console) {
+    const invocationRootState = {}
     plugins.push(consoleVitePlugin({
       console: options.console === true ? true : options.console,
       preset: plan.preset,
@@ -678,7 +708,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
-    }), consoleInvocationRootPlugin())
+      invocationRootState,
+      sections: consoleSections,
+    }))
+    if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
   if (options.auth) {
@@ -731,7 +764,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.email) {
     const emailOptions = options.email === true
-      ? { driver: "unemail/driver/cloudflare-email" as const }
+      ? { driver: "cloudflare-email" as const }
       : options.email
     plugins.push(hubEmail({
       ...emailOptions,

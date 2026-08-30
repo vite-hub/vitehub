@@ -181,6 +181,32 @@ describe("provider deployment outputs", () => {
     expect(existsSync(copiedBackup)).toBe(false)
   })
 
+  it("backs up custom Cloudflare roots outside their client tree", async () => {
+    const rootDir = await createTempProject()
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const outputRoot = join(rootDir, "dist")
+    const clientDir = join(outputRoot, "client")
+    const staticOutputDir = join(outputRoot, "static")
+    await mkdir(clientDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "<!doctype html>\n")
+    await writeFile(join(outputRoot, "index.js"), "old worker\n")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        outputRoot,
+        staticOutputDir,
+        wranglerConfig: { main: "index.js" },
+      },
+      rootDir,
+    })
+
+    await expect(readFile(join(staticOutputDir, "index.html"), "utf8")).resolves.toBe("<!doctype html>\n")
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ main: "index.js" })
+  })
+
   it("excludes nested Cloudflare output from every Vercel static copy", async () => {
     const rootDir = await createTempProject()
     const {
@@ -1337,6 +1363,19 @@ describe("provider deployment outputs", () => {
     })).rejects.toHaveProperty("name", "AbortError")
 
     await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
+  })
+
+  it("does not resolve Vercel runtime packages without server output", async () => {
+    const rootDir = await createTempProject()
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+    const resolvePackages = vi.fn(() => [{ name: "runtime-package" }])
+
+    await copyVercelFunctionRuntimePackages({
+      packages: resolvePackages,
+      rootDir,
+    })
+
+    expect(resolvePackages).not.toHaveBeenCalled()
   })
 
   it("copies runtime packages into an explicit Node output", async () => {

@@ -161,6 +161,148 @@ describe("Agent Invocation UI", () => {
       .toBe("M21 12a9 9 0 1 1-6.219-8.56");
   });
 
+  it("groups sessions by lifecycle and sorts each group by recency", () => {
+    const items = [
+      { id: "done-old", status: "completed" as const, title: "Done old", updatedAt: "2026-08-20T00:00:00Z" },
+      { id: "queued-old", status: "pending" as const, title: "Queued old", updatedAt: "2026-08-21T00:00:00Z" },
+      { id: "working-old", status: "running" as const, title: "Working old", updatedAt: "2026-08-22T00:00:00Z" },
+      { id: "done-new", status: "failed" as const, title: "Done new", updatedAt: "2026-08-24T00:00:00Z" },
+      { id: "queued-new", status: "pending" as const, title: "Queued new", updatedAt: "2026-08-25T00:00:00Z" },
+      { id: "working-new", status: "running" as const, title: "Working new", updatedAt: "2026-08-26T00:00:00Z" },
+    ];
+    const wrapper = mount(AgentInvocationList, { props: { items } });
+    const groups = wrapper.findAll(".vh-invocation-list__group");
+
+    expect(groups.map(group => group.attributes("data-group"))).toEqual(["working", "queued", "done"]);
+    expect(groups.map(group => group.element.tagName)).toEqual(["SECTION", "DETAILS", "DETAILS"]);
+    expect(wrapper.get('details[data-group="queued"]').attributes("open")).toBe("");
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBeUndefined();
+    expect(groups.map(group => group.findAll(".vh-invocation-list__title").map(title => title.text()))).toEqual([
+      ["Working new", "Working old"],
+      ["Queued new", "Queued old"],
+      ["Done new", "Done old"],
+    ]);
+  });
+
+  it("reveals the selected terminal session", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "done", status: "completed", title: "Done" }],
+        selectedId: "done",
+      },
+    });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
+  it("reopens Done for each newly selected terminal session", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [
+          { id: "first", status: "completed", title: "First" },
+          { id: "second", status: "completed", title: "Second" },
+        ],
+        selectedId: "first",
+      },
+    });
+    const done = wrapper.get('details[data-group="done"]');
+    if (!(done.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    done.element.open = false;
+    await done.trigger("toggle");
+
+    await wrapper.setProps({ selectedId: "second" });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
+  it("reopens Queued for each newly selected pending session", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [
+          { id: "first", status: "pending", title: "First" },
+          { id: "second", status: "pending", title: "Second" },
+        ],
+        selectedId: "first",
+      },
+    });
+    const queued = wrapper.get('details[data-group="queued"]');
+    if (!(queued.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    queued.element.open = false;
+    await queued.trigger("toggle");
+
+    await wrapper.setProps({ selectedId: "second" });
+
+    expect(wrapper.get('details[data-group="queued"]').attributes("open")).toBe("");
+  });
+
+  it("opens Done when the selected terminal session arrives", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: { items: [], selectedId: "done" },
+    });
+
+    await wrapper.setProps({
+      items: [{ id: "done", status: "completed", title: "Done" }],
+    });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
+  it("opens Done when the selected session becomes terminal", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "selected", status: "running", title: "Selected" }],
+        selectedId: "selected",
+      },
+    });
+
+    await wrapper.setProps({
+      items: [{ id: "selected", status: "completed", title: "Selected" }],
+    });
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+  });
+
+  it.each([
+    ["pending", "running"],
+    ["running", "completed"],
+  ] as const)("preserves focus when a session moves from %s to %s", async (before, after) => {
+    const wrapper = mount(AgentInvocationList, {
+      attachTo: document.body,
+      props: {
+        items: [{ id: "moving", status: before, title: "Moving" }],
+        selectedId: "moving",
+      },
+    });
+    wrapper.get<HTMLButtonElement>('[data-invocation-id="moving"]').element.focus();
+
+    await wrapper.setProps({
+      items: [{ id: "moving", status: after, title: "Moving" }],
+    });
+    await nextTick();
+
+    expect(document.activeElement).toBe(wrapper.get('[data-invocation-id="moving"]').element);
+    wrapper.unmount();
+  });
+
+  it("opens Done before restoring focus to an unselected terminal session", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      attachTo: document.body,
+      props: {
+        items: [{ id: "moving", status: "running", title: "Moving" }],
+      },
+    });
+    wrapper.get<HTMLButtonElement>('[data-invocation-id="moving"]').element.focus();
+
+    await wrapper.setProps({
+      items: [{ id: "moving", status: "completed", title: "Moving" }],
+    });
+    await nextTick();
+
+    expect(wrapper.get('details[data-group="done"]').attributes("open")).toBe("");
+    expect(document.activeElement).toBe(wrapper.get('[data-invocation-id="moving"]').element);
+    wrapper.unmount();
+  });
+
   it("keeps every session in the accessible navigation list", () => {
     const items = Array.from({ length: 100 }, (_, index) => ({
       description: index === 0 ? "The host stopped before this invocation finished." : undefined,
@@ -226,6 +368,121 @@ describe("Agent Invocation UI", () => {
     expect(delivery.element.tagName).toBe("BUTTON");
     await delivery.trigger("click");
     expect(wrapper.emitted("inspect")).toEqual([["agent"], ["workspace"]]);
+  });
+
+  it("keeps a failed delivery's error inspectable beside its captured reply", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "Partially delivered reply.",
+          "channel.effect.kind": "reply",
+          "error.message": "Telegram disconnected",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const delivery = wrapper.get('[data-kind="delivery"]');
+
+    expect(invocationActivityTitle(invocationActivities(invocation)[0]!)).toBe("Reply failed");
+    expect(invocationActivities(invocation)[0]?.status).toBe("failed");
+    expect(delivery.get("summary").element.tagName).toBe("SUMMARY");
+    expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Partially delivered reply.");
+    expect(delivery.get(".vh-invocation-delivery__body").element.parentElement).toBe(delivery.element);
+    await delivery.get("summary").trigger("click");
+    expect(delivery.get(".vh-invocation-event__failure").text()).toBe("Telegram disconnected");
+    expect(delivery.findAll(".vh-invocation-event__markdown")).toHaveLength(1);
+  });
+
+  it("does not present a failed non-reply delivery error as sent content", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-reaction",
+      observations: [{
+        attributes: {
+          "channel.effect.kind": "reaction",
+          "error.message": "Reaction delivery failed",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+
+    expect(invocationActivityTitle(invocationActivities(invocation)[0]!)).toBe("Reaction failed");
+    expect(invocationActivities(invocation)[0]?.status).toBe("failed");
+    expect(delivery.find(".vh-invocation-delivery__body").exists()).toBe(false);
+    await delivery.get("summary").trigger("click");
+    expect(delivery.get(".vh-invocation-event__failure").text()).toBe("Reaction delivery failed");
+    expect(delivery.find(".vh-invocation-event__body").exists()).toBe(false);
+  });
+
+  it("discloses truncation beside a visible delivery body", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "truncated-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "Bounded reply.",
+          "channel.effect.kind": "reply",
+          "vitehub.observation.truncated": true,
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const delivery = wrapper.get('[data-kind="delivery"]');
+
+    expect(delivery.find("summary").exists()).toBe(false);
+    expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Bounded reply.");
+    expect(wrapper.get('[data-activity-id="trace-truncated"] .vh-invocation-event__title').text()).toBe("Trace content was truncated");
+  });
+
+  it("preserves Markdown-significant whitespace in captured delivery bodies", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "indented-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "    delivered as code\n",
+          "channel.effect.kind": "reply",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+
+    expect(delivery.get(".vh-invocation-delivery__body .vh-invocation-event__markdown").element.textContent)
+      .toBe("    delivered as code\n");
   });
 
   it("includes failure in a collapsed activity's accessible text", () => {
@@ -325,10 +582,22 @@ describe("Agent Invocation UI", () => {
       id: "completed-thread",
       observations: [
         { attributes: { "message.content": "Run it.", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" as const },
-        { attributes: { "tool.id": "shell", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" as const },
-        { attributes: { "tool.id": "shell", "tool.output": "passed", "tool.name": "shell" }, name: "agent.tool.finish", sequence: 3, timestamp, type: "run" as const },
-        { attributes: { "channel.effect.kind": "telegram.message.sent" }, name: "agent.channel.delivery", sequence: 4, timestamp, type: "run" as const },
-        { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 5, timestamp, type: "lifecycle" as const },
+        { attributes: { "channel.effect.intent": "started", "channel.effect.kind": "reaction" }, name: "agent.channel.delivery", sequence: 2, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "shell", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 3, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "shell", "tool.output": "passed", "tool.name": "shell" }, name: "agent.tool.finish", sequence: 4, timestamp, type: "run" as const },
+        {
+          attributes: {
+            "channel.delivery.provider": "telegram",
+            "channel.effect.content": "The Telegram reply body.",
+            "channel.effect.kind": "reply",
+          },
+          name: "agent.channel.delivery",
+          sequence: 5,
+          timestamp,
+          type: "run" as const,
+        },
+        { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 6, timestamp, type: "lifecycle" as const },
+        { attributes: { "tool.id": "verify", "tool.output": "clean", "tool.name": "verify" }, name: "agent.tool.finish", sequence: 7, timestamp, type: "run" as const },
       ],
       startedAt: timestamp,
       status: "cancelled" as const,
@@ -344,13 +613,38 @@ describe("Agent Invocation UI", () => {
     expect(rows.map(row => row.classes().find(name => name.startsWith("vh-invocation-") && name !== "vh-invocation-activities"))).toEqual([
       "vh-invocation-message",
       "vh-invocation-activity",
+      "vh-invocation-activity",
       "vh-invocation-work",
       "vh-invocation-message",
     ]);
     expect(rows[1]!.attributes("data-kind")).toBe("delivery");
-    expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 5s");
+    expect(rows[2]!.attributes("data-kind")).toBe("delivery");
+    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(1);
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
-    expect(rows[3]!.text()).toContain("Done.");
+    expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Verify");
+    expect(rows[4]!.text()).toContain("Done.");
+    expect(rows[2]!.get('[data-icon="message"]').attributes("data-icon")).toBe("message");
+    expect(rows[2]!.get(".vh-invocation-delivery__body").text()).toBe("The Telegram reply body.");
+  });
+
+  it("keeps adjacent completed lifecycle activities grouped", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "completed-groups",
+      observations: [
+        { attributes: { "message.content": "Run it.", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "vitehub.activity.group": "github-completion" }, name: "github.first", sequence: 2, timestamp, type: "run" as const },
+        { attributes: { "vitehub.activity.group": "github-completion" }, name: "github.second", sequence: 3, timestamp, type: "run" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.findAll(".vh-invocation-lifecycle")).toHaveLength(1);
+    expect(wrapper.findAll(".vh-invocation-lifecycle li")).toHaveLength(2);
   });
 
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {
@@ -410,6 +704,41 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[data-role="user"] .vh-visually-hidden').text()).toBe("User message");
     expect(wrapper.get('[data-role="assistant"] .vh-visually-hidden').text()).toBe("Assistant message");
     expect(wrapper.get('[data-role="tool"] .vh-visually-hidden').text()).toBe("Tool message");
+  });
+
+  it("keeps completed multi-turn conversations outside work summaries", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      completedAt: timestamp,
+      createdAt: timestamp,
+      id: "multi-turn-invocation",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "user-1", parts: [{ text: "First question", type: "text" }], role: "user" },
+            { id: "assistant-1", parts: [{ text: "First answer", type: "text" }], role: "assistant" },
+            { id: "user-2", parts: [{ text: "Follow-up question", type: "text" }], role: "user" },
+            { id: "assistant-2", parts: [{ text: "Final answer", type: "text" }], role: "assistant" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(0);
+    expect(wrapper.findAll(".vh-invocation-message").map(message => message.text())).toEqual([
+      expect.stringContaining("First question"),
+      expect.stringContaining("First answer"),
+      expect.stringContaining("Follow-up question"),
+      expect.stringContaining("Final answer"),
+    ]);
   });
 
   it("derives commands from direct provider payloads", () => {
@@ -531,7 +860,8 @@ describe("Agent Invocation UI", () => {
     const payloads = thread.findAll(".vh-invocation-event__payload");
     expect(payloads[0]!.get("summary code").text()).toContain("Private query omitted.");
     expect(payloads[0]!.find(".vh-invocation-payload__content").exists()).toBe(false);
-    (payloads[0]!.element as HTMLDetailsElement).open = true;
+    if (!(payloads[0]!.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    payloads[0]!.element.open = true;
     await payloads[0]!.trigger("toggle");
     expect(payloads[0]!.findAll(".vh-invocation-payload__key").map(item => item.text())).toContain("summary");
     await payloads[0]!.get('button[aria-pressed="false"]').trigger("click");
@@ -564,7 +894,9 @@ describe("Agent Invocation UI", () => {
     await nextTick();
     const selectedEvent = selected.get(`[data-activity-id="${rows[0]!.attributes("data-activity-id")}"]`);
     expect(selectedEvent.attributes("data-selected")).toBe("true");
-    expect((selectedEvent.element.closest("details") as HTMLDetailsElement).open).toBe(true);
+    const selectedDetails = selectedEvent.element.closest("details");
+    if (!(selectedDetails instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    expect(selectedDetails.open).toBe(true);
     await selected.setProps({ selectedActivityId: undefined });
     await selected.setProps({ selectedActivityId: rows[0]!.attributes("data-activity-id") });
     await nextTick();
@@ -583,7 +915,8 @@ describe("Agent Invocation UI", () => {
     });
     await nextTick();
     const focusedEvent = regrouped.get(`[data-activity-id="${regroupedActivityId}"]`).element;
-    const focus = vi.spyOn(focusedEvent as HTMLElement, "focus");
+    if (!(focusedEvent instanceof HTMLElement)) throw new TypeError("Expected an HTML element");
+    const focus = vi.spyOn(focusedEvent, "focus");
     await regrouped.setProps({ invocation: { ...regroupedInvocation, status: "running" } });
     await nextTick();
     expect(focus).not.toHaveBeenCalled();
@@ -622,7 +955,8 @@ describe("Agent Invocation UI", () => {
     const payload = wrapper.findAll(".vh-invocation-event__payload")[0]!;
 
     expect(payload.find(".vh-invocation-payload__tree").exists()).toBe(false);
-    (payload.element as HTMLDetailsElement).open = true;
+    if (!(payload.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    payload.element.open = true;
     await payload.trigger("toggle");
     expect(payload.findAll("li")).toHaveLength(500);
     expect(payload.text()).toContain("More fields hidden");
@@ -643,7 +977,8 @@ describe("Agent Invocation UI", () => {
       status: "running" as const,
     } } });
     const deepPayload = deepWrapper.get(".vh-invocation-event__payload");
-    (deepPayload.element as HTMLDetailsElement).open = true;
+    if (!(deepPayload.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    deepPayload.element.open = true;
     await deepPayload.trigger("toggle");
     await deepPayload.get('input[type="search"]').setValue("visible boundary");
     expect(deepPayload.text()).toContain("$.nested");
@@ -658,7 +993,8 @@ describe("Agent Invocation UI", () => {
       status: "running" as const,
     } } });
     const searchPayload = searchWrapper.get(".vh-invocation-event__payload");
-    (searchPayload.element as HTMLDetailsElement).open = true;
+    if (!(searchPayload.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    searchPayload.element.open = true;
     await searchPayload.trigger("toggle");
     await searchPayload.get('input[type="search"]').setValue("empty");
     expect(searchPayload.text()).toContain("$.empty");
@@ -1315,11 +1651,86 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
+  it("continues automatic pagination when the cursor advances without new sessions", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [{ id: "working", status: "running", title: "Working" }],
+        remainingStatuses: ["running", "pending", "completed"],
+        continuationKey: "page-2",
+      },
+    });
+    const viewport = wrapper.get("nav");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await viewport.trigger("scroll");
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({ loading: true });
+    await wrapper.setProps({ continuationKey: "page-4", loading: false });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+
+    await wrapper.setProps({ loading: true });
+    await wrapper.setProps({ continuationKey: "page-6", loading: false });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+  });
+
+  it("does not continue cursor pagination into collapsed terminal history", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        continuationKey: "page-2",
+        hasMore: true,
+        items: [{ id: "done", status: "completed", title: "Done" }],
+        remainingStatuses: ["completed"],
+        retryKey: 0,
+      },
+    });
+    const viewport = wrapper.get("nav");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ continuationKey: "page-3" });
+    expect(wrapper.emitted("endReached")).toBeUndefined();
+
+    await wrapper.setProps({ retryKey: 1 });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+  });
+
+  it("does not scroll into collapsed terminal history", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+        remainingStatuses: ["completed"],
+      },
+    });
+    const viewport = wrapper.get("nav");
+    Object.defineProperties(viewport.element, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 2_000 },
+      scrollTop: { configurable: true, writable: true, value: 1_600 },
+    });
+
+    await viewport.trigger("scroll");
+
+    expect(wrapper.emitted("endReached")).toBeUndefined();
+  });
+
   it("requests another page when the loaded sessions do not fill the viewport", async () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
         hasMore: false,
-        items: [{ id: "one", status: "completed", title: "One" }],
+        items: [{ id: "one", status: "running", title: "One" }],
       },
     });
     const viewport = wrapper.get("nav").element;
@@ -1332,6 +1743,227 @@ describe("Agent Invocation UI", () => {
     await wrapper.setProps({ hasMore: true });
 
     expect(wrapper.emitted("endReached")).toHaveLength(1);
+  });
+
+  it("does not drain more pages while terminal sessions are collapsed", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [{ id: "done", status: "completed", title: "Done" }],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 80 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    await wrapper.setProps({
+      items: [
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+      ],
+    });
+
+    expect(wrapper.emitted("endReached")).toBeUndefined();
+  });
+
+  it("continues through one hidden-only page without draining collapsed terminal pages", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+      ],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+        { id: "oldest", status: "completed", title: "Oldest" },
+      ],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "queued", status: "pending", title: "Queued" },
+        { id: "done", status: "completed", title: "Done" },
+        { id: "older", status: "completed", title: "Older" },
+        { id: "oldest", status: "completed", title: "Oldest" },
+      ],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+  });
+
+  it("continues across hidden pages while a visible lifecycle still has a cursor", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+        remainingStatuses: ["running", "completed"],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+    await wrapper.setProps({
+      items: [...wrapper.props("items"), { id: "older", status: "completed", title: "Older" }],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+    await wrapper.setProps({
+      items: [...wrapper.props("items"), { id: "oldest", status: "completed", title: "Oldest" }],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+
+    await wrapper.setProps({ remainingStatuses: ["completed"] });
+    await wrapper.setProps({
+      items: [...wrapper.props("items"), { id: "done-last", status: "completed", title: "Done last" }],
+    });
+    expect(wrapper.emitted("endReached")).toHaveLength(3);
+  });
+
+  it("rechecks pagination when visible membership changes at the same count", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [{ id: "first", status: "running", title: "First" }],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({
+      items: [
+        { id: "first", status: "completed", title: "First" },
+        { id: "second", status: "running", title: "Second" },
+      ],
+    });
+
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
+  it("rechecks pagination when visible sessions become terminal", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: false,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "transitioning", status: "running", title: "Transitioning" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+
+    await wrapper.setProps({ hasMore: true });
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+
+    await wrapper.setProps({
+      items: [
+        { id: "working", status: "running", title: "Working" },
+        { id: "transitioning", status: "completed", title: "Transitioning" },
+        { id: "done", status: "completed", title: "Done" },
+      ],
+    });
+
+    expect(wrapper.emitted("endReached")).toHaveLength(2);
+  });
+
+  it("checks pagination when a collapsed group is expanded", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [{ id: "done", status: "completed", title: "Done" }],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+    const done = wrapper.get('details[data-group="done"]');
+
+    if (!(done.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    done.element.open = true;
+    await done.trigger("toggle");
+
+    expect(wrapper.emitted("endReached")).toHaveLength(1);
+  });
+
+  it("does not paginate hidden terminal history when Queued is reopened", async () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [
+          { id: "queued", status: "pending", title: "Queued" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+        remainingStatuses: ["completed"],
+      },
+    });
+    const viewport = wrapper.get("nav").element;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 0 },
+    });
+    const queued = wrapper.get('details[data-group="queued"]');
+
+    if (!(queued.element instanceof HTMLDetailsElement)) throw new TypeError("Expected a details element");
+    queued.element.open = false;
+    await queued.trigger("toggle");
+    queued.element.open = true;
+    await queued.trigger("toggle");
+
+    expect(wrapper.emitted("endReached")).toBeUndefined();
   });
 
   it("formats token counts with a stable locale", () => {
@@ -1389,7 +2021,7 @@ describe("Agent Invocation UI", () => {
     });
 
     expect(wrapper.get("nav").attributes("aria-busy")).toBeUndefined();
-    expect(wrapper.get("ul").attributes("aria-busy")).toBe("true");
+    expect(wrapper.get(".vh-invocation-list__groups").attributes("aria-busy")).toBe("true");
     expect(wrapper.get('[role="status"]').text()).toBe("Loading sessions…");
     expect(wrapper.get('[role="status"]').element.closest('[aria-busy="true"]')).toBeNull();
     expect(wrapper.findAll("li")).toHaveLength(1);
@@ -1452,11 +2084,23 @@ describe("Agent Invocation UI", () => {
       observations: [
         {
           attributes: {
+            "step.id": "vitehub.workspace.materialization:[\"docs\",\"\"]",
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Materializing workspace",
+          },
+          name: "vitehub.workspace.materialization.start",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: {
+            "step.id": "vitehub.workspace.materialization:[\"docs\",\"\"]",
             "vitehub.activity.kind": "preparation",
             "vitehub.activity.title": "Workspace materialized",
           },
-          name: "vitehub.workspace.materialized",
-          sequence: 1,
+          name: "vitehub.workspace.materialization.completed",
+          sequence: 2,
           timestamp,
           type: "lifecycle" as const,
         },
@@ -1466,12 +2110,12 @@ describe("Agent Invocation UI", () => {
             "channel.effect.kind": "reaction",
           },
           name: "vitehub.channel.delivery",
-          sequence: 2,
+          sequence: 3,
           timestamp,
           type: "lifecycle" as const,
         },
       ],
-      status: "completed" as const,
+      status: "running" as const,
       traceId: "trace",
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
@@ -1479,6 +2123,7 @@ describe("Agent Invocation UI", () => {
     const activities = invocationActivities(invocation);
     expect(activities.map(activity => activity.kind)).toEqual(["preparation", "delivery"]);
     expect(activities.map(invocationActivityTitle)).toEqual(["Workspace materialized", "Reacted with eyes"]);
+    expect(activities[0]?.status).toBe("completed");
   });
 
   it("groups preparation, links the pull request, and emits inspector targets", async () => {
@@ -1511,7 +2156,7 @@ describe("Agent Invocation UI", () => {
             "vitehub.activity.title": "Workspace materialized",
             "vitehub.inspect.target": "workspace",
           },
-          name: "vitehub.workspace.materialized",
+          name: "vitehub.workspace.materialization.completed",
           sequence: 2,
           timestamp,
           type: "lifecycle" as const,
@@ -1639,7 +2284,7 @@ describe("Agent Invocation UI", () => {
 
     expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
       .toEqual(["First question", "First answer", "Unanswered question"]);
-    expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
+    expect(messages.at(-1)!.attributes("data-role")).toBe("user");
   });
 
   it("renders truncation after work when the latest user has no response", () => {

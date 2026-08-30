@@ -23,11 +23,15 @@ interface BrowserBuildConfig extends Record<string, unknown> {
 }
 
 async function runHook(hook: unknown, ...args: unknown[]): Promise<unknown> {
+  return await runHookWithContext(hook, undefined, ...args)
+}
+
+async function runHookWithContext(hook: unknown, context: unknown, ...args: unknown[]): Promise<unknown> {
   if (hook instanceof Function) {
-    return await Reflect.apply(hook, undefined, args)
+    return await Reflect.apply(hook, context, args)
   }
   if (hook instanceof Object && "handler" in hook && hook.handler instanceof Function) {
-    return await Reflect.apply(hook.handler, undefined, args)
+    return await Reflect.apply(hook.handler, context, args)
   }
   throw new TypeError("Expected a callable Vite hook")
 }
@@ -113,6 +117,7 @@ describe("hubBrowser", () => {
     expect(registry).toContain("server/browsers/code-image.ts")
     expect(runtime).toContain('"binding": "CODE_BROWSER"')
     expect(runtime).toContain('"engine": "kitesurf"')
+    expect(runtime).toContain("export const loadCloudflarePlaywright = undefined")
     expect(types).toContain("interface ViteHubBrowserDefinitionModules")
     expect(types).toContain('"code-image": typeof import(')
     expect(types).toContain("server/browsers/code-image.ts")
@@ -132,6 +137,19 @@ describe("hubBrowser", () => {
     await expect(readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")).resolves.toContain(
       "server/browsers/jsx-browser.jsx",
     )
+  })
+
+  it("generates a bundleable Playwright loader for configured Chromium runtimes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-chromium-runtime-"))
+    roots.push(root)
+    const plugin = hubBrowser({ engine: "chromium" })
+    const config = { nitro: {}, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+
+    const runtimeId = (plugin.resolveId as (id: string) => string)("#vitehub/browser/runtime")
+    const runtime = await (plugin.load as (id: string) => string | Promise<string>)(runtimeId)
+
+    expect(runtime).toContain('import("@cloudflare/playwright")')
   })
 
   it("discovers Browser Definitions from the project root when Vite runs from app", async () => {
@@ -456,6 +474,32 @@ describe("hubBrowser", () => {
     const outputFile = join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json")
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
       browser: { binding: "CURRENT_BROWSER", remote: true },
+    })
+  })
+
+  it("keeps a peer environment's output when another environment fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-environments-"))
+    roots.push(root)
+    const config: BrowserBuildConfig = {
+      build: { outDir: "dist" },
+      command: "build",
+      mode: "production",
+      nitro: {},
+      root,
+    }
+    const plugin = hubBrowser({ binding: "PEER_BROWSER" })
+    const failed = { environment: {} }
+    const peer = { environment: {} }
+    await runHook(plugin.configResolved, config)
+    await runHookWithContext(plugin.buildStart, failed)
+    await runHookWithContext(plugin.buildStart, peer)
+    await runHookWithContext(plugin.buildEnd, peer)
+    await runHookWithContext(plugin.buildEnd, failed, new Error("failed environment"))
+    await runHookWithContext(plugin.closeBundle, peer)
+
+    const outputFile = join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json")
+    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toMatchObject({
+      browser: { binding: "PEER_BROWSER" },
     })
   })
 

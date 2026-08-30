@@ -695,7 +695,8 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
   options.signal?.throwIfAborted()
-  const crons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
+  const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
+  const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
   options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
     await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
