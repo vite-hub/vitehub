@@ -107,7 +107,7 @@ export function createAgentInvocationController<
   id: string,
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
   result: Promise<TResult> | (() => Promise<TResult>),
-  startResult: Promise<unknown> = result as Promise<TResult>,
+  startResult?: Promise<unknown>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS, TResult> {
   const resolveSupport = () => hasRuntimeType(adapter.support, "function") ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
@@ -121,6 +121,7 @@ export function createAgentInvocationController<
       return resolveSupport()?.steer === true
     },
   })
+  // SAFETY: the result getter added below completes the declared controller contract.
   const controller = {
     cancel: adapter.cancel,
     id,
@@ -141,7 +142,8 @@ export function createAgentInvocationController<
       return cachedResult
     },
   })
-  Object.defineProperty(controller, agentInvocationStartResult, { value: startResult })
+  const privateStartResult = startResult ?? (hasRuntimeType(result, "function") ? Promise.resolve() : result)
+  Object.defineProperty(controller, agentInvocationStartResult, { value: privateStartResult })
   return Object.freeze(controller)
 }
 

@@ -115,9 +115,11 @@ describe("Agent Invocation controllers", () => {
       driver: {
         async run() {
           return {
+            answer: 42,
             fullStream: (async function* () {
               yield { delta: "nested", type: "text-delta" }
             })(),
+            requestId: "request-1",
           }
         },
       },
@@ -127,7 +129,7 @@ describe("Agent Invocation controllers", () => {
     const controller = await startAgentInvocation(agent, runtime(), {})
 
     const result = await controller.result
-    expect(result).toMatchObject({ text: "nested" })
+    expect(result).toMatchObject({ answer: 42, requestId: "request-1", text: "nested" })
     expect(result).not.toHaveProperty("fullStream")
     expect(() => structuredClone(result)).not.toThrow()
     await expect(controller.inspect()).resolves.toMatchObject({
@@ -181,9 +183,10 @@ describe("Agent Invocation controllers", () => {
     const result = await controller.result
 
     expect(result).toBeInstanceOf(Response)
-    expect((result as Response).status).toBe(202)
-    expect((result as Response).headers.get("x-result")).toBe("preserved")
-    await expect((result as Response).text()).resolves.toBe("settled response")
+    if (!(result instanceof Response)) throw new TypeError("Expected an inline Response result.")
+    expect(result.status).toBe(202)
+    expect(result.headers.get("x-result")).toBe("preserved")
+    await expect(result.text()).resolves.toBe("settled response")
   })
 
   it("propagates controller and parent cancellation without claiming synchronous termination", async () => {

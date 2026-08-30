@@ -1,5 +1,6 @@
 import { runWorkflowHandler } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -34,20 +35,21 @@ async function importOpenWorkflowModule(specifier: string, importer: OpenWorkflo
 }
 
 function readEnv(name: string): string | undefined {
+  // SAFETY: this optional structural view reads the standard process environment without requiring Node globals.
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
   const value = env?.[name]
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
+  return hasRuntimeType(value, "string") && value.trim() ? value.trim() : undefined
 }
 
 function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined): string | undefined {
-  if (typeof value === "string" || typeof value === "undefined") {
+  if (hasRuntimeType(value, "string") || hasRuntimeType(value, "undefined")) {
     return value
   }
   for (const name of getRuntimeEnvNames(value)) {
     const resolved = readEnv(name)
     if (resolved) return resolved
   }
-  return typeof value.default === "string" && value.default.trim() ? value.default.trim() : undefined
+  return hasRuntimeType(value.default, "string") && value.default.trim() ? value.default.trim() : undefined
 }
 
 function getRuntimeEnvNames(value: WorkflowRuntimeEnvDeclarationLike): string[] {
@@ -138,21 +140,24 @@ async function createOpenWorkflowRuntime(
   const { backend, client } = await runWorkflowProviderOperation("openworkflow", "connect", async () => {
     let backend: OpenWorkflowBackend
     if (options.backend === "sqlite") {
+      // SAFETY: the discriminated storage config selects the matching imported backend module.
       backend = await (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path, importer), {
         namespaceId: options.namespaceId,
-        ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
+        ...(hasRuntimeType(options.runMigrations, "boolean") ? { runMigrations: options.runMigrations } : {}),
       })
     }
     else {
+      // SAFETY: the discriminated storage config selects the matching imported backend module.
       backend = await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
         namespaceId: options.namespaceId,
-        ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
+        ...(hasRuntimeType(options.runMigrations, "boolean") ? { runMigrations: options.runMigrations } : {}),
         schema: options.schema,
       })
     }
     return { backend, client: new OpenWorkflow({ backend }) }
   })
 
+  // SAFETY: OpenWorkflow accepts the public Workflow retry-delay representation at this boundary.
   return {
     backend,
     client,
@@ -187,10 +192,12 @@ function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryP
     return undefined
   }
 
+  // SAFETY: OpenWorkflow accepts the public Workflow retry-delay representation at this boundary.
+  const initialInterval = retries.delay as RetryPolicy["initialInterval"] | undefined
   return {
     ...(retries.backoff ? { backoffCoefficient: retries.backoff === "exponential" ? 2 : 1 } : {}),
-    ...(retries.delay ? { initialInterval: retries.delay as RetryPolicy["initialInterval"] } : {}),
-    ...(typeof retries.limit === "number" ? { maximumAttempts: retries.limit } : {}),
+    ...(initialInterval ? { initialInterval } : {}),
+    ...(hasRuntimeType(retries.limit, "number") ? { maximumAttempts: retries.limit } : {}),
   }
 }
 
@@ -202,6 +209,7 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
         ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
       }, run)
     },
+    // SAFETY: ViteHub's normalized duration is accepted by the OpenWorkflow step sleep contract.
     sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
   }
 }
@@ -216,6 +224,8 @@ export async function registerOpenWorkflowDefinition(
     return existing
   }
 
+  // SAFETY: the registered Workflow definition is normalized before provider execution.
+  const normalizedDefinition = definition as never
   const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
     return await runWorkflowHandler({
       id: run.id,
@@ -223,7 +233,7 @@ export async function registerOpenWorkflowDefinition(
       payload: input,
       provider: "openworkflow",
       step: createOpenWorkflowProviderStep(step),
-    }, definition as never)
+    }, normalizedDefinition)
   })
   runtime.workflows.set(name, workflow)
   return workflow
@@ -277,7 +287,9 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   options: WorkflowDeferOptions,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
-  const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
+  // SAFETY: generic Workflow payload and result types do not change the normalized runtime definition.
+  const normalizedDefinition = definition as never
+  const workflow = await registerOpenWorkflowDefinition(runtime, name, normalizedDefinition)
   let firstAcknowledgementUnknown = false
   const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
     const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)

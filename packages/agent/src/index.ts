@@ -6636,10 +6636,10 @@ function createInlineAgentInvocationController<
         settledResponse = started.clone()
         await started.arrayBuffer()
       }
-      else if (started !== null && typeof started === "object" && hasTraceableStreamResult(started)) {
+      else if (started !== null && hasRuntimeType(started, "object") && hasTraceableStreamResult(started)) {
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
-      else if (started !== null && typeof started === "object" && isUIMessageStreamResult(started)) {
+      else if (started !== null && hasRuntimeType(started, "object") && isUIMessageStreamResult(started)) {
         let text = ""
         for await (const chunk of normalizeUiMessageStream(started.toUIMessageStream())) {
           text += uiMessageTextDelta(chunk) || ""
@@ -6650,12 +6650,15 @@ function createInlineAgentInvocationController<
       if (outcome.status === "completed") {
         if (materializedStreamResult) {
           const { raw: _raw, ...materialized } = materializedStreamResult
-          const completed = outcome.output !== null && typeof outcome.output === "object" && !(outcome.output instanceof Response)
-            ? toAgentRunResult(outcome.output)
+          const completed = isRuntimeRecord(outcome.output) && !(outcome.output instanceof Response)
+            ? outcome.output
             : undefined
-          const { raw: _completedRaw, ...completedPublicResult } = completed ?? {}
+          const completedPublicResult = completed ? { ...completed } : {}
+          for (const property of ["fullStream", "raw", "stream", "textStream", "toUIMessageStream"])
+            Reflect.deleteProperty(completedPublicResult, property)
           return { ...completedPublicResult, ...materialized }
         }
+        // SAFETY: the completed lifecycle output uses the controller's declared public result union.
         return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult
       }
       throw outcome.error
