@@ -16,11 +16,13 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
-    const page = await driver.getInstance().list({ cursor, limit, prefix: prefix || undefined })
-    return {
-      keys: page.keys.map((key: { name: string }) => key.name),
-      ...(page.list_complete ? {} : { cursor: page.cursor }),
-    }
+    const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
+    if (cursor) listOptions.cursor = cursor
+    if (prefix) listOptions.prefix = prefix
+    const page = await driver.getInstance().list(listOptions)
+    const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
+    if (!page.list_complete) result.cursor = page.cursor
+    return result
   }
   return driver
 }

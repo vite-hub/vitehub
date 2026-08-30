@@ -135,12 +135,12 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
   const limit = limitParameter(url.searchParams.get("limit"))
   const cursor = url.searchParams.get("cursor") || undefined
   const page = unwrap(await selected.storage.list({ cursor, limit, prefix }))
-  return {
-    ...(page.cursor ? { cursor: page.cursor } : {}),
+  const response = {
     keys: page.keys,
     limit,
     prefix,
     store: selected.name,
     stores: inspection.stores,
   }
+  return page.cursor ? { ...response, cursor: page.cursor } : response
 }

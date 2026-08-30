@@ -45,7 +45,9 @@ function memoryKV(stores: Record<string, Map<string, unknown>>): { storage: KVSt
         const start = cursor ? Number(cursor) : 0
         const keys = matching.slice(start, start + limit)
         const next = start + keys.length
-        return success({ keys, ...(next < matching.length ? { cursor: String(next) } : {}) })
+        const page: { cursor?: string; keys: string[] } = { keys }
+        if (next < matching.length) page.cursor = String(next)
+        return success(page)
       },
       set: async () => { writes("set"); return success(undefined) },
       store: storage,

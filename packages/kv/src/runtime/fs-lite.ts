@@ -7,6 +7,7 @@ import type { KVListOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
+  // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions) => {
     const root = resolve(options.base)
@@ -21,9 +22,10 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
         if (directory === root && error instanceof Error && "code" in error && error.code === "ENOENT") return
         throw error
       }
-      entries.sort((left, right) => left.name.localeCompare(right.name))
+      entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
       for (const entry of entries) {
-        const comparison = after.length ? entry.name.localeCompare(after[0]!) : 1
+        const afterName = after[0]
+        const comparison = afterName === undefined ? 1 : entry.name < afterName ? -1 : entry.name > afterName ? 1 : 0
         if (comparison < 0) continue
         const path = join(directory, entry.name)
         if (entry.isDirectory()) {
