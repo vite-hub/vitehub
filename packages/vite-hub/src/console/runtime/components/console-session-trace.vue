@@ -100,7 +100,14 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   const observations = [...invocation.observations].sort(
     (left, right) => left.sequence - right.sequence,
   );
-  const starts = observations.filter((observation) => observation.name.endsWith(".start"));
+  const seenStarts = new Set<string>();
+  const starts = observations.filter((observation) => {
+    if (!observation.name.endsWith(".start")) return false;
+    const identity = `${observation.name}:${eventId(observation)}`;
+    if (seenStarts.has(identity)) return false;
+    seenStarts.add(identity);
+    return true;
+  });
   const result = starts.map((start) => pairedSpan(start, observations, invocation));
   const representedSequences = new Set(
     result.flatMap((span) => span.eventNames.map((name) => `${span.id}:${name}`)),
@@ -150,12 +157,17 @@ function pairedSpan(
   const terminalNames = ["finish", "error", "abort", "cancel"].map((suffix) =>
     start.name.replace(/\.start$/, `.${suffix}`),
   );
-  const finish = observations.find(
+  const terminals = observations.filter(
     (observation) =>
       observation.sequence > start.sequence &&
       terminalNames.includes(observation.name) &&
       eventId(observation) === id,
   );
+  const finish =
+    start.name === "agent.invocation.start" && invocation.status === "completed"
+      ? terminals.findLast((observation) => observation.name === "agent.invocation.finish") ??
+        terminals[0]
+      : terminals[0];
   const attributes = { ...start.attributes, ...finish?.attributes };
   const startMs = timestamp(start.timestamp);
   const endMs = finish ? timestamp(finish.timestamp) : timestamp(invocation.updatedAt);
@@ -223,6 +235,7 @@ function eventId(observation: Observation) {
     stringAttribute(observation, "step.id") ||
     stringAttribute(observation, "tool.id") ||
     stringAttribute(observation, "gen_ai.tool.call.id") ||
+    stringAttribute(observation, "model.call.id") ||
     stringAttribute(observation, "agent.invocation.id") ||
     `${observation.name}:${observation.sequence}`
   );

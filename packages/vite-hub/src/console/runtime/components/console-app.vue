@@ -230,6 +230,7 @@ function isHealth(value: unknown): boolean {
   return (
     (health?.status === "healthy" || health?.status === "degraded") &&
     typeof health.checkedAt === "string" &&
+    Number.isFinite(Date.parse(health.checkedAt)) &&
     typeof health.summary === "string" &&
     Array.isArray(health.diagnostics) &&
     workload !== undefined &&
@@ -395,6 +396,7 @@ watch(
       selectedInvocationId.value = undefined;
       return;
     }
+    if (requestedInvocation || requestedAgent) showSessions();
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
       requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
@@ -799,7 +801,7 @@ onBeforeUnmount(() => {
               v-if="isDesktop && detailsOpen && detailsMaximized"
               :invocation="invocationView"
               :maximized="true"
-              :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
+              :workspace-base="`${hostBase}/api/invocations`"
               v-model:tab="inspectorTab"
               v-model:active-surface="inspectorActiveSurface"
               v-model:open-views="inspectorOpenViews"
@@ -828,7 +830,7 @@ onBeforeUnmount(() => {
               <template #details>
                 <ConsoleSessionInspector
                   :invocation="invocationView"
-                  :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
+                  :workspace-base="`${hostBase}/api/invocations`"
                   v-model:tab="inspectorTab"
                   v-model:active-surface="inspectorActiveSurface"
                   v-model:open-views="inspectorOpenViews"
@@ -864,7 +866,7 @@ onBeforeUnmount(() => {
                 <ConsoleSessionInspector
                   :invocation="invocationView"
                   :maximizable="false"
-                  :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
+                  :workspace-base="`${hostBase}/api/invocations`"
                   v-model:tab="inspectorTab"
                   v-model:active-surface="inspectorActiveSurface"
                   v-model:open-views="inspectorOpenViews"

@@ -110,6 +110,7 @@ function isHealth(value: unknown): value is Health {
   return (
     (value.status === "healthy" || value.status === "degraded") &&
     typeof value.checkedAt === "string" &&
+    Number.isFinite(Date.parse(value.checkedAt)) &&
     typeof value.summary === "string" &&
     Array.isArray(value.diagnostics) &&
     value.diagnostics.every(

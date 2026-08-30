@@ -118,7 +118,7 @@ const treeOptions = computed(() => ({
 }));
 
 watch(
-  () => props.invocation.id,
+  [() => props.invocation.id, () => props.workspaceBase],
   () => {
     workspaceRequest?.abort();
     fileRequest?.abort();
@@ -128,8 +128,9 @@ watch(
     openPaths.value = [];
     file.value = undefined;
     fileError.value = undefined;
-    if (tab.value === "workspace") void loadWorkspace();
+    void loadWorkspace();
   },
+  { immediate: true },
 );
 
 watch(
@@ -438,12 +439,13 @@ function message(error: unknown) {
       v-else-if="tab === 'details'"
       :invocation="invocation"
       class="session-inspector__details"
+      @select-activity="emit('focusActivity', $event)"
     >
       <template v-if="!invocation.configuration?.instructions?.length" #metadata>
         <section class="session-inspector__instruction-fallback">
           <h4>System instructions</h4>
           <p>Resolved instructions were not recorded for this invocation.</p>
-          <button v-if="workspaceBase" type="button" @click="openWorkspaceInstructions">
+          <button v-if="workspace" type="button" @click="openWorkspaceInstructions">
             <UIcon name="i-lucide-file-text" />Open AGENTS.md in Workspace<UIcon
               name="i-lucide-arrow-right"
             />
