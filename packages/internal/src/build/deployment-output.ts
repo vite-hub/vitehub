@@ -334,28 +334,30 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   let hadPreviousOutput = false
   let hadPreviousStaticOutput = false
   let publicationSucceeded = false
+  let publicationStarted = false
   let outputRestorationSucceeded = false
   let staticRestorationSucceeded = false
   try {
-    await cp(outputRoot, previousOutputRoot, { recursive: true })
-    hadPreviousOutput = true
-  }
-  catch (error) {
-    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-  }
-  if (copiesStaticOutput) {
     try {
-      await cp(staticOutputDir, previousStaticOutputDir, { recursive: true })
-      hadPreviousStaticOutput = true
+      await cp(outputRoot, previousOutputRoot, { recursive: true })
+      hadPreviousOutput = true
     }
     catch (error) {
       // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
-  }
+    if (copiesStaticOutput) {
+      try {
+        await cp(staticOutputDir, previousStaticOutputDir, { recursive: true })
+        hadPreviousStaticOutput = true
+      }
+      catch (error) {
+        // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      }
+    }
 
-  try {
+    publicationStarted = true
     await mkdir(outputRoot, { recursive: true })
     const wranglerConfigOwnership = await resolvePersistedProviderOutputOwnership(
       outputRoot,
@@ -400,16 +402,18 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     publicationSucceeded = true
   }
   catch (error) {
-    await rm(outputRoot, { force: true, recursive: true })
-    if (hadPreviousOutput) {
-      await cp(previousOutputRoot, outputRoot, { recursive: true })
-      outputRestorationSucceeded = true
-    }
-    if (copiesStaticOutput) {
-      await rm(staticOutputDir, { force: true, recursive: true })
-      if (hadPreviousStaticOutput) {
-        await cp(previousStaticOutputDir, staticOutputDir, { recursive: true })
-        staticRestorationSucceeded = true
+    if (publicationStarted) {
+      await rm(outputRoot, { force: true, recursive: true })
+      if (hadPreviousOutput) {
+        await cp(previousOutputRoot, outputRoot, { recursive: true })
+        outputRestorationSucceeded = true
+      }
+      if (copiesStaticOutput) {
+        await rm(staticOutputDir, { force: true, recursive: true })
+        if (hadPreviousStaticOutput) {
+          await cp(previousStaticOutputDir, staticOutputDir, { recursive: true })
+          staticRestorationSucceeded = true
+        }
       }
     }
     throw error

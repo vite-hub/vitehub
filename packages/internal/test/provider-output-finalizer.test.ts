@@ -1,9 +1,11 @@
+import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -25,6 +27,7 @@ type BundledProviderOutput = Pick<typeof import("../src/build/deployment-output.
 >
 
 const tempDirs: string[] = []
+const execFileAsync = promisify(execFile)
 
 async function createTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-output-finalizer-"))
@@ -433,6 +436,33 @@ describe("Provider Output finalizer", () => {
 
     await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
     await expect(readFile(join(outputRoot, ownershipFile), "utf8")).resolves.toBe("not-json\n")
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it.runIf(process.platform !== "win32")("removes a partial Cloudflare backup when backup creation fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const unsupportedEntry = join(outputRoot, "unsupported-pipe")
+    await mkdir(outputRoot, { recursive: true })
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
+      execFileAsync("mkfifo", [unsupportedEntry]),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: { wranglerConfig: { name: "replacement" } },
+        rootDir,
+      }),
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow()
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
+    expect(existsSync(unsupportedEntry)).toBe(true)
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
   })
 
