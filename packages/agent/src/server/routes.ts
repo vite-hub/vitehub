@@ -4090,11 +4090,12 @@ async function chatTriggerMessages(
   const fetchedBeforeCurrent: ChatSdkMessage[] = []
   let foundCurrent = false
   let scanned = 0
+  const scanLimit = Math.max(MAX_CHAT_TRIGGER_HISTORY_SCAN, limit)
   try {
     const idLessCandidates: ChatSdkMessage[] = []
     let exactIdLessCurrentIndex = -1
     for await (const item of thread.messages) {
-      if (++scanned > MAX_CHAT_TRIGGER_HISTORY_SCAN) break
+      if (++scanned > scanLimit) break
       if (!message.id) {
         idLessCandidates.push(item)
         if (exactIdLessCurrentIndex < 0 && isExactChatSdkDelivery(item, message)) {
@@ -4160,15 +4161,11 @@ async function chatTriggerMessages(
         continue
       }
       const futureRawKey = chatRawDeliveryKey(future)
-      const rawMatches = futureRawKey === undefined
-        ? []
-        : durable.flatMap((item, index) => (chatRawDeliveryKey(item) === futureRawKey ? [index] : []))
-      if (rawMatches.length === 1) {
-        futureDurableIndices.add(rawMatches[0]!)
-        continue
-      }
       const structuralMatches = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, future) ? [index] : []))
-      if (structuralMatches.length === 1) futureDurableIndices.add(structuralMatches[0]!)
+      const rawAndStructuralMatches = futureRawKey === undefined
+        ? structuralMatches
+        : structuralMatches.filter((index) => chatRawDeliveryKey(durable[index]!) === futureRawKey)
+      if (rawAndStructuralMatches.length === 1) futureDurableIndices.add(rawAndStructuralMatches[0]!)
     }
     durable = durable
       .slice(0, durableCurrentIndexBeforeBoundary + 1)

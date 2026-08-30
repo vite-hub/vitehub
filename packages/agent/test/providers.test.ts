@@ -17473,16 +17473,16 @@ describe("server helpers", () => {
       onInitialize: (chat) => {
         if (++initializedChats !== 2) return
         // SAFETY: This fixture intercepts Chat SDK's internal webhook thread factory to model an adapter restart.
-        const chatBoundary = chat as unknown as {
+        const chatBoundary = chat as {
           createThread(adapter: Adapter, threadId: string, initialMessage: Message, isSubscribedContext?: boolean): object
         }
         const createThread = chatBoundary.createThread.bind(chatBoundary)
         vi.spyOn(chatBoundary, "createThread").mockImplementation((...arguments_) => {
           const thread = createThread(...arguments_)
+          // SAFETY: createThread returns Chat SDK's internal ThreadImpl, which owns this history cache.
           const history = Reflect.get(thread, "_threadHistory") as { getMessages(threadId: string, limit?: number): Promise<Message[]> }
           vi.spyOn(history, "getMessages").mockResolvedValue([
             idLessMessage("same-time previous", "2026-06-10T12:00:20.000Z"),
-            idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
             message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
             message("20", "current", "2026-06-10T12:00:20.000Z"),
           ])
