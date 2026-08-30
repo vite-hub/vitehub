@@ -29,6 +29,8 @@ import ConsoleBackButton from "./console-back-button.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleUsage from "./console-usage.vue";
+import ConsoleUsageSummary from "./console-usage-summary.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -37,6 +39,7 @@ const props = defineProps<{
   apiBase: string;
   searchBase: string;
   sectionsBase: string;
+  usageBase: string;
 }>();
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
@@ -108,6 +111,7 @@ const routeInvocation = computed(() => {
 const routeAgent = computed(() => {
   return decodeAgentRouteParam(route.params.agent);
 });
+const isUsageRoute = computed(() => route.name === resolveConsoleRouteName(route.name, "vitehub-console-usage"));
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
@@ -146,6 +150,7 @@ const selectedProject = computed(() =>
 const selectedExternalUrl = computed(() =>
   selectedDisplay.value ? agentInvocationExternalUrl(selectedDisplay.value) : undefined,
 );
+const invocationUsage = computed(() => record(invocationView.value)?.usage);
 const splitterItems: SplitterItem[] = [
   {
     id: "thread",
@@ -229,6 +234,20 @@ async function selectAgent(name: string): Promise<void> {
   });
 }
 
+async function toggleUsage(): Promise<void> {
+  sessionsOpen.value = false;
+  if (isUsageRoute.value) {
+    await router.push(selectedAgentName.value
+      ? {
+          name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+          params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+        }
+      : { name: resolveConsoleRouteName(route.name, "vitehub-console-agents") });
+    return;
+  }
+  await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-usage") });
+}
+
 async function loadAgents(): Promise<void> {
   agentsRequest?.abort();
   const controller = new AbortController();
@@ -301,8 +320,12 @@ function updatePageVisibility(): void {
 }
 
 watch(
-  [routeInvocation, routeAgent, () => list.invocations.value[0]?.id, selectedAgentName],
-  async ([requestedInvocation, requestedAgent, firstInvocation, agentName]) => {
+  [routeInvocation, routeAgent, () => list.invocations.value[0]?.id, selectedAgentName, isUsageRoute],
+  async ([requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute]) => {
+    if (usageRoute) {
+      selectedInvocationId.value = undefined;
+      return;
+    }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
       requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
@@ -317,8 +340,9 @@ watch(
 );
 
 watch(
-  [routeAgent, agentNames],
-  async ([requestedAgent, names]) => {
+  [routeAgent, agentNames, isUsageRoute],
+  async ([requestedAgent, names, usageRoute]) => {
+    if (usageRoute) return;
     if (!names.length) return;
     const agentName = requestedAgent && names.includes(requestedAgent) ? requestedAgent : names[0];
     selectedAgentName.value = agentName;
@@ -332,8 +356,9 @@ watch(
   { immediate: true },
 );
 
-watch([selectedAgentName, () => detail.invocation.value], async ([agentName, invocation]) => {
+watch([selectedAgentName, () => detail.invocation.value, isUsageRoute], async ([agentName, invocation, usageRoute]) => {
   if (
+    usageRoute ||
     !agentName ||
     !invocation ||
     invocation.id !== selectedInvocationId.value ||
@@ -351,8 +376,11 @@ watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
 });
 
+watch(isUsageRoute, (usageRoute) => {
+  rememberConsoleSection(usageRoute ? "usage" : "agents");
+}, { immediate: true });
+
 onMounted(() => {
-  rememberConsoleSection("agents");
   media = window.matchMedia("(min-width: 1280px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
@@ -528,17 +556,32 @@ onBeforeUnmount(() => {
       </template>
 
       <template #footer="{ collapsed, collapse }">
-        <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
-          <UButton
-            class="max-lg:hidden"
-            :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
-            color="neutral"
-            variant="ghost"
-            size="xs"
-            :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'"
-            @click="collapse(!collapsed)"
-          />
-        </UTooltip>
+        <div class="flex min-w-0 items-center gap-1" :class="collapsed ? 'justify-center' : ''">
+          <UTooltip :text="isUsageRoute ? 'Back to sessions' : 'Usage'">
+            <UButton
+              :block="!collapsed"
+              :class="collapsed ? '' : 'min-w-0 flex-1 justify-start'"
+              :icon="isUsageRoute ? 'i-lucide-arrow-left' : 'i-lucide-chart-no-axes-column'"
+              :label="collapsed ? undefined : isUsageRoute ? 'Sessions' : 'Usage'"
+              color="neutral"
+              :variant="isUsageRoute ? 'soft' : 'ghost'"
+              size="xs"
+              :aria-label="isUsageRoute ? 'Back to sessions' : 'Usage'"
+              @click="toggleUsage"
+            />
+          </UTooltip>
+          <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
+            <UButton
+              class="max-lg:hidden"
+              :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'"
+              @click="collapse(!collapsed)"
+            />
+          </UTooltip>
+        </div>
       </template>
     </UDashboardSidebar>
 
@@ -549,7 +592,13 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <ConsoleUsage
+      v-if="isUsageRoute"
+      :base="usageBase"
+      @open-sessions="sessionsOpen = true"
+    />
+
+    <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <template #header>
         <UDashboardNavbar
           :title="selectedTitle"
@@ -672,6 +721,9 @@ onBeforeUnmount(() => {
                   class="h-full"
                   @select-activity="selectActivity"
                 >
+                  <template v-if="invocationUsage" #metadata>
+                    <ConsoleUsageSummary :usage="invocationUsage" />
+                  </template>
                   <template #actions>
                     <UButton
                       icon="i-lucide-panel-right-close"
@@ -710,6 +762,9 @@ onBeforeUnmount(() => {
                   class="h-full"
                   @select-activity="selectActivity"
                 >
+                  <template v-if="invocationUsage" #metadata>
+                    <ConsoleUsageSummary :usage="invocationUsage" />
+                  </template>
                   <template #actions>
                     <UButton
                       icon="i-lucide-x"
