@@ -238,14 +238,26 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
-  it("keeps fallback installation-token budgets isolated", async () => {
+  it("shares fallback installation-token budgets across rotation", async () => {
     await installFakeGitHubCommands()
     vi.stubGlobal("fetch", vi.fn(async () => new Response(undefined, { status: 403 })))
     let token = "first-installation-token"
-    const host = createGitHubHost({ credentials: () => ({ token }), reserve: 10 })
+    const host = createGitHubHost({ credentials: () => ({ rateLimitKey: "installation:123", token }), reserve: 10 })
 
     await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
     token = "second-installation-token"
+    await expect(host.ensureGraphQLBudget("contributor/fork", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
+  it("keeps distinct fallback installation-token budgets isolated", async () => {
+    await installFakeGitHubCommands()
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(undefined, { status: 403 })))
+    let credentials = { rateLimitKey: "installation:123", token: "first-installation-token" }
+    const host = createGitHubHost({ credentials: () => credentials, reserve: 10 })
+
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    credentials = { rateLimitKey: "installation:456", token: "second-installation-token" }
     await expect(host.ensureGraphQLBudget("contributor/fork", { cost: 60 }))
       .resolves.toMatchObject({ remaining: 40 })
   })
@@ -300,6 +312,19 @@ describe("GitHub host", () => {
     reservation.settle(30)
     await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 11 }))
       .resolves.toMatchObject({ remaining: 49 })
+  })
+
+  it("does not double-count a query settled after a budget refresh", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 5, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "60"
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await host.ensureGraphQLBudget("vite-hub/another", { cost: 1 })
+    reservation.settle(40)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 9 }))
+      .resolves.toMatchObject({ remaining: 50 })
   })
 
   it("settles underestimated GraphQL reservations with their actual cost", async () => {
@@ -487,6 +512,26 @@ describe("GitHub host", () => {
     expect(host.isRateLimitError(failure)).toBe(true)
   })
 
+  it("records secondary rate limits without a repository label", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+
+    await expect(host.command(["api", "user"])).rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    process.env.VITEHUB_TEST_RATE_LIMIT = ""
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
+  it("classifies GraphQL commands with flags before the endpoint", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT = "API rate limit exceeded."
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+
+    await expect(host.command(["api", "--method", "POST", "graphql"], { repository: "vite-hub/vitehub" }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
   it("keeps REST primary failures out of the GraphQL budget", async () => {
     await installFakeGitHubCommands()
     process.env.VITEHUB_TEST_RATE_LIMIT = "API rate limit exceeded."
@@ -655,10 +700,13 @@ describe("GitHub host", () => {
     }, async ({ signal }) => await new Promise((_resolve, reject) => {
       callbackStarted?.()
       signal.addEventListener("abort", () => reject(signal.reason), { once: true })
-    }), control === "abort" ? { signal: controller.signal } : { timeout: 20 })
+    }), { signal: controller.signal })
+    await started
     if (control === "abort") {
-      await started
       controller.abort(new Error("callback cancelled"))
+    }
+    else {
+      controller.abort(new DOMException("The operation timed out.", "TimeoutError"))
     }
     await expect(checkout).rejects.toThrow(
       control === "abort" ? "callback cancelled" : "timed out",

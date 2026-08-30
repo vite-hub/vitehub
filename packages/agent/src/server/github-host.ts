@@ -20,6 +20,7 @@ export interface GitHubHostCredentials {
   installationId?: number | string
   owner?: string
   privateKey?: GitHubHostSecret
+  rateLimitKey?: string
   token?: GitHubHostSecret
 }
 
@@ -142,7 +143,18 @@ function secondaryRateLimitMessage(error: unknown): boolean {
 }
 
 function isGraphQLCommand(args: string[]): boolean {
-  return args[0] === "api" && args[1] === "graphql"
+  if (args[0] !== "api") return false
+  const optionsWithValues = new Set(["--field", "--header", "--hostname", "--input", "--method", "--raw-field", "-F", "-H", "-X", "-f"])
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (optionsWithValues.has(argument)) {
+      index += 1
+      continue
+    }
+    if (argument.startsWith("-")) continue
+    return argument === "graphql"
+  }
+  return false
 }
 
 function abortError(reason?: unknown): Error {
@@ -204,6 +216,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
+  const limitVersions = new Map<string, number>()
   const reservations = new Map<string, { points: number, resetAt: number }>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
   const fallbackIdentities = new Map<string, string>()
@@ -237,7 +250,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     return token
   }
 
-  async function fallbackRateLimitKey(token: string, input: GitHubHostCheckoutOptions): Promise<string> {
+  async function fallbackRateLimitKey(token: string, configuredKey: string | undefined, input: GitHubHostCheckoutOptions): Promise<string> {
     const tokenKey = createHash("sha256").update(token).digest("base64url")
     const cached = fallbackIdentities.get(tokenKey)
     if (cached) return cached
@@ -250,7 +263,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       signal: input.signal,
     })
     if (response.status === 403) {
-      const key = `token:${tokenKey}`
+      const stableKey = configuredKey?.trim()
+      if (!stableKey) {
+        throw new Error("GitHub credentials that cannot identify their user must provide rateLimitKey.")
+      }
+      const key = `credential:${stableKey}`
       fallbackIdentities.set(tokenKey, key)
       return key
     }
@@ -281,7 +298,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       if (!appOwner) throw new Error("GitHub App owner must be configured with App credentials.")
       if (input.fallback || (repositoryOwner && repositoryOwner !== appOwner)) {
         token = await fallbackToken(config, input)
-        rateLimitKey = await fallbackRateLimitKey(token, input)
+        rateLimitKey = await fallbackRateLimitKey(token, config.rateLimitKey, input)
       }
       else {
         const numericAppId = positiveInteger(appId, "GitHub App appId")
@@ -314,7 +331,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
     else {
       token = await fallbackToken(config, input)
-      rateLimitKey = await fallbackRateLimitKey(token, input)
+      rateLimitKey = await fallbackRateLimitKey(token, config.rateLimitKey, input)
     }
 
     const env: Record<string, string> = {
@@ -367,11 +384,12 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       return await exec("gh", args, execOptions)
     }
     catch (error) {
-      if (auth && input.repository && rateLimitMessage(error)
+      if (auth && rateLimitMessage(error)
         && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
         const limit = { checkedAt: Date.now(), remaining: 0, resetAt: Date.now() + GITHUB_RATE_LIMIT_FALLBACK_MS }
+        limitVersions.set(auth.rateLimitKey, (limitVersions.get(auth.rateLimitKey) ?? 0) + 1)
         limits.set(auth.rateLimitKey, limit)
-        throw new GitHubRateLimitError(input.repository, limit, error)
+        throw new GitHubRateLimitError(input.repository ?? "this credential", limit, error)
       }
       throw error
     }
@@ -396,6 +414,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           throw new GitHubRateLimitError(repository, available)
         }
         const reserved = { ...available, remaining: available.remaining - options.cost }
+        const limitVersion = limitVersions.get(key) ?? 0
         const outstanding = reservations.get(key)
         reservations.set(key, {
           points: (outstanding?.resetAt === available.resetAt ? outstanding.points : 0) + options.cost,
@@ -403,7 +422,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         })
         limits.set(key, reserved)
         let settled = false
-        const settle = (actualCost: number) => {
+        const settle = (actualCost: number, released: boolean = false) => {
           if (!Number.isSafeInteger(actualCost) || actualCost < 0) {
             throw new TypeError("GitHub GraphQL actual cost must be a non-negative integer.")
           }
@@ -418,13 +437,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           })
           const current = limits.get(key)
           if (current?.resetAt === reserved.resetAt) {
-            limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
+            const refreshIncludesSettledQuery = !released && (limitVersions.get(key) ?? 0) !== limitVersion
+            if (!refreshIncludesSettledQuery) {
+              limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
+            }
           }
         }
         return {
           ...reserved,
           release() {
-            settle(0)
+            settle(0, true)
           },
           settle,
         }
@@ -445,21 +467,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
           const previousReservation = reservations.get(key)
           const outstanding = previousReservation?.resetAt === limit.resetAt ? previousReservation.points : 0
-          const observed = { ...limit, remaining: limit.remaining - outstanding }
           const current = limits.get(key)
           const reconciled = current !== limitBeforeCheck
             && current !== undefined
             && current.resetAt > Date.now()
-            && current.remaining <= observed.remaining
+            && current.remaining <= limit.remaining
             ? current
-            : observed
+            : limit
           reservations.set(key, { points: outstanding, resetAt: limit.resetAt })
+          limitVersions.set(key, (limitVersions.get(key) ?? 0) + 1)
           limits.set(key, reconciled)
           return reconciled
         }
         catch (error) {
           if (rateLimitMessage(error)) {
             const limit = { checkedAt: Date.now(), remaining: 0, resetAt: Date.now() + GITHUB_RATE_LIMIT_FALLBACK_MS }
+            limitVersions.set(key, (limitVersions.get(key) ?? 0) + 1)
             limits.set(key, limit)
             throw new GitHubRateLimitError(repository, limit, error)
           }
