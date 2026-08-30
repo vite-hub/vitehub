@@ -491,7 +491,7 @@ async function packageModuleDiagnostics(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    typeRoots: packageTypeRoots(runnerDir),
+    typeRoots: await packageTypeRoots(runnerDir, packageName, declaredTypes),
     types: [...new Set([
       ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
@@ -501,11 +501,14 @@ async function packageModuleDiagnostics(
   return declarationDiagnostics(program, packageName)
 }
 
-function packageTypeRoots(runnerDir: string) {
-  return [
+async function packageTypeRoots(runnerDir: string, packageName: string, declaredTypes: readonly string[] = []) {
+  const packageManifestPath = await realpath(join(runnerDir, "node_modules", ...packageName.split("/"), "package.json"))
+  const requireFromPackage = createRequire(packageManifestPath)
+  return [...new Set([
     join(runnerDir, "node_modules/@types"),
     resolve(runnerDir, "../../node_modules/@types"),
-  ]
+    ...declaredTypes.map(dependency => dirname(dirname(requireFromPackage.resolve(`${dependency}/package.json`)))),
+  ])]
 }
 
 function declarationDiagnostics(program: ts.Program, packageName?: string) {
@@ -558,14 +561,45 @@ describe("published declaration diagnostics", () => {
     })).toBe(false)
   })
 
-  it("keeps declared type dependencies visible to the package compiler", () => {
+  it("keeps declared type dependencies visible from a packed pnpm package", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-packed-types-"))
+    const packageRoot = join(root, "node_modules/.pnpm/@vite-hub+queue@0.0.1/node_modules/@vite-hub/queue")
+    const packageLink = join(root, "node_modules/@vite-hub/queue")
+    const nodeTypesDir = join(root, "node_modules/@types/node")
+    const typesDir = join(root, "node_modules/.pnpm/@vite-hub+queue@0.0.1/node_modules/@types/ws")
     const dependencies = packageTypeDependencies({
       dependencies: { "@types/ws": "^8.18.1", ws: "^8.21.0" },
     })
     expect(dependencies).toEqual(["@types/ws"])
-    expect(packageTypeRoots("/consumer/queue")[0]).toBe(
-      "/consumer/queue/node_modules/@types",
-    )
+
+    try {
+      await Promise.all([
+        mkdir(join(packageRoot, "dist"), { recursive: true }),
+        mkdir(dirname(packageLink), { recursive: true }),
+        mkdir(nodeTypesDir, { recursive: true }),
+        mkdir(typesDir, { recursive: true }),
+      ])
+      await Promise.all([
+        writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "@vite-hub/queue", types: "dist/index.d.ts" })),
+        writeFile(join(packageRoot, "dist/index.d.ts"), '/// <reference types="ws" />\nexport type { WebSocket as Socket } from "ws"\n'),
+        writeFile(join(nodeTypesDir, "package.json"), JSON.stringify({ name: "@types/node", types: "index.d.ts" })),
+        writeFile(join(nodeTypesDir, "index.d.ts"), "export {}\n"),
+        writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/ws", types: "index.d.ts" })),
+        writeFile(join(typesDir, "index.d.ts"), 'declare module "ws" { export type WebSocket = MissingReadyState }\n'),
+        symlink(packageRoot, packageLink, "dir"),
+      ])
+
+      const contract = publicPackageExportContracts.find(item => item.specifier === "@vite-hub/queue")
+      expect(contract).toBeDefined()
+      const diagnostics = await packageModuleDiagnostics("@vite-hub/queue", root, contract!, 0, false, dependencies)
+      expect(diagnostics.filter(diagnostic => diagnostic.code === 2688)).toEqual([])
+      expect(diagnostics.filter(diagnostic => diagnostic.code === 2304).map(diagnostic => diagnostic.file?.fileName)).toContain(
+        join(typesDir, "index.d.ts"),
+      )
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("keeps other runtime peers while omitting a declaration-only peer", () => {
