@@ -252,7 +252,9 @@ async function loadNavigation(discoverContent = false): Promise<void> {
   navigationRequest = controller
   navigationLoading.value = true
   try {
-    const installed = (await loadConsoleNavigation(props.sectionsBase))?.sections ?? []
+    const navigation = await loadConsoleNavigation(props.sectionsBase)
+    if (!navigation) throw new Error("Could not load Console navigation.")
+    const installed = navigation.sections
     controller.signal.throwIfAborted()
     if (navigationRequest !== controller) return
     sections.value = [...new Set(installed)]

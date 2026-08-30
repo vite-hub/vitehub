@@ -85,6 +85,19 @@ describe("Console requests", () => {
     )
   })
 
+  it("rejects a KV page that reports a provider error", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["first"] }), ok: true })
+      .mockResolvedValueOnce({
+        json: () => Promise.resolve({ error: "KV unavailable", errorCode: "provider_failed", keys: [] }),
+        ok: true,
+      })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleKVPages("/api/_vitehub/console/kv", "cache", new AbortController().signal))
+      .rejects.toMatchObject({ code: "provider_failed", message: "KV unavailable" })
+  })
+
   it("retries section discovery after a failed request and caches a successful response", async () => {
     const fetch = vi.fn()
       .mockRejectedValueOnce(new Error("temporary failure"))

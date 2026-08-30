@@ -31,6 +31,17 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+function assertConsolePage(page: Record<string, unknown>): void {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  const message = typeof page.error === "string" ? page.error : undefined
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  const code = typeof page.errorCode === "string" ? page.errorCode : undefined
+  if (!message && !code) return
+  const error = new Error(message ?? `Console request failed with error code ${code}.`)
+  if (code) Object.assign(error, { code })
+  throw error
+}
+
 export async function loadConsoleKVPages(
   base: string,
   store: string,
@@ -48,6 +59,7 @@ export async function loadConsoleKVPages(
       signal,
     }))
     if (!page) break
+    assertConsolePage(page)
     pages.push(page)
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const cursor = typeof page.cursor === "string" ? page.cursor : undefined
