@@ -6,7 +6,7 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import { normalizeKVOptions } from "../config.ts"
 import { kvResult } from "../errors.ts"
 import type { KVOperation, KVResult, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
-import { createHostedKVStorage, createNamedHostedKVStorage, KVStoreConfigurationError, type RuntimeStorage } from "./hosted-storage.ts"
+import { createHostedKVStorage, createNamedHostedKVStorage, KVAtomicOperationUnsupportedError, KVStoreConfigurationError, type RuntimeStorage } from "./hosted-storage.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 
@@ -92,7 +92,19 @@ function createKVStorage(name = "default"): KVStorage {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
     async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options)) },
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
+    async getAndDelete(key) {
+      return runKVOperation("getAndDelete", name, (storage) => {
+        if (!storage.getAndDeleteItem) throw new KVAtomicOperationUnsupportedError(name)
+        return storage.getAndDeleteItem(key)
+      })
+    },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },
+    async increment(key, ttl) {
+      return runKVOperation("increment", name, (storage) => {
+        if (!storage.incrementItem) throw new KVAtomicOperationUnsupportedError(name)
+        return storage.incrementItem(key, ttl)
+      })
+    },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
     async list(options) {
       if (!Number.isInteger(options.limit) || options.limit <= 0) throw new TypeError("`limit` must be a positive integer.")
