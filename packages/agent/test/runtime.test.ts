@@ -11227,6 +11227,9 @@ describe("agent message protocol", () => {
 
     expect(cancelResult).toBe("cancelled")
     expect(cancelReason).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(traceLog!.entries().at(-1)?.name).toBe("agent.invocation.cancelled")
+    })
     expect(traceLog!.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.stream.start",
