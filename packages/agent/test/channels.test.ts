@@ -99,6 +99,16 @@ describe("agent channels", () => {
       expect(stored?.body.length).toBeLessThan(65_536)
       expect(stored?.body).toContain("24:")
       expect(stored?.body).not.toContain("25:")
+
+      for (let index = 4; index <= 14; index++) {
+        // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+        await update(context(`run-${index}`, "running") as never)
+      }
+      const currentBody = stored?.body
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "completed") as never)
+      expect(stored?.body).toBe(currentBody)
+      expect(stored?.body).toContain("https://console.test/invocations/run-14")
     }
     finally {
       vi.unstubAllGlobals()

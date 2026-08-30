@@ -1173,6 +1173,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   }
   let delivery = Promise.resolve()
   let lastSnapshot: string | undefined
+  const pendingInputRequests = new Set<string>()
   const publish = async (status: AgentActivityStatus, error?: unknown, summary?: string) => {
     if (!state.summary && summary) state.summary = summary.slice(-12_000)
     state = { ...state, status }
@@ -1216,10 +1217,24 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         await publish(state.status === "waiting" ? "waiting" : "running")
         return
       }
-      if (event.type === "approval-request"
-        || (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "requested")) await publish("waiting")
-      else if (event.type === "approval-decision"
-        || (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "resolved")) await publish("running")
+      if (event.type === "approval-request") {
+        pendingInputRequests.add(`approval:${event.id}`)
+        await publish("waiting")
+      }
+      else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "requested") {
+        const requestId = maybeString(event.data.requestId)
+        if (requestId) pendingInputRequests.add(`input:${requestId}`)
+        await publish("waiting")
+      }
+      else if (event.type === "approval-decision") {
+        pendingInputRequests.delete(`approval:${event.id}`)
+        await publish(pendingInputRequests.size ? "waiting" : "running")
+      }
+      else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "resolved") {
+        const requestId = maybeString(event.data.requestId)
+        if (requestId) pendingInputRequests.delete(`input:${requestId}`)
+        await publish(pendingInputRequests.size ? "waiting" : "running")
+      }
     },
     update: publish,
   }

@@ -1162,6 +1162,7 @@ interface GitHubActivityHistoryEntry {
 interface GitHubActivityCommentState {
   current?: GitHubActivityHistoryEntry
   history: readonly GitHubActivityHistoryEntry[]
+  previousRunIds: readonly string[]
 }
 
 interface GitHubActivityIdentity {
@@ -1226,12 +1227,12 @@ function githubActivityTarget(value: unknown): GitHubActivityTarget {
 }
 
 function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
-  if (!hasRuntimeType(body, "string")) return { history: [] }
+  if (!hasRuntimeType(body, "string")) return { history: [], previousRunIds: [] }
   const encoded = body.match(/<!-- vitehub-agent-activity:([A-Za-z0-9_-]+) -->/)?.[1]
-  if (!encoded) return { history: [] }
+  if (!encoded) return { history: [], previousRunIds: [] }
   try {
     const value = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"))
-    if (!isRecord(value)) return { history: [] }
+    if (!isRecord(value)) return { history: [], previousRunIds: [] }
     const entries = (items: unknown): GitHubActivityHistoryEntry[] => Array.isArray(items)
       ? items.flatMap((item) => {
           if (!isRecord(item) || !maybeString(item.runId) || !Array.isArray(item.links)) return []
@@ -1242,13 +1243,15 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
           return [{ links, runId: maybeString(item.runId)!, ...(status && ["cancelled", "completed", "failed", "queued", "running", "waiting"].includes(status) ? { status: status as AgentActivityStatus } : {}) }]
         })
       : []
-    return {
-      current: entries(value.current ? [value.current] : [])[0],
-      history: entries(value.history).slice(0, githubActivityHistoryLimit),
-    }
+    const current = entries(value.current ? [value.current] : [])[0]
+    const history = entries(value.history).slice(0, githubActivityHistoryLimit)
+    const previousRunIds = Array.isArray(value.previousRunIds)
+      ? value.previousRunIds.flatMap(runId => maybeString(runId) || []).filter(runId => runId !== current?.runId)
+      : history.map(entry => entry.runId)
+    return { current, history, previousRunIds: [...new Set(previousRunIds)] }
   }
   catch {
-    return { history: [] }
+    return { history: [], previousRunIds: [] }
   }
 }
 
@@ -1338,10 +1341,10 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           }
         }
         const staleRun = previous.current?.runId !== current.runId
-          && (previous.history.some(entry => entry.runId === current.runId)
+          && (previous.previousRunIds.includes(current.runId)
             || owned.slice(1).some(comment => {
               const state = decodeGithubActivityState(isRecord(comment) ? comment.body : undefined)
-              return state.current?.runId === current.runId || state.history.some(entry => entry.runId === current.runId)
+              return state.current?.runId === current.runId || state.previousRunIds.includes(current.runId)
             }))
         if (staleRun) {
           await reconcileDuplicates()
@@ -1351,12 +1354,14 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           && previous.current.status && ["cancelled", "completed", "failed"].includes(previous.current.status)
           && !["cancelled", "completed", "failed"].includes(current.status)) return
         const state: GitHubActivityCommentState = previous.current?.runId === current.runId
-          ? { current, history: previous.history }
+          ? { current, history: previous.history, previousRunIds: previous.previousRunIds }
           : {
               current,
               history: [previous.current, ...previous.history]
                 .filter((entry): entry is GitHubActivityHistoryEntry => entry !== undefined && entry.runId !== current.runId)
                 .slice(0, githubActivityHistoryLimit),
+              previousRunIds: [previous.current?.runId, ...previous.previousRunIds]
+                .filter((runId): runId is string => runId !== undefined && runId !== current.runId),
             }
         const body = renderGithubActivity(context.activity, state)
         const commentId = isRecord(existing) ? maybeNumber(existing.id) : undefined

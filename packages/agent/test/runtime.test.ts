@@ -5784,8 +5784,8 @@ describe("agent message protocol", () => {
       driver: { run: () => (async function* () {
           yield { data: { plan: [{ status: "inProgress", step: "Read files" }, { status: "pending", step: "Run tests" }] }, type: "data-agent-plan" }
           yield { id: "approval-1", name: "deploy", type: "approval-request" }
-          yield { approved: false, id: "approval-1", type: "approval-decision" }
           yield { data: { requestId: "input-1", status: "requested" }, type: "data-agent-input" }
+          yield { approved: false, id: "approval-1", type: "approval-decision" }
           yield { data: { answers: { scope: "workspace" }, requestId: "input-1", status: "resolved" }, type: "data-agent-input" }
           yield { phase: "final", role: "assistant", text: "Finished the review.", type: "text-delta" }
           yield { type: "finish" }
@@ -5808,7 +5808,7 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
-    expect(updates.map(update => update.status)).toEqual(["queued", "running", "running", "waiting", "running", "waiting", "running", "completed"])
+    expect(updates.map(update => update.status)).toEqual(["queued", "running", "running", "waiting", "waiting", "waiting", "running", "completed"])
     expect(updates[2]?.tasks).toEqual([
       { status: "in-progress", title: "Read files" },
       { status: "pending", title: "Run tests" },
