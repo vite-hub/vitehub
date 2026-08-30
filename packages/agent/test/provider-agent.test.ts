@@ -1522,9 +1522,9 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, {
       messages: [
-        { content: "hello", role: "user" },
-        { content: "first answer", role: "assistant" },
-        { content: "continue", role: "user" },
+        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "first answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
       ],
       prompt: "continue",
     }) as never)
