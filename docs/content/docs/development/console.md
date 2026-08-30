@@ -26,7 +26,6 @@ export default defineConfig({
     console: true,
     preset: 'cloudflare',
     kv: true,
-    queue: true,
     schedule: true,
     workflow: true,
   })],
