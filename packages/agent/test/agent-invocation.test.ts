@@ -147,6 +147,36 @@ describe("Agent Invocation controllers", () => {
     })
   })
 
+  it("removes nested stream surfaces from inferred raw child results", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            answer: 42,
+            fullStream: (async function* () {
+              yield { delta: "nested", type: "text-delta" }
+            })(),
+            requestId: "request-1",
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const controller = await startAgentInvocation(agent, runtime(), {})
+
+    const result = await controller.result
+    expect(result).toMatchObject({
+      answer: 42,
+      raw: { answer: 42, requestId: "request-1" },
+      requestId: "request-1",
+      text: "nested",
+    })
+    expect(result).not.toHaveProperty("fullStream")
+    expect((result as { raw: object }).raw).not.toHaveProperty("fullStream")
+    expect(() => structuredClone(result)).not.toThrow()
+  })
+
   it("settles inline UI-message streams before resolving the public result", async () => {
     const agent = defineAgent({
       driver: {

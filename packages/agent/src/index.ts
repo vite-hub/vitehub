@@ -6659,10 +6659,17 @@ function createInlineAgentInvocationController<
           for (const property of ["fullStream", "stream", "textStream", "toUIMessageStream"])
             Reflect.deleteProperty(completedPublicResult, property)
           const completedRaw = completedPublicResult.raw
+          const completedPublicRaw = isRuntimeRecord(completedRaw)
+            ? { ...completedRaw }
+            : completedRaw
+          if (isRuntimeRecord(completedPublicRaw)) {
+            for (const property of ["fullStream", "stream", "textStream", "toUIMessageStream"])
+              Reflect.deleteProperty(completedPublicRaw, property)
+          }
           return {
             ...completedPublicResult,
             ...materializedStreamResult,
-            ...(completedRaw !== undefined && !isAsyncIterable(completedRaw) ? { raw: completedRaw } : {}),
+            ...(completedPublicRaw !== undefined && !isAsyncIterable(completedPublicRaw) ? { raw: completedPublicRaw } : {}),
           }
         }
         // SAFETY: the completed lifecycle output uses the controller's declared public result union.
