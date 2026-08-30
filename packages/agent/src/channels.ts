@@ -1341,6 +1341,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
 ): NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]> {
   const trackActiveRuns = mode === "lifecycle"
   const options = githubAppOptions(app) || {}
+  const commentIds = new Map<string, number>()
   return {
     async update(context) {
       const target = githubActivityTarget(context.target)
@@ -1359,7 +1360,11 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const knownActiveRun = trackActiveRuns && activeRuns.has(runId)
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
         const commentsUrl = `${commentsTarget}/comments?sort=created&direction=desc`
-        const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
+        const knownCommentId = commentIds.get(activityKey)
+        const knownComment = knownCommentId
+          ? await githubApiJson(fetcher, `${apiBaseUrl}/repos/${target.repository}/issues/comments/${knownCommentId}`, headers)
+          : undefined
+        const comments = knownCommentId ? [knownComment] : await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
         const existing = owned[0]
@@ -1410,11 +1415,14 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
             }
         const body = renderGithubActivity(context.activity, state)
         const commentId = isRecord(existing) ? maybeNumber(existing.id) : undefined
-        await githubApi(fetcher, commentId ? `${apiBaseUrl}/repos/${target.repository}/issues/comments/${commentId}` : commentsUrl, {
+        const response = await githubApi(fetcher, commentId ? `${apiBaseUrl}/repos/${target.repository}/issues/comments/${commentId}` : commentsUrl, {
           body: JSON.stringify({ body }),
           headers,
           method: commentId ? "PATCH" : "POST",
         })
+        const written = await response.clone().json().catch(() => undefined)
+        const writtenCommentId = commentId || maybeNumber(isRecord(written) ? written.id : undefined)
+        if (writtenCommentId) commentIds.set(activityKey, writtenCommentId)
         if (!terminal && trackActiveRuns) {
           activeRuns.add(runId)
           githubActivityActiveRuns.set(activityKey, activeRuns)

@@ -704,6 +704,7 @@ interface AgentWorkflowRun<TOutput = unknown> {
 }
 type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
+  activity?: ActiveAgentActivity
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
   invocationJournal?: AgentInvocationJournal
   run: AgentWorkflowRun<TOutput>
@@ -1076,7 +1077,7 @@ async function runAgentAsWorkflow<
     : workflowSettlementTasks.length
       ? Promise.allSettled(workflowSettlementTasks).then(() => undefined)
       : undefined
-  const started: StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> = { handle, run }
+  const started: StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> = { activity, handle, run }
   if (settled) started.settled = settled
   // Vercel's native Workflow owns durable suspension, but arbitrary Agent Definitions cannot
   // be compiled into that deterministic bundle. Its journal begins in the Agent worker instead.
@@ -4489,7 +4490,7 @@ async function finishStreamAgentInvocation<
   failureMessage: string,
   outputExtensions = new Map<string, unknown>(),
 ): Promise<void> {
-  if (outcome.status === "error") {
+  if (outcome.status !== "success") {
     await lifecycle.finish(outcome)
     return
   }
@@ -4654,11 +4655,12 @@ async function resolveFinishUsageRecord<
 }
 
 type AgentInvocationFinishOutcome =
+  | { status: "cancelled" }
   | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { error: unknown, status: "error" }
 
-function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
-  return outcome.failed ? { error: outcome.error, status: "error" } : { result, status: "success" }
+function finishOutcomeFromCleanup(outcome: { completed?: boolean, failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
+  return outcome.failed ? { error: outcome.error, status: "error" } : outcome.completed === false ? { status: "cancelled" } : { result, status: "success" }
 }
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
@@ -4978,6 +4980,7 @@ async function finishAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
 ): Promise<void> {
   const durationMs = Date.now() - context.startedAt
+  const outcomeCancelled = outcome.status === "cancelled"
   const outcomeFailed = outcome.status === "error"
   let failed = outcomeFailed
   let error = outcome.status === "error" ? outcome.error : undefined
@@ -5197,7 +5200,7 @@ async function finishAgentInvocation<
       if (outcomeFailed) await traceFinishError(error, "outcome")
       if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
-    const status = failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed"
+    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : failed ? "failed" : "completed"
     await context.activity?.update(status, error, text)
     await context.invocationJournal?.finish(status, error)
     if (closeError !== undefined) {
@@ -6710,9 +6713,14 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
-  const { handle, invocationJournal, run, settled } = started
+  const { activity, handle, invocationJournal, run, settled } = started
   const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+      await activity?.update(
+        snapshot.status,
+        snapshot.status === "failed" ? snapshot.error : undefined,
+        snapshot.status === "completed" ? finalTextFromAgentOutput(snapshot.output) : undefined,
+      )
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
     return snapshot
@@ -6757,6 +6765,7 @@ function createInlineAgentInvocationController<
     }, { ...input, abortSignal }, {
       kind: "run",
       onFinish(outcome) {
+        if (outcome.status === "cancelled") return
         onFinish(outcome.status === "success"
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
@@ -6815,7 +6824,11 @@ export async function runAgent<
     return workflow.run
   }
   if (input.context?.[requireAgentWorkflowContextKey] === true) {
-    throw new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+    const error = new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+    const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, invocationContext) : undefined
+    await activity?.update("queued")
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
   }
   return await runAgentInline(agent, invocationContext, input)
 }
