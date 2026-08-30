@@ -802,6 +802,48 @@ cli_auth_credentials_store = "keyring"
     await rm(settings.homePath, { force: true, recursive: true })
   })
 
+  it.each(["codex", "claude-code"] as const)("isolates an auxiliary ambient %s run from its parent's provider session", async (provider) => {
+    const threadId = `thread-ambient-auxiliary-${provider}`
+    const adapter = createProviderAgentAdapter({ provider })
+    const seeded = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "seed-cursor",
+    })
+    await adapter.generate(context(threadId) as never)
+
+    let releasePrimary!: () => void
+    const primaryBlocked = new Promise<void>(resolve => releasePrimary = resolve)
+    let primaryStarted!: () => void
+    const primaryRunning = new Promise<void>(resolve => primaryStarted = resolve)
+    const primary = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        primaryStarted()
+        await primaryBlocked
+      },
+      turnResumeCursor: "primary-cursor",
+    })
+    const auxiliary = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "auxiliary-cursor",
+    })
+
+    const primaryContext = context(threadId)
+    const primaryInvocation = adapter.generate(primaryContext as never)
+    await primaryRunning
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    auxiliaryContext.context = primaryContext.context
+    const auxiliaryInvocation = adapter.generate(auxiliaryContext as never)
+    await vi.waitFor(() => expect(auxiliary.startSession).toHaveBeenCalledOnce())
+    releasePrimary()
+    await Promise.all([primaryInvocation, auxiliaryInvocation])
+
+    const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await adapter.generate(context(threadId) as never)
+
+    expect(seeded.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(primary.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "seed-cursor" }))
+    expect(auxiliary.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(resumed.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "primary-cursor" }))
+  })
+
   it("does not retain a named profile lock while credentials are resolving", async () => {
     const profile = `provider-resolver-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`

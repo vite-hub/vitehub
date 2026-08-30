@@ -1438,10 +1438,11 @@ async function* runProvider<
   const sessionKey = sessionId
     ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.kind, context.invoker.id, sessionId])
     : undefined
-  const preservesProviderSession = options.provider !== "codex"
+  const auxiliary = isAuxiliaryAgentAdapterContext(context)
+  const preservesProviderSession = !auxiliary && (options.provider !== "codex"
     || options.credentials === undefined
-    || (Boolean(options.credentialProfile?.trim()) && !isAuxiliaryAgentAdapterContext(context))
-  const releaseSessionLock = sessionKey && !isAuxiliaryAgentAdapterContext(context)
+    || Boolean(options.credentialProfile?.trim()))
+  const releaseSessionLock = sessionKey && !auxiliary
     ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal)
     : undefined
   let root: string
