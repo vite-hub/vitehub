@@ -43,13 +43,14 @@ describe("CLI documentation contract", () => {
     const agent = createAgentCliContributor({ rootDir: evalFixtureRoot });
     const database = createDbCliContributor();
     if (!agent || !database) throw new TypeError("Expected the default CLI contributors.");
-    const plugins = [
+    const plugins: unknown[] = [];
+    plugins.push(
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
       { vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } } },
       hubWorkspace(),
       viteHubTypesPlugin(),
-    ];
+    );
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
 
