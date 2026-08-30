@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import PropertyHelp from "./PropertyHelp.vue"
 import highlighter from "#mdc-highlighter"
+import * as v from "valibot"
 
 type HastNode = {
   type: string
   tagName?: string
-  properties?: Record<string, unknown>
+  properties?: {
+    [key: string]: unknown
+    className?: string | string[]
+    language?: string
+  }
   children?: HastNode[]
   value?: string
 }
@@ -58,11 +63,11 @@ const projects: ExampleProject[] = [
       {
         path: "server/agents/review/agent.ts",
         label: "agent.ts",
-        content: `import { defineAgent } from "@vite-hub/agent"
+        content: `import githubTools from "@github-tools/eve-extension"
+import { defineAgent } from "@vite-hub/agent"
 import { github } from "@vite-hub/agent/channels"
 import {
   browser,
-  repositoryHost,
   skills,
 } from "@vite-hub/agent/capabilities"
 
@@ -77,7 +82,7 @@ export default defineAgent({
   },
   capabilities: [
     browser(),
-    repositoryHost({ mode: "read" }),
+    githubTools({ preset: "code-review" }),
     skills({ path: "./skills" }),
   ],
 })`,
@@ -303,7 +308,14 @@ const agentProperties: Record<AgentPropertyKey, {
     to: "/docs/agents/channels/",
   },
 }
-const agentPropertyOrder = Object.keys(agentProperties) as AgentPropertyKey[]
+const agentPropertyOrder: readonly AgentPropertyKey[] = [
+  "driver",
+  "runtime",
+  "workspace",
+  "capabilities",
+  "channels",
+]
+const highlightLanguageSchema = v.string()
 
 const driverOptions = [
   { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
@@ -328,7 +340,6 @@ const capabilityOptions = [
   { code: "access({ workspace })", icon: "i-lucide-shield-check", key: "access", label: "Access" },
   { code: "chat()", icon: "i-lucide-messages-square", key: "chat", label: "Chat" },
   { code: "inputCommands({ commands })", icon: "i-lucide-command", key: "input-commands", label: "Input commands" },
-  { code: "subagents({ agents })", icon: "i-lucide-git-fork", key: "subagents", label: "Subagents" },
   { code: "browser()", icon: "i-lucide-monitor", key: "browser", label: "Browser" },
   { code: "workspaceShell({ mode: 'write' })", icon: "i-lucide-square-terminal", key: "workspace-shell", label: "Workspace shell" },
   { code: "git()", icon: "i-lucide-git-branch", key: "git", label: "Git" },
@@ -340,8 +351,7 @@ const capabilityOptions = [
   { code: "email({ from, recipients })", icon: "i-lucide-mail", key: "email", label: "Email" },
   { code: "sandbox({ commands })", icon: "i-lucide-box", key: "sandbox", label: "Sandbox" },
   { code: "schedule({ mode: 'write', allowSelfTarget: true })", icon: "i-lucide-calendar-clock", key: "schedule", label: "Schedules" },
-  { code: "repositoryHost({ mode: 'read' })", icon: "i-lucide-git-pull-request", key: "repository", label: "Repository host" },
-  { code: "repositoryHostContext()", icon: "i-lucide-git-pull-request-arrow", key: "repository-context", label: "Repository host context" },
+  { code: "githubTools({ preset: 'code-review' })", icon: "i-lucide-git-pull-request", key: "github-tools", label: "GitHub tools" },
   { code: "mcp({ servers: { nuxt } })", icon: "i-lucide-plug-zap", key: "mcp", label: "MCP servers" },
   { code: "webSearch({ mode: 'tool', provider: 'exa' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
@@ -353,7 +363,6 @@ const capabilityOptions = [
   { code: "title()", icon: "i-lucide-heading", key: "title", label: "Title" },
   { code: "chatSummary()", icon: "i-lucide-message-square-text", key: "chat-summary", label: "Chat summary" },
   { code: "progressSummary()", icon: "i-lucide-list-collapse", key: "progress-summary", label: "Progress summary" },
-  { code: "papercuts({ report })", icon: "i-lucide-bug", key: "papercuts", label: "Papercut reports" },
   { code: "cost()", icon: "i-lucide-receipt", key: "cost", label: "Cost" },
 ] satisfies PlaygroundOption[]
 
@@ -398,7 +407,7 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
     driverKey: "codex",
     runtimeKey: "workflow",
     workspaceKey: "github",
-    capabilityKeys: ["browser", "repository", "skills"],
+    capabilityKeys: ["browser", "github-tools", "skills"],
     channelKeys: ["github"],
   },
   nuxt: {
@@ -545,10 +554,10 @@ function syntaxHighlightPlugin() {
     const styles = new Set<string>()
 
     function visit(node: HastNode) {
-      const language = node.properties?.language
+      const language = v.safeParse(highlightLanguageSchema, node.properties?.language)
 
-      if (node.tagName === "pre" && typeof language === "string" && language !== "text") {
-        tasks.push(highlighter(nodeText(node), language, syntaxThemes).then((result) => {
+      if (node.tagName === "pre" && language.success && language.output !== "text") {
+        tasks.push(highlighter(nodeText(node), language.output, syntaxThemes).then((result) => {
           const className = Array.isArray(node.properties?.className)
             ? node.properties.className.join(" ")
             : String(node.properties?.className ?? "")
@@ -561,6 +570,7 @@ function syntaxHighlightPlugin() {
           }
 
           if (code) {
+            // SAFETY: The markdown highlighter returns HAST children for the code node.
             code.children = result.tree as HastNode[]
           }
 
@@ -681,11 +691,11 @@ function channelItemsFor(currentKey: string) {
 }
 
 async function addProperty(value: unknown) {
-  if (typeof value !== "string" || !agentPropertyOrder.includes(value as AgentPropertyKey)) {
+  const key = agentPropertyOrder.find(propertyKey => propertyKey === value)
+  if (!key) {
     return
   }
 
-  const key = value as AgentPropertyKey
   if (!selectedAgentConfig.value.visiblePropertyKeys.includes(key)) {
     selectedAgentConfig.value.visiblePropertyKeys.push(key)
   }
@@ -711,15 +721,16 @@ function removeProperty(key: AgentPropertyKey) {
 }
 
 async function addCapability(value: unknown) {
-  if (typeof value !== "string" || selectedAgentConfig.value.capabilityKeys.includes(value)) {
+  const key = capabilityOptions.find(option => option.key === value)?.key
+  if (!key || selectedAgentConfig.value.capabilityKeys.includes(key)) {
     return
   }
 
-  if (value === "access") {
-    selectedAgentConfig.value.capabilityKeys.unshift(value)
+  if (key === "access") {
+    selectedAgentConfig.value.capabilityKeys.unshift(key)
   }
   else {
-    selectedAgentConfig.value.capabilityKeys.push(value)
+    selectedAgentConfig.value.capabilityKeys.push(key)
   }
   await nextTick()
   capabilitySelectionKey.value = undefined
@@ -730,11 +741,12 @@ function removeCapability(index: number) {
 }
 
 async function addChannel(value: unknown) {
-  if (typeof value !== "string" || selectedAgentConfig.value.channelKeys.includes(value)) {
+  const key = channelOptions.find(option => option.key === value)?.key
+  if (!key || selectedAgentConfig.value.channelKeys.includes(key)) {
     return
   }
 
-  selectedAgentConfig.value.channelKeys.push(value)
+  selectedAgentConfig.value.channelKeys.push(key)
   await nextTick()
   channelSelectionKey.value = undefined
 }

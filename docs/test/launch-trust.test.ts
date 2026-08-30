@@ -108,7 +108,7 @@ describe("launch documentation trust boundaries", () => {
     );
     expect(matrix).toContain("Discovery only");
     expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
-    expect(matrix).toContain("every other host requires an explicit compatible Unemail driver");
+    expect(matrix).toContain("every other host requires the explicit built-in Resend driver or a programmatic custom driver");
     expect(matrix).toContain("distributed Vercel, Netlify, and Deno presets reject memory");
     expect(matrixComponent).toContain(
       "The Cloudflare preset supports the built-in Cloudflare Email driver default",

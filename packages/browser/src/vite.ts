@@ -1,12 +1,15 @@
 import { normalize, resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import {
-  createDefaultCloudflareOutputRoot,
-  defaultCloudflareCompatibilityDate,
-  writeCloudflareWranglerConfig,
-} from "@vite-hub/internal/build/cloudflare"
+  contributeProviderDeploymentOutput,
+  createProviderDeploymentOutputGenerationState,
+  finalizeProviderDeploymentOutputs,
+  useProviderOutputCatalog,
+} from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { isPlainObject } from "@vite-hub/internal/object"
 import {
   createNoExternalMerger,
   isServerEnvironment,
@@ -37,6 +40,15 @@ const browserRuntimeId = "#vitehub/browser/runtime"
 const resolvedBrowserRegistryId = `\0${browserRegistryId}`
 const resolvedBrowserRuntimeId = `\0${browserRuntimeId}`
 const mergeNoExternal = createNoExternalMerger("@vite-hub/browser")
+const browserWranglerConfigOwnership = {
+  keys: ["browser"],
+  arrays: {
+    compatibility_flags: {
+      preserveOnCleanup: true,
+      values: ["nodejs_compat"],
+    },
+  },
+}
 
 function resolveOptions(options: BrowserModuleOptions | false | undefined): Required<BrowserModuleOptions> {
   const binding = options && options.binding || "BROWSER"
@@ -58,13 +70,15 @@ function browserBinding(options: Required<BrowserModuleOptions>) {
 }
 
 function cloneRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+  return isPlainObject(value) ? { ...value } : {}
 }
 
 function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
+  if (value === undefined) return [addition]
   if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro accepts a public string-or-RegExp external value, so this config boundary must distinguish the string representation.
   if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro accepts a public callback external value, so this config boundary must distinguish the callable representation.
   if (typeof value === "function") {
     return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
   }
@@ -122,6 +136,8 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   let enabled = options !== false
   let resolvedOptions = resolveOptions(options)
   let resolved: ResolvedConfig | undefined
+  let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let projectRoot = process.cwd()
   let serverDirs: string[] | undefined
 
@@ -148,12 +164,16 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   }
 
   function runtimeContents() {
+    const config = enabled ? {
+      binding: resolvedOptions.binding,
+      engine: resolvedOptions.engine,
+      provider: "cloudflare",
+    } : {}
     return [
-      `export default ${JSON.stringify(enabled ? {
-        binding: resolvedOptions.binding,
-        engine: resolvedOptions.engine,
-        provider: "cloudflare",
-      } : {}, null, 2)}`,
+      ...(enabled && resolvedOptions.engine === "chromium"
+        ? ["export const loadCloudflarePlaywright = () => import(\"@cloudflare/playwright\")"]
+        : ["export const loadCloudflarePlaywright = undefined"]),
+      `export default ${JSON.stringify(config, null, 2)}`,
       "",
     ].join("\n")
   }
@@ -171,6 +191,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     enabled = configured !== false
     resolvedOptions = resolveOptions(configured)
     projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
+    // SAFETY: ViteHub decorates resolved config with this symbol and only stores server-directory strings.
     serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
     config.nitro = configureNitroBrowser(config.nitro, resolvedOptions, enabled)
   }
@@ -184,6 +205,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     },
     async configResolved(config) {
       resolved = config
+      providerOutput = useProviderOutputCatalog(config)
       applyConfig(config)
       await refreshRegistryTypes(config.root)
     },
@@ -207,35 +229,52 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
       if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
       if (id === resolvedBrowserRuntimeId) return runtimeContents()
     },
-    closeBundle: {
-      order: "post",
-      sequential: true,
-      async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-        await writeCloudflareWranglerConfig({
-          outputRoot: createDefaultCloudflareOutputRoot(resolved.root),
-          rootDir: resolved.root,
-          ...(enabled
-            ? {
-                wranglerConfig: {
-                  browser: browserBinding(resolvedOptions),
-                  compatibility_flags: ["nodejs_compat"],
-                },
-                wranglerConfigDefaults: {
-                  compatibility_date: defaultCloudflareCompatibilityDate,
-                },
-              }
-            : {}),
-          wranglerConfigOwnership: {
-            keys: ["browser"],
-            arrays: {
-              compatibility_flags: {
-                preserveOnCleanup: true,
-                values: ["nodejs_compat"],
-              },
+    buildStart() {
+      providerOutputGenerations.capture(this, providerOutput)
+    },
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        return
+      }
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      const rootDir = resolved.root
+      const clientOutDir = resolved.build.outDir
+      const cloudflare = enabled
+        ? {
+            wranglerConfig: {
+              browser: browserBinding(resolvedOptions),
+              compatibility_flags: ["nodejs_compat"],
+            },
+            wranglerConfigDefaults: {
+              compatibility_date: defaultCloudflareCompatibilityDate,
+            },
+            wranglerConfigOwnership: browserWranglerConfigOwnership,
+          }
+        : undefined
+      contributeProviderDeploymentOutput(providerOutput, {
+        owner: "browser",
+        rootDir,
+        write: async ({ write }) => await write({
+          clientOutDir,
+          rootDir,
+          cloudflare,
+          cleanup: {
+            cloudflare: {
+              wranglerConfigOwnership: browserWranglerConfigOwnership,
             },
           },
-        })
+        }),
+      }, providerOutputGenerations.get(this))
+    },
+    async renderError(error) {
+      await providerOutputGenerations.reset(this, providerOutput, error)
+    },
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
   }

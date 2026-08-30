@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import * as ownerAgentEve from "@vite-hub/agent/eve"
+import * as ownerAgentMcp from "@vite-hub/agent/mcp"
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process"
 import * as ownerAgentVue from "@vite-hub/agent/vue"
 import ownerAuthHandler from "@vite-hub/auth/server"
@@ -23,6 +24,7 @@ import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
+import * as frameworkAgentMcp from "vite-hub/agent/mcp"
 import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process"
 import * as frameworkAgentVue from "vite-hub/agent/vue"
 import frameworkAuthHandler from "vite-hub/auth/server"
@@ -67,7 +69,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/eve",
-  "@vite-hub/agent/mcp",
   "@vite-hub/agent/mcp/stdio",
   "@vite-hub/agent/messages",
   "@vite-hub/agent/output",
@@ -93,6 +94,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/vercel-vite",
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
+  "@vite-hub/kv/runtime/cloudflare-kv",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
@@ -147,7 +149,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata"
   if (packageName === "@vite-hub/cli") return "framework tooling"
-  if (/^(?:cli|mountx|nitro|nuxt|test|virtual|vite)(?:\/|$)/.test(path)) return "integration or test tooling"
+  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite)(?:\/|$)/.test(path)) return "integration or test tooling"
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation"
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path)) return "direct provider adapter"
   if (consolidatedOwnerExports.has(specifier)) return "available from the feature root"
@@ -165,7 +167,9 @@ describe("framework package contract", () => {
     expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
     expect(frameworkAgentProcessRuntime.createProcessAgentCapacity).toBe(ownerAgentProcessRuntime.createProcessAgentCapacity)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
+    expect(frameworkCapabilities.executor).toBe(ownerCapabilities.executor)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
+    expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer)
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent)
     expect(frameworkAgentVue.useChat).toBe(ownerAgentVue.useChat)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
@@ -208,13 +212,13 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
-      "./console/definitions",
       "./console/kv",
       "./console/sections",
       "./console/server",
       "./database/drizzle",
       "./nuxt",
       "./source",
+      "./source/vite",
     ])
 
     for (const { subpath, targets } of manifestForwarders) {
@@ -280,7 +284,15 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request")
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time")
     expect(consolePage).toContain("AgentInvocationList")
-    expect(consolePage).toContain(':retry-key="paginationRetryRevision"')
+    expect(consolePage).toContain("agentInvocationTitle")
+    expect(consolePage).toContain("<UDashboardNavbar")
+    expect(consolePage).toContain('class="lg:hidden"')
+    expect(consolePage).not.toContain('class="xl:hidden"')
+    expect(consolePage).toContain(':header="false"')
+    expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout"')
+    expect(consolePage).toContain(':continuation-key="list.cursor.value"')
+    expect(consolePage).toContain(':retry-key="invocationPaginationKey"')
+    expect(consolePage).toContain("const invocationPaginationKey = computed(() => paginationRetryRevision.value);")
     expect(consolePage).toContain("list.loadMoreError.value")
     expect(consolePage).toContain("Retry loading older sessions")
     expect(consolePage).toContain("Switch Agent")
@@ -291,6 +303,13 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)")
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)")
     expect(consolePage).toContain('data-slot="mobile-session-navigation"')
+    expect(consolePage).toContain('window.matchMedia("(min-width: 1024px)")')
+    expect(consolePage).toContain('class="vitehub-console__session-navbar"')
+    expect(consolePage).toContain("minSize: 220")
+    expect(consolePage).toContain("defaultSize: 680")
+    expect(consolePage).toContain("maxSize: 1080")
+    expect(consolePage).toContain("defaultSize: 560")
+    expect(consolePage).toContain("max-width: 48rem")
     expect(consolePage).not.toContain("route.query.agent")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(consolePage).not.toContain("<UApp")
@@ -303,6 +322,12 @@ describe("framework package contract", () => {
     expect(consoleIndexRoute).toContain("<ConsoleHome")
     expect(consoleIndexRoute).toContain(":sections-base=")
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
+    const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8")
+    expect(consoleKVRoute).toContain(`sections.includes("kv")`)
+    expect(consoleKVRoute).toContain(`navigateTo("/_vitehub")`)
+    expect(consoleKVRoute).not.toContain("navigateTo(`${appBaseURL}/_vitehub`)")
+    expect(consoleKVRoute).toContain(`v-if="available"`)
+    expect(consoleKVRoute).toContain("Try again")
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true)
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true)
@@ -318,6 +343,8 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain('label: "All primitives"')
     expect(consoleSearch).toContain('label: "Pages"')
     expect(consoleSearch).toContain('label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions"')
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage-summary.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(true)
     const consoleClient = readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.js`, "utf8")
     expect(consoleClient).toContain("ViteHub")
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation")
@@ -356,7 +383,9 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.")
       }
-      expect(handlers).toHaveLength(9)
+      expect(handlers).toHaveLength(10)
+      expect(handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/usage" }))
+      expect(handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/kv" }))
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler")
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.")

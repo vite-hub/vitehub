@@ -10,16 +10,49 @@ describe("provider Agent Driver types", () => {
     const defaultClaude = { kind: "claude-code" } satisfies BuiltInAgentDriver
     const fullAccessCodex = codexDriver({ permissions: "allow-all" })
     const fullAccessClaude = claudeCodeDriver({ permissions: "allow-all" })
+    const configuredCodex = codexDriver({
+      credentials: async () => ({ unseal: () => "{}" }),
+      model: "gpt-5.6-sol",
+      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
 
     expectTypeOf(defaultCodex.kind).toEqualTypeOf<"codex">()
     expectTypeOf(defaultClaude.kind).toEqualTypeOf<"claude-code">()
     expectTypeOf(fullAccessCodex.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
     expectTypeOf(fullAccessClaude.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
+    expectTypeOf(configuredCodex.reasoningSummary).toEqualTypeOf<"auto" | "concise" | "detailed" | "none" | undefined>()
 
     // @ts-expect-error Provider runtime modes are not public permission options.
     codexDriver({ permissions: "full-access" })
     // @ts-expect-error Provider runtime modes are not public permission options.
     claudeCodeDriver({ permissions: "approval-required" })
+    // @ts-expect-error Credentials are Codex-specific.
+    claudeCodeDriver({ credentials: "{}" })
+    // @ts-expect-error Reasoning summaries use the provider's supported values.
+    codexDriver({ reasoningSummary: "verbose" })
+    // @ts-expect-error Codex options are not accepted by model drivers.
+    defineAgent({ driver: { model: "openai/gpt-5", reasoningEffort: "high" } })
+    // @ts-expect-error Provider settings are not accepted by inline run drivers.
+    defineAgent({ driver: { providerSettings: {}, run: async () => new Response() } })
+  })
+
+  it("types Codex credential profiles and invocation-time credential resolvers", () => {
+    const driver = codexDriver({
+      credentialProfile: "support",
+      credentials(context) {
+        expectTypeOf(context.abortSignal).toEqualTypeOf<AbortSignal | undefined>()
+        return { unseal: () => '{"OPENAI_API_KEY":"secret"}' }
+      },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
+
+    expectTypeOf(driver.credentialProfile).toEqualTypeOf<string | undefined>()
+    // @ts-expect-error Credential projection is currently Codex-specific.
+    claudeCodeDriver({ credentials: () => "{}" })
+    codexDriver({ reasoningEffort: "ultra" })
   })
 
   it("preserves structured output inference while invocation input evidences its options", () => {

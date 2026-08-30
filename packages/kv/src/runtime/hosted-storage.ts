@@ -1,12 +1,14 @@
 import { createStorage } from "unstorage"
 
-import type { ResolvedKVModuleOptions } from "../types.ts"
+import type { KVListOptions, KVListPage, ResolvedKVModuleOptions } from "../types.ts"
 import { createLazyKVRuntimeDriver } from "./driver.ts"
 
 export interface RuntimeStorage {
   clear(base?: string, options?: unknown): Promise<void>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract.
   getItem<T = unknown>(key: string, options?: unknown): Promise<T | null>
   getKeys(base?: string, options?: unknown): Promise<string[]>
+  listKeys(options: KVListOptions): Promise<KVListPage>
   hasItem(key: string, options?: unknown): Promise<boolean>
   removeItem(key: string, options?: unknown): Promise<void>
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
@@ -33,7 +35,10 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   if (!store) {
     throw new KVStoreConfigurationError(`[vitehub] Unknown KV store "${name}".`)
   }
-  return createStorage({
-    driver: createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } }),
-  }) as RuntimeStorage
+  const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } })
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
+  // SAFETY: createStorage supplies the base methods, and this boundary installs the required listKeys method before returning.
+  const storage = createStorage({ driver }) as unknown as RuntimeStorage
+  storage.listKeys = options => driver.listKeys(options)
+  return storage
 }

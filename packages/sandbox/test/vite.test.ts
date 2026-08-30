@@ -1,11 +1,40 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
-import { afterEach, describe, expect, it } from "vitest"
-import { build, type AliasOptions } from "vite"
+import { build as esbuild } from "esbuild"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { build as viteBuild, type AliasOptions } from "vite"
 
 const tempDirs: string[] = []
+const runtimePreparationMock = vi.hoisted(() => ({
+  // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
+  afterPrepare: undefined as (() => Promise<void>) | undefined,
+  // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
+  beforePrepare: undefined as (() => Promise<void>) | undefined,
+}))
+
+vi.mock("../src/internal/runtime-preparation.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/internal/runtime-preparation.ts")>()
+  return {
+    ...original,
+    async prepareSandboxRuntime(...args: Parameters<typeof original.prepareSandboxRuntime>) {
+      await runtimePreparationMock.beforePrepare?.()
+      const prepared = await original.prepareSandboxRuntime(...args)
+      await runtimePreparationMock.afterPrepare?.()
+      return prepared
+    },
+  }
+})
+
+function createDeferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 
 function readAlias(alias: AliasOptions | undefined, id: string) {
   if (Array.isArray(alias)) {
@@ -56,14 +85,19 @@ function readSandboxNitroNoExternals(
   return createSandboxNitroLifecycle(plugin, initial)().noExternals as Array<string | RegExp>
 }
 
-async function createViteRoot() {
-  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-sandbox-vite-"))
+async function createViteRoot(parentDir = tmpdir()) {
+  const rootDir = await mkdtemp(join(parentDir, "vitehub-sandbox-vite-"))
   tempDirs.push(rootDir)
   await writeFile(join(rootDir, "package.json"), JSON.stringify({
     name: "vitehub-sandbox-vite-fixture",
     private: true,
     type: "module",
   }, null, 2))
+  await symlink(
+    resolve(import.meta.dirname, "../../../node_modules"),
+    join(rootDir, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  )
   await mkdir(join(rootDir, "src/tools"), { recursive: true })
   await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
     `import { defineSandbox } from "@vite-hub/sandbox"`,
@@ -75,12 +109,14 @@ async function createViteRoot() {
 }
 
 afterEach(async () => {
+  runtimePreparationMock.afterPrepare = undefined
+  runtimePreparationMock.beforePrepare = undefined
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
 describe("hubSandbox", () => {
   it("exposes Vite Sandbox state", async () => {
-    const rootDir = await createViteRoot()
+    const rootDir = await createViteRoot(process.cwd())
     const { hubSandbox } = await import("../src/vite.ts")
     const providerImportAliases: Record<string, string> = {}
     const plugin = hubSandbox({
@@ -117,7 +153,7 @@ describe("hubSandbox", () => {
 
     expect(readAlias(alias, "@vite-hub/sandbox")).toBeUndefined()
     expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
-    expect(providerImportAliases["@vite-hub/sandbox"]).toMatch(/packages\/sandbox\/(?:src|dist)$/)
+    expect(providerImportAliases).not.toHaveProperty("@vite-hub/sandbox")
     expect(providerImportAliases["vite-hub/sandbox"]).toBe(sandboxAlias)
     expect(providerImportAliases["vitehub-sandbox-provider-loader"]).toBe(providerLoaderAlias)
 
@@ -141,11 +177,58 @@ describe("hubSandbox", () => {
     expect(facade).toContain("export * from")
     expect(facade).not.toContain("providerImportAliases")
     expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
+    const facadePackageImports = [
+      facade.match(/import \{ setSandboxRuntimeConfig, setSandboxRuntimeRegistry \} from "([^"]+)"/)?.[1],
+      facade.match(/export \* from "([^"]+)"/)?.[1],
+    ].filter((specifier): specifier is string => Boolean(specifier))
+    expect(facadePackageImports).toEqual([
+      "@vite-hub/sandbox/runtime/state",
+      "@vite-hub/sandbox/_internal/runtime",
+    ])
+    expect(facade).toContain('from "./sandbox-registry.mjs"')
+    expect(facade).toContain('from "./sandbox-provider-loader.mjs"')
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("resolveSandboxBox")
+    const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
+    if (!providerRuntimeSpecifier)
+      throw new Error("Expected the generated provider loader to import its runtime.")
+    expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/_internal/runtime/providers/vercel")
     expect(providerLoader).not.toContain("createSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+  })
+
+  it("loads only the selected generated Definition payload", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "src/tools/unrelated.sandbox.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ run: async () => ({ unrelated: true }) })`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const registryFile = await realpath(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"))
+    const unrelatedFile = await realpath(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__unrelated.mjs"))
+    const unrelatedContents = await readFile(unrelatedFile, "utf8")
+    const loadedMarker = "__vitehubSandboxUnrelatedDefinitionLoaded"
+    Reflect.deleteProperty(globalThis, loadedMarker)
+    await writeFile(unrelatedFile, [
+      `globalThis.${loadedMarker} = true`,
+      unrelatedContents,
+    ].join("\n"))
+
+    const registryModule: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(registryFile).href)
+    expect(Reflect.get(globalThis, loadedMarker)).toBeUndefined()
+    await expect(registryModule.default["tools/release-notes"]?.()).resolves.toBeDefined()
+    expect(Reflect.get(globalThis, loadedMarker)).toBeUndefined()
+    await expect(registryModule.default["tools/unrelated"]?.()).resolves.toBeDefined()
+    expect(Reflect.get(globalThis, loadedMarker)).toBe(true)
+    Reflect.deleteProperty(globalThis, loadedMarker)
   })
 
   it("accepts direct integration options", async () => {
@@ -167,6 +250,22 @@ describe("hubSandbox", () => {
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"provider": "vercel"')
+  })
+
+  it("keeps project definitions when Nuxt owns a custom nested Vite root", async () => {
+    const rootDir = await createViteRoot()
+    const appDir = join(rootDir, "src/client")
+    await mkdir(appDir, { recursive: true })
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir, __vitehubProjectRoot: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: appDir, resolve: { alias: [] } })
+
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"), "utf8"))
+      .resolves.toContain('"tools/release-notes"')
   })
 
   it("does not discover conflicting Definitions when Sandbox is disabled", async () => {
@@ -254,8 +353,107 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
   })
 
-  it("externalizes package dependencies and embeds a preparation plan", async () => {
+  it.each(["cloudflare", "vercel"] as const)("omits self-contained Definition projects for the %s provider", async (provider) => {
     const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "src/lib"), { recursive: true })
+    await writeFile(join(rootDir, "src/lib/message.ts"), `export const message = "self-contained"\n`)
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
+      `import { basename } from "node:path"`,
+      `import { message } from "../lib/message.ts"`,
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ run: async () => ({ message, name: basename("/tmp/value") }) })`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const generated = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"),
+      "utf8",
+    )
+    const artifact = JSON.parse(generated.slice("export default ".length))
+    expect(artifact.bundle).not.toHaveProperty("project")
+    expect(artifact.bundle.entry).toBe("definition.js")
+    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain('from "node:path"')
+    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain("self-contained")
+  })
+
+  it.each(["cloudflare", "vercel"] as const)("honors explicit Definition project policy for the %s provider", async (provider) => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "node_modules/kleur"), { recursive: true })
+    await writeFile(join(rootDir, "node_modules/kleur/package.json"), JSON.stringify({
+      exports: "./index.js",
+      name: "kleur",
+      type: "module",
+    }))
+    await writeFile(join(rootDir, "node_modules/kleur/index.js"), `export default { green: value => \`green:\${value}\` }\n`)
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({
+      dependencies: { kleur: "^4.1.5" },
+      name: "vitehub-sandbox-vite-fixture",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(rootDir, "src/tools/self-contained.sandbox.ts"), [
+      `import { readFile } from "node:fs/promises"`,
+      `import kleur from "kleur"`,
+      `export default defineSandbox({`,
+      `  project: false,`,
+      `  async run(path: string) {`,
+      `    await readFile(path)`,
+      `    return kleur.green("ready")`,
+      `  },`,
+      `})`,
+    ].join("\n"))
+    await writeFile(join(rootDir, "src/tools/forced-project.sandbox.ts"), [
+      `const definition = defineSandbox({`,
+      `  project: true,`,
+      `  run: async () => "project",`,
+      `})`,
+      `export default definition`,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const selfContainedSource = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__self-contained.mjs"),
+      "utf8",
+    )
+    const selfContained = JSON.parse(selfContainedSource.slice("export default ".length))
+    expect(selfContained).not.toHaveProperty("options.project")
+    expect(selfContained.bundle).not.toHaveProperty("project")
+    expect(selfContained.bundle.entry).toBe("definition.js")
+    expect(selfContained.bundle.modules[selfContained.bundle.entry]).toContain("green:")
+    expect(selfContained.bundle.modules[selfContained.bundle.entry]).not.toContain('from "kleur"')
+
+    const forcedProjectSource = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__forced-project.mjs"),
+      "utf8",
+    )
+    const forcedProject = JSON.parse(forcedProjectSource.slice("export default ".length))
+    expect(forcedProject).not.toHaveProperty("options.project")
+    expect(forcedProject.bundle.project.packagePath).toBe(".")
+    expect(forcedProject.bundle.entry).toBe(".vitehub-sandbox/definition.js")
+  })
+
+  it("preserves the nearest package project for a Definition", async () => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "node_modules/kleur"), { recursive: true })
+    await writeFile(join(rootDir, "node_modules/kleur/package.json"), JSON.stringify({
+      exports: "./index.js",
+      name: "kleur",
+      type: "module",
+    }))
+    await writeFile(join(rootDir, "node_modules/kleur/index.js"), `export default { green: value => \`green:\${value}\` }\n`)
     await writeFile(join(rootDir, "package.json"), JSON.stringify({
       dependencies: { kleur: "^4.1.5" },
       packageManager: "pnpm@10.33.0",
@@ -279,10 +477,10 @@ describe("hubSandbox", () => {
       "utf8",
     )
     const artifact = JSON.parse(generated.slice("export default ".length))
+    expect(artifact.bundle.modules[artifact.bundle.entry]).toContain("ready")
     expect(artifact.bundle.modules[artifact.bundle.entry]).toContain('from "kleur"')
-    expect(artifact.bundle.project.files).toHaveProperty("package.json")
+    expect(artifact.bundle.project.packagePath).toBe(".")
     expect(artifact.bundle.project.install.command).toBe("pnpm")
-    expect(artifact.bundle.project.digest).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it("keeps Node built-ins out of definition bundle aliases", async () => {
@@ -346,7 +544,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     let resolvedNitro: any
 
-    await build({
+    await viteBuild({
       appType: "custom",
       build: {
         rollupOptions: { input: join(rootDir, "src/server.ts") },
@@ -370,7 +568,13 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-provider-loader.mjs"), "utf8")).resolves.toContain("resolveSandboxBox")
     const generatedDefinition = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs"), "utf8")
     expect(JSON.parse(generatedDefinition.slice("export default ".length))).toMatchObject({
-      bundle: { execution: "module" },
+      bundle: {
+        execution: "module",
+        project: {
+          files: { "package.json": expect.any(Object) },
+          install: { command: "npm" },
+        },
+      },
       options: { timeout: 30_000 },
     })
     const generatedTypes = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")
@@ -490,7 +694,7 @@ describe("hubSandbox", () => {
       routes: ["example.com/*"],
     })
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
-      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d/)
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn/)
 
     const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: {
@@ -666,6 +870,122 @@ describe("hubSandbox", () => {
     expect(userConfig.nitro.cloudflare.wrangler).toEqual({
       migrations: [{ tag: "v1", new_sqlite_classes: ["Existing"] }],
     })
+  })
+
+  it("preserves existing Cloudflare migration fields and order", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: {
+          wrangler: {
+            migrations: [{ tag: "z-initial", new_classes: ["AnalysisState"] }],
+          },
+        },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro.cloudflare.wrangler.migrations).toEqual([
+      { tag: "z-initial", new_classes: ["AnalysisState"] },
+      { tag: "v1", new_sqlite_classes: ["Sandbox"] },
+    ])
+  })
+
+  it("defers migration validation until Vite config composition completes", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: { wrangler: {
+          durable_objects: { bindings: [
+            { name: "APPLICATION", class_name: "ApplicationState" },
+          ] },
+          migrations: [] as Array<{ tag: string, new_sqlite_classes: string[] }>,
+        } },
+      },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .resolves.toBeDefined()
+    userConfig.nitro.cloudflare.wrangler.migrations.unshift({
+      tag: "application-v1",
+      new_sqlite_classes: ["ApplicationState"],
+    })
+
+    await expect(configResolved({ ...userConfig, resolve: { alias: [] } }))
+      .resolves.toBeUndefined()
+    expect(userConfig.nitro.cloudflare.wrangler.migrations).toEqual([
+      { tag: "application-v1", new_sqlite_classes: ["ApplicationState"] },
+      { tag: "v1", new_sqlite_classes: ["Sandbox"] },
+    ])
+  })
+
+  it("merges every operation from duplicate Cloudflare migration tags", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const target = { cloudflare: { wrangler: { migrations: [
+      { tag: "v1", new_classes: ["Legacy"], new_sqlite_classes: ["Existing"] },
+      {
+        tag: "v1",
+        deleted_classes: ["Removed"],
+        new_sqlite_classes: ["Sandbox"],
+        renamed_classes: [{ from: "Old", to: "Renamed" }],
+        transferred_classes: [{ from: "Remote", from_script: "source-worker", to: "Local" }],
+      },
+      { tag: "v1", deleted_classes: ["Removed"], new_classes: ["Legacy"] },
+    ] } } }
+
+    finalizeCloudflareWranglerConfig(target)
+
+    expect(target.cloudflare.wrangler.migrations).toEqual([{
+      tag: "v1",
+      deleted_classes: ["Removed"],
+      new_classes: ["Legacy"],
+      new_sqlite_classes: ["Existing", "Sandbox"],
+      renamed_classes: [{ from: "Old", to: "Renamed" }],
+      transferred_classes: [{ from: "Remote", from_script: "source-worker", to: "Local" }],
+    }])
+  })
+
+  it("validates Durable Object bindings against replayed migration state", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const migrations = [
+      { tag: "v1", new_sqlite_classes: ["Legacy", "Removed"] },
+      {
+        tag: "v2",
+        deleted_classes: ["Removed"],
+        renamed_classes: [{ from: "Legacy", to: "Current" }],
+      },
+    ]
+    const target = (classNames: string[]) => ({ cloudflare: { wrangler: {
+      durable_objects: { bindings: classNames.map(class_name => ({ class_name, name: class_name.toUpperCase() })) },
+      migrations,
+    } } })
+
+    expect(() => finalizeCloudflareWranglerConfig(target(["Current"]))).not.toThrow()
+    expect(() => finalizeCloudflareWranglerConfig(target(["Legacy", "Removed"])))
+      .toThrow("Missing Cloudflare durable object migration entries for: Legacy, Removed.")
+  })
+
+  it("does not require local migrations for external Durable Object bindings", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const target = { cloudflare: { wrangler: { durable_objects: { bindings: [
+      { name: "REMOTE", class_name: "RemoteObject", script_name: "other-worker" },
+    ] } } } }
+
+    expect(() => finalizeCloudflareWranglerConfig(target)).not.toThrow()
   })
 
   it("rejects Wrangler exports before adding legacy migrations", async () => {
@@ -1023,6 +1343,29 @@ describe("hubSandbox", () => {
     })
   })
 
+  it("keeps the active runtime intact across independent concurrent writers", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugins = Array.from({ length: 4 }, () => hubSandbox({ provider: "vercel" }))
+    const resolvedConfig = { root: rootDir, resolve: { alias: [] as [] } }
+
+    await Promise.all(plugins.map(async (plugin) => {
+      const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+      await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    }))
+    await Promise.all(plugins.map(async (plugin) => {
+      const configResolved = plugin.configResolved as unknown as (config: typeof resolvedConfig) => unknown | Promise<unknown>
+      await configResolved(resolvedConfig)
+    }))
+
+    const runtimeDir = join(rootDir, ".vitehub/sandbox/runtime")
+    const activeGeneration = await realpath(runtimeDir)
+    const generations = await readdir(join(rootDir, ".vitehub/sandbox/.runtime-generations"))
+    expect(generations).toHaveLength(2)
+    expect(generations).toContain(basename(activeGeneration))
+    await expect(readFile(join(runtimeDir, "sandbox.mjs"), "utf8")).resolves.toContain("setSandboxRuntimeRegistry(sandboxRegistry)")
+  })
+
   it("refreshes generated artifacts during sandbox definition hot updates", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
@@ -1041,6 +1384,16 @@ describe("hubSandbox", () => {
     const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
     const registryAlias = join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs")
     const definitionArtifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const previousResolvedSandbox = await realpath(sandboxAlias)
+    const previousResolvedRegistry = await realpath(registryAlias)
+    const previousResolvedDefinition = await realpath(definitionArtifact)
+    const previousFacadeModule: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(previousResolvedSandbox).href)
+    const loadPreviousDefinition = previousFacadeModule.default["tools/release-notes"]
+    if (!loadPreviousDefinition)
+      throw new Error("Expected the previous sandbox registry to contain tools/release-notes.")
+    const definitionImport = "./sandbox-definitions/tools__release-notes.mjs"
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(definitionImport))
+    expect(resolve(dirname(previousResolvedRegistry), definitionImport)).toBe(previousResolvedDefinition)
     const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
     const invalidated: string[] = []
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
@@ -1064,7 +1417,7 @@ describe("hubSandbox", () => {
       server: {
         moduleGraph: {
           getModuleById(id) {
-            if ([sandboxAlias, registryAlias, definitionArtifact].includes(id))
+            if ([sandboxAlias, registryAlias, definitionArtifact].includes(id) || id.includes("/.runtime-generations/"))
               return { id }
           },
           invalidateModule(module) {
@@ -1074,8 +1427,239 @@ describe("hubSandbox", () => {
       },
     })
 
-    expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
+    const currentResolvedDefinition = await realpath(definitionArtifact)
+    expect(invalidated).toEqual(expect.arrayContaining([
+      sandboxAlias,
+      registryAlias,
+      definitionArtifact,
+      previousResolvedSandbox,
+      previousResolvedRegistry,
+      previousResolvedDefinition,
+      await realpath(sandboxAlias),
+      await realpath(registryAlias),
+      currentResolvedDefinition,
+    ]))
+    const currentResolvedRegistry = await realpath(registryAlias)
+    await expect(readFile(previousResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(definitionImport))
+    await expect(readFile(currentResolvedRegistry, "utf8")).resolves.toContain(JSON.stringify(definitionImport))
+    expect(resolve(dirname(currentResolvedRegistry), definitionImport)).toBe(currentResolvedDefinition)
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
+
+    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await handleHotUpdate({
+      file: definition,
+      server: {
+        moduleGraph: {
+          getModuleById: () => undefined,
+          invalidateModule: () => {},
+        },
+      },
+    })
+    const generations = await readdir(join(rootDir, ".vitehub/sandbox/.runtime-generations"))
+    expect(generations).toHaveLength(2)
+    await expect(readFile(previousResolvedDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(loadPreviousDefinition()).resolves.toBeDefined()
+  })
+
+  it("invalidates each generated runtime before starting the next hot refresh", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    const invalidated: string[] = []
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => { id: string }
+          invalidateModule: (module: { id: string }) => void
+        }
+      }
+    }) => Promise<void>
+    const context = {
+      file: definition,
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => ({ id }),
+          invalidateModule: (module: { id: string }) => invalidated.push(module.id),
+        },
+      },
+    }
+
+    const firstPrepared = createDeferred()
+    const releaseFirst = createDeferred()
+    const secondStarted = createDeferred()
+    let preparation = 0
+    runtimePreparationMock.beforePrepare = async () => {
+      preparation += 1
+      if (preparation === 2)
+        secondStarted.resolve()
+    }
+    runtimePreparationMock.afterPrepare = async () => {
+      if (preparation === 1) {
+        firstPrepared.resolve()
+        await releaseFirst.promise
+      }
+    }
+
+    await writeFile(definition, "export default { run: async () => ({ message: 'first' }) }\n")
+    const firstUpdate = handleHotUpdate(context)
+    await firstPrepared.promise
+    const firstGenerationSandbox = await realpath(sandboxAlias)
+
+    await writeFile(definition, "export default { run: async () => ({ message: 'second' }) }\n")
+    const secondUpdate = handleHotUpdate(context)
+    releaseFirst.resolve()
+    await secondStarted.promise
+
+    expect(invalidated).toContain(firstGenerationSandbox)
+    await Promise.all([firstUpdate, secondUpdate])
+    await expect(readFile(sandboxAlias, "utf8")).resolves.toContain("setSandboxRuntimeConfig")
+  })
+
+  it.each(["cloudflare", "vercel"] as const)("bundles the generated %s runtime through stable paths with provider aliases", async (provider) => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const providerImportAliases: Record<string, string> = {}
+    const plugin = hubSandbox({
+      provider,
+      providerImportAliases,
+      providerImportSpecifier: "vite-hub/sandbox",
+    } as never)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const stableFacade = join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs")
+    await viteBuild({
+      build: {
+        rollupOptions: { external: provider === "cloudflare" ? ["cloudflare:workers"] : [] },
+        ssr: stableFacade,
+        write: false,
+      },
+      configFile: false,
+      resolve: { alias: providerImportAliases, preserveSymlinks: true },
+      root: rootDir,
+    })
+
+    if (provider === "vercel") {
+      const realFacade = await realpath(stableFacade)
+      const [stableModule, realModule] = await Promise.all([
+        import(`${pathToFileURL(stableFacade).href}?path=stable`),
+        import(`${pathToFileURL(realFacade).href}?path=real`),
+      ])
+      expect(stableModule.default).toHaveProperty("tools/release-notes")
+      expect(realModule.default).toHaveProperty("tools/release-notes")
+    }
+
+    await rm(join(rootDir, "node_modules"))
+    const result = await esbuild({
+      bundle: true,
+      entryPoints: [stableFacade],
+      format: "esm",
+      platform: "node",
+      external: provider === "cloudflare" ? ["cloudflare:*"] : [],
+      alias: providerImportAliases,
+      write: false,
+    })
+
+    expect(result.outputFiles[0]?.text).toContain("release-notes")
+    expect(result.outputFiles[0]?.text).toContain(provider === "cloudflare" ? "resolveCloudflareSandboxBox" : "resolveVercelSandboxBox")
+  })
+
+  it("removes generated bundles for definitions that no longer exist", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const previousDefinition = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    await expect(readFile(previousDefinition, "utf8")).resolves.toContain("release-notes")
+
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await writeFile(join(rootDir, "src/tools/next.sandbox.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ run: async () => ({ next: true }) })`,
+      ``,
+    ].join("\n"))
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__next.mjs"), "utf8")).resolves.toContain("next")
+  })
+
+  it("keeps Windows definition fallbacks in the active runtime", async () => {
+    const rootDir = await createViteRoot()
+    const { prepareSandboxRuntime } = await import("../src/internal/runtime-preparation.ts")
+    const options = {
+      env: { command: "serve" as const, mode: "development" },
+      platform: "win32" as const,
+      userConfig: { root: rootDir },
+    }
+
+    await prepareSandboxRuntime(options)
+    const stableDefinition = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const generationsDir = join(rootDir, ".vitehub/sandbox/.runtime-generations")
+    const [previousGeneration] = (await readdir(generationsDir)).filter(entry => entry.startsWith("runtime-"))
+    if (!previousGeneration)
+      throw new Error("Expected the initial Windows runtime generation to exist.")
+    const previousDefinition = join(generationsDir, previousGeneration, "sandbox-definitions/tools__release-notes.mjs")
+    const previousFacadeModule: { default: Record<string, () => Promise<unknown>> } = await import(
+      pathToFileURL(join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs")).href,
+    )
+    const loadPreviousDefinition = previousFacadeModule.default["tools/release-notes"]
+    if (!loadPreviousDefinition)
+      throw new Error("Expected the previous Windows registry to contain tools/release-notes.")
+    await expect(readFile(stableDefinition, "utf8")).resolves.toContain("release-notes")
+
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    await prepareSandboxRuntime(options)
+    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await prepareSandboxRuntime(options)
+
+    await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(stableDefinition, "utf8")).resolves.toContain("latest")
+    const activeFacade = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs"), "utf8")
+    const activeGeneration = activeFacade.match(/^\/\/ vitehub-sandbox-generation: (runtime-[^\n]+)/)?.[1]
+    if (!activeGeneration)
+      throw new Error("Expected the active Windows runtime facade to identify its generation.")
+    const activeRegistry = await readFile(join(generationsDir, activeGeneration, "sandbox-registry.mjs"), "utf8")
+    expect(activeRegistry).toMatch(/^import .* from "@vite-hub\/sandbox\/runtime\/state"/m)
+    expect(activeRegistry).toMatch(/load: async \(\) => import\("\./)
+    expect(activeRegistry).toMatch(/stablePath: "file:/)
+    await rm(stableDefinition)
+    await expect(loadPreviousDefinition()).resolves.toBeDefined()
+  })
+
+  it("keeps the last valid generated bundles when regeneration fails", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    const generated = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const previous = await readFile(generated, "utf8")
+    expect((await lstat(join(rootDir, ".vitehub/sandbox/runtime"))).isSymbolicLink()).toBe(true)
+    await writeFile(definition, "export default { run: async () => {\n")
+
+    await expect(configResolved({ root: rootDir, resolve: { alias: [] } })).rejects.toThrow()
+    await expect(readFile(generated, "utf8")).resolves.toBe(previous)
   })
 
   it("refreshes generated options when a Sandbox project manifest changes", async () => {
@@ -1167,6 +1751,49 @@ describe("hubSandbox", () => {
     await expect(readPrompt()).resolves.toBe("updated prompt")
   })
 
+  it("refreshes generated projects when a pnpm patch input changes", async () => {
+    const rootDir = await createViteRoot()
+    const patch = join(rootDir, "patches/example.patch")
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    await mkdir(dirname(patch), { recursive: true })
+    await writeFile(patch, "initial patch")
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({
+      name: "vitehub-sandbox-vite-fixture",
+      packageManager: "pnpm@10.0.0",
+      pnpm: { patchedDependencies: { example: "patches/example.patch" } },
+      private: true,
+      type: "module",
+    }))
+    await writeFile(definition, [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ project: true, run: async () => ({ ok: true }) })`,
+      ``,
+    ].join("\n"))
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const artifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const initial = await readFile(artifact, "utf8")
+    await writeFile(patch, "updated patch")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: patch,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const updated = await readFile(artifact, "utf8")
+    expect(updated).not.toBe(initial)
+    expect(updated).toContain(Buffer.from("updated patch").toString("base64"))
+  })
+
   it("discovers a Sandbox when its package manifest is added during development", async () => {
     const rootDir = await createViteRoot()
     const projectDir = join(rootDir, "server/sandboxes/example")
@@ -1256,5 +1883,130 @@ describe("hubSandbox", () => {
 
     expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated helper")
+  })
+
+  it("watches Sandbox project files from the owned project root", async () => {
+    const projectRoot = await createViteRoot()
+    const viteRoot = join(projectRoot, "app")
+    const helper = join(projectRoot, "src/tools/message.ts")
+    const definition = join(projectRoot, "src/tools/release-notes.sandbox.ts")
+    await mkdir(viteRoot)
+    await writeFile(helper, `export const message = "initial"\n`)
+    await writeFile(definition, [
+      `import { message } from "./message"`,
+      `export default { run: async () => ({ message }) }`,
+      ``,
+    ].join("\n"))
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: viteRoot, __vitehubProjectRoot: projectRoot }, { command: "serve", mode: "development" })
+    await configResolved({ root: viteRoot, resolve: { alias: [] } })
+
+    const artifact = join(projectRoot, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    await expect(readFile(artifact, "utf8")).resolves.toContain("initial")
+    await writeFile(helper, `export const message = "updated"\n`)
+
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: helper,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    await expect(readFile(artifact, "utf8")).resolves.toContain("updated")
+  })
+
+  it("refreshes a Sandbox when a project asset is added", async () => {
+    const rootDir = await createViteRoot()
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    await writeFile(definition, [
+      `import { readdir } from "node:fs/promises"`,
+      `export default { run: async () => readdir("./prompts") }`,
+      ``,
+    ].join("\n"))
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const artifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const projectAsset = join(rootDir, "prompts/new.md")
+    await mkdir(dirname(projectAsset), { recursive: true })
+    await writeFile(projectAsset, "new prompt")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: projectAsset,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const generated = await readFile(artifact, "utf8")
+    expect(generated).toContain(Buffer.from("new prompt").toString("base64"))
+  })
+
+  it("refreshes a package-entry Sandbox when a workspace dependency asset is added", async () => {
+    const rootDir = await createViteRoot()
+    const sandboxRoot = join(rootDir, "server/sandboxes/example")
+    const dependencyRoot = join(rootDir, "packages/prompts")
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await mkdir(sandboxRoot, { recursive: true })
+    await mkdir(dependencyRoot, { recursive: true })
+    await writeFile(join(rootDir, "pnpm-workspace.yaml"), [
+      `packages:`,
+      `  - "server/sandboxes/*"`,
+      `  - "packages/*"`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(sandboxRoot, "package.json"), JSON.stringify({
+      dependencies: { "@fixture/prompts": "workspace:*" },
+      name: "@fixture/example-sandbox",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(sandboxRoot, "index.ts"), [
+      `import "@fixture/prompts"`,
+      `export default async function run() { return { ok: true } }`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(dependencyRoot, "package.json"), JSON.stringify({
+      exports: "./index.js",
+      name: "@fixture/prompts",
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(dependencyRoot, "index.js"), `export const ready = true\n`)
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const artifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs")
+    const projectAsset = join(dependencyRoot, "prompts/new.md")
+    await mkdir(dirname(projectAsset), { recursive: true })
+    await writeFile(projectAsset, "new workspace prompt")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: projectAsset,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const generated = await readFile(artifact, "utf8")
+    expect(generated).toContain(Buffer.from("new workspace prompt").toString("base64"))
   })
 })

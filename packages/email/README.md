@@ -1,16 +1,16 @@
 # `@vite-hub/email`
 
-`@vite-hub/email` connects declaratively configured Unemail drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
+`@vite-hub/email` connects declaratively configured provider drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
-Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown`. Import provider drivers directly from `unemail/driver/*`; test utilities and direct Vite Integration control stay on this owner package.
+Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
 
 ## Requirements
 
 - Node.js 24 or later.
 - Vite 8 or later for provider configuration and generated runtime wiring.
-- Unemail and the credentials required by your selected driver.
+- The credentials required by your selected driver.
 
-The Vite integration composes one upstream Unemail driver from a serializable subpath and runtime Env declarations.
+The Vite integration composes one ViteHub-owned provider driver from a stable name and runtime Env declarations.
 
 ## Quickstart
 
@@ -30,7 +30,7 @@ import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [hubEmail({
-    driver: "unemail/driver/resend",
+    driver: "resend",
     options: {
       apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
     },
@@ -53,7 +53,7 @@ const result = await email.send({
 })
 ```
 
-A successful send returns `{ id, driver }`; the provider supplies `id`. ViteHub maps Unemail failures to stable `EMAIL_*` codes and keeps the original Unemail error in `cause`.
+A successful send returns `{ id, driver }`; the provider supplies `id`. ViteHub maps provider failures to stable `EMAIL_*` codes and keeps the original error in `cause`.
 
 ## Grant an Agent permission to send
 
@@ -133,8 +133,14 @@ Captured messages are cloned before storage. `clear()` empties the mailbox and r
 
 ## Use another provider
 
-Set `driver` to any `unemail/driver/*` subpath and declare its options in `hubEmail({ driver, options })`. Contribute missing providers through Unemail's `defineDriver()` contract so every consumer benefits.
+Set `driver` to `resend` or `cloudflare-email` and declare its options in `hubEmail({ driver, options })`. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`.
 
-ViteHub owns provider composition, runtime delivery, normalized errors, Dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior.
+## Migrating from Unemail driver paths
+
+Replace `driver: "unemail/driver/resend"` with `driver: "resend"`. Replace `driver: "unemail/driver/cloudflare-email"` with `driver: "cloudflare-email"`. Direct imports move to `@vite-hub/email/drivers/resend` and `@vite-hub/email/drivers/cloudflare-email`.
+
+ViteHub no longer installs or executes the `unemail` package. GitHub's unresolved critical package-name advisory covers every published version even though the current `0.5.0` tarball has npm provenance and no lifecycle install hook. Removing the dependency clears that advisory without claiming the current tarball is proven malicious.
+
+ViteHub owns the portable message and driver contracts, its built-in Resend and Cloudflare Email transports, runtime delivery, normalized errors, Dynamic Markdown composition, and test capture.
 
 Read the complete [Email guide and API reference](https://vitehub.dev/docs/server-primitives/email).

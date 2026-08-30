@@ -12,7 +12,7 @@ import ConsoleKv from "../components/console-kv.vue";
 import ConsoleDefinitions from "../components/console-definitions.vue";
 import { isConsoleSectionId } from "../sections";
 import App from "./app.vue";
-import { requestConsole } from "./request";
+import { createConsoleSectionLoader } from "./sections";
 
 const sectionsBase = "/api/_vitehub/console/sections";
 
@@ -41,6 +41,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
       },
     },
     {
@@ -53,6 +54,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
       },
     },
     {
@@ -77,6 +79,19 @@ const router = createRouter({
         kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+      },
+    },
+    {
+      component: ConsoleApp,
+      name: "vitehub-console-usage",
+      path: "/usage",
+      meta: { consoleSection: "usage", title: "Usage · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        apiBase: "/api/_vitehub/console/invocations",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
       },
     },
     {
@@ -108,17 +123,7 @@ const router = createRouter({
   ],
 });
 
-let installedSections;
-
-async function loadSections() {
-  if (installedSections) return await installedSections;
-  installedSections = requestConsole(sectionsBase)
-    .then((value) =>
-      Array.isArray(value?.sections) ? value.sections.filter(isConsoleSectionId) : [],
-    )
-    .catch(() => undefined);
-  return await installedSections;
-}
+const loadSections = createConsoleSectionLoader(sectionsBase);
 
 router.beforeEach(async (to) => {
   const section = to.meta.consoleSection;
@@ -130,5 +135,4 @@ router.beforeEach(async (to) => {
 router.afterEach((to) => {
   document.title = String(to.meta.title ?? "ViteHub Console");
 });
-
 createApp(App).use(router).use(ui).use(createViteHubUI()).mount("#app");

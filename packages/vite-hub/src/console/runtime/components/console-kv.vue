@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import { requestConsole } from "../client/request";
+import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBackButton from "./console-back-button.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -9,13 +9,14 @@ import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 
 interface KVListResponse {
+  cursor?: string;
+  error?: string;
+  errorCode?: "cursor_expired";
   keys: string[];
   limit: number;
   prefix: string;
   store: string;
   stores: string[];
-  total: number;
-  truncated: boolean;
 }
 
 interface KVValueResponse {
@@ -41,8 +42,7 @@ const stores = ref<string[]>([]);
 const selectedStore = ref("default");
 const prefix = ref("");
 const keys = ref<string[]>([]);
-const total = ref(0);
-const listTruncated = ref(false);
+const nextCursor = ref<string>();
 const selectedKey = ref<string>();
 const selectedValue = ref<KVValueResponse>();
 const listLoading = ref(true);
@@ -67,6 +67,11 @@ function parseList(value: unknown): KVListResponse {
     throw new TypeError("The Console returned an invalid KV key list.");
   }
   return {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    cursor: typeof source.cursor === "string" ? source.cursor : undefined,
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    error: typeof source.error === "string" ? source.error : undefined,
+    errorCode: source.errorCode === "cursor_expired" ? source.errorCode : undefined,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every key before rendering it.
     keys: source.keys.filter((key): key is string => typeof key === "string"),
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional limit at this boundary.
@@ -77,9 +82,6 @@ function parseList(value: unknown): KVListResponse {
     store: typeof source.store === "string" ? source.store : "default",
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every store identity before rendering it.
     stores: source.stores.filter((store): store is string => typeof store === "string"),
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional total at this boundary.
-    total: typeof source.total === "number" ? source.total : source.keys.length,
-    truncated: source.truncated === true,
   };
 }
 
@@ -115,13 +117,14 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   valueRequest?.abort();
   selectedValue.value = undefined;
   valueError.value = undefined;
-  if (!key) return;
+  if (key === undefined) return;
   const controller = new AbortController();
   valueRequest = controller;
   valueLoading.value = true;
   try {
     const value = parseValue(await requestConsole(props.kvBase, {
-      query: { key, store: selectedStore.value },
+      body: { key, store: selectedStore.value },
+      method: "POST",
       signal: controller.signal,
     }));
     if (valueRequest === controller) selectedValue.value = value;
@@ -136,34 +139,59 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   }
 }
 
-async function loadKeys(options: { keepSelection?: boolean } = {}): Promise<void> {
+async function loadKeys(options: { append?: boolean; keepSelection?: boolean } = {}): Promise<void> {
   listRequest?.abort();
+  const currentSelection = options.keepSelection ? selectedKey.value : undefined;
   const controller = new AbortController();
   listRequest = controller;
   listLoading.value = true;
+  let retryExpiredCursor = false;
+  if (!options.append) {
+    valueRequest?.abort();
+    valueRequest = undefined;
+    valueLoading.value = false;
+    keys.value = [];
+    nextCursor.value = undefined;
+    selectedKey.value = undefined;
+    selectedValue.value = undefined;
+    valueError.value = undefined;
+  }
   try {
     const value = parseList(await requestConsole(props.kvBase, {
-      query: { prefix: prefix.value || undefined, store: selectedStore.value },
+      query: { cursor: options.append ? nextCursor.value : undefined, prefix: prefix.value || undefined, store: selectedStore.value },
       signal: controller.signal,
     }));
     if (listRequest !== controller) return;
     stores.value = value.stores;
-    keys.value = value.keys;
-    total.value = value.total;
-    listTruncated.value = value.truncated;
+    if (value.error) {
+      const error = new Error(value.error);
+      if (value.errorCode) Object.assign(error, { code: value.errorCode });
+      throw error;
+    }
+    keys.value = options.append ? appendUniqueConsoleKeys(keys.value, value.keys) : value.keys;
+    nextCursor.value = value.cursor;
     listError.value = undefined;
-    const current = options.keepSelection ? selectedKey.value : undefined;
-    selectedKey.value = current && value.keys.includes(current) ? current : value.keys[0];
+    const selection = options.append && options.keepSelection && selectedKey.value !== currentSelection
+      ? selectedKey.value
+      : currentSelection;
+    selectedKey.value = selection !== undefined && keys.value.includes(selection) ? selection : keys.value[0];
     await loadValue();
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
-    if (listRequest === controller) listError.value = error;
+    if (listRequest === controller) {
+      retryExpiredCursor = options.append === true
+        && error instanceof Object
+        && "code" in error
+        && error.code === "cursor_expired";
+      if (!retryExpiredCursor) listError.value = error;
+    }
   } finally {
     if (listRequest === controller) {
       listRequest = undefined;
       listLoading.value = false;
     }
   }
+  if (retryExpiredCursor) await loadKeys({ keepSelection: true });
 }
 
 async function selectKey(key: string): Promise<void> {
@@ -174,6 +202,10 @@ async function selectKey(key: string): Promise<void> {
 
 async function refresh(): Promise<void> {
   await loadKeys({ keepSelection: true });
+}
+
+async function loadMore(): Promise<void> {
+  await loadKeys({ append: true, keepSelection: true });
 }
 
 watch(selectedStore, () => {
@@ -234,7 +266,7 @@ onBeforeUnmount(() => {
             <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">KV storage</span>
             <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Keys</h1>
           </div>
-          <span class="text-xs text-muted">{{ total }}</span>
+          <span class="text-xs text-muted">{{ keys.length }}</span>
         </div>
         <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
           <UDashboardSearchButton
@@ -272,13 +304,13 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
-            <UTooltip v-for="key in keys" :key="key" :text="key" :content="{ side: 'right' }">
+            <UTooltip v-for="key in keys" :key="key" :text="key || '(empty key)'" :content="{ side: 'right' }">
               <UButton
                 icon="i-lucide-key-round"
                 color="neutral"
                 :variant="selectedKey === key ? 'soft' : 'ghost'"
                 block
-                :aria-label="key"
+                :aria-label="key || 'Empty key'"
                 @click="selectKey(key)"
               />
             </UTooltip>
@@ -287,7 +319,7 @@ onBeforeUnmount(() => {
         <div v-else-if="listLoading && !keys.length" class="grid gap-2 px-3">
           <USkeleton v-for="index in 6" :key="index" class="h-10 rounded-md" />
         </div>
-        <nav v-else-if="keys.length" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="KV keys">
+        <nav v-else-if="keys.length || nextCursor" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="KV keys">
           <button
             v-for="key in keys"
             :key="key"
@@ -297,11 +329,11 @@ onBeforeUnmount(() => {
             @click="selectKey(key)"
           >
             <UIcon name="i-lucide-key-round" class="size-3.5 shrink-0 text-dimmed" />
-            <span class="truncate font-mono text-xs">{{ key }}</span>
+            <span class="truncate font-mono text-xs">{{ key || "(empty key)" }}</span>
           </button>
-          <p v-if="listTruncated" class="px-2 pt-3 text-xs leading-5 text-muted">
-            Showing the first {{ keys.length }} of {{ total }} keys. Narrow the prefix to inspect more.
-          </p>
+          <UButton v-if="nextCursor" block class="mt-2" color="neutral" variant="ghost" :loading="listLoading" @click="loadMore">
+            Load more
+          </UButton>
         </nav>
         <UEmpty
           v-else-if="!listLoading && !listError && !collapsed"
@@ -359,15 +391,15 @@ onBeforeUnmount(() => {
           />
           <div class="min-w-0">
             <p class="truncate font-mono text-xs font-medium text-highlighted">
-              {{ selectedKey || "KV" }}
+              {{ selectedKey === "" ? "(empty key)" : selectedKey ?? "KV" }}
             </p>
-            <p v-if="selectedKey" class="mt-0.5 truncate text-[11px] text-muted">{{ selectedStore }}</p>
+            <p v-if="selectedKey !== undefined" class="mt-0.5 truncate text-[11px] text-muted">{{ selectedStore }}</p>
           </div>
           <UBadge class="ml-auto" color="neutral" label="Read-only" size="sm" variant="soft" />
         </header>
 
         <UEmpty
-          v-if="!selectedKey && !listLoading"
+          v-if="selectedKey === undefined && !listLoading"
           class="min-h-0 flex-1"
           icon="i-lucide-mouse-pointer-click"
           title="Select a key"

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -8,8 +8,9 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
-import { hubQueue } from "../src/vite.ts"
+import { createQueueNitroConfig, hubQueue } from "../src/vite.ts"
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
@@ -19,7 +20,45 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubQueue>) {
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this callable Vite lifecycle hook in the focused test.
+  await (plugin.buildEnd as unknown as () => void | Promise<void>)()
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this object Vite lifecycle hook in the focused test.
+  await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
+}
+
 describe("hubQueue", () => {
+  it("registers absolute generated paths when Nitro owns the Vite config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-owned-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const plugin = hubQueue({ provider: "cloudflare" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
+    const userConfig = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      nitro: { preset: "cloudflare_module" },
+      root,
+    }
+
+    config(userConfig)
+
+    expect(userConfig.nitro).toMatchObject({
+      handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
+      plugins: [resolve(root, ".vitehub/nitro/queue/plugin.ts")],
+    })
+
+    const nitro = await createQueueNitroConfig(plugin, {
+      nitro: userConfig.nitro,
+      projectRoot: root,
+      root,
+    })
+    expect(nitro).toMatchObject({
+      handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
+      plugins: [resolve(root, ".vitehub/nitro/queue/plugin.ts")],
+    })
+  })
+
   it("registers and generates the Nitro queue runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
@@ -127,10 +166,34 @@ describe("hubQueue", () => {
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     const nitroMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
-    expect(nitroPlugin).toContain("import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'")
+    expect(nitroPlugin).toContain("import * as vitehubCloudflareWorkers from 'cloudflare:workers'")
+    expect(nitroPlugin).toContain("const { env: vitehubEnv, waitUntil: vitehubWaitUntil } = vitehubCloudflareWorkers as unknown as")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
-    expect(nitroMiddleware).toContain("import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'")
+    expect(nitroMiddleware).toContain("import * as vitehubCloudflareWorkers from 'cloudflare:workers'")
     expect(nitroMiddleware).toContain("Object.assign(event, { env: runtimeEvent.env")
+
+    await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "runtime-types.d.ts"), [
+      "declare namespace CloudflareWorkersModule { const __brand: unknown }",
+      "declare module 'cloudflare:workers' { export = CloudflareWorkersModule }",
+      "",
+    ].join("\n"))
+    await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+      compilerOptions: {
+        module: "Preserve",
+        moduleResolution: "Bundler",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        types: [],
+      },
+      files: ["runtime-types.d.ts", ".vitehub/nitro/queue/middleware.ts"],
+    }, null, 2)}\n`)
+    await execFileAsync(process.execPath, [join(workspaceRoot, "node_modules/typescript/bin/tsc"), "-p", root], { cwd: root })
+      .catch((error: unknown) => {
+        const output = Reflect.get(Object(error), "stdout") || Reflect.get(Object(error), "stderr")
+        throw new Error(String(output || error))
+      })
   })
 
   it("keeps inferred Cloudflare queue prefixes aligned across bindings and runtime definitions", async () => {
@@ -333,7 +396,7 @@ describe("hubQueue", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)(resolved as never)
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.queues.producers")
     expect(resolved).toHaveProperty("nitro.rollupConfig.external", ["cloudflare:workers"])
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(false)
 
     const disabled = { nitro: { preset: "cloudflare_module", handlers: [{ handler: ".vitehub/nitro/queue/middleware.ts", middleware: true, route: "/**" }, { handler: "server/middleware.ts", middleware: true }], plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] }, queue: false, root }
@@ -364,7 +427,7 @@ describe("hubQueue", () => {
     }
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
     await plugin.vitehub?.queue?.createNitroConfig({ nitro: config.nitro, projectRoot: root, root: viteRoot })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     expect(existsSync(join(root, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(true)
     expect(existsSync(join(viteRoot, ".vercel"))).toBe(false)
@@ -388,7 +451,7 @@ describe("hubQueue", () => {
     }
     ;(vercelPlugin.config as unknown as (config: Record<string, unknown>) => void)(vercelConfig)
     await (vercelPlugin.configResolved as (config: unknown) => Promise<void>)(vercelConfig as never)
-    await (vercelPlugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(vercelPlugin)
 
     const outputRoot = join(root, ".vercel", "output")
     const functionsRoot = join(outputRoot, "functions")
@@ -438,7 +501,7 @@ describe("hubQueue", () => {
     }
     ;(cloudflarePlugin.config as unknown as (config: Record<string, unknown>) => void)(cloudflareConfig)
     await (cloudflarePlugin.configResolved as (config: unknown) => Promise<void>)(cloudflareConfig as never)
-    await (cloudflarePlugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(cloudflarePlugin)
 
     await expect(readFile(join(serverFunction, "index.mjs"), "utf8")).resolves.toBe(serverContents)
     await expect(readFile(join(blobFunction, "index.mjs"), "utf8")).resolves.toContain("blob: true")
@@ -493,7 +556,7 @@ describe("hubQueue", () => {
     expect(pagesPlugin).not.toContain("cloudflare:queue")
     expect(pagesPlugin).toContain("cloudflare:workers")
     expect(pagesPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
   })
 
@@ -505,8 +568,36 @@ describe("hubQueue", () => {
     const config = { build: { outDir: "dist" }, command: "build", nitro: { preset: "vercel" }, root }
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
+  })
+
+  it("captures plain Vite Queue Definitions before deferred Provider Output finalization", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-vite-generation-"))
+    roots.push(root)
+    const definition = join(root, "current.queue.ts")
+    await writeFile(definition, "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "cloudflare" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      plugins: [],
+      queue: { provider: "cloudflare" },
+      resolve: { alias: [] },
+      root,
+    } as never)
+
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this callable Vite lifecycle hook in the focused test.
+    await (plugin.buildEnd as unknown as () => void | Promise<void>)()
+    await writeFile(join(root, "failed-rebuild.queue.ts"), "export default { handler: async () => undefined }\n")
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubQueue owns this object Vite lifecycle hook in the focused test.
+    await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
+
+    const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
+    expect(registry).toContain("current.queue.ts")
+    expect(registry).not.toContain("queue-generations")
+    expect(registry).not.toContain("failed-rebuild.queue.ts")
+    await expect(readdir(join(root, ".vitehub", "queue-generations")).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error))).resolves.toEqual([])
   })
 
   it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("keeps standalone output after Blob's Nitro bridge when selected by %s", async (environmentVariable) => {
@@ -521,7 +612,7 @@ describe("hubQueue", () => {
       const config = { build: { outDir: "dist" }, command: "build", nitro: { plugins: [".vitehub/nitro/blob/plugin.ts"] }, plugins: [{ name: "@vite-hub/blob/vite" }], root }
       ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
       await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
-      await (plugin.closeBundle as () => Promise<void>)()
+      await runProviderOutputHooks(plugin)
       expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
     }
     finally {
@@ -543,7 +634,7 @@ describe("hubQueue", () => {
     } as never)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
   })
 
   it("rejects late Queue Definitions for Vercel Nitro", async () => {
@@ -559,7 +650,7 @@ describe("hubQueue", () => {
     } as never)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
   })
 
   it("removes Queue bindings when final config discovery is empty", async () => {
@@ -599,7 +690,7 @@ describe("hubQueue", () => {
     } as never)
     await rm(definition)
 
-    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
   })
 
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {

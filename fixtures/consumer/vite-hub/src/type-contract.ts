@@ -52,7 +52,7 @@ export const contract = {
   ],
   plugins: vitehub({
     email: {
-      driver: "unemail/driver/resend",
+      driver: "resend",
       options: {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },

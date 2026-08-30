@@ -25,6 +25,9 @@ export {
   email,
 } from "./email.ts"
 export {
+  executor,
+} from "./executor.ts"
+export {
   git,
 } from "./git.ts"
 export {
@@ -47,17 +50,8 @@ export {
   openapi,
 } from "./openapi.ts"
 export {
-  papercuts,
-} from "./papercuts.ts"
-export {
   progressSummary,
 } from "./progress-summary.ts"
-export {
-  repositoryHost,
-} from "./repository-host.ts"
-export {
-  repositoryHostContext,
-} from "./repository-host-context.ts"
 export {
   llmRoute,
 } from "./llm-route.ts"
@@ -68,9 +62,6 @@ export {
   agentScheduleIdFromCron,
   schedule,
 } from "./schedule.ts"
-export {
-  subagents,
-} from "./subagents.ts"
 export {
   skills,
 } from "./skills.ts"
@@ -102,6 +93,11 @@ export {
 export type {
   DiagnosticsCapabilityOptions,
 } from "./diagnostics.ts"
+export type {
+  ExecutorCapabilityOptions,
+  ExecutorConnectionOptions,
+  ExecutorCredential,
+} from "./executor.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
@@ -274,46 +270,6 @@ export type {
   OpenAPIResponseContext,
 } from "./openapi.ts"
 export type {
-  Papercut,
-  PapercutReportContext,
-  PapercutReportEvent,
-  PapercutSource,
-  PapercutsOptions,
-} from "./papercuts.ts"
-export type {
-  RepositoryHostClient,
-  RepositoryHostOptions,
-  RepositoryHostProvider,
-  RepositoryHostReadOperation,
-  RepositoryHostReadRequest,
-  RepositoryHostTarget,
-  RepositoryHostTargetKind,
-  RepositoryHostToolPolicy,
-  RepositoryHostWriteOperation,
-  RepositoryHostWriteRequest,
-} from "./repository-host.ts"
-export type {
-  AsyncRecord,
-  JsonObject,
-  JsonPrimitive,
-  JsonValue,
-  PullRequestContextComment,
-  PullRequestContextFile,
-  PullRequestContextMetadata,
-  PullRequestContextRef,
-  PullRequestContextUser,
-  PullRequestContextValue,
-  RepositoryHostContextCapabilityFactory,
-  RepositoryHostContextInput,
-  RepositoryHostContextOptions,
-  RepositoryHostContextResolver,
-  RepositoryHostContextTarget,
-  RepositoryHostContextTargetResolver,
-  RepositoryHostContextTargetValue,
-  RepositoryHostContextValue,
-  RepositoryHostIssueContext,
-} from "./repository-host-context.ts"
-export type {
   LlmRouteDecision,
   LlmRouteOptions,
 } from "./llm-route.ts"
@@ -325,11 +281,6 @@ export type {
   RuntimeScheduleCapabilityOptions,
   ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
-export type {
-  SubagentDefinition,
-  SubagentsOptions,
-  SubagentToolInput,
-} from "./subagents.ts"
 export type {
   StreamTranscriptionOptions,
   StreamingTranscription,

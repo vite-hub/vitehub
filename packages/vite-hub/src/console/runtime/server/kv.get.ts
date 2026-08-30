@@ -1,4 +1,4 @@
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleKV } from "./kv.ts"
 
 import type { KVResult, KVStorage } from "@vite-hub/kv"
@@ -6,7 +6,7 @@ import type { ConsoleRequestEvent } from "./request.ts"
 
 const defaultLimit = 200
 const maximumLimit = 500
-const maximumKeyLength = 2_048
+const maximumPrefixLength = 2_048
 const maximumValueBytes = 256 * 1_024
 
 interface ConsoleKVValue {
@@ -23,10 +23,26 @@ function requestError(statusCode: number, statusMessage: string): Error {
   return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
 }
 
-function requiredParameter(value: string | null, name: string): string {
-  if (value === null || value.length === 0) throw requestError(400, `${name} is required.`)
-  if (value.length > maximumKeyLength) throw requestError(400, `${name} is too long.`)
-  return value
+async function valueRequest(event: ConsoleRequestEvent): Promise<{ key: string; store: string | null }> {
+  let body: unknown
+  try {
+    body = await consoleRequestJSON(event)
+  }
+  catch (error) {
+    if (Reflect.get(Object(error), "statusCode") === 413) throw error
+    throw requestError(400, "Request body must be valid JSON.")
+  }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the object boundary before reading fields.
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw requestError(400, "Request body must be an object.")
+  }
+  const key = Reflect.get(body, "key")
+  const store = Reflect.get(body, "store")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the required key identity.
+  if (typeof key !== "string") throw requestError(400, "key is required.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the optional store identity.
+  if (store !== undefined && typeof store !== "string") throw requestError(400, "store must be a string.")
+  return { key, store: store ?? null }
 }
 
 function limitParameter(value: string | null): number {
@@ -53,22 +69,125 @@ function valueType(value: unknown): string {
 
 function truncateValue(value: string): { truncated: boolean; value: string } {
   const encoder = new TextEncoder()
-  if (encoder.encode(value).byteLength <= maximumValueBytes) return { truncated: false, value }
   let bytes = 0
   let end = 0
   for (const character of value) {
     const characterBytes = encoder.encode(character).byteLength
-    if (bytes + characterBytes > maximumValueBytes) break
+    if (bytes + characterBytes > maximumValueBytes) {
+      return { truncated: true, value: value.slice(0, end) }
+    }
     bytes += characterBytes
     end += character.length
   }
-  return { truncated: true, value: value.slice(0, end) }
+  return { truncated: false, value }
+}
+
+function boundedJSONStringify(value: unknown): { truncated: boolean; value?: string } {
+  let bytes = 0
+  let rendered = ""
+  let truncated = false
+  const encoder = new TextEncoder()
+  const ancestors = new Set<object>()
+
+  function append(fragment: string): boolean {
+    for (const character of fragment) {
+      const characterBytes = encoder.encode(character).byteLength
+      if (bytes + characterBytes > maximumValueBytes) {
+        truncated = true
+        return false
+      }
+      rendered += character
+      bytes += characterBytes
+    }
+    return true
+  }
+
+  function appendString(text: string): boolean {
+    if (!append('"')) return false
+    for (const character of text) {
+      const escaped = JSON.stringify(character).slice(1, -1)
+      if (!append(escaped)) return false
+    }
+    return append('"')
+  }
+
+  function serialize(input: unknown, depth: number, arrayValue: boolean, key: string, applyToJSON = true): boolean {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
+    if (typeof input === "string") return appendString(input)
+    if (input === null) return append("null")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
+    if (typeof input === "number") return append(Number.isFinite(input) ? String(input) : "null")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
+    if (typeof input === "boolean") return append(input ? "true" : "false")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits these values in objects and writes null for them in arrays.
+    if (typeof input === "undefined" || typeof input === "function" || typeof input === "symbol") {
+      return arrayValue ? append("null") : false
+    }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify throws for bigint values.
+    if (typeof input === "bigint") {
+      const toJSON: unknown = Reflect.get(Object(input), "toJSON")
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
+      if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
+      throw new TypeError("Cannot serialize bigint as JSON.")
+    }
+
+    // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
+    const object = Object(input)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
+    const toJSON: unknown = Reflect.get(object, "toJSON")
+    if (applyToJSON && typeof toJSON === "function") {
+      const replacement = toJSON.call(input, key)
+      if (replacement !== input) return serialize(replacement, depth, arrayValue, key, false)
+    }
+    const boxed = input instanceof Number || input instanceof String || input instanceof Boolean || Object.prototype.toString.call(input) === "[object BigInt]"
+      ? Reflect.apply(object.valueOf, input, [])
+      : input
+    if (boxed !== input) return serialize(boxed, depth, arrayValue, key)
+    if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
+    ancestors.add(object)
+
+    if (Array.isArray(object)) {
+      if (!append("[")) return false
+      for (let index = 0; index < object.length; index += 1) {
+        if (!append(`${index === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
+        if (!serialize(object[index], depth + 1, true, String(index))) return false
+      }
+      if (object.length > 0 && !append(`\n${"  ".repeat(depth)}`)) return false
+      ancestors.delete(object)
+      return append("]")
+    }
+
+    if (!append("{")) return false
+    let count = 0
+    for (const key in object) {
+      if (!Object.prototype.hasOwnProperty.call(object, key)) continue
+      let item: unknown = Reflect.get(object, key)
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify consults toJSON only for object and BigInt property values, so this reproduces that serialization boundary.
+      if (item !== null && (typeof item === "object" || typeof item === "bigint")) {
+        const toJSON: unknown = Reflect.get(Object(item), "toJSON")
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
+        if (typeof toJSON === "function") item = toJSON.call(item, key)
+      }
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits unsupported object property values.
+      if (typeof item === "undefined" || typeof item === "function" || typeof item === "symbol") continue
+      if (!append(`${count === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
+      if (!appendString(key) || !append(": ") || !serialize(item, depth + 1, false, key, false)) return false
+      count += 1
+    }
+    if (count > 0 && !append(`\n${"  ".repeat(depth)}`)) return false
+    ancestors.delete(object)
+    return append("}")
+  }
+
+  const serialized = serialize(value, 0, false, "")
+  return { truncated, value: serialized || truncated ? rendered : undefined }
 }
 
 function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated" | "type" | "value"> {
   const type = valueType(value)
   let format: "json" | "text" = "json"
   let rendered: string
+  let truncated = false
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- KV drivers return unknown values, so string identity is validated at this formatting boundary.
   if (typeof value === "string") {
     format = "text"
@@ -76,11 +195,15 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
   }
   else if (value instanceof Uint8Array) {
     format = "text"
-    rendered = Array.from(value, byte => byte.toString(16).padStart(2, "0")).join("")
+    const maximumBytes = maximumValueBytes / 2
+    truncated = value.byteLength > maximumBytes
+    rendered = Array.from(value.subarray(0, maximumBytes), byte => byte.toString(16).padStart(2, "0")).join("")
   }
   else {
     try {
-      rendered = JSON.stringify(value, null, 2) ?? String(value)
+      const result = boundedJSONStringify(value)
+      rendered = result.value ?? String(value)
+      truncated = result.truncated
     }
     catch {
       format = "text"
@@ -93,7 +216,7 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
     type,
     value: result.value,
   }
-  if (result.truncated) formatted.truncated = true
+  if (truncated || result.truncated) formatted.truncated = true
   return formatted
 }
 
@@ -105,16 +228,16 @@ function selectStore(storage: KVStorage, stores: readonly string[], requested: s
 
 export default async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
   | ConsoleKVValue
-  | { keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[]; total: number; truncated: boolean }
+  | { cursor?: string; error?: string; errorCode?: "cursor_expired"; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
 > {
-  assertConsoleRequest(event)
+  assertConsoleRequest(event, ["GET", "POST"])
   const url = consoleRequestURL(event)
   const inspection = getConsoleKV()
-  const selected = selectStore(inspection.storage, inspection.stores, url.searchParams.get("store"))
-  const requestedKey = url.searchParams.get("key")
+  const method = event.method ?? event.req?.method ?? event.node?.req?.method
 
-  if (requestedKey !== null) {
-    const key = requiredParameter(requestedKey, "key")
+  if (method === "POST") {
+    const { key, store } = await valueRequest(event)
+    const selected = selectStore(inspection.storage, inspection.stores, store)
     const value = unwrap(await selected.storage.get(key))
     const found = value !== null || unwrap(await selected.storage.has(key))
     const response: ConsoleKVValue = {
@@ -126,17 +249,27 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
     return response
   }
 
+  const selected = selectStore(inspection.storage, inspection.stores, url.searchParams.get("store"))
   const prefix = url.searchParams.get("prefix") ?? ""
-  if (prefix.length > maximumKeyLength) throw requestError(400, "prefix is too long.")
+  if (prefix.length > maximumPrefixLength) throw requestError(400, "prefix is too long.")
   const limit = limitParameter(url.searchParams.get("limit"))
-  const allKeys = [...new Set(unwrap(await selected.storage.keys(prefix)))].sort((left, right) => left.localeCompare(right))
-  return {
-    keys: allKeys.slice(0, limit),
+  const cursor = url.searchParams.get("cursor") || undefined
+  const pageResult = await selected.storage.list({ cursor, limit, prefix })
+  const response: { keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] } = {
+    keys: [],
     limit,
     prefix,
     store: selected.name,
     stores: inspection.stores,
-    total: allKeys.length,
-    truncated: allKeys.length > limit,
   }
+  if (pageResult[0]) {
+    const cause = pageResult[0].cause
+    const errorCode = cursor && cause instanceof Object && "code" in cause && cause.code === "KV_CURSOR_EXPIRED"
+      ? "cursor_expired"
+      : undefined
+    return { ...response, error: pageResult[0].message, ...(errorCode ? { errorCode } : {}) }
+  }
+  const page = pageResult[1]
+  const listed = { ...response, keys: page.keys }
+  return page.cursor ? { ...listed, cursor: page.cursor } : listed
 }

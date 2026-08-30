@@ -7,9 +7,16 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
+
+async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
+  if (typeof plugin.buildEnd !== "function") throw new TypeError("Expected hubSchedule buildEnd hook")
+  await plugin.buildEnd.call({} as never)
+  if (!plugin.closeBundle || typeof plugin.closeBundle === "function") throw new TypeError("Expected hubSchedule closeBundle object hook")
+  await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
+}
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
   return (plugin.resolveId as (id: string, importer?: string, options?: unknown) => unknown)("#vitehub/schedule/registry")
@@ -44,7 +51,9 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+    expect(getImportAliases).toHaveBeenCalledOnce()
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 
     expect(getImportAliases).toHaveBeenCalledOnce()
   })
@@ -108,7 +117,7 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/agent-turn.ts")
     await expect(loadScheduleTargets(plugin)).resolves.toContain('"agent-turn"')
     expect(existsSync(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))).toBe(false)
@@ -125,6 +134,7 @@ describe("Vite schedule integration", () => {
     ].join("\n"), "utf8")
 
     const userConfig: Record<string, unknown> = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
       root,
       nitro: {
         cloudflare: {
@@ -148,8 +158,8 @@ describe("Vite schedule integration", () => {
             triggers: { crons: ["0 0 * * *", "*/10 * * * *"] },
           },
         },
-        modules: ["./.vitehub/nitro/schedule/module.mjs"],
-        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+        modules: [join(root, ".vitehub/nitro/schedule/module.mjs")],
+        plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
       },
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
@@ -371,7 +381,7 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).toBe(false)
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).rejects.toThrow()
   })
@@ -417,12 +427,69 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.not.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.not.toContain("src/cleanup.schedule.ts")
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
+  })
+
+  it("snapshots schedules before deferred Provider Output finalization", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-output-snapshot-"))
+    const scheduleFile = join(root, "src", "cleanup.schedule.ts")
+    await mkdir(join(root, "src"), { recursive: true })
+    await mkdir(join(root, "dist", "client"), { recursive: true })
+    await writeFile(scheduleFile, "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
+
+    const plugin = hubSchedule({ providerOutput: "standalone" })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+
+    await writeFile(scheduleFile, "export default defineSchedule({ cron: '5 0 * * *', handler: () => {} })\n", "utf8")
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.not.toContain("\"5 0 * * *\"")
+  })
+
+  it("resets pending Provider Output when schedule preparation fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-output-invalid-"))
+    const scheduleFile = join(root, "src", "cleanup.schedule.ts")
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(scheduleFile, "export default defineSchedule({ cron: getCron(), handler: () => {} })\n", "utf8")
+
+    const plugin = hubSchedule({ providerOutput: "standalone" })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    const config = {
+      build: { outDir: "dist/client" },
+      command: "build",
+      plugins: [],
+      resolve: { alias: [] },
+      root,
+    }
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)(config)
+    const catalog = useProviderOutputCatalog(config)
+    const write = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir: root, write })
+
+    // SAFETY: This focused hook test supplies no Vite plugin context because the failing discovery path does not read it.
+    await expect((plugin.buildEnd as (this: never) => Promise<void>).call({} as never)).rejects.toThrow()
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).not.toHaveBeenCalled()
   })
 
   it("preserves forwarded server directories in standalone Provider Output", async () => {
@@ -447,7 +514,7 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     const config = JSON.parse(await readFile(join(root, ".vercel", "output", "config.json"), "utf8"))
     expect(config.crons).toContainEqual({
@@ -477,7 +544,7 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 9 * * *\"")
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-report.mjs"), "utf8")).resolves.toContain("schedule: \"0 9 * * *\"")
@@ -589,8 +656,8 @@ describe("Vite schedule integration", () => {
           triggers: { crons: ["0 0 * * *", "*/15 * * * *"] },
         },
       },
-      modules: ["existing-module", "./.vitehub/nitro/schedule/module.mjs"],
-      plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      modules: ["existing-module", join(root, ".vitehub/nitro/schedule/module.mjs")],
+      plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"*/15 * * * *\"")
@@ -844,7 +911,7 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).toBe(false)
   })
@@ -879,7 +946,7 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     expect(userConfig).toMatchObject({
       nitro: {
@@ -911,7 +978,7 @@ describe("Vite schedule integration", () => {
     const plugin = hubSchedule({ projectRoot })
     await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)({ root: viteRoot }, { command: "build", mode: "production" })
     ;(plugin.configResolved as (config: Record<string, unknown>) => void)({ build: { outDir: "dist" }, command: "build", resolve: { alias: [] }, root: viteRoot })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await runProviderOutputHooks(plugin)
 
     const registry = await readFile(join(projectRoot, ".vitehub", "schedule", "registry.mjs"), "utf8")
     expect(registry).toContain('"cleanup"')

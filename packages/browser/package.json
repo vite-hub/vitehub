@@ -54,10 +54,10 @@
     "test": "vp run -t @vite-hub/browser#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "esbuild": "catalog:esbuild-v27"
   },
   "devDependencies": {
-    "@cloudflare/playwright": "catalog:browser",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "playwright-core": "catalog:browser",

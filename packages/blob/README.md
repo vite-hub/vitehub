@@ -12,7 +12,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/blob
+pnpm add @vite-hub/blob h3
+pnpm add -D vite
 ```
 
 Add the SDK required by the driver you configure.
@@ -124,7 +125,7 @@ The returned headers are part of the request contract and must be sent unchanged
 Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare-r2"` for Cloudflare R2.
 
 ```sh
-pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 Cloudflare R2 HTTP fallback also requires:
@@ -154,7 +155,7 @@ Store S3 credentials in Server Env or the provider credential chain used by the 
 MinIO is the Docker-friendly S3-compatible path. Select it explicitly:
 
 ```sh
-pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 ```ts

@@ -18,18 +18,28 @@ function memoryStorage(initial?: string) {
 }
 
 describe("Console section preferences", () => {
-  it("derives only explicitly configured primitive sections", () => {
+  it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
     expect(resolveConsoleSectionIds({ agent: true, kv: true, queue: true, workflow: true })).toEqual([
       "agents",
+      "usage",
       "kv",
       "workflows",
       "queues",
     ])
-    expect(resolveConsoleSectionIds({ agent: true, queue: false, workflow: false })).toEqual(["agents"])
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "usage", "workflows"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
+      "agents",
+      "usage",
+      "workflows",
+    ])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, queue: false, workflow: false })).toEqual(["agents", "usage"])
     expect(resolveConsoleSectionIds({})).toEqual([])
   })
 
   it("prioritizes the last active section without losing configured sections", () => {
+    expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], "kv")).toEqual(["kv", "agents", "usage"])
     expect(prioritizeConsoleSectionIds(["agents", "kv", "workflows", "queues"], "queues")).toEqual([
       "queues",
       "agents",
@@ -37,7 +47,7 @@ describe("Console section preferences", () => {
       "workflows",
     ])
     expect(prioritizeConsoleSectionIds(["agents"], "kv")).toEqual(["agents"])
-    expect(prioritizeConsoleSectionIds(["agents", "kv"], undefined)).toEqual(["agents", "kv"])
+    expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], undefined)).toEqual(["agents", "usage", "kv"])
   })
 
   it("persists and validates the last section", () => {

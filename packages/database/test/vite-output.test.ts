@@ -7,9 +7,9 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { createDefaultCloudflareOutputRoot, createProviderOutputCatalog, getProviderRuntimeModule } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderRuntime, createDefaultCloudflareOutputRoot, createProviderOutputCatalog, getProviderRuntimeModule } from "@vite-hub/internal/build/deployment-output"
 
-import { prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
+import { generateProviderOutputs as generateDatabaseProviderOutputs, prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
 import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
@@ -264,12 +264,6 @@ async function readCloudflareWorker(rootDir: string) {
   return await readFile(join(distDir, outputDir, "index.js"), "utf8")
 }
 
-function errorText(error: unknown) {
-  return (error as { stderr?: string; message?: string } | undefined)?.stderr
-    || (error as { message?: string } | undefined)?.message
-    || String(error)
-}
-
 function outputText(output: Awaited<ReturnType<typeof runDbBuild>>) {
   return `${output.stdout}\n${output.stderr}`
 }
@@ -339,6 +333,38 @@ describe("Vite db provider outputs", () => {
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
   })
 
+  it("keeps Blob runtime aliases local to the prepared Database generation", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-db-vite-blob-generation-")
+    const providerOutput = createProviderOutputCatalog()
+    const runtimeConfig = createRuntimeConfig(rootDir, {
+      cloudflare: {
+        databaseId: "primary-d1-id",
+        databaseName: "primary",
+        http: true,
+      },
+    })
+    contributeProviderRuntime(providerOutput, {
+      owner: "blob",
+      runtimeModules: { cloudflare: "blob-old-cloudflare.mjs", vercel: "blob-old-vercel.mjs" },
+    })
+    const artifacts = await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
+    contributeProviderRuntime(providerOutput, {
+      owner: "blob",
+      runtimeModules: { cloudflare: "blob-new-cloudflare.mjs", vercel: "blob-new-vercel.mjs" },
+    })
+
+    await generateDatabaseProviderOutputs({
+      artifacts,
+      clientOutDir: "dist/client",
+      providerOutput,
+      rootDir,
+      runtimeConfig,
+    }, async (output) => {
+      expect(output.cloudflare?.bundleOptions?.alias?.["@vite-hub/blob"]).toBe("blob-old-cloudflare.mjs")
+      expect(output.vercel?.bundleOptions.alias?.["@vite-hub/blob"]).toBe("blob-old-vercel.mjs")
+    })
+  })
+
   it("applies the effective Nuxt D1 binding to named definition runtimes", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-definition-defaults-")
     const providerOutput = createProviderOutputCatalog()
@@ -398,16 +424,9 @@ describe("Vite db provider outputs", () => {
       "",
     ].join("\n"))
 
-    let blobError: Error | undefined
-    try {
-      await runDbBuild(blobRootDir)
-    }
-    catch (caught) {
-      blobError = caught as Error
-    }
-
-    expect(errorText(blobError)).toContain('Could not resolve "node:path"')
-    expect(errorText(blobError)).not.toContain(staleDatabaseMarker)
+    await runDbBuild(blobRootDir)
+    const blobOutput = await readFile(join(blobRootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+    expect(blobOutput).not.toContain(staleDatabaseMarker)
 
     const staleBlobMarker = "stale_blob_runtime_marker"
     const dbRootDir = await createDbBuildProject("vitehub-db-stale-blob-runtime-")
@@ -473,9 +492,9 @@ describe("Vite db provider outputs", () => {
     expect(bundledServerCode.includes("runtime/virtual-databases.js")).toBe(false)
     expect(bundledServerCode.includes("var databases$1 = {};")).toBe(false)
 
-    const cloudflareRuntime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
-    expect(cloudflareRuntime).toContain("export const agentDb = createAgentDatabase(databases)")
-    expect(cloudflareRuntime).toContain("export function useDatabase(name) { return databases[name] }")
+    const cloudflareWorker = await readCloudflareWorker(rootDir)
+    expect(cloudflareWorker).toContain("createAgentDatabase")
+    expect(cloudflareWorker).toContain("useDatabase")
 
     const vercelServerCode = await readFile(vercelServer, "utf8")
     expect(vercelServerCode).toContain("process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL")

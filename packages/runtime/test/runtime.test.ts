@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, expectTypeOf, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import {
   createExecutionContext,
+  createRuntimeWaitUntilController,
   createTraceEventLog,
   deriveTraceRuns,
   defineCapability,
@@ -16,11 +18,195 @@ import {
   type ApprovalDecision,
   type ApprovalRequest,
   type LeaseStore,
+  type RuntimeCapabilities,
+  type RuntimeHostContext,
   type RunLifecycleHooks,
+  type TraceEventLogEntry,
   ViteHubError,
 } from "../src/index.ts"
 
 describe("@vite-hub/runtime", () => {
+  it("drains nested waitUntil work before reporting a rejection", async () => {
+    const controller = createRuntimeWaitUntilController()
+    const failure = new Error("deferred failure")
+    let nestedCompleted = false
+    let releaseNested: (() => void) | undefined
+    controller.waitUntil(Promise.resolve().then(() => {
+      controller.waitUntil(new Promise<void>((resolve) => {
+        releaseNested = () => {
+          nestedCompleted = true
+          resolve()
+        }
+      }))
+      throw failure
+    }))
+
+    const flushing = controller.flushWaitUntil()
+    let settled = false
+    void flushing.then(() => { settled = true }, () => { settled = true })
+    await vi.waitFor(() => expect(releaseNested).toBeTypeOf("function"))
+    expect(settled).toBe(false)
+
+    releaseNested!()
+    await expect(flushing).rejects.toBe(failure)
+    expect(nestedCompleted).toBe(true)
+    await expect(controller.flushWaitUntil()).resolves.toBeUndefined()
+  })
+
+  it("reports the first waitUntil rejection by settlement time", async () => {
+    const controller = createRuntimeWaitUntilController()
+    const firstFailure = new Error("first failure")
+    let rejectEarlierTask: ((reason: Error) => void) | undefined
+    controller.waitUntil(new Promise((_, reject) => {
+      rejectEarlierTask = reject
+    }))
+    controller.waitUntil(Promise.reject(firstFailure))
+
+    const flushing = controller.flushWaitUntil()
+    await vi.waitFor(() => expect(rejectEarlierTask).toBeTypeOf("function"))
+    rejectEarlierTask!(new Error("later failure"))
+
+    await expect(flushing).rejects.toBe(firstFailure)
+  })
+
+  it("creates complete execution contexts from omitted host fields", () => {
+    const first = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
+    const second = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
+
+    expect(first.capabilities).toEqual({})
+    expect(first.runtimeConfig).toEqual({})
+    expect(first.capabilities).not.toBe(second.capabilities)
+    expect(first.runtimeConfig).not.toBe(second.runtimeConfig)
+  })
+
+  it("preserves supplied execution context fields", () => {
+    const capabilities = {
+      db: defineCapability("db", { query: vi.fn() }),
+    }
+    const runtimeConfig = { region: "local" }
+    const context = createExecutionContext({
+      capabilities,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.capabilities.db).toEqualTypeOf(capabilities.db)
+    expectTypeOf(context.capabilities.db.value.query).toEqualTypeOf(capabilities.db.value.query)
+    expect(context.capabilities).toBe(capabilities)
+    expect(context.runtimeConfig).toBe(runtimeConfig)
+  })
+
+  it("normalizes explicitly undefined execution context fields", () => {
+    const context = createExecutionContext({
+      capabilities: undefined,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: undefined,
+      source: "host" as const,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.capabilities).toEqualTypeOf<RuntimeCapabilities>()
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expectTypeOf(context.source).toEqualTypeOf<"host">()
+    expect(context.capabilities).toEqual({})
+    expect(context.runtimeConfig).toEqual({})
+    expect(context.source).toBe("host")
+  })
+
+  it("normalizes explicitly null runtime configuration", () => {
+    const context = createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: null,
+      waitUntil: vi.fn(),
+    })
+
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expect(context.runtimeConfig).toEqual({})
+  })
+
+  it("widens union-typed execution context fields that may be undefined", () => {
+    const createContext = (
+      capabilities: RuntimeCapabilities | undefined,
+      runtimeConfig: { region: string } | undefined,
+    ) => createExecutionContext({
+      capabilities,
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const context = createContext(undefined, undefined)
+
+    expectTypeOf(context.capabilities).toEqualTypeOf<RuntimeCapabilities>()
+    expectTypeOf(context.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+    expect(context.capabilities).toEqual({})
+    expect(context.runtimeConfig).toEqual({})
+  })
+
+  it("preserves defined non-record runtime configuration union members", () => {
+    const createContext = (runtimeConfig: string | undefined) => createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const configuredContext = createContext("local")
+    const omittedContext = createContext(undefined)
+
+    expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
+    expect(configuredContext.runtimeConfig).toBe("local")
+    expect(omittedContext.runtimeConfig).toEqual({})
+  })
+
+  it("widens runtime configuration unions that may be null", () => {
+    const createContext = (runtimeConfig: string | null) => createExecutionContext({
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig,
+      waitUntil: vi.fn(),
+    })
+    const configuredContext = createContext("local")
+    const omittedContext = createContext(null)
+
+    expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string | Record<string, unknown>>()
+    expect(configuredContext.runtimeConfig).toBe("local")
+    expect(omittedContext.runtimeConfig).toEqual({})
+  })
+
+  it("normalizes runtime configuration independently for each context variant", () => {
+    type ContextVariant =
+      | { kind: "configured", memo: RuntimeHostContext["memo"], runtime: string, runtimeConfig: string, waitUntil: RuntimeHostContext["waitUntil"] }
+      | { kind: "default", memo: RuntimeHostContext["memo"], runtime: string, waitUntil: RuntimeHostContext["waitUntil"] }
+    const createContext = (context: ContextVariant) => createExecutionContext(context)
+
+    const configuredContext = createContext({
+      kind: "configured",
+      memo: vi.fn(),
+      runtime: "vite",
+      runtimeConfig: "local",
+      waitUntil: vi.fn(),
+    })
+    if (configuredContext.kind === "configured") {
+      expectTypeOf(configuredContext.runtimeConfig).toEqualTypeOf<string>()
+      expect(configuredContext.runtimeConfig).toBe("local")
+    }
+
+    const defaultContext = createContext({
+      kind: "default",
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+    if (defaultContext.kind === "default") {
+      expectTypeOf(defaultContext.runtimeConfig).toEqualTypeOf<Record<string, unknown>>()
+      expect(defaultContext.runtimeConfig).toEqual({})
+    }
+  })
+
   it("registers, finds, and resolves capability handles", () => {
     const db = defineCapability("db", { query: vi.fn() }, { name: "primary" })
     const context = createExecutionContext({
@@ -307,6 +493,800 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("marks accessor-backed content as omitted without invoking it", async () => {
+    const log = createTraceEventLog()
+    const getter = vi.fn(() => "secret")
+    const attributes: Record<string, unknown> = {}
+    Object.defineProperty(attributes, "message.content", { enumerable: true, get: getter })
+
+    await log.append({ attributes, name: "agent.message", type: "run" })
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()[0]?.attributes).toEqual({ "content.omitted": ["message.content"] })
+  })
+
+  it("normalizes activity ownership and explicit payload visibility", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      activity: { owner: "vitehub", phase: "setup" },
+      name: "vitehub.workspace.materialized",
+      payload: { value: { files: 12, source: "github" }, visibility: "public" },
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "run-1" },
+      type: "lifecycle",
+    })
+    await log.append({
+      activity: { owner: "agent", phase: "execution" },
+      name: "agent.tool.finish",
+      payload: { summary: "12 files changed", visibility: "summary" },
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+    await log.append({
+      name: "agent.tool.redacted",
+      payload: { visibility: "redacted" },
+      timestamp: "2026-01-01T00:00:00.020Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+    await log.append({
+      name: "agent.tool.private",
+      payload: { visibility: "private" },
+      timestamp: "2026-01-01T00:00:00.030Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+
+    expect(log.entries()).toMatchObject([
+      {
+        activity: { owner: "vitehub", phase: "setup" },
+        attributes: {
+          "vitehub.activity.owner": "vitehub",
+          "vitehub.activity.phase": "setup",
+          "vitehub.payload.value": { files: 12, source: "github" },
+          "vitehub.payload.visibility": "public",
+        },
+        payload: { value: { files: 12, source: "github" }, visibility: "public" },
+      },
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: {
+          "vitehub.activity.owner": "agent",
+          "vitehub.activity.phase": "execution",
+          "vitehub.payload.summary": "12 files changed",
+          "vitehub.payload.visibility": "summary",
+        },
+        payload: { summary: "12 files changed", visibility: "summary" },
+      },
+      {
+        attributes: { "vitehub.payload.visibility": "redacted" },
+        payload: { visibility: "redacted" },
+      },
+      {
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      },
+    ])
+
+    const records = traceEventsToOpenTelemetryLogRecords(log.entries(), { content: "metadata" })
+    expect(records.map(record => record.attributes)).toEqual([
+      expect.objectContaining({
+        "vitehub.activity.owner": "vitehub",
+        "vitehub.activity.phase": "setup",
+        "vitehub.payload.value": { files: 12, source: "github" },
+        "vitehub.payload.visibility": "public",
+      }),
+      expect.objectContaining({
+        "vitehub.activity.owner": "agent",
+        "vitehub.activity.phase": "execution",
+        "vitehub.payload.summary": "12 files changed",
+        "vitehub.payload.visibility": "summary",
+      }),
+      expect.objectContaining({ "vitehub.payload.visibility": "redacted" }),
+      expect.objectContaining({ "vitehub.payload.visibility": "private" }),
+    ])
+  })
+
+  it("falls back to private when an untyped payload descriptor is malformed", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: { "vitehub.payload.value": "must not leak" },
+      name: "custom.event",
+      // SAFETY: The fixture proves runtime normalization for JavaScript and untyped producers.
+      payload: { value: "must not leak", visibility: "unknown" } as never,
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(JSON.stringify(log.entries())).not.toContain("must not leak")
+  })
+
+  it("snapshots public payload values when appending trace events", async () => {
+    const log = createTraceEventLog()
+    const value = { files: ["before.txt"] }
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    value.files.push("after.txt")
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.value": { files: ["before.txt"] } },
+      payload: { value: { files: ["before.txt"] }, visibility: "public" },
+    })
+  })
+
+  it("preserves public Blob payload snapshots", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: new Blob(["public bytes"], { type: "text/plain" }), visibility: "public" },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (entry?.payload?.visibility !== "public") throw new Error("Expected a public Blob payload.")
+    expect(entry.payload.value).toBeInstanceOf(Blob)
+    // SAFETY: The runtime constructor assertion above establishes the public Blob snapshot.
+    const snapshot = entry.payload.value as Blob
+    expect(snapshot).toMatchObject({ size: 12, type: "text/plain" })
+    await expect(snapshot.text()).resolves.toBe("public bytes")
+  })
+
+  it("preserves public File payload snapshots", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: {
+        value: new File(["public bytes"], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" }),
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (entry?.payload?.visibility !== "public") throw new Error("Expected a public File payload.")
+    expect(entry.payload.value).toBeInstanceOf(File)
+    // SAFETY: The runtime constructor assertion above establishes the public File snapshot.
+    const snapshot = entry.payload.value as File
+    expect(snapshot).toMatchObject({
+      lastModified: 1_768_435_200_000,
+      name: "report.txt",
+      size: 12,
+      type: "text/plain",
+    })
+    await expect(snapshot.text()).resolves.toBe("public bytes")
+  })
+
+  it("snapshots Blob metadata without invoking overridden getters", async () => {
+    const getter = vi.fn(() => { throw new Error("must not be read") })
+    const value = new File(["public bytes"], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" })
+    for (const key of ["lastModified", "name", "size", "type"]) {
+      Object.defineProperty(value, key, { configurable: true, get: getter })
+    }
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: {
+        value,
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()[0]).toMatchObject({
+      payload: { visibility: "public" },
+    })
+  })
+
+  it("rejects custom symbol fields on Blob payloads", async () => {
+    const hidden = Symbol("hidden")
+    const value = new Blob(["public bytes"])
+    Object.defineProperty(value, hidden, { enumerable: true, value: "must not disappear" })
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("falls back to private without invoking nested public payload accessors", async () => {
+    const getter = vi.fn(() => "must not be read")
+    const value = { nested: Object.defineProperty({}, "secret", { enumerable: true, get: getter }) }
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("falls back to private without invoking structured clone accessors", async () => {
+    const getter = vi.fn(() => "must not be read")
+    const crossRealmMap = runInNewContext(
+      'new Map([["entry", Object.defineProperty({}, "secret", { enumerable: true, get: getter })]])',
+      { getter },
+    )
+    const error = Object.defineProperty(new Error("failed"), "cause", { get: getter })
+    const log = createTraceEventLog()
+
+    for (const value of [crossRealmMap, error]) {
+      await log.append({
+        name: "custom.event",
+        payload: { value, visibility: "public" },
+        type: "lifecycle",
+      })
+    }
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()).toEqual([
+      expect.objectContaining({ payload: { visibility: "private" } }),
+      expect.objectContaining({ payload: { visibility: "private" } }),
+    ])
+  })
+
+  it("falls back to private when structured cloning erases a Buffer identity", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: Buffer.from([1, 2]), visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("falls back to private for CryptoKey payloads unsupported by telemetry", async () => {
+    const key = await crypto.subtle.generateKey({ length: 128, name: "AES-GCM" }, true, ["encrypt"])
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: { key }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("falls back to private for WebAssembly.Module payloads unsupported by telemetry", async () => {
+    // SAFETY: Node exposes WebAssembly.Module even though the test's ambient global type omits it.
+    const WebAssemblyModule = (globalThis as typeof globalThis & {
+      WebAssembly: { Module: new (bytes: Uint8Array) => object }
+    }).WebAssembly.Module
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: {
+        value: { module: new WebAssemblyModule(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0)) },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("isolates stored entries from returned and observed payloads", async () => {
+    let observed: TraceEventLogEntry | undefined
+    const log = createTraceEventLog({
+      content: "content",
+      onEntry(entry) {
+        observed = entry
+      },
+    })
+    const returned = await log.append({
+      name: "custom.event",
+      payload: { value: { files: ["before.txt"] }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    returned.payload = { value: { files: ["returned-secret.txt"] }, visibility: "public" }
+    // SAFETY: The public payload fixture above establishes this canonical attribute shape.
+    const returnedValue = returned.attributes!["vitehub.payload.value"] as { files: string[] }
+    returnedValue.files.push("returned-secret.txt")
+    observed!.payload = { value: { files: ["observed-secret.txt"] }, visibility: "public" }
+    // SAFETY: The onEntry callback receives the public payload fixture's canonical attribute shape.
+    const observedValue = observed!.attributes!["vitehub.payload.value"] as { files: string[] }
+    observedValue.files.push("observed-secret.txt")
+    const listed = log.entries()
+    listed[0]!.payload = { value: { files: ["listed-secret.txt"] }, visibility: "public" }
+    // SAFETY: entries() returns the public payload fixture's canonical attribute shape.
+    const listedValue = listed[0]!.attributes!["vitehub.payload.value"] as { files: string[] }
+    listedValue.files.push("listed-secret.txt")
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.value": { files: ["before.txt"] } },
+      payload: { value: { files: ["before.txt"] }, visibility: "public" },
+    })
+  })
+
+  it("falls back to private when a public payload value cannot be snapshotted", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: () => "must not leak", visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+  })
+
+  it("falls back to private when a public payload has symbol-keyed fields", async () => {
+    const hidden = Symbol("hidden")
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: { nested: { [hidden]: "must not disappear", visible: "kept" } }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+  })
+
+  it("falls back to private when cloning drops enumerable built-in fields", async () => {
+    const error = Object.assign(new Error("failed"), { code: "must-not-disappear" })
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: { error }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(log.entries()[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+  })
+
+  it("falls back to private when cloning resets RegExp state", async () => {
+    const pattern = /trace/gu
+    pattern.lastIndex = 3
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: pattern, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("falls back to private when cloning drops AggregateError children", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: new AggregateError([new Error("nested")], "failed"), visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it.each([
+    ["RegExp state", runInNewContext('(() => { const value = /trace/gu; value.lastIndex = 3; return value })()')],
+    ["AggregateError children", runInNewContext('new AggregateError([new Error("nested")], "failed")')],
+  ])("falls back to private when cloning loses cross-realm %s", async (_label, value) => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it("accepts unsupported values in ordinary trace attributes", async () => {
+    const callback = () => "ok"
+    const log = createTraceEventLog()
+
+    await expect(log.append({ attributes: { callback }, name: "custom.event", type: "lifecycle" })).resolves.toMatchObject({
+      attributes: { callback },
+    })
+    expect(log.entries()[0]?.attributes?.callback).toBe(callback)
+  })
+
+  it("keeps content events when custom attributes cannot be inspected safely", async () => {
+    const getter = vi.fn(() => {
+      throw new Error("attribute getter must not be read")
+    })
+    const accessorAttributes = Object.defineProperties({ safe: "kept" }, {
+      unsafe: { enumerable: true, get: getter },
+    })
+    const hostileAttributes = new Proxy({}, {
+      ownKeys() {
+        throw new Error("attributes must not break the event")
+      },
+    })
+    const log = createTraceEventLog({ content: "content" })
+
+    await expect(log.append({ attributes: accessorAttributes, name: "accessor", type: "lifecycle" })).resolves.toBeDefined()
+    await expect(log.append({
+      activity: { owner: "agent", phase: "execution" },
+      attributes: hostileAttributes,
+      name: "proxy",
+      type: "lifecycle",
+    })).resolves.toBeDefined()
+
+    expect(getter).not.toHaveBeenCalled()
+    expect(log.entries()).toEqual([
+      expect.objectContaining({ attributes: { safe: "kept" }, name: "accessor" }),
+      expect.objectContaining({
+        activity: { owner: "agent", phase: "execution" },
+        attributes: {
+          "vitehub.activity.owner": "agent",
+          "vitehub.activity.phase": "execution",
+        },
+        name: "proxy",
+      }),
+    ])
+  })
+
+  it("falls back to private when a public payload contains shared memory", async () => {
+    const log = createTraceEventLog()
+    const buffer = new SharedArrayBuffer(1)
+    const bytes = new Uint8Array(buffer)
+    bytes[0] = 1
+    await log.append({
+      name: "custom.event",
+      payload: { value: { bytes }, visibility: "public" },
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "run-1" },
+      type: "lifecycle",
+    })
+
+    bytes[0] = 2
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(traceEventsToOpenTelemetryLogRecords(log.entries())[0]?.attributes).toMatchObject({
+      "vitehub.payload.visibility": "private",
+    })
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.events?.[0]?.attributes).toMatchObject({
+      "vitehub.payload.visibility": "private",
+    })
+    expect(JSON.stringify(log.entries())).not.toContain("bytes")
+  })
+
+  it("falls back to private when a public payload contains shared WebAssembly memory", async () => {
+    const log = createTraceEventLog()
+    // SAFETY: This test runs in Node, whose WebAssembly.Memory constructor accepts the asserted shared descriptor.
+    const WebAssemblyMemory = (globalThis as typeof globalThis & {
+      WebAssembly: {
+        Memory: new (descriptor: { initial: number, maximum: number, shared: boolean }) => { buffer: ArrayBufferLike }
+      }
+    }).WebAssembly.Memory
+    const memory = new WebAssemblyMemory({ initial: 1, maximum: 1, shared: true })
+    const bytes = new Uint8Array(memory.buffer)
+    bytes[0] = 1
+    await log.append({
+      name: "custom.event",
+      payload: { value: memory, visibility: "public" },
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "run-1" },
+      type: "lifecycle",
+    })
+
+    bytes[0] = 2
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+    expect(traceEventsToOpenTelemetryLogRecords(log.entries())[0]?.attributes).toMatchObject({
+      "vitehub.payload.visibility": "private",
+    })
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.events?.[0]?.attributes).toMatchObject({
+      "vitehub.payload.visibility": "private",
+    })
+    expect(JSON.stringify(log.entries())).not.toContain("memory")
+  })
+
+  it("preserves public payloads while rejecting shared memory when the constructor is hidden", async () => {
+    // SAFETY: The test environment provides WebAssembly.Memory; the structural type narrows its tested constructor contract.
+    const WebAssemblyMemory = (globalThis as typeof globalThis & {
+      WebAssembly: {
+        Memory: new (descriptor: { initial: number, maximum: number, shared: boolean }) => { buffer: ArrayBufferLike }
+      }
+    }).WebAssembly.Memory
+    const memory = new WebAssemblyMemory({ initial: 1, maximum: 1, shared: true })
+    vi.stubGlobal("SharedArrayBuffer", undefined)
+    try {
+      const log = createTraceEventLog()
+      await log.append({
+        name: "custom.public",
+        payload: { value: { files: 1 }, visibility: "public" },
+        type: "lifecycle",
+      })
+      await log.append({
+        name: "custom.shared",
+        payload: { value: memory, visibility: "public" },
+        type: "lifecycle",
+      })
+
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("removes spoofed activity attributes from untyped producers", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      attributes: {
+        "vitehub.activity.owner": "agent",
+        "vitehub.activity.phase": "execution",
+      },
+      name: "custom.event",
+      type: "lifecycle",
+    })
+    await log.append({
+      // SAFETY: The fixture proves runtime normalization for JavaScript and untyped producers.
+      activity: { owner: "custom", phase: "unknown" } as never,
+      attributes: {
+        "vitehub.activity.owner": "agent",
+        "vitehub.activity.phase": "execution",
+      },
+      name: "custom.invalid-activity",
+      type: "lifecycle",
+    })
+
+    expect(log.entries().map(event => event.attributes)).toEqual([undefined, undefined])
+  })
+
+  it("rejects untyped activity accessors without invoking them", async () => {
+    const log = createTraceEventLog()
+    const changingActivity = {
+      get owner() {
+        throw new Error("owner must not be read")
+      },
+      get phase() {
+        throw new Error("phase must not be read")
+      },
+    }
+    const revokedActivity = Proxy.revocable({}, {})
+    revokedActivity.revoke()
+
+    // SAFETY: The fixtures prove runtime normalization for JavaScript and untyped producers.
+    await log.append({ activity: changingActivity as never, name: "accessor", type: "lifecycle" })
+    // SAFETY: The fixture proves runtime normalization for a revoked untyped proxy.
+    await log.append({ activity: revokedActivity.proxy as never, name: "revoked", type: "lifecycle" })
+
+    expect(log.entries().map(event => event.activity)).toEqual([undefined, undefined])
+    expect(log.entries().map(event => event.attributes)).toEqual([undefined, undefined])
+  })
+
+  it("removes spoofed payload attributes without a payload descriptor", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: {
+        "vitehub.payload.summary": "spoofed summary",
+        "vitehub.payload.value": "spoofed value",
+        "vitehub.payload.visibility": "public",
+      },
+      name: "custom.event",
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]?.attributes).toBeUndefined()
+    expect(log.entries()[0]?.payload).toBeUndefined()
+  })
+
+  it("does not mark regenerated payload attributes as omitted", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      name: "custom.event",
+      payload: { value: "public value", visibility: "public" },
+      trace: { id: "run-1" },
+      type: "lifecycle",
+    })
+
+    const records = traceEventsToOpenTelemetryLogRecords(log.entries(), { content: "metadata" })
+    expect(records[0]?.attributes).toMatchObject({
+      "vitehub.payload.value": "public value",
+      "vitehub.payload.visibility": "public",
+    })
+    expect(records[0]?.attributes?.["content.omitted"]).toBeUndefined()
+
+    const spans = traceEventsToOpenTelemetrySpans(log.entries(), { content: "metadata" })
+    expect(spans[0]?.events?.[0]?.attributes).toMatchObject({
+      "vitehub.payload.value": "public value",
+      "vitehub.payload.visibility": "public",
+    })
+    expect(spans[0]?.events?.[0]?.attributes?.["content.omitted"]).toBeUndefined()
+  })
+
+  it("keeps activity and payload metadata on span events instead of aggregate spans", () => {
+    const events = [
+      {
+        activity: { owner: "vitehub", phase: "setup" } as const,
+        name: "run.start",
+        payload: { value: "public value", visibility: "public" } as const,
+        sequence: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        trace: { id: "run-1" },
+        type: "run" as const,
+      },
+      {
+        activity: { owner: "agent", phase: "delivery" } as const,
+        name: "run.finish",
+        payload: { visibility: "private" } as const,
+        sequence: 2,
+        timestamp: "2026-01-01T00:00:00.010Z",
+        trace: { id: "run-1" },
+        type: "run" as const,
+      },
+    ]
+
+    const spans = traceEventsToOpenTelemetrySpans(events)
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.activity.owner")
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.activity.phase")
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.payload.value")
+    expect(spans[0]?.attributes).not.toHaveProperty("vitehub.payload.visibility")
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.activity.owner"])).toEqual(["vitehub", "agent"])
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.activity.phase"])).toEqual(["setup", "delivery"])
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.payload.visibility"])).toEqual(["public", "private"])
+    expect(spans[0]?.events?.[0]?.attributes?.["vitehub.payload.value"]).toBe("public value")
+  })
+
+  it("removes regenerated canonical attributes from supplied omission markers", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      activity: { owner: "agent", phase: "execution" },
+      attributes: {
+        "content.omitted": ["vitehub.activity.owner", "vitehub.payload.value", "request"],
+      },
+      name: "custom.event",
+      payload: { value: "public value", visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]?.attributes).toMatchObject({
+      "content.omitted": ["request"],
+      "vitehub.activity.owner": "agent",
+      "vitehub.payload.value": "public value",
+    })
+  })
+
+  it("drops hostile omission markers without dropping the trace event", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    const marker = Proxy.revocable([], {})
+    marker.revoke()
+
+    await expect(log.append({
+      attributes: { "content.omitted": marker.proxy },
+      name: "custom.event",
+      type: "lifecycle",
+    })).resolves.toMatchObject({ name: "custom.event", type: "lifecycle" })
+
+    expect(log.entries()).toHaveLength(1)
+    expect(log.entries()[0]?.attributes).toBeUndefined()
+  })
+
+  it("normalizes untyped payloads at the OpenTelemetry export boundary", () => {
+    const revokedPayload = Proxy.revocable({}, {})
+    revokedPayload.revoke()
+    const events = [
+      {
+        attributes: { "vitehub.payload.value": "must not leak" },
+        name: "custom.invalid-payload",
+        // SAFETY: The fixture proves export normalization for a deserialized untyped entry.
+        payload: { value: "must not leak", visibility: "unknown" } as never,
+        sequence: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        trace: { id: "run-1" },
+        type: "lifecycle" as const,
+      },
+      {
+        name: "custom.hostile-payload",
+        // SAFETY: The fixture proves export normalization for a revoked untyped proxy.
+        payload: revokedPayload.proxy as never,
+        sequence: 2,
+        timestamp: "2026-01-01T00:00:00.010Z",
+        trace: { id: "run-1" },
+        type: "lifecycle" as const,
+      },
+    ]
+
+    const records = traceEventsToOpenTelemetryLogRecords(events)
+    expect(records.map(record => record.attributes?.["vitehub.payload.visibility"])).toEqual(["private", "private"])
+    expect(JSON.stringify(records)).not.toContain("must not leak")
+
+    const spans = traceEventsToOpenTelemetrySpans(events)
+    expect(spans[0]?.events?.map(event => event.attributes?.["vitehub.payload.visibility"])).toEqual(["private", "private"])
+    expect(JSON.stringify(spans)).not.toContain("must not leak")
+  })
+
+  it("falls back to private without invoking hostile payload descriptors", async () => {
+    const log = createTraceEventLog()
+    const accessorPayload = Object.defineProperty({}, "visibility", {
+      get() {
+        throw new Error("visibility must not be read")
+      },
+    })
+    const proxyPayload = new Proxy({}, {
+      getOwnPropertyDescriptor() {
+        throw new Error("descriptor must not be inspected")
+      },
+    })
+    const revokedPayload = Proxy.revocable({}, {})
+    revokedPayload.revoke()
+
+    // SAFETY: The fixtures prove runtime normalization for JavaScript and untyped producers.
+    await log.append({ name: "accessor", payload: accessorPayload as never, type: "lifecycle" })
+    // SAFETY: The fixture proves runtime normalization for a hostile untyped proxy.
+    await log.append({ name: "proxy", payload: proxyPayload as never, type: "lifecycle" })
+    // SAFETY: The fixture proves runtime normalization for a revoked untyped proxy.
+    await log.append({ name: "revoked", payload: revokedPayload.proxy as never, type: "lifecycle" })
+
+    expect(log.entries()).toEqual([
+      expect.objectContaining({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      }),
+      expect.objectContaining({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      }),
+      expect.objectContaining({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      }),
+    ])
+  })
+
   it("keeps run errors failed after a later finish", async () => {
     const events = [
       { name: "run.error", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "error" as const },
@@ -315,6 +1295,50 @@ describe("@vite-hub/runtime", () => {
 
     expect(deriveTraceRuns(events)).toEqual([
       expect.objectContaining({ endTime: events[1]!.timestamp, id: "run-1", status: "failed" }),
+    ])
+  })
+
+  it("replaces canonical step payload attributes when visibility changes", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.start",
+      payload: { value: "public value", visibility: "public" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.finish",
+      payload: { visibility: "private" },
+      type: "run",
+    })
+
+    expect(deriveTraceRuns(log.entries())[0]?.steps[0]?.attributes).toEqual({
+      "step.id": "step-1",
+      "vitehub.payload.visibility": "private",
+    })
+  })
+
+  it("keeps event activity metadata off derived step attributes", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      activity: { owner: "agent", phase: "execution" },
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.start",
+      type: "run",
+    })
+    await log.append({
+      activity: { owner: "vitehub", phase: "teardown" },
+      attributes: { "step.id": "step-1" },
+      name: "agent.step.finish",
+      type: "run",
+    })
+
+    const step = deriveTraceRuns(log.entries())[0]?.steps[0]
+    expect(step?.attributes).toEqual({ "step.id": "step-1" })
+    expect(step?.events.map(event => event.activity)).toEqual([
+      { owner: "agent", phase: "execution" },
+      { owner: "vitehub", phase: "teardown" },
     ])
   })
 

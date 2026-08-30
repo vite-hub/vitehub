@@ -1,6 +1,8 @@
 import {
   createConsoleInvocations,
+  createConsoleFixtureInvocations,
   getConsoleInvocations,
+  installConsoleFixtureInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
 import {
@@ -14,6 +16,7 @@ import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/serv
 
 export {
   createConsoleInvocations,
+  createConsoleFixtureInvocations,
   getConsoleAgents,
   getConsoleDefinitions,
   getConsoleInvocations,
@@ -21,6 +24,7 @@ export {
   getConsoleSections,
   installConsoleAgentDefinitions,
   installConsoleAgents,
+  installConsoleFixtureInvocations,
   installConsoleDefinitions,
   installConsoleInvocations,
   installConsoleKV,

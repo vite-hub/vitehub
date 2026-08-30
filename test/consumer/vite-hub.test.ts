@@ -11,6 +11,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
@@ -25,6 +26,7 @@ const optionalPackages = [
   "@vercel/sandbox",
   "askweb",
   "evalite",
+  "files-sdk",
   "openworkflow",
   "vitest",
 ]
@@ -201,7 +203,7 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
   })
 
   for (const [name, spec] of Object.entries(manifest.dependencies || {})) {
-    if (name.startsWith("@vite-hub/")) {
+    if (name.startsWith("@vite-hub/") && !spec.startsWith("npm:")) {
       expect(spec, `${manifest.name} should pin ${name} to its tested release matrix`).toBe(manifest.version)
     }
   }
@@ -222,21 +224,29 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
   const specs: Record<string, string> = {}
   const infos = listWorkspacePackageInfos(repoRoot)
     .filter(info => !info.private && (!packageNames || packageNames.has(info.packageName)))
+  const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
 
   for (const info of infos) {
     const source = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as PackageManifest
-    await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-    const tarball = join(packDir, packageTarballName(info.packageName, source.version))
+    const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
+      await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+      return join(packDir, packageTarballName(info.packageName, source.version))
+    })
     expect(existsSync(tarball), `Missing tarball for ${info.packageName}`).toBe(true)
     await assertPackedPackage(tarball, info.packageName === "vite-hub")
     specs[info.packageName] = `file:${tarball}`
   }
 
+  if (releaseTarballs && !packageNames) expect(releaseTarballs.size).toBe(infos.length)
+
   return specs
 }
 
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
-  const overrides = Object.entries({ ...specs, ...additionalOverrides })
+  const overrides = Object.entries({
+    ...specs,
+    ...additionalOverrides,
+  })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
 
@@ -250,6 +260,7 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "overrides:",
     // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Keep Workflow's broad Nest peer pair on the same major in isolated installs.
     "  \"@nestjs/common\": \"11.2.3\"",
     "  \"@nestjs/core\": \"11.2.3\"",
     ...overrides,
@@ -340,10 +351,10 @@ async function assertProviderRuntimeLoads(appDir: string) {
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
 
-async function assertBlobDriverPackagesOwned(appDir: string) {
+async function assertBlobProviderPackagesOwned(appDir: string) {
   const script = [
     "const viteHub = import.meta.resolve(\"vite-hub/package.json\")",
-    "for (const specifier of [\"files-sdk\", \"@google-cloud/storage\"]) import.meta.resolve(specifier, viteHub)",
+    "import.meta.resolve(\"@google-cloud/storage\", viteHub)",
   ].join("\n")
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
@@ -895,7 +906,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
-      await assertBlobDriverPackagesOwned(appDir)
+      await assertBlobProviderPackagesOwned(appDir)
       await assertEffectMsgpackFallback(appDir)
       await assertProviderRuntimeLoads(appDir)
 
@@ -1020,7 +1031,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
       const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
-        file.endsWith(".d.ts")
+        file.endsWith(".d.ts") || file.includes("/.runtime-generations/")
           ? []
           : source.split("\n")
               .map((line, index) => ({ file, line: index + 1, source: line.trim() }))

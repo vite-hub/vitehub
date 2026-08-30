@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
@@ -19,19 +20,17 @@ export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
 const mergeNoExternal = createNoExternalMerger("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
-const unemailDriverPattern = /^unemail\/driver\/[a-z0-9][a-z0-9-]*$/
-
-export type UnemailDriverSpecifier = `unemail/driver/${string}`
+export type EmailProvider = "cloudflare-email" | "resend"
 
 interface GeneratedEmailDefinition {
-  driver: UnemailDriverSpecifier
+  driver: EmailProvider
   handler: string
   name: "default"
   options: EnvRuntimeRegistry
 }
 
 export interface EmailVitePluginOptions {
-  driver: UnemailDriverSpecifier
+  driver: EmailProvider
   options?: EnvRuntimeConfigOptions
 }
 
@@ -67,20 +66,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: unknown } {
-  return isRecord(value) && isRecord(value.source) && typeof value.secret === "boolean"
+function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: Record<string, unknown> } {
+  return isRecord(value) && isRecord(value.source) && (value.secret === true || value.secret === false)
 }
 
-function rejectSecretDefaults(value: unknown, path = "email.options"): void {
+function validateEmailRuntimeOptions(value: unknown, path = "email.options"): void {
   if (isRuntimeEnvEntry(value)) {
-    if (value.secret && typeof value.default !== "undefined") {
+    if (value.source.kind === "provider") {
+      throw new TypeError(`[vitehub] Email declaration ${path} cannot use env.provider() because Email options are resolved synchronously.`)
+    }
+    if (value.secret && value.default !== undefined) {
       throw new TypeError(`[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.`)
     }
     return
   }
   if (!isRecord(value) || value.kind === "literal") return
   for (const [key, child] of Object.entries(value)) {
-    rejectSecretDefaults(child, `${path}.${key}`)
+    validateEmailRuntimeOptions(child, `${path}.${key}`)
   }
 }
 
@@ -93,20 +95,16 @@ function renderResolvedOptions(value: unknown, reference: string): string {
 }
 
 function resolveDriverImport(driver: string): string {
-  if (!unemailDriverPattern.test(driver)) {
-    throw new TypeError("[vitehub] Email driver must be an unemail/driver/* package subpath.")
+  if (driver !== "resend" && driver !== "cloudflare-email") {
+    throw new TypeError('[vitehub] Email driver must be "resend" or "cloudflare-email".')
   }
-  try {
-    return resolvePackageImport(driver)
-  }
-  catch (error) {
-    throw new Error(`[vitehub] Could not resolve Email driver ${JSON.stringify(driver)} from Unemail.`, { cause: error })
-  }
+  const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
+  return fileURLToPath(new URL(`./drivers/${driver}.${extension}`, import.meta.url))
 }
 
 function configuredDefinition(options: EmailVitePluginOptions): Omit<GeneratedEmailDefinition, "handler"> {
   const runtimeOptions = createRuntimeEnvRegistry(options.options, { path: "email.options" })
-  rejectSecretDefaults(runtimeOptions)
+  validateEmailRuntimeOptions(runtimeOptions)
   return {
     driver: options.driver,
     name: "default",
@@ -320,7 +318,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
 
 export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
-    throw new TypeError("[vitehub] Email requires an unemail/driver/* driver.")
+    throw new TypeError('[vitehub] Email requires driver: "resend" or driver: "cloudflare-email".')
   }
   const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
@@ -329,7 +327,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
   let cloudflare = false
   let vercel = false
-  const cloudflareEmail = configured.driver === "unemail/driver/cloudflare-email"
+  const cloudflareEmail = configured.driver === "cloudflare-email"
   let definition: GeneratedEmailDefinition | undefined
   let serverDirs: string[] | undefined
   let templatesRoots = [resolve(process.cwd(), "server", "emails")]
@@ -400,6 +398,9 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const configRecord = config as Record<string, unknown>
       const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
       cloudflare = hosting === "cloudflare"
+      if (cloudflareEmail && !cloudflare) {
+        throw new TypeError('[vitehub] Email driver "cloudflare-email" requires a Cloudflare hosting provider.')
+      }
       vercel = hosting === "vercel"
         || internalOptions.workflowProvider === "vercel"
         || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")

@@ -74,7 +74,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
+  AgentRuntimeContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
+    runtimeConfig: TRuntimeConfig
+  }
 
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig"> & {
@@ -1202,9 +1205,38 @@ export interface AgentProviderDriverOptions<
   output?: AgentOutputDefinition<TOutput>
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
+  providerSettings?: Record<string, unknown>
 }
 
-export type CodexDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export interface AgentProviderSealedCredential {
+  unseal(): string
+}
+
+export type AgentProviderCredentialValue = string | AgentProviderSealedCredential
+
+export interface AgentProviderCredentialContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentAdapterMetadataContext<TRuntimeConfig> {
+  abortSignal?: AbortSignal
+}
+
+export type AgentProviderCredentialResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> = MaybeResolvable<AgentProviderCredentialValue, AgentProviderCredentialContext<TRuntimeConfig>>
+
+type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+/** A non-empty reasoning effort advertised by the selected Codex model. */
+export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
+export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
+
+export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
+  credentialProfile?: string
+  credentials?: AgentProviderCredentialResolver
+  /** Advanced Codex runtime settings passed to the provider runtime. */
+  providerSettings?: Record<string, unknown>
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
+}
 export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
@@ -1235,6 +1267,9 @@ export interface AgentModelDriver<
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -1256,6 +1291,9 @@ export interface AgentRunDriver<
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -1766,7 +1804,7 @@ export interface AgentInspectionFileTreeItem {
   children?: AgentInspectionFileTreeItem[]
   kind: "directory" | "file"
   label?: string
-  materialize?: "build" | "lazy"
+  materialize?: "build" | "startup" | "lazy"
   materialized?: boolean
   materializedAt?: string
   path: string
@@ -1813,9 +1851,14 @@ export interface AgentInspectionModelExecutionMetadata {
 }
 
 export interface AgentInspectionProviderMetadata {
+  credentialProfile?: string
+  credentials?: true
   model?: string
   permissions: AgentProviderPermissions
   provider?: string
+  providerSettings?: string[]
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
 }
 
 export interface AgentInspectionDriverMetadata {

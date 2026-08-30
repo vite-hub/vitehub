@@ -106,7 +106,7 @@ async function mapHostInspections<T, U>(
   visit: (value: T, batch: { assertActive: () => void, fail: (error: unknown) => void }) => Promise<U>,
   _signal?: AbortSignal,
 ) {
-  const results = new Array<U>(values.length)
+  const results: U[] = []
   let next = 0
   let failed = false
   let failure: unknown

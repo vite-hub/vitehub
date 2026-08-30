@@ -1,4 +1,4 @@
-import { access, copyFile, cp, mkdir, readFile, realpath, rm, stat } from "node:fs/promises"
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -24,14 +24,13 @@ interface NodeRuntimePackagesOptions {
 
 interface VercelFunctionRuntimePackagesOptions {
   outputRoot?: string
-  packages: VercelFunctionRuntimePackage[]
+  packages: VercelFunctionRuntimePackage[] | (() => VercelFunctionRuntimePackage[] | Promise<VercelFunctionRuntimePackage[]>)
   rootDir: string
   serverFunctionName?: string
+  signal?: AbortSignal
 }
 
 export async function copyVercelFunctionRuntimePackages(options: VercelFunctionRuntimePackagesOptions): Promise<void> {
-  if (!options.packages.length) return
-
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
   const serverFunctionName = options.serverFunctionName ?? "__server.func"
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
@@ -44,21 +43,74 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     throw error
   }
 
-  await copyNodeRuntimePackages({
-    outputNodeModules: resolve(serverDir, "node_modules"),
-    packages: options.packages,
-    rootDir: options.rootDir,
-  })
+  const packages = Array.isArray(options.packages) ? options.packages : await options.packages()
+  if (!packages.length) return
+
+  const outputNodeModules = resolve(serverDir, "node_modules")
+  const stagingRoot = await mkdtemp(resolve(serverDir, ".vitehub-runtime-packages-"))
+  const stagedNodeModules = resolve(stagingRoot, "node_modules")
+  const previousNodeModules = resolve(stagingRoot, "previous-node_modules")
+  let movedPreviousOutput = false
+  let installedReplacement = false
+  let cleanupStagingRoot = true
+
+  try {
+    try {
+      await cp(outputNodeModules, stagedNodeModules, { recursive: true })
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    await mkdir(stagedNodeModules, { recursive: true })
+
+    await copyNodeRuntimePackages({
+      outputNodeModules: stagedNodeModules,
+      packages,
+      rootDir: options.rootDir,
+    })
+    options.signal?.throwIfAborted()
+
+    try {
+      await rename(outputNodeModules, previousNodeModules)
+      movedPreviousOutput = true
+      cleanupStagingRoot = false
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+
+    try {
+      options.signal?.throwIfAborted()
+      await rename(stagedNodeModules, outputNodeModules)
+      installedReplacement = true
+      options.signal?.throwIfAborted()
+      cleanupStagingRoot = true
+    }
+    catch (error) {
+      if (installedReplacement) await rm(outputNodeModules, { force: true, recursive: true })
+      if (movedPreviousOutput) {
+        await rename(previousNodeModules, outputNodeModules)
+      }
+      cleanupStagingRoot = true
+      throw error
+    }
+  }
+  finally {
+    if (cleanupStagingRoot) await rm(stagingRoot, { force: true, recursive: true })
+  }
 }
 
 export async function copyNodeRuntimePackages(options: NodeRuntimePackagesOptions): Promise<void> {
   if (!options.packages.length) return
 
   const copied = new Set<string>()
+  const expanded = new Set<string>()
   for (const runtimePackage of options.packages) {
     const resolveFrom = runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")
     const resolver = createRequire(resolveFrom)
-    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, runtimePackage)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, expanded, runtimePackage)
   }
 }
 
@@ -68,6 +120,7 @@ async function copyPackageToNodeModules(
   fromDir: string,
   outputNodeModules: string,
   copied: Set<string>,
+  expanded: Set<string>,
   options: NodeRuntimePackage = { name },
 ): Promise<void> {
   const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
@@ -90,7 +143,6 @@ async function copyPackageToNodeModules(
     peerDependenciesMeta?: Record<string, { optional?: boolean }>
   }
   const packageKey = `${name}\0${resolvedPackageJsonPath}`
-
   if (!copied.has(packageKey)) {
     copied.add(packageKey)
     const targetDir = join(outputNodeModules, ...name.split("/"))
@@ -98,6 +150,10 @@ async function copyPackageToNodeModules(
     const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
     if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
   }
+
+  const expansionKey = `${packageKey}\0${options.includePeerDependencies ? "peers" : "dependencies"}`
+  if (expanded.has(expansionKey)) return
+  expanded.add(expansionKey)
 
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
@@ -108,7 +164,7 @@ async function copyPackageToNodeModules(
   }
 
   for (const dependencyName of dependencyNames) {
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, expanded, {
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
     })
