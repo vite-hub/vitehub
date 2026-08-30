@@ -32,6 +32,12 @@ interface DenoRuntime {
   openKv?: (path?: string) => Promise<DenoKV>
 }
 
+const MAX_TRANSACTION_ATTEMPTS = 10
+
+function transactionContentionError(operation: string, key: string): Error {
+  return new Error(`[vitehub] Deno KV ${operation} at "${key}" exceeded ${MAX_TRANSACTION_ATTEMPTS} transaction attempts.`)
+}
+
 function getDenoRuntime(): DenoRuntime | undefined {
   // SAFETY: The optional global is checked for openKv before invocation.
   return (globalThis as typeof globalThis & { Deno?: DenoRuntime }).Deno
@@ -89,13 +95,14 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const resolvedKey = toDenoKey(key)
     const expiryKey = toDenoExpiryKey(key)
-    while (true) {
+    for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt++) {
       const [entry, expiryEntry] = await Promise.all([kv.get(resolvedKey), kv.get(expiryKey)])
       const transaction = kv.atomic().check(entry).check(expiryEntry).delete(expiryKey)
       if (replacement) transaction.set(resolvedKey, replacement.value)
       else transaction.delete(resolvedKey)
       if ((await transaction.commit()).ok) return
     }
+    throw transactionContentionError("replacement", key)
   }
 
   return {
@@ -121,10 +128,11 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       const kv = await open()
       const resolvedKey = toDenoKey(key)
       const expiryKey = toDenoExpiryKey(key)
-      while (true) {
+      for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt++) {
         const [entry, expiryEntry] = await Promise.all([kv.get<T>(resolvedKey), kv.get(expiryKey)])
         if ((await kv.atomic().check(entry).check(expiryEntry).delete(resolvedKey).delete(expiryKey).commit()).ok) return entry.value ?? null
       }
+      throw transactionContentionError("get-and-delete", key)
     },
     async getKeys(base = "") {
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
@@ -146,7 +154,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       const resolvedKey = toDenoKey(key)
       const expiryKey = toDenoExpiryKey(key)
       const expireIn = normalizeTTL(ttl)
-      while (true) {
+      for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt++) {
         const [entry, expiryEntry] = await Promise.all([kv.get(resolvedKey), kv.get<number>(expiryKey)])
         const now = Date.now()
         const created = entry.versionstamp === null
@@ -168,6 +176,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           .set(expiryKey, expiresAt, { expireIn: remaining }).commit()
         if (result.ok) return current + 1
       }
+      throw transactionContentionError("increment", key)
     },
     async removeItem(key) {
       await replaceItem(key)

@@ -88,6 +88,7 @@ function createDriverWithoutOptionalMethods(): Driver {
 
 function createDenoOpenKvMock() {
   const data = new Map<string, unknown>()
+  const commitResults: boolean[] = []
   const setOptions: Array<{ expireIn?: number } | undefined> = []
   const close = vi.fn()
   const openKv = vi.fn(async () => ({
@@ -96,6 +97,8 @@ function createDenoOpenKvMock() {
       const transaction = {
         check: () => transaction,
         commit: async () => {
+          const ok = commitResults.shift() ?? true
+          if (!ok) return { ok }
           for (const operation of operations) operation()
           return { ok: true }
         },
@@ -137,7 +140,7 @@ function createDenoOpenKvMock() {
     },
   }))
 
-  return { close, data, openKv, setOptions }
+  return { close, commitResults, data, openKv, setOptions }
 }
 
 vi.mock("unstorage/drivers/fs-lite", () => ({
@@ -480,6 +483,21 @@ describe("kv runtime", () => {
     await expect(storage.getAndDeleteItem?.("json-string")).resolves.toBe("123")
     await storage.setItem("object", { atomic: true })
     await expect(storage.getAndDeleteItem?.("object")).resolves.toEqual({ atomic: true })
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      await storage.setItem("number", value)
+      await expect(storage.getAndDeleteItem?.("number")).resolves.toBe(value)
+    }
+  })
+
+  it("bounds Deno KV transaction retries under contention", async () => {
+    const { commitResults, openKv } = createDenoOpenKvMock()
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
+
+    commitResults.push(...Array.from({ length: 10 }, () => false))
+    await expect(driver.incrementItem?.("contended", 60)).rejects.toThrow("exceeded 10 transaction attempts")
   })
 
   it("starts a fresh Deno counter window after replacement or deletion", async () => {

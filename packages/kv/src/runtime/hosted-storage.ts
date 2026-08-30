@@ -1,3 +1,4 @@
+import { destr } from "destr"
 import { createStorage, normalizeKey } from "unstorage"
 
 import type { KVListOptions, KVListPage, ResolvedKVModuleOptions } from "../types.ts"
@@ -36,14 +37,8 @@ function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined)
 function deserializeValue(value: unknown) {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosted drivers return the serialized representation written by unstorage.
   if (typeof value !== "string") return value
-  if (value === "undefined") return undefined
-  try {
-    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This mirrors unstorage's JSON value decoding and never trusts the result structurally.
-    return JSON.parse(value)
-  }
-  catch {
-    return value
-  }
+  // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This is the decoder used by unstorage's ordinary read path.
+  return destr(value)
 }
 
 export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined): RuntimeStorage {
@@ -64,7 +59,12 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   storage.listKeys = options => driver.listKeys(options)
   const getAndDeleteItem = driver.getAndDeleteItem
   const incrementItem = driver.incrementItem
-  if (getAndDeleteItem) storage.getAndDeleteItem = async key => deserializeValue(await getAndDeleteItem(normalizeKey(key)))
+  if (getAndDeleteItem) {
+    storage.getAndDeleteItem = async <T = unknown>(key: string): Promise<T | null> => {
+      // SAFETY: destr mirrors the caller-typed transformation used by storage.getItem.
+      return deserializeValue(await getAndDeleteItem(normalizeKey(key))) as T | null
+    }
+  }
   if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)
   return storage
 }
