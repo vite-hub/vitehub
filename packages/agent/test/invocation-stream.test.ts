@@ -24,6 +24,40 @@ describe("Agent Invocation Stream", () => {
     expect(signal?.aborted).toBe(true)
   })
 
+  it("cancels an idle invocation when its iterator closes during a pending read", async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const events = readAgentInvocationStream(body)
+
+    const next = events.next()
+    const returned = events.return(undefined)
+
+    await expect(returned).resolves.toEqual({ done: true, value: undefined })
+    await expect(next).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(body.locked).toBe(false)
+  })
+
+  it("forwards reader failures to the paired invocation signal", async () => {
+    let signal: AbortSignal | undefined
+    const response = createAgentInvocationStreamResponse(async (emit, runSignal) => {
+      signal = runSignal
+      emit({} as never)
+      await new Promise<void>(resolve => runSignal.addEventListener("abort", () => resolve(), { once: true }))
+    })
+
+    let failure: unknown
+    try {
+      for await (const _event of readAgentInvocationStream(response.body!)) {}
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(failure).toEqual(new TypeError("Invalid Agent Invocation Stream event."))
+    expect(signal?.reason).toBe(failure)
+  })
+
   it("preserves parser errors when stream cancellation also fails", async () => {
     const cleanupFailure = new Error("cleanup failed")
     const cancel = vi.fn(async () => { throw cleanupFailure })

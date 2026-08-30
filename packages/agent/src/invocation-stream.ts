@@ -46,44 +46,76 @@ function parseAgentInvocationStreamEvent(line: string): AgentInvocationStreamEve
   return event as AgentInvocationStreamEvent
 }
 
-export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
+export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let completed = false
   let error: unknown
   let pending = ""
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) {
-        pending += decoder.decode()
-        completed = true
-        break
-      }
-      pending += decoder.decode(value, { stream: true })
-      const lines = pending.split("\n")
-      pending = lines.pop() || ""
-      for (const line of lines) {
-        if (line.trim()) yield parseAgentInvocationStreamEvent(line)
-      }
-    }
-    if (pending.trim()) yield parseAgentInvocationStreamEvent(pending)
-  }
-  catch (cause) {
-    error = cause
-    throw cause
-  }
-  finally {
+  let cancellation: Promise<void> | undefined
+
+  const events = (async function* () {
     try {
-      if (!completed) {
-        const cancellation = reader.cancel(error)
-        if (error) await cancellation.catch(() => undefined)
-        else await cancellation
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) {
+          pending += decoder.decode()
+          completed = true
+          break
+        }
+        pending += decoder.decode(value, { stream: true })
+        const lines = pending.split("\n")
+        pending = lines.pop() || ""
+        for (const line of lines) {
+          if (line.trim()) yield parseAgentInvocationStreamEvent(line)
+        }
       }
+      if (pending.trim()) yield parseAgentInvocationStreamEvent(pending)
+    }
+    catch (cause) {
+      error = cause
+      throw cause
     }
     finally {
-      reader.releaseLock()
+      try {
+        if (!completed) {
+          cancellation ||= reader.cancel(error)
+          if (error) await cancellation.catch(() => undefined)
+          else await cancellation
+        }
+      }
+      finally {
+        reader.releaseLock()
+      }
     }
+  })()
+
+  return {
+    async [Symbol.asyncDispose]() {
+      await this.return(undefined)
+    },
+    [Symbol.asyncIterator]() {
+      return this
+    },
+    next: events.next.bind(events),
+    async return(value) {
+      let cancellationError: unknown
+      let cancellationFailed = false
+      if (!completed) {
+        try {
+          cancellation ||= reader.cancel()
+          await cancellation
+        }
+        catch (cause) {
+          cancellationError = cause
+          cancellationFailed = true
+        }
+      }
+      const result = await events.return(value)
+      if (cancellationFailed) throw cancellationError
+      return result
+    },
+    throw: events.throw.bind(events),
   }
 }
 
@@ -196,10 +228,10 @@ export function createAgentInvocationStreamResponse(
           if (emit(controller, { type: "done" })) close(controller)
         })
     },
-    cancel() {
+    cancel(reason) {
       clearInactivityTimeout()
       closed = true
-      abort()
+      abort(reason)
     },
   }), {
     headers: { "content-type": "application/x-ndjson" },
