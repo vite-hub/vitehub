@@ -640,9 +640,11 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, disabled.nuxt)
     const pages: Array<{ file: string; name: string; path: string }> = []
     disabled.runPagesHook(pages)
+    const disabledNitroConfig = nitroOptions(disabled.nuxt)
+    await disabled.runNitroConfigHook(disabledNitroConfig)
 
     expect(pages).toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
-    expect(disabled.nuxt.options.nitro?.handlers).toContain(applicationKVHandler)
+    expect(disabledNitroConfig.handlers).toContain(applicationKVHandler)
   })
 
   it("reconciles the Nuxt Console from the retained KV plugin", async () => {
