@@ -146,11 +146,7 @@ function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<Babel
     if (current.node.type === "ExportDefaultDeclaration") return true
     if (
       current.node.type === "AssignmentExpression"
-      && current.node.left?.type === "MemberExpression"
-      && current.node.left.object?.type === "Identifier"
-      && current.node.left.object.name === "module"
-      && current.node.left.property?.type === "Identifier"
-      && current.node.left.property.name === "exports"
+      && babelMemberIsCommonJsDefaultExport(current.node.left)
     ) return true
     if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
       const binding = current.scope.getBinding(current.node.id.name)
@@ -160,16 +156,33 @@ function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<Babel
   return false
 }
 
+function babelMemberIsCommonJsDefaultExport(member: BabelNode | undefined): boolean {
+  if (member?.type !== "MemberExpression") return false
+  if (
+    member.object?.type === "Identifier"
+    && member.object.name === "module"
+    && member.property?.type === "Identifier"
+    && member.property.name === "exports"
+  ) return true
+  if ((member.property?.name ?? member.property?.value) !== "default") return false
+  return (
+    member.object?.type === "Identifier"
+    && member.object.name === "exports"
+  ) || (
+    member.object?.type === "MemberExpression"
+    && member.object.object?.type === "Identifier"
+    && member.object.object.name === "module"
+    && member.object.property?.type === "Identifier"
+    && member.object.property.name === "exports"
+  )
+}
+
 function babelPathIsDirectDefaultExport(path: BabelNodePath): boolean {
   const parent = path.parentPath?.node
   if (parent?.type === "ExportDefaultDeclaration") return true
   return parent?.type === "AssignmentExpression"
     && parent.right === path.node
-    && parent.left?.type === "MemberExpression"
-    && parent.left.object?.type === "Identifier"
-    && parent.left.object.name === "module"
-    && parent.left.property?.type === "Identifier"
-    && parent.left.property.name === "exports"
+    && babelMemberIsCommonJsDefaultExport(parent.left)
 }
 
 function babelPropertyIsTopLevelDefaultExport(path: BabelNodePath): boolean {
@@ -178,11 +191,7 @@ function babelPropertyIsTopLevelDefaultExport(path: BabelNodePath): boolean {
     if (current.node.type === "ExportDefaultDeclaration") return true
     if (
       current.node.type === "AssignmentExpression"
-      && current.node.left?.type === "MemberExpression"
-      && current.node.left.object?.type === "Identifier"
-      && current.node.left.object.name === "module"
-      && current.node.left.property?.type === "Identifier"
-      && current.node.left.property.name === "exports"
+      && babelMemberIsCommonJsDefaultExport(current.node.left)
     ) return true
     if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
       const binding = current.scope.getBinding(current.node.id.name)
@@ -311,6 +320,7 @@ function babelPathReachesNamedExport(
   path: BabelNodePath,
   exportedName: string,
   seen = new Set<BabelNodePath>(),
+  mayCrossValueProperty = true,
 ): boolean {
   if (seen.has(path)) return false
   seen.add(path)
@@ -321,6 +331,10 @@ function babelPathReachesNamedExport(
       && current.parentPath
       && babelPathIsDirectDefaultExport(current.parentPath)
     ) return true
+    if (current.node.type === "ObjectProperty") {
+      if (!mayCrossValueProperty) return false
+      mayCrossValueProperty = false
+    }
     if (
       current.node.type === "AssignmentExpression"
       && current.node.left?.type === "MemberExpression"
@@ -343,7 +357,7 @@ function babelPathReachesNamedExport(
         || babelBindingIsExportedAs(current, name, exportedName)
       ) return true
       const binding = current.scope.getBinding(name)
-      if (binding?.referencePaths?.some(reference => babelPathReachesNamedExport(reference, exportedName, seen))) return true
+      if (binding?.referencePaths?.some(reference => babelPathReachesNamedExport(reference, exportedName, seen, false))) return true
     }
     if (
       current.node.type === "FunctionDeclaration"

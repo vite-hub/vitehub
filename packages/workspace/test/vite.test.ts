@@ -1493,6 +1493,41 @@ describe("hubWorkspace", () => {
     expect(wrangler.artifacts).toEqual([{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }])
   })
 
+  it("ignores Artifact-shaped metadata retained by named memory stores", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "workspace-store.ts"), [
+      `const metadata = { provider: "cloudflare-artifacts" }`,
+      `export const store = { provider: "memory", metadata }`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import "virtual:generated-workspace-metadata"`,
+      `export { store as default } from "./workspace-store"`,
+      ``,
+    ].join("\n"))
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(["exports.default", "module.exports.default"])("resolves %s CommonJS Workspace Definitions", async exportTarget => {
+    const root = await createViteRoot()
+    await rm(join(root, "src", "docs.workspace.ts"))
+    await writeFile(join(root, "src", "docs.workspace.cjs"), `${exportTarget} = { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`)
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }])
+  })
+
   it("resolves member-selected CommonJS Workspace stores", async () => {
     const root = await createViteRoot()
     await rm(join(root, "src", "docs.workspace.ts"))
