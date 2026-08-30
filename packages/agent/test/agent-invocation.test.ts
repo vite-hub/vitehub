@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createBackedAgentInvocationController } from "../src/agent-invocation.ts"
-import { subagents } from "../src/capabilities.ts"
 import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
 import {
   agentInvocationControlId,
@@ -10,7 +9,7 @@ import {
   withAgentInvocationControlId,
 } from "../src/internal/agent-invocation-control.ts"
 
-import type { AgentAdapter, AgentRuntimeContext, AgentToolDefinition } from "../src/index.ts"
+import type { AgentRuntimeContext } from "../src/index.ts"
 
 function runtime(overrides: Partial<AgentRuntimeContext> = {}): AgentRuntimeContext {
   return {
@@ -250,31 +249,5 @@ describe("Agent Invocation controllers", () => {
     await Promise.resolve()
     parent.abort("stop queued child")
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
-  })
-
-  it("keeps subagents serializable while assigning fresh trusted identities", async () => {
-    const { MockLanguageModelV3 } = await import("ai/test")
-    const child = defineAgent({ driver: { run: ({ run }) => run?.runId }, runtime: false })
-    const parent = defineAgent({
-      capabilities: [subagents({
-        agents: {
-          researcher: { agent: child, description: "Research one question." },
-        },
-      })],
-      driver: { model: new MockLanguageModelV3() },
-    })
-    // SAFETY: defineAgent resolves capability tools onto this internal adapter before returning it.
-    const resolved = await parent.resolve(runtime()) as AgentAdapter & {
-      tools: Record<string, AgentToolDefinition>
-    }
-    const tool = resolved.tools.run_researcher!
-    const first = await tool.execute?.({ message: "one" })
-    const second = await tool.execute?.({ message: "two" })
-
-    expect(first).toMatch(/^ainv_/)
-    expect(second).toMatch(/^ainv_/)
-    expect(second).not.toBe(first)
-    if (!tool.inputSchema || !("properties" in tool.inputSchema)) throw new Error("Expected a JSON Schema input.")
-    expect(tool.inputSchema.properties).not.toHaveProperty("runId")
   })
 })

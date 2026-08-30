@@ -89,7 +89,7 @@ for libraries, focused integrations, and advanced composition.
 | Import path | Owner | Use |
 | --- | --- | --- |
 | `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, and trusted caller types. |
-| `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, `inputCommands()`, and `subagents()`. |
+| `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, and `inputCommands()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
 | `@vite-hub/agent/runtime/process` | Agent Package | Adaptive process-local Agent capacity for self-hosted Node applications. |
