@@ -994,7 +994,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("agentWithColocatedSkills")
     expect(registry).toContain('agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, "Use flat Agent instructions.\\n")')
     expect(registry).toContain("__vitehubAgentSkill:skills/review/SKILL.md")
-    expect(registry).toContain("/.vitehub/workflow-generations/")
+    expect(registry).toContain("/.vitehub/workflow/sources/")
     expect(registry).toContain("/server/agents/nuxt/workspace")
     expect(registry).not.toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")

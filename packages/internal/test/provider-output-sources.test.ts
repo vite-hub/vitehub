@@ -96,13 +96,22 @@ it("retains configured roots beneath nested generated output directories", async
   const rootDir = join(workspace, "playground", "vite", ".vitest-tmp", "project")
   const handler = join(rootDir, "server", "workflows", "support.ts")
   const shared = join(rootDir, "server", "shared.ts")
+  const nestedGenerated = join(rootDir, ".vitehub", "workflow", "sources", "stale.ts")
+  const nestedTemporary = join(rootDir, ".vitest-tmp", "stale.ts")
   const unrelated = join(workspace, "packages", "workflow", ".vitehub", "workflow", "sources", "test.ts")
-  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(unrelated), { recursive: true })])
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dirname(nestedGenerated), { recursive: true }),
+    mkdir(dirname(nestedTemporary), { recursive: true }),
+    mkdir(dirname(unrelated), { recursive: true }),
+  ])
   await Promise.all([
     writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
     writeFile(join(rootDir, "package.json"), "{}\n"),
     writeFile(handler, 'export { value } from "../../shared"\n'),
     writeFile(shared, 'export const value = "retained"\n'),
+    writeFile(nestedGenerated, "throw new Error('generated descendant must not be retained')\n"),
+    writeFile(nestedTemporary, "throw new Error('temporary descendant must not be retained')\n"),
     writeFile(unrelated, "throw new Error('generated test must not be retained')\n"),
   ])
 
@@ -115,6 +124,8 @@ it("retains configured roots beneath nested generated output directories", async
 
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("../../shared")
   await expect(readFile(retained.resolve(shared), "utf8")).resolves.toContain("retained")
+  await expect(readFile(retained.resolve(nestedGenerated), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(nestedTemporary), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   await expect(readFile(join(retainedWorkspace, "packages", "workflow", ".vitehub", "workflow", "sources", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
