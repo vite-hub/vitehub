@@ -1610,7 +1610,14 @@ async function* runProvider<
       finalizeLateRuntimeCreation,
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds)
+    if (Object.keys(context.tools || {}).length) {
+      toolServer = await waitForProviderOperation(
+        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        effectiveSignal,
+        lateToolServer => lateToolServer.close(),
+        observeLateCleanup,
+      )
+    }
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
@@ -1747,37 +1754,6 @@ async function* runProvider<
       })())
     }
     const cleanupTask = (async () => {
-      const runtimeCleanup = runtimeCleanupDeferred
-        ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
-        : Promise.resolve()
-            .then(() => runtime?.close())
-            .catch((error) => {
-              runtimeCleanupFailure = codexRuntimeCleanupFailure(error)
-              throw error
-            })
-            .finally(() => runtimeCleanupSettled = true)
-      const runtimeAndToolCleanup = await Promise.allSettled([
-        runtimeCleanup,
-        toolServer?.close(),
-      ])
-      for (const result of runtimeAndToolCleanup) {
-        const repeatsInvocationFailure = caught !== undefined
-          && result.status === "rejected"
-          && (result.reason === caught || result.reason === effectiveSignal?.reason)
-        if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
-      }
-      if (!runtimeCleanupDeferred) {
-        try {
-          const runtimeResult = runtimeAndToolCleanup[0]
-          await releaseCodexCredentialHome(runtimeResult?.status === "rejected" ? codexRuntimeCleanupFailure(runtimeResult.reason) : undefined)
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-      }
-      for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
-        if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
-      }
       const finalizeWorkspace = async () => {
         try {
           for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
@@ -1800,8 +1776,42 @@ async function* runProvider<
           releaseWorkspaceCleanup?.()
         }
       }
-      if (runtimeCleanupDeferred) void deferredRuntimeStopped.then(finalizeWorkspace)
-      else await finalizeWorkspace()
+      const runtimeCleanup = runtimeCleanupDeferred
+        ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
+        : Promise.resolve()
+            .then(() => runtime?.close())
+            .catch((error) => {
+              runtimeCleanupFailure = codexRuntimeCleanupFailure(error)
+              throw error
+            })
+            .finally(() => runtimeCleanupSettled = true)
+      const deferredWorkspaceFinalization = runtimeCleanupDeferred
+        ? deferredRuntimeStopped.then(finalizeWorkspace)
+        : undefined
+      if (deferredWorkspaceFinalization) observeLateCleanup(deferredWorkspaceFinalization)
+      const runtimeAndToolCleanup = await Promise.allSettled([
+        runtimeCleanup,
+        toolServer?.close(),
+      ])
+      for (const result of runtimeAndToolCleanup) {
+        const repeatsInvocationFailure = caught !== undefined
+          && result.status === "rejected"
+          && (result.reason === caught || result.reason === effectiveSignal?.reason)
+        if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
+      }
+      if (!runtimeCleanupDeferred) {
+        try {
+          const runtimeResult = runtimeAndToolCleanup[0]
+          await releaseCodexCredentialHome(runtimeResult?.status === "rejected" ? codexRuntimeCleanupFailure(runtimeResult.reason) : undefined)
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
+      }
+      for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
+        if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
+      }
+      if (!runtimeCleanupDeferred) await finalizeWorkspace()
       if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
         try {
           await cleanupRoot()

@@ -1,6 +1,7 @@
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
+import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -2596,6 +2597,32 @@ cli_auth_credentials_store = "keyring"
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
+  it("cancels while the Capability server is starting", async () => {
+    const threadId = "thread-cancel-capability-startup"
+    const provider = runtime(threadId, [])
+    const controller = new AbortController()
+    const listen = vi.spyOn(HttpServer.prototype, "listen").mockImplementation(function (this: HttpServer) {
+      return this
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+        tools: { stalled: { execute: vi.fn(), name: "stalled" } },
+      }) as never)
+
+      await vi.waitFor(() => expect(listen).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+
+      await expect(result).rejects.toBe("cancelled")
+      expect(provider.close).toHaveBeenCalledOnce()
+      expect(provider.startSession).not.toHaveBeenCalled()
+    }
+    finally {
+      listen.mockRestore()
+    }
+  })
+
   it("retains an already-aborted late provider close before deleting its root", async () => {
     const threadId = "thread-cancel-late-close"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
@@ -2894,6 +2921,7 @@ cli_auth_credentials_store = "keyring"
         },
       })
       const controller = new AbortController()
+      const closeWorkspace = vi.fn(async () => undefined)
       const options = {
         credentialProfile: `deferred-tool-cleanup-${crypto.randomUUID()}`,
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
@@ -2903,6 +2931,18 @@ cli_auth_credentials_store = "keyring"
       const result = createProviderAgentAdapter(options).generate(context(threadId, {
         input: { abortSignal: controller.signal, prompt: "hello" },
         tools: { stalled: { execute, name: "stalled" } },
+        workspace: {
+          fs: {},
+          startSession: vi.fn(async () => ({
+            close: closeWorkspace,
+            commit: vi.fn(async () => undefined),
+            diff: vi.fn(async () => ({ entries: [] })),
+            exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+            readFile: vi.fn(async () => new Uint8Array()),
+          })),
+          tools: {},
+        },
+        workspaceDefinition: { mode: "write", name: "docs" },
       }) as never)
 
       await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
@@ -2915,6 +2955,7 @@ cli_auth_credentials_store = "keyring"
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
       resolveTurn()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
       resolveExecute?.()
       toolCallController.abort()
       await toolCall
