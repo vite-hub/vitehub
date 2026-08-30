@@ -109,6 +109,11 @@ describe("public package export contracts", () => {
     expect(source).not.toMatch(/from ["']h3["']/)
   })
 
+  it("keeps Realtime's public handler contract independent from H3 host declarations", () => {
+    const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
+    expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry\): RealtimeHandler/)
+  })
+
   it("points every contract at a built artifact", () => {
     for (const contract of publicPackageExportContracts) {
       const info = packageInfos.find(info => info.packageName === contract.packageName)!
