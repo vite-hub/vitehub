@@ -2038,6 +2038,29 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("projects cached input tokens from supported usage records", () => {
+    const invocation = (usage: Record<string, unknown>) => ({
+      createdAt: "2026-08-27T09:59:00.000Z",
+      cursor: "cached-usage",
+      id: "cached-usage",
+      observations: [{
+        attributes: { "usage.record": { usage } },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-27T10:00:00.000Z",
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace-cached-usage",
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    })
+
+    expect(invocationUsage(invocation({ inputTokenDetails: { cachedTokens: 4 } })))
+      .toMatchObject({ cachedInputTokens: 4 })
+    expect(invocationUsage(invocation({ details: { cachedInputTokens: 6 } })))
+      .toMatchObject({ cachedInputTokens: 6 })
+  })
+
   it("keeps incomplete nested usage dimensions unavailable", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({

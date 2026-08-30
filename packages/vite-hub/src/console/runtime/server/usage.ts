@@ -194,6 +194,8 @@ function usageNode(value: unknown, includeCalls = true, inheritedModel?: string)
   const outputTokens = finiteNumber(usage?.outputTokens)
   const reasoningTokens = detailNumber(outputDetails, "reasoningTokens", "reasoningOutputTokens", "reasoning")
     ?? detailNumber(usageDetails, "reasoningOutputTokens")
+  const cachedInputTokens = detailNumber(inputDetails, "cacheReadTokens", "cacheRead", "cachedTokens")
+    ?? detailNumber(usageDetails, "cachedInputTokens")
   const projected: ConsoleInvocationUsage = {
     ...(model ? { model } : {}),
     ...(inputTokens !== undefined ? { inputTokens } : {}),
@@ -203,9 +205,7 @@ function usageNode(value: unknown, includeCalls = true, inheritedModel?: string)
         : inputTokens !== undefined && outputTokens !== undefined
           ? { totalTokens: inputTokens + outputTokens }
         : {}),
-    ...(detailNumber(inputDetails, "cacheReadTokens", "cacheRead", "cachedInputTokens") !== undefined
-      ? { cachedInputTokens: detailNumber(inputDetails, "cacheReadTokens", "cacheRead", "cachedInputTokens") }
-      : {}),
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
     ...(detailNumber(inputDetails, "cacheWriteTokens", "cacheWrite") !== undefined
       ? { cacheWriteTokens: detailNumber(inputDetails, "cacheWriteTokens", "cacheWrite") }
       : {}),
@@ -369,6 +369,7 @@ export async function createUsageSummary(
   let recordedUsage = 0
   let scanned = 0
   let partial = false
+  let scanTruncated = false
 
   do {
     const page = await invocations.list({
@@ -427,25 +428,28 @@ export async function createUsageSummary(
       }
     }
     cursor = page.cursor
-    if (scanned >= maximumUsageRecords && cursor) partial = true
+    if (scanned >= maximumUsageRecords && cursor) {
+      partial = true
+      scanTruncated = true
+    }
   } while (cursor && scanned < maximumUsageRecords)
 
-  const publicTotal = publicTotals(totals, !partial)
+  const publicTotal = publicTotals(totals, !scanTruncated)
 
   return {
     available: recordedUsage > 0,
     buckets: bucketStarts(from, to, window.bucket)
       .map(start => ({
         start,
-        ...publicTotals(buckets.get(start) ?? emptyTotals(), !partial),
+        ...publicTotals(buckets.get(start) ?? emptyTotals(), !scanTruncated),
         models: [...(bucketModels.get(start) ?? new Map<string, UsageTotal>()).entries()]
-          .map(([model, modelTotal]) => ({ model, ...publicTotals(modelTotal, !partial) })),
+          .map(([model, modelTotal]) => ({ model, ...publicTotals(modelTotal, !scanTruncated) })),
       })),
     costAvailable: publicTotal.costAvailable,
     from,
     generatedAt: new Date().toISOString(),
     models: [...models.entries()]
-      .map(([model, total]) => ({ model, ...publicTotals(total, !partial) }))
+      .map(([model, total]) => ({ model, ...publicTotals(total, !scanTruncated) }))
       .sort((left, right) => right.totalTokens - left.totalTokens || left.model.localeCompare(right.model)),
     partial,
     resolution: window.bucket,
