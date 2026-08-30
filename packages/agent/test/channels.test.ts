@@ -179,6 +179,7 @@ describe("agent channels", () => {
       const channel = github({ activity: true })
       const trigger = channel.triggers?.webhook
       if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+      // SAFETY: This fixture supplies the callback fields consumed by GitHub activity initialization.
       const result = await trigger.invoke({
         agentCapabilities: [],
         agentIdentity: { name: "reviewer" },
