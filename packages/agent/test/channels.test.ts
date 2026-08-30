@@ -205,7 +205,11 @@ describe("agent channels", () => {
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
       if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
-      if (init?.method === "GET") return Response.json(storedBody ? [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }] : [])
+      if (init?.method === "GET") {
+        return Response.json(url.searchParams.get("page") === "2" || !storedBody
+          ? []
+          : [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }])
+      }
       const payload: unknown = JSON.parse(String(init?.body))
       if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
       storedBody = payload.body
@@ -215,7 +219,7 @@ describe("agent channels", () => {
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
-      const links = Array.from({ length: 3 }, (_, index) => ({ label: `link-${index}-${"l".repeat(80)}`, url: `https://example.test/${"u".repeat(400)}` }))
+      const links = Array.from({ length: 3 }, (_, index) => ({ label: `link-${index}-${"l".repeat(80)}`, url: `https://example.test/${"u".repeat(800)}` }))
       for (let index = 0; index < 101; index++) {
         // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
         await channel.activity?.update({
@@ -248,6 +252,7 @@ describe("agent channels", () => {
       expect(Buffer.byteLength(storedBody)).toBeLessThan(65_536)
       expect(storedBody).not.toContain("x".repeat(1_000))
       expect(storedBody).toContain("Agent stopped:")
+      expect(storedBody).toContain(links[0]!.url)
     }
     finally {
       vi.unstubAllGlobals()

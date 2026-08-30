@@ -5242,9 +5242,13 @@ async function finalizeAgentInvocationResult<
       const responseDecoder = (context.context.get(responseTitleFallbackContextKey) === true || Boolean(context.activity)) && responseIsText
         ? new TextDecoder()
         : undefined
+      const responseTextLimit = context.context.get(responseTitleFallbackContextKey) === true ? Number.POSITIVE_INFINITY : 12_000
       let responseText = ""
+      const appendResponseText = (text: string) => {
+        responseText = `${responseText}${text}`.slice(-responseTextLimit)
+      }
       const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
-        responseText += responseDecoder?.decode() ?? ""
+        appendResponseText(responseDecoder?.decode() ?? "")
         const finishResult = responseText && !outcome.failed
           ? { raw: result, text: responseText }
           : result
@@ -5256,7 +5260,7 @@ async function finalizeAgentInvocationResult<
         }
       }, {
         abortSignal: context.input.abortSignal,
-        onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
+        onChunk: chunk => appendResponseText(responseDecoder?.decode(chunk, { stream: true }) ?? ""),
       }) : result
       return response
     }

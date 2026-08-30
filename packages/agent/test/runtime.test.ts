@@ -5833,6 +5833,39 @@ describe("agent message protocol", () => {
     expect(waitUntil).toHaveBeenCalled()
   })
 
+  it("bounds text retained from Response streams for Channel activity", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const updates: AgentActivityUpdate[] = []
+    const agent = defineAgent({
+      channels: {
+        work: defineChannel("work", {
+          activity: {
+            update: ({ activity }) => {
+              updates.push(structuredClone(activity))
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => new Response("a".repeat(20_000), { headers: { "content-type": "text/plain" } }) },
+    })
+
+    const response = await runAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        activity: { runId: "run-1", target: { id: "work-1" } },
+        channelId: "work",
+        runId: "provider-run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}) as Response
+    await response.text()
+
+    expect(updates.at(-1)).toMatchObject({ status: "completed", summary: "a".repeat(12_000) })
+  })
+
   it("projects setup failures without replacing the Agent error", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

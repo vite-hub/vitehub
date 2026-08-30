@@ -1144,6 +1144,7 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
+const githubActivityLinkUrlLimit = 1_000
 const githubActivityBodyLimit = 65_000
 const githubActivityPreviousRunLimit = 100
 const githubActivityTaskLimit = 25
@@ -1209,10 +1210,10 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
 }
 
 function githubActivityLinksState(links: readonly { label: string, url: string }[]): { label: string, url: string }[] {
-  return links.slice(0, githubActivityLinkLimit).map(link => ({
-    label: link.label.slice(0, 80),
-    url: link.url.slice(0, 400),
-  }))
+  return links
+    .filter(link => Buffer.byteLength(link.url) <= githubActivityLinkUrlLimit)
+    .slice(0, githubActivityLinkLimit)
+    .map(link => ({ label: link.label.slice(0, 80), url: link.url }))
 }
 
 function isOwnedGithubActivityComment(comment: unknown, identity: GitHubActivityIdentity): boolean {
