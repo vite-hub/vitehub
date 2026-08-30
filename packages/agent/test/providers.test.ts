@@ -17481,7 +17481,7 @@ describe("server helpers", () => {
           const thread = createThread(...arguments_)
           const history = Reflect.get(thread, "_threadHistory") as { getMessages(threadId: string, limit?: number): Promise<Message[]> }
           vi.spyOn(history, "getMessages").mockResolvedValue([
-            message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
+            idLessMessage("same-time previous", "2026-06-10T12:00:20.000Z"),
             idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
             message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
             message("20", "current", "2026-06-10T12:00:20.000Z"),

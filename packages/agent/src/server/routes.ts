@@ -4145,15 +4145,34 @@ async function chatTriggerMessages(
   } catch {}
 
   if (message.id && durableContainsCurrent) {
+    const futureDurableIndices = new Set<number>()
+    for (const future of fetchedAfterCurrent) {
+      const idMatches = future.id
+        ? durable.flatMap((item, index) => (item.id === future.id ? [index] : []))
+        : []
+      if (idMatches.length === 1) {
+        futureDurableIndices.add(idMatches[0]!)
+        continue
+      }
+      const exactMatches = durable.flatMap((item, index) => (isExactChatSdkDelivery(item, future) ? [index] : []))
+      if (exactMatches.length === 1) {
+        futureDurableIndices.add(exactMatches[0]!)
+        continue
+      }
+      const futureRawKey = chatRawDeliveryKey(future)
+      const rawMatches = futureRawKey === undefined
+        ? []
+        : durable.flatMap((item, index) => (chatRawDeliveryKey(item) === futureRawKey ? [index] : []))
+      if (rawMatches.length === 1) {
+        futureDurableIndices.add(rawMatches[0]!)
+        continue
+      }
+      const structuralMatches = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, future) ? [index] : []))
+      if (structuralMatches.length === 1) futureDurableIndices.add(structuralMatches[0]!)
+    }
     durable = durable
       .slice(0, durableCurrentIndexBeforeBoundary + 1)
-      .filter((item) => !fetchedAfterCurrent.some((future) => {
-        if (item.id || future.id) return Boolean(item.id && future.id && item.id === future.id)
-        if (isExactChatSdkDelivery(item, future)) return true
-        const itemRawKey = chatRawDeliveryKey(item)
-        const futureRawKey = chatRawDeliveryKey(future)
-        return (itemRawKey !== undefined && itemRawKey === futureRawKey) || isCurrentChatSdkMessage(item, future)
-      }))
+      .filter((_, index) => !futureDurableIndices.has(index))
   } else if (message.id && foundCurrent) {
     const currentTime = message.metadata.dateSent.getTime()
     durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)
