@@ -9,6 +9,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import {
+  acquireDenoDeploymentLock,
   assertSupportedRelocatedImports,
   collectDenoRuntimePackageNames,
   finalizeDenoDeploymentOutput,
@@ -1044,23 +1045,42 @@ load("@img/sharp-linux-x64/sharp.node")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
-    await writeFile(join(root, ".output.vitehub-lock"), `${process.pid}\n`, "utf8")
+    await mkdir(join(root, ".output.vitehub-lock"))
+    await writeFile(join(root, ".output.vitehub-lock/owner"), `${process.pid}\n`, "utf8")
 
     await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
       .rejects.toThrow("already being finalized")
   })
 
-  it("recovers an orphaned deployment output reclaim marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-orphaned-reclaim-"))
+  it("recovers an orphaned deployment output lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-orphaned-lock-"))
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
-    await writeFile(join(root, ".output.vitehub-lock"), "2147483647\n", "utf8")
-    await writeFile(join(root, ".output.vitehub-lock.reclaim"), "2147483647\n", "utf8")
+    await mkdir(join(root, ".output.vitehub-lock"))
+    await writeFile(join(root, ".output.vitehub-lock/owner"), "2147483647\n", "utf8")
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
-    expect(existsSync(join(root, ".output.vitehub-lock.reclaim"))).toBe(false)
+    expect(existsSync(join(root, ".output.vitehub-lock"))).toBe(false)
+  })
+
+  it("grants one contender ownership while reclaiming a stale lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-contended-reclaim-"))
+    const outputDir = join(root, ".output")
+    await mkdir(`${outputDir}.vitehub-lock`)
+    await writeFile(join(`${outputDir}.vitehub-lock`, "owner"), "2147483647\n", "utf8")
+
+    const contenders = await Promise.allSettled([
+      acquireDenoDeploymentLock(outputDir),
+      acquireDenoDeploymentLock(outputDir),
+    ])
+
+    const owners = contenders.filter(result => result.status === "fulfilled")
+    const rejected = contenders.filter(result => result.status === "rejected")
+    expect(owners).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    await (owners[0] as PromiseFulfilledResult<() => Promise<void>>).value()
   })
 
   it("uses the pnpm package from a bundle marker", async () => {
