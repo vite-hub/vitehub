@@ -66,6 +66,89 @@ function truncateValue(value: string): { truncated: boolean; value: string } {
   return { truncated: false, value }
 }
 
+function boundedJSONStringify(value: unknown): { truncated: boolean; value?: string } {
+  let bytes = 0
+  let rendered = ""
+  let truncated = false
+  const encoder = new TextEncoder()
+  const ancestors = new Set<object>()
+
+  function append(fragment: string): boolean {
+    for (const character of fragment) {
+      const characterBytes = encoder.encode(character).byteLength
+      if (bytes + characterBytes > maximumValueBytes) {
+        truncated = true
+        return false
+      }
+      rendered += character
+      bytes += characterBytes
+    }
+    return true
+  }
+
+  function appendString(text: string): boolean {
+    if (!append('"')) return false
+    for (const character of text) {
+      const escaped = JSON.stringify(character).slice(1, -1)
+      if (!append(escaped)) return false
+    }
+    return append('"')
+  }
+
+  function serialize(input: unknown, depth: number, arrayValue: boolean): boolean {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
+    if (typeof input === "string") return appendString(input)
+    if (input === null) return append("null")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
+    if (typeof input === "number") return append(Number.isFinite(input) ? String(input) : "null")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
+    if (typeof input === "boolean") return append(input ? "true" : "false")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits these values in objects and writes null for them in arrays.
+    if (typeof input === "undefined" || typeof input === "function" || typeof input === "symbol") {
+      return arrayValue ? append("null") : false
+    }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify throws for bigint values.
+    if (typeof input === "bigint") throw new TypeError("Cannot serialize bigint as JSON.")
+
+    const object = input as object & { toJSON?: () => unknown }
+    if (typeof object.toJSON === "function") {
+      const replacement = object.toJSON()
+      if (replacement !== input) return serialize(replacement, depth, arrayValue)
+    }
+    if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
+    ancestors.add(object)
+
+    if (Array.isArray(object)) {
+      if (!append("[")) return false
+      for (let index = 0; index < object.length; index += 1) {
+        if (!append(`${index === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
+        if (!serialize(object[index], depth + 1, true)) return false
+      }
+      if (object.length > 0 && !append(`\n${"  ".repeat(depth)}`)) return false
+      ancestors.delete(object)
+      return append("]")
+    }
+
+    if (!append("{")) return false
+    let count = 0
+    for (const key in object) {
+      if (!Object.prototype.hasOwnProperty.call(object, key)) continue
+      const item = (object as Record<string, unknown>)[key]
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits unsupported object property values.
+      if (typeof item === "undefined" || typeof item === "function" || typeof item === "symbol") continue
+      if (!append(`${count === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
+      if (!appendString(key) || !append(": ") || !serialize(item, depth + 1, false)) return false
+      count += 1
+    }
+    if (count > 0 && !append(`\n${"  ".repeat(depth)}`)) return false
+    ancestors.delete(object)
+    return append("}")
+  }
+
+  const serialized = serialize(value, 0, false)
+  return { truncated, value: serialized || truncated ? rendered : undefined }
+}
+
 function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated" | "type" | "value"> {
   const type = valueType(value)
   let format: "json" | "text" = "json"
@@ -84,7 +167,9 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
   }
   else {
     try {
-      rendered = JSON.stringify(value, null, 2) ?? String(value)
+      const result = boundedJSONStringify(value)
+      rendered = result.value ?? String(value)
+      truncated = result.truncated
     }
     catch {
       format = "text"

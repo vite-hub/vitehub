@@ -111,6 +111,7 @@ describe("Console KV inspection", () => {
       default: new Map<string, unknown>([
         ["", "empty key"],
         ["config", { enabled: true }],
+        ["large-structured", { content: "x".repeat(256 * 1_024 + 1) }],
         ["nullable", null],
         ["large", "x".repeat(256 * 1_024 + 1)],
         ["large-bytes", new Uint8Array(128 * 1_024 + 1).fill(0xab)],
@@ -158,6 +159,11 @@ describe("Console KV inspection", () => {
       found: true,
       truncated: true,
       value: "x".repeat(256 * 1_024),
+    })
+    await expect(kvHandler(event("?key=large-structured"))).resolves.toMatchObject({
+      found: true,
+      truncated: true,
+      type: "object",
     })
     await expect(kvHandler(event("?key=unicode"))).resolves.toMatchObject({
       found: true,

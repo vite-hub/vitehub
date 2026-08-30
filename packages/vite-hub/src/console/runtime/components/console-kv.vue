@@ -287,7 +287,7 @@ onBeforeUnmount(() => {
         <div v-else-if="listLoading && !keys.length" class="grid gap-2 px-3">
           <USkeleton v-for="index in 6" :key="index" class="h-10 rounded-md" />
         </div>
-        <nav v-else-if="keys.length" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="KV keys">
+        <nav v-else-if="keys.length || nextCursor" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="KV keys">
           <button
             v-for="key in keys"
             :key="key"
