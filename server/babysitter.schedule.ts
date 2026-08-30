@@ -1,5 +1,6 @@
 import { agentInvocationId, createMessage, runScheduledAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/kv'
+import type { ProcessReconcilerRunContext } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
 import { createBabysitterAgent } from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
@@ -37,7 +38,7 @@ export function babysitterWorkload() {
   return { running: runningJobs.size }
 }
 
-export async function reconcileBabysitterWork(reason: string) {
+export async function reconcileBabysitterWork(reason: string, { track }: ProcessReconcilerRunContext) {
   const startedAt = new Date()
   const schedule = {
     id: 'babysitter-demand',
@@ -64,7 +65,7 @@ export async function reconcileBabysitterWork(reason: string) {
   for (const job of jobs) {
     runningJobs.add(jobKey(job.repository, job.pullRequest.number))
   }
-  void Promise.all(jobs.map(async job => {
+  const batch = Promise.all(jobs.map(async job => {
     const { pullRequest, repository } = job
     const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
     const owner = { pullRequest: pullRequest.number, repository, runId }
@@ -159,7 +160,7 @@ export async function reconcileBabysitterWork(reason: string) {
       })
       wakeReconciler()
     }
-  })).finally(() => {
+  })).then(() => {}).finally(() => {
     logOperationalEvent('babysitter.batch.finished', {
       durationMs: Date.now() - batchStartedAt,
       jobs: jobs.length,
@@ -168,6 +169,7 @@ export async function reconcileBabysitterWork(reason: string) {
       scheduleId: schedule.runId || schedule.id,
     })
   }).catch(error => logOperationalError('babysitter.batch.failed', error, { scheduleId: schedule.runId }))
+  track(batch)
 }
 
 function jobKey(repository: string, number: number) {

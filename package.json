@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@github-tools/eve-extension": "0.3.0",
+    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8",
     "ai": "7.0.38",
     "eve": "^0.31.3",
     "h3": "^2.0.1-rc.25",
