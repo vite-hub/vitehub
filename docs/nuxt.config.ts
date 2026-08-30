@@ -163,6 +163,7 @@ export default defineNuxtConfig({
         "ph:markdown-logo-light",
         "ph:package-light",
         "ph:paper-plane-tilt-light",
+        "ph:paperclip-light",
         "ph:path-light",
         "ph:play-circle-light",
         "ph:plug-light",

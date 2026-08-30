@@ -21,7 +21,7 @@ import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
-import { resolveConsoleProjectName } from "./console/project.ts"
+import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
@@ -293,7 +293,7 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
-    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectName(projectRoot))})`,
+    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [
@@ -404,7 +404,7 @@ async function installConsole(
   }
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleSections(projectRoot, sections)
-  installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot))
+  installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (installInvocations && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot)
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
@@ -1131,7 +1131,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ...(resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : []),
       )
       installConsoleSections(projectRoot, consoleSections)
-      installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot))
+      installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
       reconcileConsoleDefinitionsHandler(
         config,

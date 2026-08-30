@@ -162,7 +162,7 @@ async function loadValue(key = selectedKey.value): Promise<void> {
 }
 
 async function loadKeys(
-  options: { append?: boolean; keepSelection?: boolean } = {},
+  options: { append?: boolean; keepMissingSelection?: boolean; keepSelection?: boolean } = {},
 ): Promise<void> {
   listRequest?.abort();
   const currentSelection = options.keepSelection ? selectedKey.value : undefined;
@@ -204,8 +204,10 @@ async function loadKeys(
       options.append && options.keepSelection && selectedKey.value !== currentSelection
         ? selectedKey.value
         : currentSelection;
-    selectedKey.value =
-      selection !== undefined && keys.value.includes(selection) ? selection : keys.value[0];
+    selectedKey.value = selection !== undefined &&
+        (options.keepMissingSelection || keys.value.includes(selection))
+      ? selection
+      : keys.value[0];
     await loadValue();
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
@@ -258,7 +260,7 @@ async function applyRouteSelection(): Promise<void> {
   selectedStore.value = store;
   selectedKey.value = key;
   try {
-    await loadKeys({ keepSelection: true });
+    await loadKeys({ keepMissingSelection: true, keepSelection: true });
   } finally {
     applyingRouteSelection = false;
   }

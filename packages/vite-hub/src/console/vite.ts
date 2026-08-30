@@ -14,7 +14,7 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog, type ConsoleAgentEntry, type ConsoleBuildCatalog } from "./build.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
-import { resolveConsoleProjectName } from "./project.ts"
+import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
@@ -184,7 +184,7 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
-    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectName(projectRoot))})`,
+    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [
