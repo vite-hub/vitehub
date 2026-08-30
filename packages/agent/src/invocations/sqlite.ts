@@ -201,6 +201,18 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           if (!currentColumns.rows.some(row => row.name === "updated_at")) throw error
         }
       }
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
+        AFTER INSERT ON ${table}
+        WHEN NEW.updated_at = ''
+        BEGIN
+          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
+        END`)
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_update
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
+        END`)
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
         AFTER UPDATE OF search, record ON ${table}
         WHEN NEW.search_version = OLD.search_version
