@@ -133,17 +133,14 @@ Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Wo
 Register the Browser integration when trusted server code needs Cloudflare Browser Run sessions.
 
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    ...vitehub({
-      preset: 'cloudflare',
-      browser: true,
-    }),
-  ],
-})
+export default {
+  plugins: vitehub({
+    preset: 'cloudflare',
+    browser: true,
+  }),
+}
 ```
 
 ViteHub writes the generated `browser` binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag. Browser Definitions import runtime helpers from `vite-hub/browser`; provider modules and the generated `wrangler.json` are not application import surfaces.

@@ -26,17 +26,14 @@ pnpm add vite-hub
 Enable Browser on the Cloudflare deployment preset.
 
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    ...vitehub({
-      preset: 'cloudflare',
-      browser: true,
-    }),
-  ],
-})
+export default {
+  plugins: vitehub({
+    preset: 'cloudflare',
+    browser: true,
+  }),
+}
 ```
 
 ### Define a browser operation
