@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
@@ -128,21 +129,7 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
 }
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
-  const aliases: Record<string, string> = {}
-  for (const [index, alias] of config.resolve.alias.entries()) {
-    if (!(alias.find instanceof RegExp)) {
-      const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}\0vitehub-exact:${index}` : alias.find
-      aliases[exactSpecifier] = alias.replacement
-      if (alias.find.endsWith("/")) {
-        const prefixSpecifier = `${alias.find}/${Object.hasOwn(aliases, `${alias.find}/`) ? `\0vitehub-prefix:${index}` : ""}`
-        aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
-      }
-      else {
-        aliases[`${alias.find}/\0vitehub-prefix:${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
-      }
-    }
-  }
-  return aliases
+  return encodeProviderOutputAliases(config.resolve.alias)
 }
 
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {

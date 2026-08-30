@@ -31,6 +31,28 @@ const encodedAliasPrefixMarker = "\0vitehub-prefix:"
 const encodedAliasExactMarker = "\0vitehub-exact:"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
+interface StringAlias {
+  find: string | RegExp
+  replacement: string
+}
+
+export function encodeProviderOutputAliases(configAliases: readonly StringAlias[]): Record<string, string> {
+  const aliases: Record<string, string> = {}
+  for (const [index, alias] of configAliases.entries()) {
+    if (alias.find instanceof RegExp) continue
+    const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}${encodedAliasExactMarker}${index}` : alias.find
+    aliases[exactSpecifier] = alias.replacement
+    if (alias.find.endsWith("/")) {
+      const prefixSpecifier = `${alias.find}/${Object.hasOwn(aliases, `${alias.find}/`) ? `${encodedAliasPrefixMarker}${index}` : ""}`
+      aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
+    }
+    else {
+      aliases[`${alias.find}/${encodedAliasPrefixMarker}${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
+    }
+  }
+  return aliases
+}
+
 function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
 }

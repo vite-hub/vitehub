@@ -4,6 +4,7 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -66,21 +67,7 @@ interface InternalWorkflowModuleOptions {
 }
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
-  const aliases: Record<string, string> = {}
-  for (const [index, alias] of config.resolve.alias.entries()) {
-    if (!(alias.find instanceof RegExp)) {
-      const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}\0vitehub-exact:${index}` : alias.find
-      aliases[exactSpecifier] = alias.replacement
-      if (alias.find.endsWith("/")) {
-        const prefixSpecifier = `${alias.find}/${Object.hasOwn(aliases, `${alias.find}/`) ? `\0vitehub-prefix:${index}` : ""}`
-        aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
-      }
-      else {
-        aliases[`${alias.find}/\0vitehub-prefix:${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
-      }
-    }
-  }
-  return aliases
+  return encodeProviderOutputAliases(config.resolve.alias)
 }
 
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {

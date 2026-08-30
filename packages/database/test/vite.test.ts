@@ -1,4 +1,5 @@
 import { createServer as createHttpServer, type Server } from "node:http"
+import type { AddressInfo } from "node:net"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
@@ -44,7 +45,32 @@ async function writeDefinition(rootDir: string, path: string, table = "notes", o
 
 async function resolveCliContributor(plugin: ReturnType<typeof hubDb>) {
   const cli = plugin.vitehub?.cli
-  return typeof cli === "function" ? await cli() : cli
+  return cli instanceof Function ? await cli() : cli
+}
+
+function resolveConfigResolved(plugin: ReturnType<typeof hubDb>): (config: unknown) => Promise<void> {
+  // SAFETY: hubDb returns a Vite plugin whose configResolved property is the hook handler used by these tests.
+  return plugin.configResolved as (config: unknown) => Promise<void>
+}
+
+interface TestHotUpdateContext {
+  file: string
+  server: {
+    moduleGraph: {
+      getModuleById: (id: string) => { id: string } | undefined
+      invalidateModule: (module: { id: string }) => void
+    }
+  }
+}
+
+function resolveHotUpdate(plugin: ReturnType<typeof hubDb>): (context: TestHotUpdateContext) => Promise<void> {
+  const hook = plugin.handleHotUpdate
+  if (!(hook instanceof Function)) throw new Error("Expected a handleHotUpdate hook handler.")
+  return async context => await Reflect.apply(hook, undefined, [context])
+}
+
+function isAddressInfo(address: string | AddressInfo): address is AddressInfo {
+  return Object.prototype.toString.call(address) === "[object Object]"
 }
 
 async function listenHttpServer(server: Server) {
@@ -53,7 +79,7 @@ async function listenHttpServer(server: Server) {
     server.listen(0, "127.0.0.1", resolve)
   })
   const address = server.address()
-  if (!address || typeof address === "string") throw new Error("Expected TCP server address.")
+  if (!address || !isAddressInfo(address)) throw new Error("Expected TCP server address.")
   return `http://127.0.0.1:${address.port}`
 }
 
@@ -121,6 +147,7 @@ describe("hubDb", () => {
 
     try {
       await server.listen()
+      // SAFETY: This fixture writes the queried module immediately before Vite loads it.
       const module = await server.ssrLoadModule(join(rootDir, "server", "query.ts")) as {
         query: () => Promise<Array<{ title: string }>>
       }
@@ -145,10 +172,12 @@ describe("hubDb", () => {
         url: "libsql://database.example.turso.io",
       },
     })
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ database: undefined, root: await createTempProject() } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ database: undefined, root: await createTempProject() })
 
+    // SAFETY: These are Vite hook handlers returned by hubDb.
     const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    // SAFETY: These are Vite hook handlers returned by hubDb.
     const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
     const id = await resolveId("#vitehub/database/definition-defaults")
 
@@ -160,8 +189,8 @@ describe("hubDb", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
 
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: undefined, root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ db: undefined, root: rootDir })
 
     expect(plugin.api.getConfig()).toMatchObject({
       databaseNames: ["default"],
@@ -185,10 +214,11 @@ describe("hubDb", () => {
     await writeDefinition(projectRoot, "server/databases/config.ts")
 
     const plugin = hubDb({ projectRoot: "packages/db" })
+    // SAFETY: The test invokes Vite's config hook with its documented arguments.
     const configure = plugin.config as (config: unknown, env: unknown) => void
     configure({ [VITEHUB_SERVER_DIRS]: [join(rootDir, "server")] }, { command: "serve", mode: "test" })
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ database: undefined, root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ database: undefined, root: rootDir })
 
     expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
     await expect(readFile(join(projectRoot, ".vitehub/database/schema/default.ts"), "utf8"))
@@ -201,8 +231,8 @@ describe("hubDb", () => {
     await writeDefinition(rootDir, "server/databases/primary/config.ts", "notes")
 
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: undefined, root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ db: undefined, root: rootDir })
 
     const analyticsConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/analytics.config.ts"), "utf8")
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
@@ -229,8 +259,8 @@ describe("hubDb", () => {
       })
 
       const plugin = hubDb()
-      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-      await configResolved({ db: undefined, root: rootDir } as never)
+      const configResolved = resolveConfigResolved(plugin)
+      await configResolved({ db: undefined, root: rootDir })
 
       const drizzleConfig = await readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")
       expect(drizzleConfig).toContain("authToken: process.env[\"TURSO_AUTH_TOKEN\"]")
@@ -239,9 +269,9 @@ describe("hubDb", () => {
       expect(drizzleConfig).not.toContain("secret.example")
     }
     finally {
-      if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
+      if (originalAuthToken === undefined) delete process.env.TURSO_AUTH_TOKEN
       else process.env.TURSO_AUTH_TOKEN = originalAuthToken
-      if (typeof originalUrl === "undefined") delete process.env.TURSO_DATABASE_URL
+      if (originalUrl === undefined) delete process.env.TURSO_DATABASE_URL
       else process.env.TURSO_DATABASE_URL = originalUrl
     }
   })
@@ -260,8 +290,8 @@ describe("hubDb", () => {
       })
 
       const plugin = hubDb()
-      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-      await configResolved({ db: undefined, root: rootDir } as never)
+      const configResolved = resolveConfigResolved(plugin)
+      await configResolved({ db: undefined, root: rootDir })
 
       const drizzleConfig = await readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")
       expect(drizzleConfig).toContain("driver: \"d1-http\"")
@@ -271,7 +301,7 @@ describe("hubDb", () => {
       expect(drizzleConfig).not.toContain("secret-database-id")
     }
     finally {
-      if (typeof originalDatabaseId === "undefined") delete process.env.CLOUDFLARE_D1_DATABASE_ID
+      if (originalDatabaseId === undefined) delete process.env.CLOUDFLARE_D1_DATABASE_ID
       else process.env.CLOUDFLARE_D1_DATABASE_ID = originalDatabaseId
     }
   })
@@ -287,8 +317,8 @@ describe("hubDb", () => {
     })
 
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: undefined, root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ db: undefined, root: rootDir })
 
     const drizzleConfig = await readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")
     expect(drizzleConfig).toContain("url: \"libsql://database.example.turso.io\"")
@@ -301,8 +331,8 @@ describe("hubDb", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
 
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ database: false, root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ database: false, root: rootDir })
 
     expect(plugin.api.getConfig()).toBeUndefined()
   })
@@ -312,8 +342,8 @@ describe("hubDb", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
 
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ database: false, root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ database: false, root: rootDir })
 
     await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
   })
@@ -323,8 +353,8 @@ describe("hubDb", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
 
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ database: { cli: false }, root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ database: { cli: false }, root: rootDir })
 
     const contributor = await resolveCliContributor(plugin)
     expect(contributor?.namespaces).toEqual([])
@@ -336,10 +366,12 @@ describe("hubDb", () => {
     const definition = await writeDefinition(rootDir, "server/databases/config.ts")
 
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ root: rootDir })
 
+    // SAFETY: These are Vite hook handlers returned by hubDb.
     const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    // SAFETY: These are Vite hook handlers returned by hubDb.
     const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
 
     const resolvedSchemaId = await resolveId(DB_VIRTUAL_SCHEMA_ID)
@@ -359,7 +391,7 @@ describe("hubDb", () => {
     expect(generatedTypes).toContain("type DefaultDatabaseSchema = typeof database_0.schema")
     expect(generatedTypes).toContain('declare module "#vitehub/database/schema" {\n  interface DatabaseSchema extends DefaultDatabaseSchema {}')
 
-    await configResolved({ database: false, root: rootDir } as never)
+    await configResolved({ database: false, root: rootDir })
     await expect(readFile(generatedTypesFile, "utf8")).resolves.toBe("export {}\n")
   })
 
@@ -369,18 +401,10 @@ describe("hubDb", () => {
 
     const invalidated: string[] = []
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ root: rootDir })
 
-    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
-      file: string
-      server: {
-        moduleGraph: {
-          getModuleById: (id: string) => { id: string } | undefined
-          invalidateModule: (module: { id: string }) => void
-        }
-      }
-    }) => Promise<void>
+    const handleHotUpdate = resolveHotUpdate(plugin)
 
     await writeFile(definition, [
       "import { defineDatabase } from '@vite-hub/database'",
@@ -415,21 +439,13 @@ describe("hubDb", () => {
 
     const invalidated: string[] = []
     const plugin = hubDb()
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ root: rootDir } as never)
+    const configResolved = resolveConfigResolved(plugin)
+    await configResolved({ root: rootDir })
 
     const config = plugin.api.getConfig()!
     config.definitions[0]!.handler = config.definitions[0]!.handler.replaceAll("/", "\\")
 
-    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
-      file: string
-      server: {
-        moduleGraph: {
-          getModuleById: (id: string) => { id: string } | undefined
-          invalidateModule: (module: { id: string }) => void
-        }
-      }
-    }) => Promise<void>
+    const handleHotUpdate = resolveHotUpdate(plugin)
 
     await handleHotUpdate({
       file: definition,
