@@ -165,7 +165,7 @@ it("preserves staged Workflow imports from configured external server directorie
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
   const externalServerDir = join(rootDir, "..", `${basename(rootDir)}-external-server`)
   const externalWorkflowDir = join(externalServerDir, "workflows", "external-native")
-  const externalHandler = join(externalServerDir, "external-handler.workflow.ts")
+  const externalHandler = join(externalServerDir, "workflows", "external-handler.workflow.ts")
   const externalStep = join(externalWorkflowDir, "01-external.ts")
   tempDirs.push(externalServerDir)
   await mkdir(retainedRoot, { recursive: true })
