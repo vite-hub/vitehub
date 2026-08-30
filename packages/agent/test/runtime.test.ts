@@ -12251,6 +12251,49 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("projects activity when Workflow preparation fails", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const failure = new Error("workflow preparation failed")
+      const statuses: AgentActivityUpdate["status"][] = []
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({ createWorkflow: () => { throw failure } }) as never,
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow("preparation-failure-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+
+        expect(statuses).toEqual(["queued", "failed"])
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("projects terminal activity from an already-settled Workflow run", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { defineChannel } = await import("../src/channels.ts")
@@ -12293,8 +12336,8 @@ describe("agent message protocol", () => {
           waitUntil: vi.fn(),
         }, {})
 
-        expect(updates).toMatchObject([
-          { status: "queued" },
+        expect(updates.map(({ status, summary }) => ({ status, summary }))).toEqual([
+          { status: "queued", summary: undefined },
           { status: "completed", summary: "Already finished." },
         ])
       }

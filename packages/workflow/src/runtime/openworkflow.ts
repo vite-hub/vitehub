@@ -282,15 +282,13 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     })
   }, { acknowledgementUnknown: (_error, status) => firstAcknowledgementUnknown || status === undefined })
   return await runWorkflowProviderOperation("openworkflow", "run", async () => {
+    const serialized = serializeOpenWorkflowRun(handle.workflowRun, name)
     return {
-      id: handle.workflowRun.id,
-      metadata: {
-        ...(options.id ? { idempotencyKey: options.id } : {}),
-        workflow: name,
-      },
+      ...serialized,
+      metadata: serialized.status === "failed"
+        ? serialized.metadata
+        : { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
       payload,
-      provider: "openworkflow" as const,
-      status: normalizeOpenWorkflowStatus(handle.workflowRun.status),
     }
   })
 }

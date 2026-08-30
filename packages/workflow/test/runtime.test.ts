@@ -1293,6 +1293,52 @@ describe("workflow runtime", () => {
     expect(run).toHaveBeenNthCalledWith(2, {}, { idempotencyKey: "source-run" })
   })
 
+  it.each([
+    { error: null, output: { text: "Already finished." }, status: "completed" as const },
+    { error: new Error("Already failed."), output: null, status: "failed" as const },
+  ])("preserves details from an already-$status OpenWorkflow run", async ({ error, output, status }) => {
+    class SettledOpenWorkflow {
+      defineWorkflow() {
+        return {
+          run: async () => ({
+            workflowRun: {
+              error,
+              id: "existing-run",
+              namespaceId: "production",
+              output,
+              status,
+              version: null,
+              workflowName: "welcome",
+            },
+          }),
+        }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      if (specifier === "openworkflow") return { OpenWorkflow: SettledOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    const run = await runWorkflow("welcome", {}, { id: "existing-run" })
+
+    expect(run).toMatchObject({
+      ...(error ? { metadata: error } : { result: output }),
+      id: "existing-run",
+      provider: "openworkflow",
+      status,
+    })
+  })
+
   it("narrows malformed OpenWorkflow run results at the public boundary", async () => {
     const cause = new Error("provider-secret:run-result")
     class MalformedOpenWorkflow {

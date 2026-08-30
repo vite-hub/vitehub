@@ -940,14 +940,25 @@ async function runAgentAsWorkflow<
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
+  const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
+  await activity?.update("queued")
   const workflowName = resolveAgentWorkflowName(agent, binding, context)
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+  let handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
+  let parsedInput: AgentRunInput<CALL_OPTIONS>
+  let workflowInput: AgentRunInput<CALL_OPTIONS>
+  try {
+    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+    // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
+    parsedInput = hasAgentDefinition(agent)
+      ? await withParsedAgentMessageMeta(agent, input, context.run)
+      : input
+    workflowInput = await portableAgentWorkflowInput(parsedInput)
+  }
+  catch (error) {
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
+  }
   const resolvedContext = createResolvedRuntimeContext(context)
-  // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
-  const parsedInput = hasAgentDefinition(agent)
-    ? await withParsedAgentMessageMeta(agent, input, context.run)
-    : input
-  const workflowInput = await portableAgentWorkflowInput(parsedInput)
   const channelDeliveryBinding = input.context?.[agentChannelDeliveryWorkflowContextKey]
   const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
   const inheritedRun = options.fresh && context.run && !durableChannelDelivery
@@ -1025,8 +1036,6 @@ async function runAgentAsWorkflow<
     }
   }
   let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
-  const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
-  await activity?.update("queued")
   try {
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
