@@ -353,7 +353,6 @@ const capabilityOptions = [
   { code: "title()", icon: "i-lucide-heading", key: "title", label: "Title" },
   { code: "chatSummary()", icon: "i-lucide-message-square-text", key: "chat-summary", label: "Chat summary" },
   { code: "progressSummary()", icon: "i-lucide-list-collapse", key: "progress-summary", label: "Progress summary" },
-  { code: "papercuts({ report })", icon: "i-lucide-bug", key: "papercuts", label: "Papercut reports" },
   { code: "cost()", icon: "i-lucide-receipt", key: "cost", label: "Cost" },
 ] satisfies PlaygroundOption[]
 
