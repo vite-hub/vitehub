@@ -177,6 +177,12 @@ function nitroPlugins(nuxt: ReturnType<typeof createNuxt>["nuxt"]): string[] {
   return plugins
 }
 
+function nitroHandlerRoutes(config: Record<string, unknown>): Array<string | undefined> {
+  const handlers = config.handlers
+  if (!Array.isArray(handlers)) return []
+  return handlers.map(handler => isTestRecord(handler) && typeof handler.route === "string" ? handler.route : undefined)
+}
+
 describe("ViteHub Nuxt integration", () => {
   beforeEach(async () => {
     vi.unstubAllEnvs()
@@ -516,13 +522,13 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.nitro).toMatchObject({
       handlers: [
         { route: "/api/_vitehub/console/sections" },
+        { route: "/api/_vitehub/console/definitions" },
         { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
         { route: "/api/_vitehub/console/search" },
         { route: "/api/_vitehub/console/kv" },
         { route: "/api/_vitehub/console/usage" },
-        { route: "/api/_vitehub/console/definitions" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
@@ -675,7 +681,26 @@ describe("ViteHub Nuxt integration", () => {
     const nitroConfig = nitroOptions(development.nuxt)
 
     expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
-    expect(nitroConfig.handlers?.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+    expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
+      "installConsoleDefinitions",
+    )
+  })
+
+  it("uses replay-resolved Workflow configuration for the Nuxt Console", async () => {
+    const development = createNuxt(true, [{
+      name: "vite-hub/workflow-replay",
+      config: () => ({ workflow: false }),
+    }])
+
+    await viteHubNuxtModule({ console: true, preset: "node", workflow: true }, development.nuxt)
+    const nitroConfig = nitroOptions(development.nuxt)
+    await development.runNitroConfigHook(nitroConfig)
+    const pages: Array<{ file: string; name: string; path: string }> = []
+    development.runPagesHook(pages)
+
+    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
+    expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
       "installConsoleDefinitions",
     )
@@ -691,7 +716,7 @@ describe("ViteHub Nuxt integration", () => {
     await implicit.runNitroConfigHook(implicitNitroConfig)
 
     expect(implicitPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
-    expect(implicitNitroConfig.handlers?.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+    expect(nitroHandlerRoutes(implicitNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
 
     const explicit = createNuxt(true)
     await viteHubNuxtModule({

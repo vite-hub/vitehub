@@ -1075,14 +1075,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       : {}),
   }
   nuxt.hook?.("nitro:config", async (config) => {
-    await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    const replayConfig = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
     if (options.console) {
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
         kv: resolvedKV,
         preset: plan.preset,
-        workflow: viteConfig.workflow ?? options.workflow,
+        workflow: replayConfig.workflow ?? options.workflow,
       })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)
       consoleKVStores.splice(

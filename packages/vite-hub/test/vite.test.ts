@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
+  discoverWorkflowDefinitions: vi.fn(() => []),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
@@ -70,7 +71,10 @@ vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule }))
-vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: integrationMocks.hubWorkflow }))
+vi.mock("@vite-hub/workflow/vite", () => ({
+  discoverWorkflowDefinitions: integrationMocks.discoverWorkflowDefinitions,
+  hubWorkflow: integrationMocks.hubWorkflow,
+}))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
@@ -391,7 +395,7 @@ describe("vitehub", () => {
         "vite-hub/console",
       )
       const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
-      await callHook(implicit.config, [implicitConfig, { command: "build", mode: "production" }])
+      await callHook(implicit.config, [implicitConfig, { command: "serve", mode: "development" }])
 
       expect(implicitConfig).toMatchObject({
         nitro: {
@@ -411,7 +415,7 @@ describe("vitehub", () => {
         "vite-hub/console",
       )
       const explicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
-      await callHook(explicit.config, [explicitConfig, { command: "build", mode: "production" }])
+      await callHook(explicit.config, [explicitConfig, { command: "serve", mode: "development" }])
 
       expect(explicitConfig).toMatchObject({
         nitro: {
