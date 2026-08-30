@@ -222,4 +222,4 @@ The Console guide covers Vite and Nuxt setup, fallback storage, production limit
 
 ## Control child work
 
-Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. Model-facing delegation can be an application Capability tool backed by the same API.
+Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. A model-facing application Capability tool can use that controller when it needs child control, or `runAgent()` when it must return the completed result.
