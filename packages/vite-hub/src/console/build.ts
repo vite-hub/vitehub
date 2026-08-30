@@ -194,12 +194,12 @@ export async function discoverConsoleBuildCatalog(options: {
       }).map(definition => workspaceDefinition(options.projectRoot, definition))
     : []
   const sandboxes = options.sections.includes("sandboxes")
-    ? discoverSandboxDefinitions({ rootDir: options.discoveryRoot, scanDirs: options.serverDirs })
+    ? discoverSandboxDefinitions({ rootDir: options.projectRoot })
         .map(definition => sandboxDefinition(options.projectRoot, definition))
     : []
   const rateLimits = options.sections.includes("rate-limits")
     ? discoverRateLimitDeclarations({
-        rootDir: options.rateLimitDiscoveryRoot ?? options.discoveryRoot,
+        rootDir: options.rateLimitDiscoveryRoot ?? options.projectRoot,
         scanDirs: options.rateLimitScanDirs ?? (options.rateLimitDiscoveryRoot ? undefined : options.serverDirs),
       }).map(declaration => rateLimitDefinition(options.projectRoot, declaration))
     : []
@@ -213,7 +213,7 @@ export async function discoverConsoleBuildCatalog(options: {
     ? discoverScheduleDefinitions({
         rootDir: options.discoveryRoot,
         serverDirs: options.serverDirs,
-        serverRootDir: options.scheduleDiscoveryRoot,
+        serverRootDir: options.scheduleDiscoveryRoot ?? options.projectRoot,
       })
     : []
   const scheduleCrons = discoveredSchedules.length > 0

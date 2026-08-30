@@ -1263,7 +1263,8 @@ describe("ViteHub Nuxt integration", () => {
       ])
       expect(development.nuxt.options.nitro).toMatchObject({
         handlers: [
-          { route: "/api/example" },
+          { handler: "server/handler.ts", route: "/api/example" },
+          { route: "/api/_vitehub/console/definitions" },
         ],
       })
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
