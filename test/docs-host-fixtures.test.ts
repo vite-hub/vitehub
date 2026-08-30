@@ -9,6 +9,7 @@ import { array, object, parse, picklist, string } from "valibot"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = join(repoRoot, "fixtures/docs-hosts")
+const vpExecutable = join(repoRoot, "node_modules", ".bin", process.platform === "win32" ? "vp.cmd" : "vp")
 const hostFixtures = ["cloudflare", "vercel", "netlify", "deno", "node-self-hosted"] as const
 const hostArtifacts: Record<(typeof hostFixtures)[number], string[]> = {
   cloudflare: [".output/server/wrangler.json"],
@@ -171,7 +172,7 @@ describe("host documentation fixtures", () => {
       await writeFile(join(appRoot, "index.html"), '<main id="app">ViteHub host fixture</main><script type="module" src="/src/main.ts"></script>\n', "utf8")
       await writeFile(join(appRoot, "src/main.ts"), 'document.querySelector("#app")!.textContent = "ViteHub host fixture"\n', "utf8")
 
-      await run("corepack", ["pnpm", "exec", "vp", "build", appRoot, "--config", join(appRoot, "vite.config.ts")], repoRoot, {
+      await run(vpExecutable, ["build", appRoot, "--config", join(appRoot, "vite.config.ts")], repoRoot, {
         VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host,
       })
 
