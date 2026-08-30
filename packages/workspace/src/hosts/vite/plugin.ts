@@ -713,6 +713,30 @@ function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = n
   return babelResolveIdentifierAlias(bindingPath, bindingPath.node.init.name, seen)
 }
 
+function babelEnvironmentValue(
+  node: BabelNode | undefined,
+  path: BabelBindingPath,
+  env: Record<string, string | undefined>,
+  seen = new Set<BabelBindingPath>(),
+): string | undefined {
+  if (node?.type === "Identifier" && node.name) {
+    const bindingPath = path.scope.getBinding(node.name)?.path
+    if (!bindingPath || seen.has(bindingPath)) return
+    return babelEnvironmentValue(bindingPath.node.init, bindingPath, env, new Set(seen).add(bindingPath))
+  }
+  if (
+    node?.type !== "MemberExpression"
+    || node.object?.type !== "MemberExpression"
+    || node.object.object?.type !== "Identifier"
+    || node.object.object.name !== "process"
+    || node.object.property?.type !== "Identifier"
+    || node.object.property.name !== "env"
+  ) return
+  const key = node.property?.name ?? node.property?.value
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment member keys cross the parser boundary.
+  return typeof key === "string" ? env[key] : undefined
+}
+
 function sourceInlineWorkspaceStoreOperations(
   loaded: { file: string, source: string },
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
@@ -734,7 +758,7 @@ function sourceInlineWorkspaceStoreOperations(
             const position = (path.node as BabelNode & { start?: number }).start
             if (
               position === undefined
-              || !babelPathBelongsToExportedStore(path)
+              || !babelPathReachesExportedStore(path)
               || argument?.type !== "Identifier"
               || !argument.name
             ) return
@@ -748,25 +772,13 @@ function sourceInlineWorkspaceStoreOperations(
             // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
             const position = (path.node as BabelNode & { start?: number }).start
             if (position === undefined) return
-            if (!babelPathBelongsToExportedStore(path)) return
+            if (!babelPathReachesExportedStore(path)) return
             const name = babelPropertyName(path)
             if (name === "store" && babelPropertyIsTopLevelDefaultExport(path)) return
             // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
             const valueNode = path.node.value as BabelNode | undefined
             let value = babelStringValue(valueNode, path)
-            if (
-              value === undefined
-              && valueNode?.type === "MemberExpression"
-              && valueNode.object?.type === "MemberExpression"
-              && valueNode.object.object?.type === "Identifier"
-              && valueNode.object.object.name === "process"
-              && valueNode.object.property?.type === "Identifier"
-              && valueNode.object.property.name === "env"
-            ) {
-              const key = valueNode.property?.name ?? valueNode.property?.value
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment member keys cross the parser boundary.
-              if (typeof key === "string") value = env[key]
-            }
+            if (value === undefined) value = babelEnvironmentValue(valueNode, path, env)
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names and values cross the Babel boundary as unknown values.
             if (typeof name === "string") {
               operations.push({
@@ -828,7 +840,7 @@ async function loadFactoredCloudflareArtifactStore(
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!operations.length) return store as WorkspaceDefinitionInput["store"]
-        if (!localName) continue
+        if (!localName) return store as WorkspaceDefinitionInput["store"]
         return reconstructCloudflareArtifactStore(operations, { localName, store })
       }
     }

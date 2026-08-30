@@ -1070,6 +1070,20 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("ignores sibling Definition options when recovering inline Artifact stores", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { sources: {}, store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
+    })
+  })
+
   it("preserves inline overrides for factored Artifact stores when standalone Definition loading fails", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
@@ -1190,6 +1204,23 @@ describe("hubWorkspace", () => {
       `import artifactOptions from "./artifact-store"`,
       `import "virtual:generated-workspace-metadata"`,
       `export default { store: { ...artifactOptions, binding: process.env.CUSTOM_BINDING } }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ env: { CUSTOM_BINDING: "CUSTOM_FILES" }, viteRoot: root })).resolves.toMatchObject({
+      cloudflare: { wrangler: { artifacts: [{ binding: "CUSTOM_FILES", namespace: "base-workspaces" }] } },
+    })
+  })
+
+  it("preserves environment-selected overrides through local aliases", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import artifactOptions from "./artifact-store"`,
+      `import "virtual:generated-workspace-metadata"`,
+      `const binding = process.env.CUSTOM_BINDING`,
+      `export default { store: { ...artifactOptions, binding } }`,
       ``,
     ].join("\n"))
     const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
