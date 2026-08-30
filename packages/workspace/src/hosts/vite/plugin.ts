@@ -141,6 +141,26 @@ function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<Babel
   return false
 }
 
+function babelPropertyIsTopLevelDefaultExport(path: BabelNodePath): boolean {
+  for (let current = path.parentPath; current; current = current.parentPath) {
+    if (current.node.type === "ObjectProperty") return false
+    if (current.node.type === "ExportDefaultDeclaration") return true
+    if (
+      current.node.type === "AssignmentExpression"
+      && current.node.left?.type === "MemberExpression"
+      && current.node.left.object?.type === "Identifier"
+      && current.node.left.object.name === "module"
+      && current.node.left.property?.type === "Identifier"
+      && current.node.left.property.name === "exports"
+    ) return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const binding = current.scope.getBinding(current.node.id.name)
+      return binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference)) ?? false
+    }
+  }
+  return false
+}
+
 function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
   if (seen.has(path)) return false
   seen.add(path)
@@ -148,7 +168,7 @@ function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<Babel
     if (
       current.node.type === "ObjectProperty"
       && babelPropertyName(current) === "store"
-      && babelPathReachesDefaultExport(current)
+      && babelPropertyIsTopLevelDefaultExport(current)
     ) return true
     if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
       const binding = current.scope.getBinding(current.node.id.name)
@@ -304,6 +324,13 @@ async function sourceModuleDeclaresCloudflareArtifacts(
               : (() => {
                   for (let current = path.parentPath; current; current = current.parentPath) {
                     if (
+                      current.node.type === "AssignmentExpression"
+                      && current.node.left?.type === "MemberExpression"
+                      && current.node.left.object?.type === "Identifier"
+                      && current.node.left.object.name === "exports"
+                      && (current.node.left.property?.name ?? current.node.left.property?.value) === exportedName
+                    ) return true
+                    if (
                       current.node.type === "VariableDeclarator"
                       && current.node.id?.type === "Identifier"
                       && (
@@ -442,19 +469,27 @@ function sourceImportsFeedingWorkspaceStore(
             if (
               path.node.id?.type !== "Identifier"
               || !path.node.id.name
-              || path.node.init?.type !== "CallExpression"
-              || path.node.init.callee?.type !== "Identifier"
-              || path.node.init.callee.name !== "require"
-              || path.node.init.arguments?.length !== 1
             ) return
-            const specifier = path.node.init.arguments[0]?.value
+            const required = path.node.init?.type === "MemberExpression" ? path.node.init.object : path.node.init
+            if (
+              required?.type !== "CallExpression"
+              || required.callee?.type !== "Identifier"
+              || required.callee.name !== "require"
+              || required.arguments?.length !== 1
+            ) return
+            const specifier = required.arguments[0]?.value
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const binding = path.scope.getBinding(path.node.id.name)
             const reachesRequestedExport = binding?.referencePaths?.some(reference => exportedName === "default"
               ? babelPathReachesExportedStore(reference) || babelPathReachesDefaultExport(reference)
               : babelPathOrBindingIsExported(reference, exportedName))
-            if (reachesRequestedExport) imports.push({ importedName: "default", specifier })
+            if (!reachesRequestedExport) return
+            const selectedName = path.node.init?.type === "MemberExpression"
+              ? path.node.init.property?.name ?? path.node.init.property?.value
+              : "default"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
+            if (typeof selectedName === "string") imports.push({ importedName: selectedName, specifier })
           },
         },
       })],
