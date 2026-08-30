@@ -147,6 +147,9 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
   listLoading.value = true;
   let retryExpiredCursor = false;
   if (!options.append) {
+    valueRequest?.abort();
+    valueRequest = undefined;
+    valueLoading.value = false;
     keys.value = [];
     nextCursor.value = undefined;
     selectedKey.value = undefined;
