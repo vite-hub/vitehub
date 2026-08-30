@@ -1000,9 +1000,9 @@ describe("framework generated types", () => {
 
   it("retries a generated topology until a restart-owning listener succeeds", async () => {
     const { root } = await createNestedProject()
-    const collection = join(root, "server/collections/meals.ts")
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(collection, collectionModule("meals"))
+    const collection = join(root, "server/collections/admin/users.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("users"))
     const plugin = sourcePlugin()
     await config(plugin)({ root })
     const restartHost = vi.fn()
@@ -1025,12 +1025,12 @@ describe("framework generated types", () => {
     expect(restartHost).toHaveBeenCalledWith([])
     expect(restart).not.toHaveBeenCalled()
     expect(loggerError).toHaveBeenCalledWith("Error: host restart failed")
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8"))
-      .resolves.toContain("meals")
+    await expect(readFile(join(root, ".vitehub/source/routes/admin/users.mjs"), "utf8"))
+      .resolves.toContain("users")
 
     await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
     expect(restart).not.toHaveBeenCalled()
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8"))
+    await expect(readFile(join(root, ".vitehub/source/routes/admin/users.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
 
     await listeners.get("unlink")?.(collection)

@@ -75,6 +75,14 @@ interface GeneratedSourceArtifactsSnapshot {
   files: Map<string, string>
 }
 
+async function snapshotDirectoryFiles(directory: string, files: Map<string, string>): Promise<void> {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) await snapshotDirectoryFiles(path, files)
+    else if (entry.isFile()) files.set(path, await readFile(path, "utf8"))
+  }
+}
+
 async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<GeneratedSourceArtifactsSnapshot> {
   const files = new Map<string, string>()
   const fixedEntries = [
@@ -94,12 +102,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
   }
   const routesDirectory = resolve(projectRoot, collectionRoutesDirectory)
   try {
-    for (const entry of await readdir(routesDirectory, { withFileTypes: true })) {
-      if (entry.isFile()) {
-        const path = join(routesDirectory, entry.name)
-        files.set(path, await readFile(path, "utf8"))
-      }
-    }
+    await snapshotDirectoryFiles(routesDirectory, files)
   }
   catch (error) {
     if (!(error instanceof Error && Reflect.get(error, "code") === "ENOENT")) throw error
