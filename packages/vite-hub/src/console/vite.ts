@@ -293,6 +293,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   }
 
   function resolveBlobRegistration(blob: unknown): void {
+    if (!options.resolveBlobStores) return
     const resolvedBlobStores = options.resolveBlobStores?.(blob)
     sections = sections.filter(section => section !== "blob")
     if (resolvedBlobStores !== false) sections = [...sections, "blob"]

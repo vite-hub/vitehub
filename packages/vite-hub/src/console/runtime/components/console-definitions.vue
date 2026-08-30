@@ -103,6 +103,8 @@ function sourceLabel(value: string): string {
 
 async function loadDefinitions(): Promise<void> {
   request?.abort();
+  definitions.value = [];
+  selectedName.value = undefined;
   const controller = new AbortController();
   request = controller;
   loading.value = true;

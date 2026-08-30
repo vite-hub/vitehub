@@ -955,7 +955,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // SAFETY: ViteHub Blob extends Vite's open user config with the documented top-level `blob` key.
   const viteBlob = (nuxt.options.vite as UserConfig & { blob?: Parameters<typeof vitehub>[0]["blob"] }).blob
-  const effectiveBlob = viteBlob ?? options.blob
+  const effectiveBlob = options.console ? viteBlob ?? options.blob : false
   const explicitBlob = Boolean(effectiveBlob && effectiveBlob !== true && ("driver" in effectiveBlob || "stores" in effectiveBlob))
   const consoleBlobEnabled = Boolean(effectiveBlob) && (plan.services.blob.supported || explicitBlob)
   const resolvedConsoleBlob = consoleBlobEnabled

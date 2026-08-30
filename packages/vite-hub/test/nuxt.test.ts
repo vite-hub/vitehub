@@ -693,15 +693,20 @@ describe("ViteHub Nuxt integration", () => {
 
   it("uses the effective Vite Blob stores for the Nuxt Console", async () => {
     const development = createNuxt(true)
+    // SAFETY: The fixture adds ViteHub's documented top-level Blob configuration to Vite's open user config.
     const viteConfig = development.nuxt.options.vite as UserConfig & { blob?: unknown }
     viteConfig.blob = {
-      stores: { archive: { driver: "memory" }, media: { driver: "memory" } },
+      stores: {
+        archive: { base: ".vitehub/data/archive", driver: "fs" },
+        default: { base: ".vitehub/data/default", driver: "fs" },
+        media: { base: ".vitehub/data/media", driver: "fs" },
+      },
     }
 
     await viteHubNuxtModule({ blob: true, console: true, preset: "node" }, development.nuxt)
 
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["archive","media"])`,
+      `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["default","archive","media"])`,
     )
   })
 
