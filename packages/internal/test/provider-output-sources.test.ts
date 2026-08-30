@@ -212,6 +212,30 @@ it("scopes markerless generated inputs to their provider output", async () => {
   await expect(readFile(retained.resolve(unrelatedData), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("preserves aliases that import above a directory named sources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-custom-alias-"))
+  tempDirs.push(rootDir)
+  const entry = join(rootDir, ".vitehub", "custom", "sources", "entry.mjs")
+  const shared = join(rootDir, ".vitehub", "custom", "shared.mjs")
+  const unrelated = join(rootDir, ".vitehub", "workflow", "sources", "stale.mjs")
+  await Promise.all([entry, shared, unrelated].map(file => mkdir(dirname(file), { recursive: true })))
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "../shared.mjs"\n'),
+    writeFile(shared, 'export const value = "retained"\n'),
+    writeFile(unrelated, "throw new Error('unrelated output must not be retained')\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+  await expect(readFile(retained.resolve(unrelated), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains explicitly requested sources in transient Drizzle generation directories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-transient-"))
   tempDirs.push(rootDir)
@@ -289,12 +313,14 @@ it("retains package closures behind an earlier retained source", async () => {
   const dependencyDir = join(rootDir, "node_modules", "fixture-dependency")
   const entry = join(packageDir, "dist", "index.js")
   const chunk = join(packageDir, "dist", "chunk.js")
-  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dependencyDir, { recursive: true })])
+  const packageTest = join(packageDir, "test", "vite-output.test.ts")
+  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dirname(packageTest), { recursive: true }), mkdir(dependencyDir, { recursive: true })])
   await Promise.all([
     writeFile(join(rootDir, "package.json"), "{}\n"),
     writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
     writeFile(entry, 'export { value } from "./chunk.js"\nexport { dependency } from "fixture-dependency"\n'),
     writeFile(chunk, 'export const value = "retained"\n'),
+    writeFile(packageTest, "throw new Error('package tests must not be retained')\n"),
     writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
     writeFile(join(dependencyDir, "index.js"), 'export const dependency = "linked"\n'),
   ])
@@ -309,6 +335,7 @@ it("retains package closures behind an earlier retained source", async () => {
     dependency: "linked",
     value: "retained",
   })
+  await expect(readFile(retained.resolve(packageTest), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("preserves workspace-relative imports from generated sources without their own package", async () => {
