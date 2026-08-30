@@ -6600,13 +6600,20 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
 
 const agentResultStreamProperties = ["fullStream", "stream", "textStream", "toUIMessageStream"] as const
 
+function omitAgentResultStreamSurfaces(record: Record<string, unknown>): void {
+  for (const property of agentResultStreamProperties) {
+    const value = Reflect.get(record, property)
+    if (isAsyncIterable(value) || hasRuntimeType(value, "function"))
+      Reflect.deleteProperty(record, property)
+  }
+}
+
 function cloneableAgentResultRaw(value: unknown): unknown {
   try {
     let candidate = value
     if (isRuntimeRecord(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
       const sanitized = { ...value }
-      for (const property of agentResultStreamProperties)
-        Reflect.deleteProperty(sanitized, property)
+      omitAgentResultStreamSurfaces(sanitized)
       candidate = sanitized
     }
     structuredClone(candidate)
@@ -6649,6 +6656,7 @@ function createInlineAgentInvocationController<
       let settledResponse: Response | undefined
       let materializedStreamResult: AgentRunResult | undefined
       let materializedRaw: unknown
+      let hasExplicitRaw = false
       if (isAsyncIterable(started)) {
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
@@ -6657,12 +6665,17 @@ function createInlineAgentInvocationController<
         await started.arrayBuffer()
       }
       else if (started !== null && hasRuntimeType(started, "object") && hasTraceableStreamResult(started)) {
+        hasExplicitRaw = Object.hasOwn(started, "raw")
         materializedRaw = cloneableAgentResultRaw(
-          Object.hasOwn(started, "raw") ? Reflect.get(started, "raw") : started,
+          hasExplicitRaw ? Reflect.get(started, "raw") : started,
         )
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
       else if (started !== null && hasRuntimeType(started, "object") && isUIMessageStreamResult(started)) {
+        hasExplicitRaw = Object.hasOwn(started, "raw")
+        materializedRaw = cloneableAgentResultRaw(
+          hasExplicitRaw ? Reflect.get(started, "raw") : started,
+        )
         let text = ""
         let finishReason: unknown
         for await (const chunk of normalizeUiMessageStream(started.toUIMessageStream())) {
@@ -6679,12 +6692,12 @@ function createInlineAgentInvocationController<
             ? outcome.output
             : undefined
           const completedPublicResult: Record<string, unknown> = completed ? { ...completed } : {}
-          for (const property of agentResultStreamProperties)
-            Reflect.deleteProperty(completedPublicResult, property)
+          omitAgentResultStreamSurfaces(completedPublicResult)
           Reflect.deleteProperty(completedPublicResult, "raw")
           const definedMaterializedResult = Object.fromEntries(
             Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
           )
+          if (hasExplicitRaw) Reflect.deleteProperty(definedMaterializedResult, "raw")
           return {
             ...completedPublicResult,
             ...definedMaterializedResult,

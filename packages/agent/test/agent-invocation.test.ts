@@ -179,6 +179,31 @@ describe("Agent Invocation controllers", () => {
     expect(() => structuredClone(result)).not.toThrow()
   })
 
+  it("preserves non-stream fields whose names overlap stream surfaces", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            fullStream: (async function* () {
+              yield { delta: "nested", type: "text-delta" }
+            })(),
+            raw: { stream: "upstream" },
+            stream: "public metadata",
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toMatchObject({
+      raw: { stream: "upstream" },
+      stream: "public metadata",
+      text: "nested",
+    })
+    expect(() => structuredClone(result)).not.toThrow()
+  })
+
   it("preserves non-plain cloneable raw child results", async () => {
     const raw = new Map([["providerData", "preserved"]])
     const agent = defineAgent({
@@ -252,6 +277,36 @@ describe("Agent Invocation controllers", () => {
       invocation: { status: "completed" },
       outcome: "available",
     })
+  })
+
+  it("preserves cloneable raw data for inline UI-message results", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            raw: { providerData: "preserved" },
+            toUIMessageStream: () => new ReadableStream({
+              start(controller) {
+                controller.enqueue({ messageId: "reply", type: "start" })
+                controller.enqueue({ delta: "ui message", id: "reply", type: "text-delta" })
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            }),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toMatchObject({
+      finishReason: "stop",
+      raw: { providerData: "preserved" },
+      text: "ui message",
+    })
+    expect(result).not.toHaveProperty("toUIMessageStream")
+    expect(() => structuredClone(result)).not.toThrow()
   })
 
   it("returns a readable Response after settling the public result", async () => {
