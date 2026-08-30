@@ -376,8 +376,11 @@ watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
 });
 
+watch(isUsageRoute, (usageRoute) => {
+  rememberConsoleSection(usageRoute ? "usage" : "agents");
+}, { immediate: true });
+
 onMounted(() => {
-  rememberConsoleSection("agents");
   media = window.matchMedia("(min-width: 1280px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);

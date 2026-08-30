@@ -2000,7 +2000,7 @@ describe("Agent invocation console", () => {
         { costEstimated: false, costUsd: "0.01", invocations: 1, model: "model-a", totalTokens: 15 },
         { costEstimated: true, costUsd: "0.02", invocations: 1, model: "model-b", totalTokens: 15 },
       ],
-      partial: false,
+      partial: true,
       resolution: "hour",
       totals: {
         costAvailable: false,

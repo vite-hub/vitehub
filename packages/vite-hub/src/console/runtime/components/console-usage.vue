@@ -217,7 +217,7 @@ onBeforeUnmount(() => request?.abort())
           variant="subtle"
           icon="i-lucide-triangle-alert"
           title="Partial usage"
-          description="The journal scan or a recorded invocation hit its storage limit. Totals cover only retained usage evidence in this period."
+          description="Some usage evidence is unavailable for this period, so the totals may be incomplete."
         />
 
         <template v-if="loading && !summary">
