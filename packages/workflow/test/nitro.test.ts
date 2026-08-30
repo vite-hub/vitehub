@@ -28,20 +28,23 @@ it("installs discovered Agent workflows into a Cloudflare Nitro entry", async ()
       rootDir,
       workflow: {},
     })
+    // SAFETY: Cloudflare configuration creation above installs the Wrangler workflows array.
     expect((nitro.cloudflare as { wrangler: { workflows: unknown[] } }).wrangler.workflows).toEqual([
       expect.objectContaining({ class_name: expect.stringContaining("Calories"), name: expect.stringContaining("63616c6f72696573") }),
       expect.objectContaining({ class_name: expect.stringContaining("InvocationRecoveryCalories") }),
     ])
+    // SAFETY: Cloudflare configuration creation above installs the Rollup plugins array.
     expect((nitro.rollupConfig as { plugins: Array<{ name: string }> }).plugins).toContainEqual(
       expect.objectContaining({ name: "vitehub-workflow-cloudflare-exports" }),
     )
+    // SAFETY: Cloudflare configuration creation above installs the Rollup plugins array.
     const plugin = (nitro.rollupConfig as { plugins: Array<Record<string, any>> }).plugins
       .find(candidate => candidate.name === "vitehub-workflow-cloudflare-exports")!
     const moduleId = plugin.resolveId("virtual:vitehub-workflow-cloudflare-exports")
     expect(plugin.load(moduleId)).toContain("installViteHubWorkflowRuntime()")
     const workflowFile = join(agentDir, "agent.ts")
     expect(plugin.resolveId(pathToFileURL(workflowFile).href)).toBe(workflowFile)
-    const renderChunk = typeof plugin.renderChunk === "function" ? plugin.renderChunk : plugin.renderChunk.handler
+    const renderChunk = plugin.renderChunk.handler ?? plugin.renderChunk
     expect(renderChunk.call({}, "export default {}", { fileName: "index.js", isEntry: true })).toMatchObject({
       code: expect.stringMatching(/export \{ ViteHub.*Workflow \} from '\.\/workflow-cloudflare-exports\.mjs'/),
     })
