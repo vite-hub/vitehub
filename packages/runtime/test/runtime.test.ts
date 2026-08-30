@@ -3,6 +3,7 @@ import { runInNewContext } from "node:vm"
 
 import {
   createExecutionContext,
+  createRuntimeWaitUntilController,
   createTraceEventLog,
   deriveTraceRuns,
   defineCapability,
@@ -25,6 +26,49 @@ import {
 } from "../src/index.ts"
 
 describe("@vite-hub/runtime", () => {
+  it("drains nested waitUntil work before reporting a rejection", async () => {
+    const controller = createRuntimeWaitUntilController()
+    const failure = new Error("deferred failure")
+    let nestedCompleted = false
+    let releaseNested: (() => void) | undefined
+    controller.waitUntil(Promise.resolve().then(() => {
+      controller.waitUntil(new Promise<void>((resolve) => {
+        releaseNested = () => {
+          nestedCompleted = true
+          resolve()
+        }
+      }))
+      throw failure
+    }))
+
+    const flushing = controller.flushWaitUntil()
+    let settled = false
+    void flushing.then(() => { settled = true }, () => { settled = true })
+    await vi.waitFor(() => expect(releaseNested).toBeTypeOf("function"))
+    expect(settled).toBe(false)
+
+    releaseNested!()
+    await expect(flushing).rejects.toBe(failure)
+    expect(nestedCompleted).toBe(true)
+    await expect(controller.flushWaitUntil()).resolves.toBeUndefined()
+  })
+
+  it("reports the first waitUntil rejection by settlement time", async () => {
+    const controller = createRuntimeWaitUntilController()
+    const firstFailure = new Error("first failure")
+    let rejectEarlierTask: ((reason: Error) => void) | undefined
+    controller.waitUntil(new Promise((_, reject) => {
+      rejectEarlierTask = reject
+    }))
+    controller.waitUntil(Promise.reject(firstFailure))
+
+    const flushing = controller.flushWaitUntil()
+    await vi.waitFor(() => expect(rejectEarlierTask).toBeTypeOf("function"))
+    rejectEarlierTask!(new Error("later failure"))
+
+    await expect(flushing).rejects.toBe(firstFailure)
+  })
+
   it("creates complete execution contexts from omitted host fields", () => {
     const first = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
     const second = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
