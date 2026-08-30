@@ -18,7 +18,9 @@ if current then
   local negative = string.sub(current, 1, 1) == '-'
   local digits = negative and string.sub(current, 2) or current
   local boundary = negative and '9007199254740992' or '9007199254740991'
-  if #digits > #boundary or (#digits == #boundary and digits >= boundary) then
+  local beyond = #digits > #boundary or (#digits == #boundary and digits > boundary)
+  local at_positive_boundary = not negative and digits == boundary
+  if beyond or at_positive_boundary then
     return redis.error_reply('Atomic KV increment exceeds the JavaScript safe integer range.')
   end
 end
@@ -31,7 +33,11 @@ return value
 
 function normalizeTTL(ttl: number): number {
   if (!Number.isFinite(ttl) || ttl <= 0) throw new TypeError("Atomic KV increment requires a positive TTL in seconds.")
-  return Math.ceil(ttl)
+  const seconds = Math.ceil(ttl)
+  if (!Number.isSafeInteger(seconds)) {
+    throw new RangeError("Atomic KV increment TTL exceeds the supported integer range.")
+  }
+  return seconds
 }
 
 interface UpstashCursor {

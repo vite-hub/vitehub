@@ -235,10 +235,12 @@ describe("kv runtime", () => {
     const script = String(upstashEval?.mock.calls[0]?.[0])
     expect(script).toContain("redis.call('EXISTS'")
     expect(script).toContain("negative and '9007199254740992' or '9007199254740991'")
-    expect(script.indexOf("digits >= boundary")).toBeLessThan(script.indexOf("redis.call('INCR'"))
+    expect(script).toContain("local at_positive_boundary = not negative and digits == boundary")
+    expect(script.indexOf("if beyond or at_positive_boundary")).toBeLessThan(script.indexOf("redis.call('INCR'"))
     expect(script).toContain("if existed == 0")
     expect(script).toContain("redis.call('EXPIRE'")
     await expect(driver.incrementItem?.("attempts", 0)).rejects.toThrow("positive TTL")
+    await expect(driver.incrementItem?.("attempts", 1e21)).rejects.toThrow("supported integer range")
     expect(upstashEval).toHaveBeenCalledOnce()
 
     upstashEval = vi.fn(async () => Number.MAX_SAFE_INTEGER + 1)
