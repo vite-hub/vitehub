@@ -47,6 +47,7 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
 const derivedChatInvokers = new WeakMap<object, AgentInvoker>()
 
 export function markDerivedChatTriggerInvoker(invoker: unknown, source?: AgentInvoker): void {
+  // SAFETY: Agent Invokers are object records, and this branch rejects every non-object runtime value.
   if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
 }
 
@@ -55,7 +56,7 @@ export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
 }
 
 export function derivedChatTriggerInvoker(invoker: unknown): AgentInvoker | undefined {
-  return typeof invoker === "object" && invoker !== null ? derivedChatInvokers.get(invoker) : undefined
+  return invoker !== null && Object(invoker) === invoker ? derivedChatInvokers.get(Object(invoker)) : undefined
 }
 
 function uiMessageText(message: UIMessageLike): string {
@@ -352,33 +353,49 @@ function normalizedMaxMessages(value: unknown): number | undefined {
     : undefined
 }
 
-function threadHistoryMaxMessages(threadHistory: unknown): number | undefined {
-  if (!threadHistory || typeof threadHistory !== "object" || Array.isArray(threadHistory)) return
-  return normalizedMaxMessages((threadHistory as { maxMessages?: unknown }).maxMessages)
+function normalizedMaxAgeMs(value: unknown): number | undefined {
+  const numericValue = Object.prototype.toString.call(value) === "[object Number]" ? Number(value) : undefined
+  return numericValue !== undefined && Number.isFinite(numericValue) && numericValue >= 0
+    ? numericValue
+    : undefined
 }
 
 export function resolveChatTriggerHistory(
-  options: Pick<AgentChatOptions, "threadHistory" | "triggerHistory"> | undefined,
+  options: Pick<AgentChatOptions, "triggerHistory"> | undefined,
   triggerHistory?: AgentChatTriggerHistory,
 ): AgentChatTriggerHistory | undefined {
   if (triggerHistory !== undefined) return triggerHistory
-  if (options?.triggerHistory !== undefined) return options.triggerHistory
-  const maxMessages = threadHistoryMaxMessages(options?.threadHistory)
-  return maxMessages === undefined ? undefined : { maxMessages, source: "thread" }
+  return options?.triggerHistory
 }
 
 export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory | undefined): number | undefined {
   if (triggerHistory === "none") return
   if (!triggerHistory || triggerHistory.source !== "thread") return
-  return normalizedMaxMessages(triggerHistory.maxMessages) ?? 20
+  if (
+    Object.prototype.hasOwnProperty.call(triggerHistory, "maxAgeMs") &&
+    triggerHistory.maxAgeMs !== undefined &&
+    normalizedMaxAgeMs(triggerHistory.maxAgeMs) === undefined
+  ) return
+  return normalizedMaxMessages(triggerHistory.maxMessages)
+}
+
+function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Exclude<AgentChatTriggerHistory, "none">): UIMessageLike[] {
+  const maxAgeMs = normalizedMaxAgeMs(triggerHistory.maxAgeMs)
+  if (maxAgeMs === undefined || messages.length < 2) return messages
+  const latestTime = uiMessageTime(messages.at(-1)!)
+  if (latestTime === undefined) return messages.slice(-1)
+  for (let index = messages.length - 2; index >= 0; index--) {
+    const messageTime = uiMessageTime(messages[index]!)
+    if (messageTime === undefined || latestTime - messageTime > maxAgeMs) return messages.slice(index + 1)
+  }
+  return messages
 }
 
 function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatTriggerHistory | undefined, sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
   const sessionMessages = selectChatSession(messages, sessions, triggerSession)
-  if (triggerHistory === "none") return sessionMessages.slice(-1)
   const limit = chatTriggerHistoryLimit(triggerHistory)
-  if (limit) return sessionMessages.slice(-limit)
-  return sessionMessages.slice(-20)
+  if (!limit || !triggerHistory || triggerHistory === "none") return sessionMessages.slice(-1)
+  return selectRecentChatHistory(sessionMessages, triggerHistory).slice(-limit)
 }
 
 function createChatTriggerHookArgs<TRuntimeConfig extends AgentRuntimeConfig>(
