@@ -2485,6 +2485,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "src", "workspace-stores.ts"), `export const artifactStore = { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import * as stores from "./workspace-stores"`,
+      `import "virtual:generated-workspace-metadata"`,
       `export default { store: stores.artifactStore }`,
       ``,
     ].join("\n"))

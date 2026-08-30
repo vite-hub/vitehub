@@ -814,7 +814,7 @@ async function loadFactoredCloudflareArtifactStore(
   if (!loaded) return
   const operations = sourceInlineWorkspaceStoreOperations(loaded, loader, env)
   for (const { importedName, localName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
-    if (!importedName || !localName) continue
+    if (!importedName) continue
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
@@ -828,6 +828,7 @@ async function loadFactoredCloudflareArtifactStore(
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!operations.length) return store as WorkspaceDefinitionInput["store"]
+        if (!localName) continue
         return reconstructCloudflareArtifactStore(operations, { localName, store })
       }
     }
