@@ -15,10 +15,14 @@ const ignoredSourceDirectories = new Set([
   ".nuxt",
   ".output",
   ".vercel",
+  ".vitehub",
+  ".vitest-tmp",
   "coverage",
   "dist",
   "node_modules",
 ])
+
+const ignoredGeneratedDirectories = new Set([".vitehub", ".vitest-tmp"])
 
 function isTransientSourceDirectory(path: string): boolean {
   return basename(path).startsWith(".drizzle-generate-")
@@ -107,6 +111,38 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => pathContains(root, path))
+    const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
+    const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
+      const segments = relative(root, configuredRoot).split(sep)
+      const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))
+      if (ignoredIndex === -1 || ignoredIndex === segments.length - 1) return []
+      return [resolve(root, ...segments.slice(0, ignoredIndex + 2))]
+    })
+    const requestedOutputRoots = requested.flatMap((path) => {
+      const configuredRoot = nestedConfiguredRoots
+        .filter(root => pathContains(root, path))
+        .sort((left, right) => right.length - left.length)[0]
+      const scopedRoot = configuredRoot ?? root
+      const segments = relative(scopedRoot, path).split(sep)
+      const ignoredIndex = segments.findIndex(segment => ignoredSourceDirectories.has(segment))
+      if (ignoredIndex === -1) return []
+      const generationIndex = ignoredGeneratedDirectories.has(segments[ignoredIndex]!)
+        && segments[ignoredIndex + 1]?.endsWith("-generations")
+        ? ignoredIndex + 1
+        : -1
+      const retainedSourcesIndex = generationIndex === ignoredIndex + 1
+        ? segments.findIndex((segment, index) => index > generationIndex && (segment === "sources" || segment.endsWith("-sources")))
+        : -1
+      const generatedOutputIndex = ignoredGeneratedDirectories.has(segments[ignoredIndex]!)
+        ? Math.min(ignoredIndex + 1, segments.length - 1)
+        : ignoredIndex
+      const outputRootIndex = retainedSourcesIndex !== -1
+        ? retainedSourcesIndex
+        : generationIndex !== -1
+          ? Math.min(generationIndex + 1, segments.length - 1)
+          : generatedOutputIndex
+      return [resolve(scopedRoot, ...segments.slice(0, outputRootIndex + 1))]
+    })
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedRoot = resolve(temporaryRoot, "source")
     try {
@@ -121,8 +157,23 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (!nested) return true
           const first = nested.split(sep)[0]!
           if (first === "node_modules") return false
-          if (first === ".vitehub" || (ignoredSourceDirectories.has(first) && !(packageRoots.has(root) && first === "dist"))) {
+          const containingConfiguredRoot = nestedConfiguredRoots
+            .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
+            .sort((left, right) => right.length - left.length)[0]
+          const scopedFirst = containingConfiguredRoot
+            ? relative(containingConfiguredRoot, resolvedSource).split(sep)[0]
+            : first
+          const nestedGeneratedOutput = relative(containingConfiguredRoot ?? root, resolvedSource)
+            .split(sep)
+            .some(segment => ignoredGeneratedDirectories.has(segment))
+          if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
+            && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+              || requestedOutputRoots.some(outputRoot => pathContains(outputRoot, resolvedSource))
+              || configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource)
+                && !relative(outputRoot, resolvedSource).split(sep).some(segment => ignoredSourceDirectories.has(segment)))
+                && !nestedConfiguredRoots.some(configuredRoot => pathContains(configuredRoot, resolvedSource))
+              || nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
           }
           return true
         },
