@@ -176,6 +176,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Object(value) === value && !Array.isArray(value)
 }
 
+function isCallable(value: unknown): value is CallableFunction {
+  if (value === null || value === undefined || Object(value) !== value) return false
+  try {
+    Function.prototype.toString.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 // ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
@@ -198,8 +209,8 @@ function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise
   ]
   for (const owner of owners) {
     const waitUntil = owner?.waitUntil
-    if (typeof waitUntil === "function") {
-      return promise => waitUntil.call(owner, promise)
+    if (isCallable(waitUntil)) {
+      return promise => Reflect.apply(waitUntil, owner, [promise])
     }
   }
 }
