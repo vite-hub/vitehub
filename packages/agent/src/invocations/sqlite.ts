@@ -273,7 +273,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
           return {
             args: [numberValue(row.sequence)],
-            sql: `UPDATE ${table} SET updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
+            sql: `UPDATE ${table} SET
+              status = COALESCE(json_extract(record, '$.status'), status),
+              updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
               WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
           }
         })

@@ -3458,7 +3458,7 @@ describe("Agent Invocations", () => {
           traceId: "legacy-trace",
           updatedAt: "2026-01-01T00:00:00.000Z",
         })],
-        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'completed', ?)",
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'running', ?)",
       })
 
       let inspections = 0
@@ -3492,8 +3492,9 @@ describe("Agent Invocations", () => {
         { invocations: [expect.objectContaining({ id: "legacy" })] },
         { invocations: [expect.objectContaining({ id: "legacy" })] },
       ])
-      const migratedAgent = await firstClient.execute("SELECT agent_name, updated_at FROM vitehub_agent_invocations WHERE id = 'legacy'")
+      const migratedAgent = await firstClient.execute("SELECT agent_name, status, updated_at FROM vitehub_agent_invocations WHERE id = 'legacy'")
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
+      expect(migratedAgent.rows[0]?.status).toBe("completed")
       expect(migratedAgent.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
