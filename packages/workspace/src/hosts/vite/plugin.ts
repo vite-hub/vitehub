@@ -326,8 +326,16 @@ async function sourceModuleDeclaresCloudflareArtifacts(
                     if (
                       current.node.type === "AssignmentExpression"
                       && current.node.left?.type === "MemberExpression"
-                      && current.node.left.object?.type === "Identifier"
-                      && current.node.left.object.name === "exports"
+                      && (
+                        (current.node.left.object?.type === "Identifier" && current.node.left.object.name === "exports")
+                        || (
+                          current.node.left.object?.type === "MemberExpression"
+                          && current.node.left.object.object?.type === "Identifier"
+                          && current.node.left.object.object.name === "module"
+                          && current.node.left.object.property?.type === "Identifier"
+                          && current.node.left.object.property.name === "exports"
+                        )
+                      )
                       && (current.node.left.property?.name ?? current.node.left.property?.value) === exportedName
                     ) return true
                     if (
@@ -446,6 +454,11 @@ function sourceImportsFeedingWorkspaceStore(
                 ? babelPathReachesExportedStore(reference) || babelPathReachesDefaultExport(reference)
                 : (() => {
                     for (let current: BabelNodePath | undefined = reference; current; current = current.parentPath) {
+                      if (
+                        current.node.type === "ExportSpecifier"
+                        && current.node.local === reference.node
+                        && (current.node.exported?.name ?? current.node.exported?.value) === exportedName
+                      ) return true
                       if (current.node.type === "VariableDeclarator" && current.node.id?.name === exportedName && babelPathOrBindingIsExported(current, exportedName)) return true
                     }
                     return false
