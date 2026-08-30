@@ -722,7 +722,7 @@ describe("ViteHub Nuxt integration", () => {
     await writeFile(rootAgent, "export default defineAgent({})\n")
     await writeFile(viteAgent, "export default defineAgent({})\n")
     const development = createNuxt(true)
-    development.nuxt.options.serverDir = undefined
+    Reflect.deleteProperty(development.nuxt.options, "serverDir")
     development.nuxt.options.vite.root = "/tmp/vitehub-nuxt/app"
 
     try {
