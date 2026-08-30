@@ -97,6 +97,7 @@ describe("release workflow artifact handoff", () => {
     expect(verify).toContain("!packages/**/node_modules/**")
     expect(verify).toContain("if-no-files-found: error")
     expect(verify).toContain("overwrite: false")
+    expect(verify).toContain("retention-days: 30")
     expect(verify).not.toMatch(/\n\s+path: (?:\.|\.\/|packages\/\*\*)\s*\n/)
   })
 
