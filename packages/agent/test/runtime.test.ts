@@ -12293,6 +12293,43 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("projects activity when the Workflow runtime state fails to load", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const failure = new Error("workflow runtime state failed to load")
+      const statuses: AgentActivityUpdate["status"][] = []
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => { throw failure },
+        workflow: () => import("@vite-hub/workflow"),
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow("runtime-state-failure-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+
+        expect(statuses).toEqual(["queued", "failed"])
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("projects failed activity when a direct Workflow has no name", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { defineChannel } = await import("../src/channels.ts")

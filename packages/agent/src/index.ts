@@ -910,7 +910,16 @@ async function runAgentAsWorkflow<
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
-  const workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+  const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
+  let workflowRuntimeState: Awaited<ReturnType<typeof loadAgentWorkflowRuntimeStateModule>>
+  try {
+    workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+  }
+  catch (error) {
+    await activity?.update("queued")
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
+  }
   let workflowConfig = workflowRuntimeState.getWorkflowRuntimeConfig()
   let activateCloudflareWorkflow = false
   if ("discoveryDefault" in binding && workflowConfig === undefined) {
@@ -941,7 +950,6 @@ async function runAgentAsWorkflow<
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
-  const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
   await activity?.update("queued")
   let workflowName: string
   let handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
