@@ -8,7 +8,7 @@ import { getQueue } from "./client.ts"
 
 import type { QueueDefinition, VercelQueueCallbackOptions } from "../types.ts"
 
-export const hostedVercelWaitUntil: typeof vercelWaitUntil = vercelWaitUntil
+export const hostedVercelWaitUntil: (promise: Promise<unknown>) => void | undefined = vercelWaitUntil
 
 async function toRequest(event: {
   method?: string
