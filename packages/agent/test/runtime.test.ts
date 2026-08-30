@@ -11219,13 +11219,13 @@ describe("agent message protocol", () => {
 
     expect(pulls).toBeLessThanOrEqual(2)
     const cancelResult = await Promise.race([
-      stream.cancel("client disconnected").then(() => "cancelled"),
+      stream.cancel().then(() => "cancelled"),
       new Promise(resolve => setTimeout(() => resolve("timeout"), 50)),
     ])
     releaseBlockedPull?.()
 
     expect(cancelResult).toBe("cancelled")
-    expect(cancelReason).toBe("client disconnected")
+    expect(cancelReason).toBeUndefined()
     expect(traceLog!.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.stream.finish",

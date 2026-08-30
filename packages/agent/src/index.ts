@@ -931,9 +931,16 @@ async function runAgentAsWorkflow<
   if ("discoveryDefault" in binding && workflowConfig === false) return undefined
   if (input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare") {
     if (!cloudflareEnv) return undefined
-    const workflowName = resolveAgentWorkflowName(agent, binding, context)
-    const workflowBindingName = workflowConfig.binding || (await loadAgentWorkflowModule()).getCloudflareWorkflowBindingName(workflowName)
-    if (!cloudflareEnv[workflowBindingName]) return undefined
+    await activity?.update("queued")
+    try {
+      const workflowName = resolveAgentWorkflowName(agent, binding, context)
+      const workflowBindingName = workflowConfig.binding || (await loadAgentWorkflowModule()).getCloudflareWorkflowBindingName(workflowName)
+      if (!cloudflareEnv[workflowBindingName]) return undefined
+    }
+    catch (error) {
+      await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+      throw error
+    }
   }
   if (activateCloudflareWorkflow) {
     workflowRuntimeState.setWorkflowRuntimeConfig(workflowConfig)
@@ -951,7 +958,9 @@ async function runAgentAsWorkflow<
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
-  await activity?.update("queued")
+  if (!(input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare")) {
+    await activity?.update("queued")
+  }
   let workflowName: string
   let handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
   let parsedInput: AgentRunInput<CALL_OPTIONS>

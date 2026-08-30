@@ -1148,6 +1148,7 @@ const githubActivityLinkUrlLimit = 1_000
 const githubActivityBodyLimit = 65_000
 const githubActivityStateLimit = 50_000
 const githubActivityCommentLookupLimit = 100
+const githubActivityRestartLookupLimit = 500
 const githubActivityPreviousRunLimit = 100
 const githubActivityTaskLimit = 25
 const githubActivityActiveRuns = new Map<string, Set<string>>()
@@ -1317,7 +1318,10 @@ function githubActivityBadge(status: AgentActivityStatus): string {
 }
 
 function githubActivityTask(task: AgentActivityTask): string {
-  const title = task.title.slice(0, 300)
+  const title = task.title
+    .replace(/[\r\n]+/g, " ")
+    .replace(/([\\`*_[\]<>])/g, "\\$1")
+    .slice(0, 300)
   if (task.status === "completed") return `- [x] ${title}`
   if (task.status === "in-progress") return `- [ ] ⏳ ${title}`
   return `- [ ] ${title}`
@@ -1388,7 +1392,12 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
         const commentsUrl = `${commentsTarget}/comments?sort=created&direction=desc`
         const knownCommentId = commentIds.get(activityKey)
-        const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, knownCommentId ? githubActivityCommentLookupLimit : 0)
+        const comments = await githubApiJsonPages(
+          fetcher,
+          commentsUrl,
+          headers,
+          knownCommentId ? githubActivityCommentLookupLimit : githubActivityRestartLookupLimit,
+        )
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
         let existing = owned.find(comment => maybeNumber(isRecord(comment) ? comment.id : undefined) === knownCommentId)

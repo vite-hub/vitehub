@@ -89,7 +89,10 @@ describe("agent channels", () => {
           runId,
           status,
           ...(status === "completed" ? { summary: "Review complete." } : {}),
-          tasks: [{ status: status === "completed" ? "completed" : "in-progress", title: "Review changes" }],
+          tasks: [
+            { status: status === "completed" ? "completed" : "in-progress", title: "Review changes" },
+            { status: "pending", title: "Untrusted\n# [link](https://example.com) *text*" },
+          ],
         },
         channel,
         memo: vi.fn(),
@@ -111,6 +114,8 @@ describe("agent channels", () => {
       expect(methods.filter(method => method === "PATCH")).toHaveLength(2)
       expect(stored?.body).toContain("agent-running-0969da")
       expect(stored?.body).toContain("- [ ] ⏳ Review changes")
+      expect(stored?.body).toContain("- [ ] Untrusted # \\[link\\]\\(https://example.com) \\*text\\*")
+      expect(stored?.body).not.toContain("\n# [link]")
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
       expect(stored?.body).toContain("<summary>Previous sessions</summary>")
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
@@ -513,7 +518,16 @@ describe("agent channels", () => {
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
-      await expect(channel.activity?.update(context(channel, "run-user-token") as never))
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await expect(channel.activity?.update({
+        activity: { links: [], runId: "run-user-token", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-user-token" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never))
         .rejects.toThrow("could not resolve the authenticated identity")
       expect(fetcher).not.toHaveBeenCalledWith(expect.stringContaining("/comments"), expect.anything())
     }
@@ -541,7 +555,16 @@ describe("agent channels", () => {
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
-      await channel.activity?.update(context(channel, "run-restarted") as never)
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-restarted", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-restarted" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
       expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
     }
     finally {

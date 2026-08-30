@@ -1401,6 +1401,17 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("keeps stream failure evidence ahead of later cancellation", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })
+    await log.append({ attributes: { "error.recoverable": false }, name: "agent.stream.error", timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "error" })
+    await log.append({ name: "agent.invocation.cancelled", timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())).toEqual([
+      expect.objectContaining({ status: "failed" }),
+    ])
+  })
+
   it("keeps runs successful after recoverable stream warnings", async () => {
     const log = createTraceEventLog()
     await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })

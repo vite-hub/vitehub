@@ -920,10 +920,10 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
 
     const terminal = sorted.slice().reverse().find(isTraceRunTerminal)
     const failed = sorted.some(isTraceRunFailureEvidence)
-    const status: TraceRunStatus = terminal?.name === "agent.invocation.cancelled"
-      ? "cancelled"
-      : failed || (terminal && isTraceRunError(terminal))
+    const status: TraceRunStatus = failed || (terminal && isTraceRunError(terminal))
       ? "failed"
+      : terminal?.name === "agent.invocation.cancelled"
+        ? "cancelled"
       : terminal
         ? "completed"
       : "running"
