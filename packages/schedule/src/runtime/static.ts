@@ -198,7 +198,7 @@ function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise
   ]
   for (const owner of owners) {
     const waitUntil = owner?.waitUntil
-    if (waitUntil instanceof Function) {
+    if (typeof waitUntil === "function") {
       return promise => waitUntil.call(owner, promise)
     }
   }

@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it } from "vitest"
 
 import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule } from "../src/runtime/static.ts"
@@ -96,6 +98,25 @@ describe("Static Schedule runtime", () => {
         }),
       },
       waitUntil: promise => deferred.push(Promise.resolve(promise)),
+    })
+
+    await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])
+  })
+
+  it("forwards deferred work to a Cloudflare waitUntil from another realm", async () => {
+    const deferred: Promise<unknown>[] = []
+    const waitUntil = runInNewContext("promise => deferred.push(promise)", { deferred }) as (promise: Promise<unknown>) => void
+
+    await executeCloudflareStaticSchedules({
+      controller: { cron: "0 4 * * *", scheduledTime: "2026-06-12T04:00:00.000Z" },
+      context: { waitUntil },
+    }, {
+      registry: {
+        report: async () => ({
+          cron: "0 4 * * *",
+          handler: async ({ waitUntil }) => waitUntil(Promise.resolve("recorded")),
+        }),
+      },
     })
 
     await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])
