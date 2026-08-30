@@ -678,6 +678,19 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("rejects a conflicting Blob inspection handler after Nitro config replay", async () => {
+    const development = createNuxt(true)
+    development.nuxt.options.nitro = {
+      handlers: [{ handler: "~/server/api/blob.ts", route: "/api/_vitehub/console/blob" }],
+    }
+
+    await viteHubNuxtModule({ blob: true, console: true, preset: "node" }, development.nuxt)
+
+    await expect(development.runNitroConfigHook(nitroOptions(development.nuxt))).rejects.toThrow(
+      "[vitehub] Cannot install the Console Blob handler because /api/_vitehub/console/blob is already configured from ~/server/api/blob.ts.",
+    )
+  })
+
   it("uses the effective Vite Workflow configuration for the Nuxt Console", async () => {
     const development = createNuxt(true)
     development.nuxt.options.vite.workflow = false

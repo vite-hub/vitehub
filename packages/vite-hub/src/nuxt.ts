@@ -389,6 +389,25 @@ function reconcileConsoleKVHandler(
   if (index === -1) handlers.push({ handler, route })
 }
 
+function reconcileConsoleBlobHandler(
+  nitro: { handlers?: Array<{ handler: string, route: string }> },
+  enabled: boolean,
+): void {
+  const route = "/api/_vitehub/console/blob"
+  const handler = join(consoleRuntimeRoot, "server/blob.get.js")
+  const handlers = (nitro.handlers ??= [])
+  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
+  if (!enabled) {
+    if (index !== -1) handlers.splice(index, 1)
+    return
+  }
+  const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
+  if (conflictingHandler) {
+    throw new TypeError(`[vitehub] Cannot install the Console Blob handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+  }
+  if (index === -1) handlers.push({ handler, route })
+}
+
 function reconcileConsoleDefinitionsHandler(
   nitro: { handlers?: Array<{ handler: string, route: string }> },
   enabled: boolean,
@@ -1232,6 +1251,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ...(resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : []),
       )
       installConsoleSections(projectRoot, consoleSections)
+      reconcileConsoleBlobHandler(config, consoleSections.includes("blob"))
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
       reconcileConsoleDefinitionsHandler(
         config,
