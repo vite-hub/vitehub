@@ -214,6 +214,10 @@ function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<Babel
       const binding = current.scope.getBinding(current.node.id.name)
       if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
     }
+    if (current.node.type === "FunctionDeclaration" && current.node.id?.name) {
+      const binding = current.scope.getBinding(current.node.id.name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
+    }
   }
   return false
 }
@@ -327,7 +331,7 @@ function babelPathReachesNamedExport(
   for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
     if (
       current.node.type === "ObjectProperty"
-      && babelPropertyName(current as BabelObjectPropertyPath) === exportedName
+      && babelPropertyName(current) === exportedName
       && current.parentPath
       && babelPathIsDirectDefaultExport(current.parentPath)
     ) return true
@@ -424,7 +428,8 @@ async function sourceModuleDeclaresCloudflareArtifacts(
           },
           VariableDeclarator(path: BabelNodePath) {
             if (
-              path.node.id?.type === "Identifier"
+              exportedName === "provider"
+              && path.node.id?.type === "Identifier"
               && path.node.id.name === "provider"
               && babelPathIsExported(path)
               && babelStringValue(path.node.init, path) === "cloudflare-artifacts"
@@ -433,6 +438,7 @@ async function sourceModuleDeclaresCloudflareArtifacts(
             }
           },
           ExportNamedDeclaration(path: BabelNodePath) {
+            if (exportedName !== "provider") return
             for (const specifier of path.node.specifiers ?? []) {
               if (specifier.exported?.name !== "provider" || specifier.local?.type !== "Identifier" || !specifier.local.name) continue
               if (babelStringValue(specifier.local, path) === "cloudflare-artifacts") declaresCloudflareArtifacts = true
@@ -737,6 +743,8 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
+      const commonJsLoaded: WorkspaceDefinitionInput & { default?: WorkspaceDefinitionInput } = loaded
+      loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
       if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
