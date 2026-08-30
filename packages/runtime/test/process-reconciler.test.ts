@@ -98,6 +98,17 @@ describe("createProcessReconciler", () => {
     await reconciler.close()
   })
 
+  it("starts periodic repair without an event-driven wake", async () => {
+    vi.useFakeTimers()
+    const run = vi.fn()
+    const reconciler = createProcessReconciler({ intervalMs: 1_000, run, signal: false })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(run).toHaveBeenCalledWith("repair", expect.anything())
+    await reconciler.close()
+  })
+
   it("fails the drain when tracked work fails", async () => {
     const work = deferred()
     const reconciler = createProcessReconciler({ intervalMs: 60_000, run() {}, signal: false })
@@ -107,6 +118,41 @@ describe("createProcessReconciler", () => {
 
     await expect(draining).rejects.toThrow("unfinished work failed")
     expect(reconciler.status()).toBe("failed")
+  })
+
+  it("waits for all tracked work before failing the drain", async () => {
+    const failed = deferred()
+    const unfinished = deferred()
+    const reconciler = createProcessReconciler({ intervalMs: 60_000, run() {}, signal: false })
+    reconciler.track(failed.promise)
+    reconciler.track(unfinished.promise)
+    const draining = reconciler.drain()
+    failed.reject(new Error("tracked work failed"))
+    await Promise.resolve()
+
+    expect(reconciler.status()).toBe("draining")
+    unfinished.resolve()
+
+    await expect(draining).rejects.toThrow("tracked work failed")
+    expect(reconciler.status()).toBe("failed")
+  })
+
+  it("reports drained only after asynchronous cleanup completes", async () => {
+    const cleanup = deferred()
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      onDrained: () => cleanup.promise,
+      run() {},
+      signal: false,
+    })
+
+    const draining = reconciler.drain()
+    await Promise.resolve()
+    expect(reconciler.status()).toBe("draining")
+    cleanup.resolve()
+    await draining
+
+    expect(reconciler.status()).toBe("drained")
   })
 
   it("removes its signal listener when closed", async () => {
@@ -120,7 +166,10 @@ describe("createProcessReconciler", () => {
 
   it("rejects invalid repair intervals", () => {
     expect(() => createProcessReconciler({ intervalMs: 0, run() {} })).toThrow(
-      "Process reconciler intervalMs must be positive.",
+      "Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.",
+    )
+    expect(() => createProcessReconciler({ intervalMs: 2_147_483_648, run() {} })).toThrow(
+      "Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.",
     )
   })
 })

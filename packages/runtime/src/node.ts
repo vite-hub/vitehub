@@ -224,8 +224,8 @@ export interface ProcessReconciler extends ProcessReconcilerRunContext {
 }
 
 export function createProcessReconciler(options: ProcessReconcilerOptions): ProcessReconciler {
-  if (!Number.isFinite(options.intervalMs) || options.intervalMs <= 0) {
-    throw new TypeError("Process reconciler intervalMs must be positive.")
+  if (!Number.isFinite(options.intervalMs) || options.intervalMs <= 0 || options.intervalMs > 2_147_483_647) {
+    throw new TypeError("Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.")
   }
 
   let closed = false
@@ -304,10 +304,21 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
       timer = undefined
       await options.onQuiesce?.()
       await running
-      await Promise.all(new Set([...acceptedWork, ...tracked]))
-      while (tracked.size) await Promise.all(tracked)
-      status = "drained"
+      let failure: unknown
+      let hasFailure = false
+      let pending = new Set([...acceptedWork, ...tracked])
+      while (pending.size) {
+        const results = await Promise.allSettled(pending)
+        const rejected = results.find(result => result.status === "rejected")
+        if (!hasFailure && rejected) {
+          failure = rejected.reason
+          hasFailure = true
+        }
+        pending = new Set(tracked)
+      }
+      if (hasFailure) throw failure
       await options.onDrained?.()
+      status = "drained"
     })().catch((error) => {
       status = "failed"
       throw error
@@ -327,6 +338,7 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
       }
     : undefined
   if (signal && listener) process.on(signal, listener)
+  scheduleRepair()
 
   return {
     async close() {
