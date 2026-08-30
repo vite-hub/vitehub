@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { opendir } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 
@@ -63,7 +62,7 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
       const key = path.split(sep).join(":")
       if (key.startsWith(prefix)) keys.push(key)
     }
-    const nextCursor = randomUUID()
+    const nextCursor = crypto.randomUUID()
     const timeout = setTimeout(() => {
       releaseContinuation(nextCursor)
     }, 15 * 60_000)
