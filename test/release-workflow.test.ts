@@ -106,6 +106,7 @@ describe("release workflow artifact handoff", () => {
     expect(verify).not.toContain("pnpm-workspace.yaml")
     expect(verify).toContain("if-no-files-found: error")
     expect(verify).toContain("overwrite: false")
+    expect(verify).toContain("retention-days: 30")
     expect(verify).not.toMatch(/\n\s+path: (?:\.|\.\/|packages\/\*\*)\s*\n/)
   })
 
