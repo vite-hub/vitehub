@@ -17463,6 +17463,11 @@ describe("server helpers", () => {
       text,
       threadId: "telegram:456",
     })
+    const idLessMessage = (text: string, date: string) => {
+      const result = message("id-less", text, date)
+      Reflect.deleteProperty(result, "id")
+      return result
+    }
     let initializedChats = 0
     const adapter = createTestChatAdapter({
       onInitialize: (chat) => {
@@ -17477,6 +17482,7 @@ describe("server helpers", () => {
           const history = Reflect.get(thread, "_threadHistory") as { getMessages(threadId: string, limit?: number): Promise<Message[]> }
           vi.spyOn(history, "getMessages").mockResolvedValue([
             message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
+            idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
             message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
             message("20", "current", "2026-06-10T12:00:20.000Z"),
           ])
@@ -17490,6 +17496,7 @@ describe("server helpers", () => {
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
+        idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
         message("22", "newest cached", "2026-06-10T12:02:00.000Z"),
       ],
     })
@@ -17521,6 +17528,7 @@ describe("server helpers", () => {
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
+        idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
       ],
     })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })

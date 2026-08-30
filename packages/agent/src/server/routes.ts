@@ -4086,7 +4086,7 @@ async function chatTriggerMessages(
     ? durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : [])).at(-1) ?? -1
     : -1
   const durableContainsCurrent = durableCurrentIndexBeforeBoundary >= 0
-  const fetchedAfterCurrentIds = new Set<string>()
+  const fetchedAfterCurrent: ChatSdkMessage[] = []
   const fetchedBeforeCurrent: ChatSdkMessage[] = []
   let foundCurrent = false
   let scanned = 0
@@ -4108,7 +4108,7 @@ async function chatTriggerMessages(
       if (!foundCurrent && isCurrent) {
         foundCurrent = true
         for (const future of fetchedBeforeCurrent) {
-          if (future.id) fetchedAfterCurrentIds.add(future.id)
+          fetchedAfterCurrent.push(future)
         }
       }
       if (foundCurrent) {
@@ -4147,7 +4147,13 @@ async function chatTriggerMessages(
   if (message.id && durableContainsCurrent) {
     durable = durable
       .slice(0, durableCurrentIndexBeforeBoundary + 1)
-      .filter((item) => !item.id || !fetchedAfterCurrentIds.has(item.id))
+      .filter((item) => !fetchedAfterCurrent.some((future) => {
+        if (item.id || future.id) return Boolean(item.id && future.id && item.id === future.id)
+        if (isExactChatSdkDelivery(item, future)) return true
+        const itemRawKey = chatRawDeliveryKey(item)
+        const futureRawKey = chatRawDeliveryKey(future)
+        return (itemRawKey !== undefined && itemRawKey === futureRawKey) || isCurrentChatSdkMessage(item, future)
+      }))
   } else if (message.id && foundCurrent) {
     const currentTime = message.metadata.dateSent.getTime()
     durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)
