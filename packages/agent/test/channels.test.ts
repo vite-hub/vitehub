@@ -218,6 +218,7 @@ describe("agent channels", () => {
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channel.activity?.update({
         activity: { links: [], runId: "run-quoted", status: "running", tasks: [] },
         channel,
@@ -242,6 +243,7 @@ describe("agent channels", () => {
     const posts: string[] = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      // SAFETY: The fixture controls the request headers and supplies a string-keyed header record.
       const authorization = String((init?.headers as Record<string, string> | undefined)?.authorization || "")
       if (url.pathname === "/user") return Response.json({ login: authorization.endsWith("token-a") ? "bot-a" : "bot-b" })
       if (init?.method === "GET") return Response.json([])
@@ -262,8 +264,10 @@ describe("agent channels", () => {
       const channelA = github({ activity: true })
       const channelB = github({ activity: true })
       vi.stubEnv("GITHUB_TOKEN", "token-a")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channelA.activity?.update(context(channelA) as never)
       vi.stubEnv("GITHUB_TOKEN", "token-b")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channelB.activity?.update(context(channelB) as never)
 
       expect(posts).toEqual(["Bearer token-a", "Bearer token-b"])

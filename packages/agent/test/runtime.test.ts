@@ -12251,6 +12251,61 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("projects terminal activity from an already-settled Workflow run", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const updates: AgentActivityUpdate[] = []
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({
+          createWorkflow: () => ({
+            run: async () => ({
+              id: "existing-run",
+              provider: "openworkflow",
+              result: { text: "Already finished." },
+              status: "completed",
+            }),
+          }),
+        }) as never,
+      })
+      try {
+        await runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { updates.push(structuredClone(activity)) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow("settled-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "existing-run" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})
+
+        expect(updates).toMatchObject([
+          { status: "queued" },
+          { status: "completed", summary: "Already finished." },
+        ])
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("keeps ambiguous accepted OpenWorkflow starts recoverable", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")

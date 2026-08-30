@@ -1054,6 +1054,13 @@ async function runAgentAsWorkflow<
     }
     throw error
   }
+  if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
+    await activity?.update(
+      run.status,
+      run.status === "failed" ? run.metadata : undefined,
+      run.status === "completed" ? finalTextFromAgentOutput(run.result) : undefined,
+    )
+  }
   const settled = run.status === "cancelled" || run.status === "completed" || run.status === "failed"
     ? Promise.resolve()
     : workflowSettlementTasks.length
