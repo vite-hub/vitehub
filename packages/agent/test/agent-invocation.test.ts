@@ -126,7 +126,10 @@ describe("Agent Invocation controllers", () => {
 
     const controller = await startAgentInvocation(agent, runtime(), {})
 
-    await expect(controller.result).resolves.toMatchObject({ text: "nested" })
+    const result = await controller.result
+    expect(result).toMatchObject({ text: "nested" })
+    expect(result).not.toHaveProperty("fullStream")
+    expect(() => structuredClone(result)).not.toThrow()
     await expect(controller.inspect()).resolves.toMatchObject({
       invocation: { status: "completed" },
       outcome: "available",
@@ -156,7 +159,10 @@ describe("Agent Invocation controllers", () => {
 
     const controller = await startAgentInvocation(agent, runtime(), {})
 
-    await expect(controller.result).resolves.toMatchObject({ text: "ui message" })
+    const result = await controller.result
+    expect(result).toMatchObject({ text: "ui message" })
+    expect(result).not.toHaveProperty("toUIMessageStream")
+    expect(() => structuredClone(result)).not.toThrow()
     await expect(controller.inspect()).resolves.toMatchObject({
       invocation: { status: "completed" },
       outcome: "available",

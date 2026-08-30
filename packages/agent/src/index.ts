@@ -6628,6 +6628,7 @@ function createInlineAgentInvocationController<
     async result({ finished, startResult }) {
       const started = await startResult
       let settledResponse: Response | undefined
+      let materializedStreamResult = false
       if (isAsyncIterable(started)) {
         for await (const _chunk of started) {}
       }
@@ -6641,15 +6642,21 @@ function createInlineAgentInvocationController<
           if (!isAsyncIterable(candidate)) continue
           const stream: AsyncIterable<unknown> = candidate
           for await (const _chunk of stream) {}
+          materializedStreamResult = true
           break
         }
       }
       else if (started !== null && typeof started === "object" && isUIMessageStreamResult(started)) {
         const stream: AsyncIterable<unknown> = started.toUIMessageStream()
         for await (const _chunk of stream) {}
+        materializedStreamResult = true
       }
       const outcome = await finished
       if (outcome.status === "completed") {
+        if (materializedStreamResult) {
+          const { raw: _raw, ...materialized } = toAgentRunResult(outcome.output)
+          return materialized
+        }
         return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult
       }
       throw outcome.error
