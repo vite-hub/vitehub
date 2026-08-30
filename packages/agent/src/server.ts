@@ -11,6 +11,7 @@ export type {
   GitHubHost,
   GitHubHostAccess,
   GitHubHostCheckoutOptions,
+  GitHubHostCredentialContext,
   GitHubHostCredentials,
   GitHubHostOptions,
   GitHubHostPullRequest,

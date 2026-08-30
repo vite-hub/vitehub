@@ -120,6 +120,23 @@ describe("GitHub host", () => {
     await expect(host.access({ repository: "contributor/fork" })).resolves.toMatchObject({ token: "fallback-token" })
   })
 
+  it.each(["abort", "timeout"] as const)("cancels credential resolution on %s", async (control) => {
+    const controller = new AbortController()
+    let credentialSignal: AbortSignal | undefined
+    const host = createGitHubHost({
+      credentials: ({ signal }) => {
+        credentialSignal = signal
+        return new Promise(() => undefined)
+      },
+    })
+    if (control === "abort") setTimeout(() => controller.abort(new Error("credential cancelled")), 20)
+
+    await expect(host.access(control === "abort" ? { signal: controller.signal } : { timeout: 20 })).rejects.toThrow(
+      control === "abort" ? "credential cancelled" : "timed out",
+    )
+    expect(credentialSignal?.aborted).toBe(true)
+  })
+
   it("cancels installation-token refresh", async () => {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     vi.stubGlobal("fetch", vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {

@@ -23,9 +23,13 @@ export interface GitHubHostCredentials {
   token?: GitHubHostSecret
 }
 
+export interface GitHubHostCredentialContext {
+  signal: AbortSignal
+}
+
 export interface GitHubHostOptions {
   cacheMs?: number
-  credentials: () => GitHubHostCredentials | Promise<GitHubHostCredentials>
+  credentials: (context: GitHubHostCredentialContext) => GitHubHostCredentials | Promise<GitHubHostCredentials>
   graphQLCheckTimeout?: number
   identity?: { email?: string, login?: string }
   maxBuffer?: number
@@ -184,6 +188,17 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   let appToken: { expiresAt: number, token: string } | undefined
   let appTokenKey: string | undefined
 
+  async function credentials(input: GitHubHostCheckoutOptions): Promise<GitHubHostCredentials> {
+    const operation = controlledOperation(input)
+    try {
+      const pending = Promise.resolve().then(() => options.credentials({ signal: operation.signal }))
+      return await waitForCaller(pending, { signal: operation.signal })
+    }
+    finally {
+      operation.close()
+    }
+  }
+
   async function fallbackToken(config: GitHubHostCredentials, input: GitHubHostCheckoutOptions): Promise<string> {
     const configured = secret(config.token)?.trim()
     if (configured) return configured
@@ -200,7 +215,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
-    const config = await options.credentials()
+    const config = await credentials(input)
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
     const appOwner = String(config.owner || "").trim().toLowerCase()
