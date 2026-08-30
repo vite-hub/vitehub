@@ -241,7 +241,7 @@ describe("Provider Output finalizer", () => {
     const catalog = createProviderOutputCatalog()
     const writes: string[] = []
     const rootDir = await createTempProject()
-    const contribute = (owner: "agent" | "blob" | "database", value = owner) => {
+    const contribute = (owner: "agent" | "blob" | "browser" | "database", value = owner) => {
       contributeProviderDeploymentOutput(catalog, {
         owner,
         rootDir,
@@ -255,9 +255,10 @@ describe("Provider Output finalizer", () => {
     contribute("agent")
     contribute("database")
     contribute("blob", "current")
+    contribute("browser")
     await finalizeProviderDeploymentOutputs(catalog)
 
-    expect(writes).toEqual(["agent", "database", "current"])
+    expect(writes).toEqual(["agent", "database", "current", "browser"])
   })
 
   it("clears settled contributions between repeat builds", async () => {
