@@ -33,6 +33,16 @@ export const buildWarningBudget = Object.freeze([
   },
   { name: "Nuxt UI button imports", maximum: 2, text: "[INEFFECTIVE_DYNAMIC_IMPORT]" },
   { name: "Vite chunk size", maximum: 1, text: "[plugin builtin:vite-reporter]" },
+  {
+    name: "Google Fonts icon metadata fetch",
+    maximum: 1,
+    text: "Could not fetch from https://fonts.google.com/metadata/icons?key=material_symbols&incomplete=true",
+  },
+  {
+    name: "Google Fonts font metadata fetch",
+    maximum: 1,
+    text: "Could not fetch from https://fonts.google.com/metadata/fonts",
+  },
   { name: "Nitro Cloudflare assets override", maximum: 1, text: "Wrangler config assetsset" },
   {
     name: "Nuxt Nitro server unused H3Event import",
