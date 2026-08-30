@@ -150,7 +150,7 @@ describe("GitHub host", () => {
 
     await host.command(["api", "user"])
 
-    expect(await readFile(commandLog, "utf8")).toContain("gh api user||token|github.com")
+    expect(await readFile(commandLog, "utf8")).toContain("gh api user|!gh auth git-credential|token|github.com")
   })
 
   it.each(["abort", "timeout"] as const)("cancels credential resolution on %s", async (control) => {
@@ -348,18 +348,33 @@ describe("GitHub host", () => {
       .resolves.toMatchObject({ remaining: 51 })
   })
 
-  it("drops reservations from an expired GraphQL quota window", async () => {
+  it("drops unsubmitted reservations from an expired GraphQL quota window", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
 
     const expired = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
-    expired.submit()
     process.env.VITEHUB_TEST_RATE_LIMIT_RESET = "2000000100"
     await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 90 }))
       .resolves.toMatchObject({ remaining: 10 })
     expired.settle(40)
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
+  it("keeps submitted GraphQL reservations across quota rollover", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 5, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const inFlight = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    inFlight.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_RESET = "2000000100"
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+
+    inFlight.settle(40)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 11 }))
+      .resolves.toMatchObject({ remaining: 49 })
   })
 
   it("rejects an actual GraphQL cost above its reservation", async () => {

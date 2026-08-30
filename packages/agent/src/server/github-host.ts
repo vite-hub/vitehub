@@ -487,7 +487,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           const activeReservations = reservations.get(key)
           if (activeReservations) {
             for (const reservation of activeReservations) {
-              if (reservation.resetAt !== limit.resetAt) activeReservations.delete(reservation)
+              if (reservation.resetAt === limit.resetAt) continue
+              if (reservation.submittedAtVersion === undefined) activeReservations.delete(reservation)
+              else reservation.resetAt = limit.resetAt
             }
             if (activeReservations.size === 0) reservations.delete(key)
           }
