@@ -556,10 +556,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && hasRuntimeType(value, "object") && !Array.isArray(value)
 }
 
-function staticDriverExecutionAuthority(driver: { kind: AgentDriverKind }): ExecutionAuthority {
+function staticDriverExecutionAuthority(driver: { credentials?: unknown, kind: AgentDriverKind }): ExecutionAuthority {
   if (driver.kind !== "provider") return noExecutionAuthority
   return normalizeExecutionAuthority({
-    credentials: "ambient",
+    credentials: driver.credentials === undefined ? "ambient" : "provisioned",
     environment: "selected",
     filesystem: { access: "read-write", scope: "host" },
     isolation: "none",
@@ -739,12 +739,13 @@ function capabilityInspectionMetadataProjection(
 }
 
 function providerMetadata(driver: {
+  credentialProfile?: string
   credentials?: unknown
   model?: string
   permissions: AgentInspectionProviderMetadata["permissions"]
   provider: string
   providerSettings?: Record<string, unknown>
-  reasoningEffort?: string
+  reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
 }): AgentInspectionProviderMetadata {
   const providerSettings = Object.entries(driver.providerSettings || {})
@@ -752,6 +753,7 @@ function providerMetadata(driver: {
     .map(([key]) => key)
     .sort()
   return {
+    ...(driver.credentialProfile ? { credentialProfile: driver.credentialProfile } : {}),
     ...(driver.credentials !== undefined ? { credentials: true } : {}),
     ...(driver.model ? { model: driver.model } : {}),
     permissions: driver.permissions,
