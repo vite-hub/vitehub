@@ -233,7 +233,7 @@ async function sourceModuleMayUseCloudflareArtifacts(
     if (
       defaultImport
       && /^[A-Za-z_$][\w$]*$/.test(defaultImport)
-      && !new RegExp(`\\bstore\\s*:\\s*${defaultImport}\\b`).test(loaded.source)
+      && !new RegExp(`\\bstore\\s*(?::\\s*${defaultImport}\\b|(?=[,}]))`).test(loaded.source)
     ) continue
     const specifier = match[2]!
     const resolvedModule = specifier.startsWith(".")
