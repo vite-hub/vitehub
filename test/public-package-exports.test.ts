@@ -112,7 +112,7 @@ describe("public package export contracts", () => {
   it("keeps Realtime's public handler contract independent from H3 host declarations", () => {
     const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
     expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry\): RealtimeHandler/)
-    expect(source).toMatch(/fetch\(input: Request \| URL \| string, init\?: RequestInit\): Promise<Response>/)
+    expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
 
   it("keeps Sandbox's public request contract limited to readable payloads", () => {

@@ -19,7 +19,7 @@ import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
 
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
-  fetch(input: Request | URL | string, init?: RequestInit): Promise<Response>
+  fetch(input: Request | URL | string): Promise<Response>
 }
 
 const routePrefix = "/api/_vitehub/realtime/"
