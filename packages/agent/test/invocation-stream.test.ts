@@ -1,10 +1,11 @@
+import { IncomingMessage, ServerResponse } from "node:http"
+import { Socket } from "node:net"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
 import { createAgentInvocationStreamResponse, readAgentInvocationStream } from "../src/invocation-stream.ts"
 import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
-
-import type { ServerResponse } from "node:http"
 
 describe("Agent Invocation Stream", () => {
   it("cancels the invocation when its reader stops early", async () => {
@@ -44,6 +45,18 @@ describe("Agent Invocation Stream", () => {
     expect(failure).toBeInstanceOf(SyntaxError)
     expect(failure).not.toBe(cleanupFailure)
     expect(cancel).toHaveBeenCalledWith(failure)
+  })
+
+  it("rejects stream lines without an event discriminator", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("null\n"))
+      },
+    })
+
+    await expect(async () => {
+      for await (const _event of readAgentInvocationStream(body)) {}
+    }).rejects.toThrow("Invalid Agent Invocation Stream event.")
   })
 
   it("closes timed-out streams even when the run does not settle", async () => {
@@ -125,16 +138,10 @@ describe("Agent Invocation Stream", () => {
   })
 
   it("only treats closed-response AbortError body failures as cleanup", async () => {
-    const destroy = vi.fn()
-    const res = {
-      destroy,
-      end: vi.fn(),
-      off: vi.fn(),
-      once: vi.fn(),
-      setHeader: vi.fn(),
-      statusCode: 200,
-      write: vi.fn(() => true),
-    } as unknown as ServerResponse
+    const res = new ServerResponse(new IncomingMessage(new Socket()))
+    const destroy = vi.spyOn(res, "destroy").mockImplementation(() => res)
+    vi.spyOn(res, "end").mockImplementation(() => res)
+    vi.spyOn(res, "write").mockImplementation(() => true)
 
     await writeResponse(res, new Response(new ReadableStream<Uint8Array>({
       pull() {
@@ -145,31 +152,24 @@ describe("Agent Invocation Stream", () => {
     expect(destroy).toHaveBeenCalledWith(expect.any(DOMException))
     destroy.mockClear()
 
-    let close: (() => void) | undefined
-    const closedRes = {
-      destroy,
-      end: vi.fn(),
-      off: vi.fn(),
-      once: vi.fn((_event: string, callback: () => void) => {
-        close = callback
-      }),
-      setHeader: vi.fn(),
-      statusCode: 200,
-      write: vi.fn(() => true),
-    } as unknown as ServerResponse
+    const closedRes = new ServerResponse(new IncomingMessage(new Socket()))
+    const closedDestroy = vi.spyOn(closedRes, "destroy").mockImplementation(() => closedRes)
+    vi.spyOn(closedRes, "end").mockImplementation(() => closedRes)
+    vi.spyOn(closedRes, "write").mockImplementation(() => true)
 
     await writeResponse(closedRes, new Response(new ReadableStream<Uint8Array>({
       pull() {
-        close?.()
+        closedRes.emit("close")
         throw new DOMException("aborted", "AbortError")
       },
     })))
 
-    expect(destroy).not.toHaveBeenCalled()
+    expect(closedDestroy).not.toHaveBeenCalled()
   })
 
   it("closes with an error when event serialization fails", async () => {
     const response = createAgentInvocationStreamResponse(async (emit) => {
+      // SAFETY: This intentionally violates the serializable data contract to exercise response error handling.
       emit({ data: 1n, type: "data" } as never)
     })
 

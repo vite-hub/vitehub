@@ -1,4 +1,5 @@
 import { toAgentPublicError } from "./agent-error.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentPublicErrorCode, AgentPublicErrorDetails } from "./agent-error.ts"
 import type { AgentChannelDeliveryEffectIntent, AgentInspectionMetadata, AgentRunMetadata } from "./types.ts"
@@ -36,6 +37,15 @@ export type AgentInvocationStreamEvent =
   | { agent: string, metadata?: Record<string, unknown>, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
 
+function parseAgentInvocationStreamEvent(line: string): AgentInvocationStreamEvent {
+  const event: unknown = JSON.parse(line)
+  if (!isRuntimeRecord(event) || !hasRuntimeType(event.type, "string")) {
+    throw new TypeError("Invalid Agent Invocation Stream event.")
+  }
+  // SAFETY: The stream endpoint owns the event payloads; the reader validates their shared discriminated-union boundary.
+  return event as AgentInvocationStreamEvent
+}
+
 export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
   const reader = body.pipeThrough(new TextDecoderStream()).getReader()
   let completed = false
@@ -52,10 +62,10 @@ export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array
       const lines = pending.split("\n")
       pending = lines.pop() || ""
       for (const line of lines) {
-        if (line.trim()) yield JSON.parse(line) as AgentInvocationStreamEvent
+        if (line.trim()) yield parseAgentInvocationStreamEvent(line)
       }
     }
-    if (pending.trim()) yield JSON.parse(pending) as AgentInvocationStreamEvent
+    if (pending.trim()) yield parseAgentInvocationStreamEvent(pending)
   }
   catch (cause) {
     error = cause
