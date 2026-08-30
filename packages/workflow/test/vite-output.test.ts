@@ -112,15 +112,17 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-output-")
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
-  const workflowFile = join(rootDir, "server", "workflows", "cleanup.workflow.ts")
-  const retainedWorkflowFile = join(retainedRoot, "server", "workflows", "cleanup.workflow.ts")
-  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await mkdir(join(retainedRoot, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, "export default defineWorkflow(async () => undefined)\n")
-  await writeFile(retainedWorkflowFile, "export default defineWorkflow(async () => undefined)\n")
+  const workflowFile = join(rootDir, "server", "workflows", "cleanup", "01-cleanup.ts")
+  const retainedWorkflowFile = join(retainedRoot, "server", "workflows", "cleanup", "01-cleanup.ts")
+  await mkdir(join(rootDir, "server", "workflows", "cleanup"), { recursive: true })
+  await mkdir(join(retainedRoot, "server", "workflows", "cleanup"), { recursive: true })
+  await writeFile(workflowFile, "export default async function cleanup() {}\n")
+  await writeFile(retainedWorkflowFile, "export default async function cleanup() {}\n")
   const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir, rootDir)
 
-  await expect(readFile(artifacts.registryFile, "utf8")).resolves.toContain(pathToFileURL(workflowFile).href)
+  const registryContents = await readFile(artifacts.registryFile, "utf8")
+  expect(registryContents).toContain(pathToFileURL(workflowFile).href)
+  expect(registryContents).toContain(`import("./vercel-native/`)
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-vite"`)
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-runner"`)
   await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/vercel-vite"`)
@@ -135,6 +137,7 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
 
   await expect(readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8"))
     .resolves.toBe(await readFile(join(artifactDir, "registry.mjs"), "utf8"))
+  await expect(readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))).resolves.toHaveLength(1)
 })
 
 it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {

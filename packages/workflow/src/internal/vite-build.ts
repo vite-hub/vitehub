@@ -845,7 +845,7 @@ function renderWorkflowRegistryEntry(registryFile: string, definition: Discovere
   const nativeExport = getGeneratedVercelWorkflowExport(definition)
   const vercelNativeFile = vercelNativeFiles[definition.name]
   const nativeImport = nativeExport && vercelNativeFile
-    ? `const native = (await ${renderRegistryImport(registryFile, vercelNativeFile)}).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}`
+    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}`
     : ""
   const handler = hasIndex
     ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
