@@ -7,7 +7,7 @@ import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
 import type { ConsoleSectionId } from "../sections"
-import { requestConsole } from "../client/request"
+import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation } from "../client/sections"
 import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
@@ -61,6 +61,7 @@ const sections = ref<ConsoleSectionId[]>([])
 const discoveredAgentNames = ref<string[]>([])
 const definitionItems = ref<ConsoleDefinitionSearchItem[]>([])
 const kvItems = ref<ConsoleKVSearchItem[]>([])
+const kvSearchTruncated = ref(false)
 const navigationLoading = ref(true)
 const navigationError = ref<unknown>()
 const sessionSearchEnabled = ref(false)
@@ -138,8 +139,17 @@ const groups = computed<CommandPaletteGroup[]>(() => [
   ...(definitionSearchItems.value.length
     ? [{ id: "definitions", items: definitionSearchItems.value, label: "Definitions" }]
     : []),
-  ...(kvSearchItems.value.length
-    ? [{ id: "kv", items: kvSearchItems.value, label: "KV keys" }]
+  ...(kvSearchItems.value.length || kvSearchTruncated.value
+    ? [{
+        id: "kv",
+        items: [
+          ...kvSearchItems.value,
+          ...(kvSearchTruncated.value
+            ? [{ disabled: true, icon: "i-ph-warning-light", label: "More matching keys may exist" }]
+            : []),
+        ],
+        label: "KV keys",
+      }]
     : []),
   ...(agentsEnabled.value
     ? [{
@@ -220,15 +230,20 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
     const firstStore = typeof first?.store === "string" ? first.store : "default"
     const stores = strings(first?.stores)
     const remainingStores = stores.filter(store => store !== firstStore)
-    const pages = await Promise.all([
-      Promise.resolve(first),
-      ...remainingStores.map(store => requestConsole(props.kvBase, { query: { ...query, store }, signal }).then(record)),
-    ])
-    kvItems.value = pages.flatMap((value, index) => {
-      const store = index === 0 ? firstStore : remainingStores[index - 1]!
-      return strings(value?.keys).map(key => ({ key, store }))
-    })
+    const storesWithFirstPage = [firstStore, ...remainingStores]
+    const results = await Promise.all(storesWithFirstPage.map((store, index) =>
+      loadConsoleKVPages(props.kvBase, store, signal, index === 0 ? first : undefined, {
+        limit: query.limit,
+        maxPages: 10,
+        prefix: query.prefix,
+      }),
+    ))
+    kvItems.value = results.flatMap(({ pages }, index) =>
+      pages.flatMap(value => strings(value.keys).map(key => ({ key, store: storesWithFirstPage[index]! }))),
+    )
+    kvSearchTruncated.value = results.some(result => result.truncated)
   }
+  else kvSearchTruncated.value = false
 }
 
 async function loadNavigation(discoverContent = false): Promise<void> {

@@ -60,9 +60,12 @@ function parseFields(value: unknown): ConsoleDefinitionSummary["fields"] {
   });
 }
 
-function parseDefinitions(value: unknown): ConsoleDefinitionSummary[] {
+function parseDefinitions(
+  value: unknown,
+  section: ConsoleDefinitionSectionId,
+): ConsoleDefinitionSummary[] {
   const source = record(value);
-  if (source?.section !== props.section || !Array.isArray(source.definitions)) {
+  if (source?.section !== section || !Array.isArray(source.definitions)) {
     throw new TypeError("The Console returned an invalid definition catalog.");
   }
   return source.definitions.flatMap((entry) => {
@@ -108,12 +111,14 @@ async function loadDefinitions(): Promise<void> {
   const controller = new AbortController();
   request = controller;
   loading.value = true;
+  const section = props.section;
   try {
     const installed = parseDefinitions(
       await requestConsole(props.definitionsBase, {
-        query: { section: props.section },
+        query: { section },
         signal: controller.signal,
       }),
+      section,
     );
     if (request !== controller) return;
     definitions.value = installed;
@@ -151,6 +156,16 @@ onMounted(() => {
   if (typeof route.query.definition === "string") selectedName.value = route.query.definition;
   void loadDefinitions();
 });
+
+watch(
+  () => props.section,
+  (section) => {
+    rememberConsoleSection(section);
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
+    selectedName.value = typeof route.query.definition === "string" ? route.query.definition : undefined;
+    void loadDefinitions();
+  },
+);
 
 watch(
   () => route.query.definition,

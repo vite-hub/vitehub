@@ -36,13 +36,17 @@ export async function loadConsoleKVPages(
   store: string,
   signal: AbortSignal,
   initial?: Record<string, unknown>,
-): Promise<Record<string, unknown>[]> {
+  options: { limit?: number, maxPages?: number, prefix?: string } = {},
+): Promise<{ pages: Record<string, unknown>[], truncated: boolean }> {
   const pages: Record<string, unknown>[] = []
   const cursors = new Set<string>()
   let page = initial
   let hasMore = true
-  while (hasMore) {
-    page ??= record(await requestConsole(base, { query: { store }, signal }))
+  while (hasMore && pages.length < (options.maxPages ?? Number.POSITIVE_INFINITY)) {
+    page ??= record(await requestConsole(base, {
+      query: { limit: options.limit, prefix: options.prefix, store },
+      signal,
+    }))
     if (!page) break
     pages.push(page)
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
@@ -52,7 +56,11 @@ export async function loadConsoleKVPages(
       continue
     }
     cursors.add(cursor)
-    page = record(await requestConsole(base, { query: { cursor, store }, signal }))
+    if (pages.length >= (options.maxPages ?? Number.POSITIVE_INFINITY)) break
+    page = record(await requestConsole(base, {
+      query: { cursor, limit: options.limit, prefix: options.prefix, store },
+      signal,
+    }))
   }
-  return pages
+  return { pages, truncated: hasMore }
 }

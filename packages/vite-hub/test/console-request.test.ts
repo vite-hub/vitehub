@@ -48,12 +48,41 @@ describe("Console requests", () => {
     vi.stubGlobal("fetch", fetch)
 
     await expect(loadConsoleKVPages("/host/api/_vitehub/console/kv", "cache", new AbortController().signal))
-      .resolves.toEqual([
-        { cursor: "next", keys: ["first"] },
-        { cursor: "next", keys: ["second"] },
-      ])
+      .resolves.toEqual({
+        pages: [
+          { cursor: "next", keys: ["first"] },
+          { cursor: "next", keys: ["second"] },
+        ],
+        truncated: false,
+      })
     expect(fetch).toHaveBeenNthCalledWith(1, "/host/api/_vitehub/console/kv?store=cache", expect.any(Object))
     expect(fetch).toHaveBeenNthCalledWith(2, "/host/api/_vitehub/console/kv?cursor=next&store=cache", expect.any(Object))
+  })
+
+  it("continues through empty KV pages within a bounded search budget", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: [] }), ok: true })
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "last", keys: ["matching"] }), ok: true })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleKVPages(
+      "/api/_vitehub/console/kv",
+      "cache",
+      new AbortController().signal,
+      undefined,
+      { limit: 50, maxPages: 2, prefix: "match" },
+    )).resolves.toEqual({
+      pages: [
+        { cursor: "next", keys: [] },
+        { cursor: "last", keys: ["matching"] },
+      ],
+      truncated: true,
+    })
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/_vitehub/console/kv?cursor=next&limit=50&prefix=match&store=cache",
+      expect.any(Object),
+    )
   })
 
   it("retries section discovery after a failed request and caches a successful response", async () => {
