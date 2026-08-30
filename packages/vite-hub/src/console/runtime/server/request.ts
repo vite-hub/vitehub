@@ -21,6 +21,7 @@ export interface ConsoleRequestEvent {
     }
   }
   req?: {
+    body?: ReadableStream<Uint8Array> | null
     context?: { clientAddress?: string }
     ip?: string
     headers?: ConsoleHeaders
@@ -47,6 +48,25 @@ function stringByteLength(value: string): number {
 }
 
 export async function consoleRequestJSON(event: ConsoleRequestEvent): Promise<unknown> {
+  const fetchBody = event.req?.body
+  if (fetchBody) {
+    const reader = fetchBody.getReader()
+    const decoder = new TextDecoder()
+    let body = ""
+    let bytes = 0
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      bytes += chunk.value.byteLength
+      if (bytes > maximumConsoleRequestBodyBytes) {
+        await reader.cancel()
+        throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+      }
+      body += decoder.decode(chunk.value, { stream: true })
+    }
+    body += decoder.decode()
+    return JSON.parse(body)
+  }
   if (event.req?.json) return event.req.json()
   const request = event.node?.req
   if (!request?.[Symbol.asyncIterator]) throw new SyntaxError("Request body is unavailable.")

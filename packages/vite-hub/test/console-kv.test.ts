@@ -42,6 +42,14 @@ function h3V1Event(body: unknown): ConsoleRequestEvent {
   return { method: "POST", node: { req: request } }
 }
 
+function h3V2Event(body: unknown): ConsoleRequestEvent {
+  const request = new Request("http://localhost/api/_vitehub/console/kv", {
+    body: JSON.stringify(body),
+    method: "POST",
+  })
+  return { method: "POST", req: request }
+}
+
 function memoryKV(stores: Record<string, Map<string, unknown>>): { storage: KVStorage; writes: ReturnType<typeof vi.fn> } {
   const writes = vi.fn()
   function storage(name = "default"): KVStorage {
@@ -141,8 +149,6 @@ describe("Console KV inspection", () => {
     })
     installConsoleKV("/project", storage)
 
-    const encode = vi.spyOn(TextEncoder.prototype, "encode")
-
     await expect(kvHandler(event("", "POST", { key: "" }))).resolves.toMatchObject({
       found: true,
       key: "",
@@ -160,6 +166,11 @@ describe("Console KV inspection", () => {
       found: true,
       key: "config",
     })
+    await expect(kvHandler(h3V2Event({ key: "config" }))).resolves.toMatchObject({
+      found: true,
+      key: "config",
+    })
+    const encode = vi.spyOn(TextEncoder.prototype, "encode")
     await expect(kvHandler(event("", "POST", { key: "boxed" }))).resolves.toMatchObject({ value: "7" })
     await expect(kvHandler(event("", "POST", { key: "boxed-custom" }))).resolves.toMatchObject({ value: "\"replacement\"" })
     await expect(kvHandler(event("", "POST", { key: "boxed-bigint" }))).resolves.toMatchObject({ format: "text", value: "1" })
@@ -225,6 +236,7 @@ describe("Console KV inspection", () => {
     await expect(kvHandler(event("", "DELETE"))).rejects.toMatchObject({ statusCode: 405 })
     await expect(kvHandler(event("", "POST"))).rejects.toMatchObject({ statusCode: 400 })
     await expect(kvHandler(h3V1Event({ key: "x".repeat(64 * 1_024) }))).rejects.toMatchObject({ statusCode: 413 })
+    await expect(kvHandler(h3V2Event({ key: "x".repeat(64 * 1_024) }))).rejects.toMatchObject({ statusCode: 413 })
     await expect(kvHandler(event("?store=unknown"))).rejects.toMatchObject({ statusCode: 404 })
     await expect(kvHandler(event("?limit=501"))).rejects.toMatchObject({ statusCode: 400 })
   })
