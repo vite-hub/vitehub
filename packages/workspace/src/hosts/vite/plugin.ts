@@ -638,7 +638,9 @@ function sourceImportsFeedingWorkspaceStore(
                 for (const property of properties ?? []) {
                   if (property.type !== "ObjectProperty") continue
                   // SAFETY: The ObjectProperty discriminator guarantees a Babel-compatible value node.
-                  const localName = (property.value as BabelNode | undefined)?.name
+                  const propertyValue = property.value as BabelNode | undefined
+                  const local = propertyValue?.type === "AssignmentPattern" ? propertyValue.left : propertyValue
+                  const localName = local?.name
                   if (!localName) continue
                   const reaches = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
                     ? babelPathReachesExportedStore(reference)
@@ -815,13 +817,15 @@ function sourceInlineWorkspaceStoreOperations(
             const valueNode = path.node.value as BabelNode | undefined
             let value = babelStringValue(valueNode, path)
             if (value === undefined) value = babelEnvironmentValue(valueNode, path, env)
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names and values cross the Babel boundary as unknown values.
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property values cross the Babel boundary as unknown values.
+            const stringValue = typeof value === "string" ? value : undefined
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names cross the Babel boundary as unknown values.
             if (typeof name === "string") {
               operations.push({
                 kind: "property",
                 name,
                 position,
-                value: typeof value === "string" ? value : undefined,
+                value: stringValue,
               })
             }
           },
@@ -876,6 +880,7 @@ async function loadFactoredCloudflareArtifactStore(
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!operations.length) return store as WorkspaceDefinitionInput["store"]
+        // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!localName) return store as WorkspaceDefinitionInput["store"]
         return reconstructCloudflareArtifactStore(operations, { localName, store })
       }
@@ -989,9 +994,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     }
     catch (error) {
       if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
-      const store = inspection?.artifactsOnly
-        ? await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
-        : undefined
+      const store = await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
       if (!store) {
         if (inspection?.artifactsOnly) continue
         throw error

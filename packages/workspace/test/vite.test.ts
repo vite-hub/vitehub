@@ -1246,6 +1246,22 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("follows defaulted awaited dynamic imports into the Workspace store", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `const fallback = { provider: "memory" }`,
+      `const { default: store = fallback } = await import("./artifact-store")`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
+    })
+  })
+
   it("follows awaited dynamic import namespaces into the Workspace store", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "workspace-stores.ts"), `export const artifactStore = { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
