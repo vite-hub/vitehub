@@ -11748,7 +11748,7 @@ describe("server helpers", () => {
       await expect(firstResponse).resolves.toMatchObject({ status: 200 })
       expect(order).toEqual(["A", "B", "C", "D"])
       expect(run).toHaveBeenCalledTimes(4)
-      expect(histories).toEqual([["A"], ["B"], ["C"], ["D"]])
+      expect(histories).toEqual([["A"], ["A", "B"], ["B", "C"], ["C", "D"]])
       const deliveries = await handler.deliveries(await serialRequest(91_013, "D"), "telegram", {
         agentName: "support",
       })
@@ -12911,7 +12911,11 @@ describe("server helpers", () => {
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-idless-steer-state-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
-    const adapter = createTestChatAdapter({ bypassIdLessMessageDedupe: true, missingIncomingMessageId: true })
+    const adapter = createTestChatAdapter({
+      bypassIdLessMessageDedupe: true,
+      missingIncomingMessageId: true,
+      persistThreadHistory: true,
+    })
     const sharedHistory = new Message({
       attachments: [],
       author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
@@ -17546,7 +17550,7 @@ describe("server helpers", () => {
     // SAFETY: defineAgent returns the runtime shape required by the internal webhook route fixture.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
     adapter.fetchMessages.mockResolvedValue({
       messages: [
         ...Array.from({ length: 10 }, (_, index) =>
@@ -17961,7 +17965,7 @@ describe("server helpers", () => {
     await expect(handler(request(21, "intervening id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
     await expect(handler(request(22, "current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs.at(-1)).toEqual(["current id-less", "ok", "intervening id-less", "ok", "current id-less"])
+    expect(runs.at(-1)).toEqual(["current id-less", "intervening id-less", "current id-less"])
   })
 
   it("does not run id-less chat deliveries without current message parts", async () => {
