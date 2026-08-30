@@ -112,6 +112,14 @@ function babelPathOrBindingIsExported(path: BabelNodePath, name?: string): boole
   return binding?.referencePaths?.some(babelPathIsExported) ?? false
 }
 
+function babelBindingIsExportedAs(path: BabelNodePath, localName: string, exportedName: string): boolean {
+  return path.scope.getBinding(localName)?.referencePaths?.some((reference) => {
+    const parent = reference.parentPath?.node
+    if (parent?.type !== "ExportSpecifier" || parent.local !== reference.node) return false
+    return (parent.exported?.name ?? parent.exported?.value) === exportedName
+  }) ?? false
+}
+
 function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
   if (seen.has(path)) return false
   seen.add(path)
@@ -224,8 +232,8 @@ function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boo
     if (current.node.type === "ExportDefaultDeclaration") return path.parentPath?.parentPath === current
     if (current.node.type === "FunctionDeclaration") {
       const name = current.node.id?.name
-      return babelPathOrBindingIsExported(current, name)
-        || (name ? current.scope.getBinding(name)?.referencePaths?.some(reference => babelPathReachesExportedStore(reference)) ?? false : false)
+      if (current.parentPath?.node.type === "ExportDefaultDeclaration") return true
+      return name ? current.scope.getBinding(name)?.referencePaths?.some(reference => babelPathReachesExportedStore(reference)) ?? false : false
     }
     if (current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") {
       const declarator = current.parentPath
@@ -298,8 +306,10 @@ async function sourceModuleDeclaresCloudflareArtifacts(
                     if (
                       current.node.type === "VariableDeclarator"
                       && current.node.id?.type === "Identifier"
-                      && current.node.id.name === exportedName
-                      && babelPathOrBindingIsExported(current, exportedName)
+                      && (
+                        (current.node.id.name === exportedName && babelPathOrBindingIsExported(current, exportedName))
+                        || babelBindingIsExportedAs(current, current.node.id.name, exportedName)
+                      )
                     ) return true
                     if (
                       current.node.type === "FunctionDeclaration"
