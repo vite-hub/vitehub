@@ -196,6 +196,35 @@ function collectOptionalDynamicPackageNames(source: string): Set<string> {
   return dynamicNames
 }
 
+function collectOptionalRequirePackageNames(source: string): Set<string> {
+  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
+  const executableSource = maskInertImportText(source, createRequireAliases)
+  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
+  const requirePattern = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(["'\x60])((?:\\.|[^"'\x60\\])*)\1\s*(?:,|\))`, "g")
+  const optionalNames = new Set<string>()
+  const requiredNames = new Set<string>()
+  for (const match of executableSource.matchAll(requirePattern)) {
+    if (!isStandaloneCall(executableSource, match.index)) continue
+    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
+    if (!name) continue
+    const openings: number[] = []
+    for (let index = 0; index < match.index!; index++) {
+      if (executableSource[index] === "{") openings.push(index)
+      else if (executableSource[index] === "}") openings.pop()
+    }
+    const guarded = openings.some((opening) => {
+      const prefix = executableSource.slice(0, opening).trimEnd()
+      return /\b(?:try|catch|if|for|while|switch|with)\s*(?:\([^{}]*\))?$/.test(prefix)
+        || /\bfunction(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^{};]*\)$/.test(prefix)
+        || /=>\s*$/.test(prefix)
+    })
+    if (guarded) optionalNames.add(name)
+    else requiredNames.add(name)
+  }
+  for (const name of requiredNames) optionalNames.delete(name)
+  return optionalNames
+}
+
 function maskBundledPackageRegions(source: string): string {
   const regions: boolean[] = []
   return source.split("\n").map((line) => {
@@ -994,7 +1023,10 @@ async function readRuntimePackages(
   }
   for (const source of sources) {
     const staticNames = collectStaticPackageNames(source)
-    const optionalDynamicNames = collectOptionalDynamicPackageNames(source)
+    const optionalNames = new Set([
+      ...collectOptionalDynamicPackageNames(source),
+      ...collectOptionalRequirePackageNames(source),
+    ])
     const requiredNames = new Set([
       ...collectImportedPackageNames(source),
       ...staticNames,
@@ -1020,7 +1052,7 @@ async function readRuntimePackages(
         onlyIfOptionalDependencies: false,
         optional: staticNames.has(name)
           ? false
-          : (existing?.optional ?? true) && optionalDynamicNames.has(name),
+          : (existing?.optional ?? true) && optionalNames.has(name),
         packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
       })
     }

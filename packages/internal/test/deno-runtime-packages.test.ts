@@ -1036,6 +1036,24 @@ load("@img/sharp-linux-x64/sharp.node")
     )
   })
 
+  it("allows unresolved guarded require probes but keeps top-level requires required", async () => {
+    const optionalRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-optional-require-"))
+    await writeJson(join(optionalRoot, "package.json"), {})
+    await mkdir(join(optionalRoot, ".output/server"), { recursive: true })
+    await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'try { require("missing-feature") } catch {}\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
+
+    const requiredRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-required-require-"))
+    await writeJson(join(requiredRoot, "package.json"), {})
+    await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
+    await writeFile(join(requiredRoot, ".output/server/index.mjs"), 'const feature = { value: require("missing-feature") }\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: requiredRoot })).rejects.toThrow(
+      "Could not resolve package.json for missing-feature",
+    )
+  })
+
   it("keeps required dynamic packages required across split server chunks", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-required-dynamic-chunks-"))
     await writeJson(join(root, "package.json"), {})
