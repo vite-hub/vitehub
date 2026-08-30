@@ -4081,6 +4081,11 @@ async function chatTriggerMessages(
   const fetchedNewestFirst: UIMessageLike[] = []
   const fetchedLimit = message.id ? limit : limit - 1
   const currentRawKey = message.id ? undefined : chatRawDeliveryKey(message)
+  let durable = await durableChatThreadMessages(thread, limit)
+  const durableCurrentIndexBeforeBoundary = message.id
+    ? durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : [])).at(-1) ?? -1
+    : -1
+  const durableContainsCurrent = durableCurrentIndexBeforeBoundary >= 0
   let foundCurrent = false
   let scanned = 0
   try {
@@ -4101,6 +4106,8 @@ async function chatTriggerMessages(
       if (!foundCurrent && isCurrent) foundCurrent = true
       if (foundCurrent) {
         fetchedNewestFirst.push(isCurrent ? current : await chatSdkMessageToUiMessage(item))
+      } else if (durableContainsCurrent && item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime()) {
+        fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
       }
     }
     if (!message.id) {
@@ -4123,9 +4130,9 @@ async function chatTriggerMessages(
     }
   } catch {}
 
-  let durable = await durableChatThreadMessages(thread, limit)
-  const durableContainsCurrent = message.id && durable.some((item) => isCurrentChatSdkMessage(item, message))
-  if (message.id && (foundCurrent || durableContainsCurrent)) {
+  if (message.id && durableContainsCurrent) {
+    durable = durable.slice(durableCurrentIndexBeforeBoundary)
+  } else if (message.id && foundCurrent) {
     const currentTime = message.metadata.dateSent.getTime()
     durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)
   }

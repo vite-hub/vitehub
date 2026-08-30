@@ -17478,7 +17478,7 @@ describe("server helpers", () => {
         defineChatCapability({
           platforms: { telegram: () => platformAdapter },
           stream: false,
-          triggerHistory: { maxAgeMs: 30_000, maxMessages: 2, source: "thread" },
+          triggerHistory: { maxAgeMs: 30_000, maxMessages: 3, source: "thread" },
           webhooks: { telegram: {} },
         }),
       ],
@@ -17493,17 +17493,19 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
-    const thread = adapter._chatInstance()?.thread("telegram:456")
+    // SAFETY: This fixture accesses the Chat SDK's internal thread cache to model an adapter restart.
+    const thread = (adapter._chatInstance() as unknown as { thread(threadId: string): object } | undefined)?.thread("telegram:456")
     adapter.fetchMessages.mockResolvedValue({ messages: [message("19", "previous", "2026-06-10T12:00:19.000Z")] })
     Reflect.set(thread ?? {}, "_threadHistory", {
       getMessages: vi.fn(async () => [
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
         message("20", "current", "2026-06-10T12:00:20.000Z"),
+        message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
       ]),
     })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs).toEqual([["newer cached"], ["previous", "current"]])
+    expect(runs).toEqual([["newer cached"], ["previous", "same-time previous", "current"]])
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
