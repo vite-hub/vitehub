@@ -1,8 +1,14 @@
-import type { AgentInvocationRecord, AgentInvocationStore } from "../invocations.ts"
+import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationSummary } from "../invocations.ts"
 
 export async function failInterruptedAgentInvocations(
   store: AgentInvocationStore,
-  options: { before?: number, claimLeaseMs?: number, limit?: number, message?: string } = {},
+  options: {
+    before?: number
+    claimLeaseMs?: number
+    limit?: number
+    message?: string
+    recover: (invocation: AgentInvocationSummary) => boolean | Promise<boolean>
+  },
 ): Promise<number> {
   const before = options.before ?? Date.now()
   const claimLeaseMs = options.claimLeaseMs ?? 30_000
@@ -14,6 +20,7 @@ export async function failInterruptedAgentInvocations(
     for (const invocation of records.invocations) {
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
+      if (!await options.recover(invocation)) continue
       const claimId = `recovery_${globalThis.crypto.randomUUID()}`
       if (!await store.claim(invocation.id, claimId, claimLeaseMs)) continue
       try {

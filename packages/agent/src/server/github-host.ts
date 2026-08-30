@@ -119,6 +119,29 @@ function rateLimitMessage(error: unknown): boolean {
   return /(?:rate limit[^\n]*exceeded|exceeded[^\n]*rate limit)/i.test(message)
 }
 
+function abortError(reason?: unknown): Error {
+  if (reason instanceof Error) return reason
+  return new DOMException("The operation was aborted.", "AbortError")
+}
+
+async function waitForCaller<T>(promise: Promise<T>, options: GitHubHostCheckoutOptions): Promise<T> {
+  if (!options.signal && options.timeout === undefined) return await promise
+  if (options.signal?.aborted) throw abortError(options.signal.reason)
+  return await new Promise<T>((resolve, reject) => {
+    const abort = () => reject(abortError(options.signal?.reason))
+    const timeout = options.timeout === undefined
+      ? undefined
+      : setTimeout(() => reject(new DOMException("The operation timed out.", "TimeoutError")), options.timeout)
+    const settle = <TArgs extends unknown[]>(callback: (...args: TArgs) => void) => (...args: TArgs) => {
+      if (timeout !== undefined) clearTimeout(timeout)
+      options.signal?.removeEventListener("abort", abort)
+      callback(...args)
+    }
+    options.signal?.addEventListener("abort", abort, { once: true })
+    promise.then(settle(resolve), settle(reject))
+  })
+}
+
 export function parseGraphQLRateLimit(value: unknown, checkedAt: number = Date.now()): GitHubGraphQLRateLimit {
   const resources = isRuntimeRecord(value) ? value.resources : undefined
   const graphql = isRuntimeRecord(resources) ? resources.graphql : undefined
@@ -182,9 +205,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           const timeout = input.timeout === undefined ? undefined : setTimeout(() => controller.abort(), input.timeout)
           if (input.signal?.aborted) abort()
           else input.signal?.addEventListener("abort", abort, { once: true })
-          let response: Response
           try {
-            response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
+            const response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
               headers: {
                 accept: "application/vnd.github+json",
                 authorization: `Bearer ${appJwt(numericAppId, privateKey)}`,
@@ -193,21 +215,21 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
               method: "POST",
               signal: controller.signal,
             })
+            if (!response.ok) throw new Error(`GitHub App token request failed with ${response.status}.`)
+            const body: unknown = await response.json()
+            const responseToken = isRuntimeRecord(body) ? body.token : undefined
+            const expiresAt = isRuntimeRecord(body) ? body.expires_at : undefined
+            if (!hasRuntimeType(responseToken, "string")) throw new Error("GitHub App token response did not include a token.")
+            appToken = {
+              expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
+              token: responseToken,
+            }
+            appTokenKey = key
           }
           finally {
             if (timeout !== undefined) clearTimeout(timeout)
             input.signal?.removeEventListener("abort", abort)
           }
-          if (!response.ok) throw new Error(`GitHub App token request failed with ${response.status}.`)
-          const body: unknown = await response.json()
-          const responseToken = isRuntimeRecord(body) ? body.token : undefined
-          const expiresAt = isRuntimeRecord(body) ? body.expires_at : undefined
-          if (!hasRuntimeType(responseToken, "string")) throw new Error("GitHub App token response did not include a token.")
-          appToken = {
-            expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
-            token: responseToken,
-          }
-          appTokenKey = key
         }
         token = appToken.token
       }
@@ -271,16 +293,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     if (cached && cached.resetAt > now && cached.remaining < reserve) throw new GitHubRateLimitError(repository, cached)
     if (cached && now - cached.checkedAt < cacheMs) return cached
     const pending = checks.get(key)
-    if (pending) return await pending
+    if (pending) return await waitForCaller(pending, options)
     const check = (async () => {
-      const result = await command(["api", "rate_limit"], { ...options, repository })
+      const result = await command(["api", "rate_limit"], { repository })
       const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
       limits.set(key, limit)
       if (limit.remaining < reserve && limit.resetAt > now) throw new GitHubRateLimitError(repository, limit)
       return limit
     })().finally(() => checks.delete(key))
     checks.set(key, check)
-    return await check
+    return await waitForCaller(check, options)
   }
 
   function budget(): { limited: false } | { limited: true, remaining: number, resetAt: number } {

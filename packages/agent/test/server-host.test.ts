@@ -23,6 +23,7 @@ afterEach(async () => {
   delete process.env.VITEHUB_TEST_CLONE_DELAY
   delete process.env.VITEHUB_TEST_COMMAND_LOG
   delete process.env.VITEHUB_TEST_RATE_LIMIT
+  delete process.env.VITEHUB_TEST_RATE_LIMIT_DELAY
   await Promise.all([...temporaryDirectories].map(path => rm(path, { force: true, recursive: true })))
   temporaryDirectories.clear()
 })
@@ -43,6 +44,7 @@ if [ "$1" = "repo" ] && [ "$2" = "clone" ] && [ -n "$VITEHUB_TEST_CLONE_DELAY" ]
   sleep "$VITEHUB_TEST_CLONE_DELAY"
 fi
 if [ "$1" = "api" ] && [ "$2" = "rate_limit" ]; then
+  if [ -n "$VITEHUB_TEST_RATE_LIMIT_DELAY" ]; then sleep "$VITEHUB_TEST_RATE_LIMIT_DELAY"; fi
   printf '%s\\n' '{"resources":{"graphql":{"remaining":100,"reset":2000000000}}}'
 fi
 `, { mode: 0o755 }),
@@ -137,6 +139,30 @@ describe("GitHub host", () => {
     await expect(host.access({ repository: "vite-hub/vitehub", signal: controller.signal })).rejects.toThrow("cancelled")
   })
 
+  it.each(["abort", "timeout"] as const)("keeps installation-token %s active through body parsing", async (control) => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) => new Response(new ReadableStream({
+      start(controller) {
+        init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason), { once: true })
+      },
+    }), { status: 201 })))
+    const host = createGitHubHost({
+      credentials: () => ({
+        appId: 123,
+        installationId: 456,
+        owner: "vite-hub",
+        privateKey: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+      }),
+    })
+    const controller = new AbortController()
+    if (control === "abort") setTimeout(() => controller.abort(new Error("cancelled during body")), 20)
+
+    await expect(host.access({
+      repository: "vite-hub/vitehub",
+      ...(control === "abort" ? { signal: controller.signal } : { timeout: 20 }),
+    })).rejects.toThrow(control === "abort" ? "cancelled during body" : /abort|timeout/i)
+  })
+
   it("admits GraphQL work against a shared reserve", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 1_500 })
@@ -151,6 +177,20 @@ describe("GitHub host", () => {
 
     expect(host.isRateLimitError(failure)).toBe(true)
     expect(host.budget()).toEqual({ limited: true, remaining: 100, resetAt: 2_000_000_000_000 })
+  })
+
+  it("keeps shared GraphQL budget waiters independently cancellable", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "0.1"
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 0 })
+    const firstController = new AbortController()
+    const first = host.ensureGraphQLBudget("vite-hub/vitehub", { signal: firstController.signal })
+    const second = host.ensureGraphQLBudget("vite-hub/another", { timeout: 20 })
+    firstController.abort(new Error("first cancelled"))
+
+    await expect(first).rejects.toThrow("first cancelled")
+    await expect(second).rejects.toThrow(/timed out/i)
+    await expect(host.ensureGraphQLBudget("vite-hub/third")).resolves.toMatchObject({ remaining: 100 })
   })
 
   it("classifies documented secondary rate limits", async () => {
@@ -250,6 +290,7 @@ describe("Agent Invocation host recovery", () => {
 
     await expect(failInterruptedAgentInvocations(store, {
       before: Date.parse("2026-08-30T11:00:00.000Z"),
+      recover: () => true,
     })).resolves.toBe(1)
     await expect(Promise.resolve(store.get("old-pending"))).resolves.toMatchObject({
       error: { message: "The host stopped before this Agent Invocation finished." },
@@ -276,9 +317,23 @@ describe("Agent Invocation host recovery", () => {
     await expect(failInterruptedAgentInvocations(store, {
       before: Date.parse("2026-08-30T11:00:00.000Z"),
       limit: 25,
+      recover: invocation => invocation.id !== "provider-owned",
     })).resolves.toBe(100)
     await expect(Promise.resolve(store.get("old-0"))).resolves.toMatchObject({ status: "failed" })
     await expect(Promise.resolve(store.get("old-100"))).resolves.toMatchObject({ status: "running" })
+  })
+
+  it("excludes provider-owned durable work from process recovery", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "host-owned", observations: [], status: "running", traceId: "host", updatedAt: createdAt })
+    store.create({ createdAt, id: "provider-owned", observations: [], status: "running", traceId: "provider", updatedAt: createdAt })
+
+    await expect(failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      recover: invocation => invocation.id === "host-owned",
+    })).resolves.toBe(1)
+    await expect(Promise.resolve(store.get("provider-owned"))).resolves.toMatchObject({ status: "running" })
   })
 
   it("summarizes current and stale work", () => {
