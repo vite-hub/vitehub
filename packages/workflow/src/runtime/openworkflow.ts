@@ -15,7 +15,9 @@ type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["Backen
 type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
 type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Dynamic imports preserve the module type supplied by each internal call site.
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
+// SAFETY: The generated function implements the importer signature above and returns the requested dynamic module.
 const defaultImporter = new Function("specifier", "return import(specifier)") as OpenWorkflowImporter
 let openWorkflowImporter = defaultImporter
 const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
@@ -28,17 +30,21 @@ interface OpenWorkflowRuntime {
 
 let runtimes = new Map<string, Promise<OpenWorkflowRuntime>>()
 
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The internal importer contract carries each requested module type.
 async function importOpenWorkflowModule<T>(specifier: string, importer: OpenWorkflowImporter): Promise<T> {
   return await runWorkflowProviderOperation("openworkflow", "import", () => importer<T>(specifier))
 }
 
 function readEnv(name: string): string | undefined {
+  // SAFETY: This provider runs in hosts where Node's process global is optional.
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
   const value = env?.[name]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment values cross an optional host boundary and require representation validation.
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
 function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime configuration accepts a string or an environment declaration at this boundary.
   if (typeof value === "string" || typeof value === "undefined") {
     return value
   }
@@ -46,6 +52,7 @@ function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined
     const resolved = readEnv(name)
     if (resolved) return resolved
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Declaration defaults cross the runtime configuration boundary as unknown values.
   return typeof value.default === "string" && value.default.trim() ? value.default.trim() : undefined
 }
 
@@ -132,14 +139,18 @@ async function createOpenWorkflowRuntime(
   const { backend, client } = await runWorkflowProviderOperation("openworkflow", "connect", async () => {
     let backend: OpenWorkflowBackend
     if (options.backend === "sqlite") {
+      // SAFETY: The discriminated storage options select the matching dynamically imported backend module.
       backend = await (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path, importer), {
         namespaceId: options.namespaceId,
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider configuration accepts an optional external boolean.
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
       })
     }
     else {
+      // SAFETY: The discriminated storage options select the matching dynamically imported backend module.
       backend = await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
         namespaceId: options.namespaceId,
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider configuration accepts an optional external boolean.
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
         schema: options.schema,
       })
@@ -183,7 +194,9 @@ function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryP
 
   return {
     ...(retries.backoff ? { backoffCoefficient: retries.backoff === "exponential" ? 2 : 1 } : {}),
+    // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted interval representation.
     ...(retries.delay ? { initialInterval: retries.delay as RetryPolicy["initialInterval"] } : {}),
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Retry limits enter through public Workflow step options and require numeric validation.
     ...(typeof retries.limit === "number" ? { maximumAttempts: retries.limit } : {}),
   }
 }
@@ -196,6 +209,7 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
         ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
       }, run)
     },
+    // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted sleep duration representation.
     sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
   }
 }
@@ -210,6 +224,8 @@ export async function registerOpenWorkflowDefinition(
     return existing
   }
 
+  // SAFETY: The registered ViteHub definition and OpenWorkflow runnable share this payload and result contract.
+  const openWorkflowDefinition = definition as never
   const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
     return await runWorkflowHandler({
       id: run.id,
@@ -217,7 +233,7 @@ export async function registerOpenWorkflowDefinition(
       payload: input,
       provider: "openworkflow",
       step: createOpenWorkflowProviderStep(step),
-    }, definition as never)
+    }, openWorkflowDefinition)
   })
   runtime.workflows.set(name, workflow)
   return workflow
@@ -241,7 +257,8 @@ function normalizeOpenWorkflowStatus(status: unknown): WorkflowRunStatus {
   }
 }
 
-function serializeOpenWorkflowRun(run: OpenWorkflowRun, name: string): WorkflowRun {
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The registered Workflow Definition determines the provider result type.
+function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name: string): WorkflowRun<unknown, TResult> {
   if (!run || run.workflowName !== name) {
     return {
       id: run?.id || "",
@@ -250,6 +267,8 @@ function serializeOpenWorkflowRun(run: OpenWorkflowRun, name: string): WorkflowR
     }
   }
 
+  // SAFETY: OpenWorkflow returns the result produced by the registered WorkflowDefinition<TResult>.
+  const result = run.output as TResult | undefined
   return {
     id: run.id,
     metadata: run.error || {
@@ -258,7 +277,7 @@ function serializeOpenWorkflowRun(run: OpenWorkflowRun, name: string): WorkflowR
       workflowName: run.workflowName,
     },
     provider: "openworkflow",
-    result: run.output ?? undefined,
+    result,
     status: normalizeOpenWorkflowStatus(run.status),
   }
 }
@@ -271,6 +290,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   options: WorkflowDeferOptions,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
+  // SAFETY: Registration preserves this Workflow Definition's payload and result contract in the provider runnable.
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
   let firstAcknowledgementUnknown = false
   const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
@@ -282,7 +302,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     })
   }, { acknowledgementUnknown: (_error, status) => firstAcknowledgementUnknown || status === undefined })
   return await runWorkflowProviderOperation("openworkflow", "run", async () => {
-    const serialized = serializeOpenWorkflowRun(handle.workflowRun, name)
+    const serialized = serializeOpenWorkflowRun<TResult>(handle.workflowRun, name)
     return {
       ...serialized,
       metadata: serialized.status === "failed"
@@ -293,6 +313,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   })
 }
 
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Workflow handles intentionally retain their definition's payload and result types across provider reads.
 export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   config: ResolvedWorkflowOptions,
   name: string,
@@ -303,6 +324,7 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
     const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
     const serialized = serializeOpenWorkflowRun(run, name)
     return serialized.id
+      // SAFETY: The caller's Workflow Definition supplies the payload and result types retained by this provider run.
       ? serialized as WorkflowRun<TPayload, TResult>
       : {
           id,

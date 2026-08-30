@@ -942,15 +942,16 @@ async function runAgentAsWorkflow<
 
   const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
   await activity?.update("queued")
-  const workflowName = resolveAgentWorkflowName(agent, binding, context)
+  let workflowName: string
   let handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
   let parsedInput: AgentRunInput<CALL_OPTIONS>
   let workflowInput: AgentRunInput<CALL_OPTIONS>
   try {
+    workflowName = resolveAgentWorkflowName(agent, binding, context)
     handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
     // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
     parsedInput = hasAgentDefinition(agent)
-      ? await withParsedAgentMessageMeta(agent, input, context.run)
+      ? await withParsedAgentMessageMeta<TRuntimeConfig, CALL_OPTIONS>(agent, input, context.run)
       : input
     workflowInput = await portableAgentWorkflowInput(parsedInput)
   }

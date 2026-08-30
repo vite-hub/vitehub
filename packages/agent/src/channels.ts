@@ -1202,11 +1202,11 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     const login = isRecord(user) ? maybeString(user.login) : undefined
     if (login) return { login }
   }
-  if (app) return githubAppIdentity(app, context)
   const processEnv = globalThis.process?.env
   if (processEnv?.GITHUB_TOKEN === token && !processEnv.VITEHUB_GITHUB_TOKEN && !processEnv.GH_TOKEN) {
     return { login: "github-actions[bot]" }
   }
+  if (app) return githubAppIdentity(app, context)
   throw new Error("[vitehub] GitHub Agent activity could not resolve the authenticated identity.")
 }
 

@@ -280,8 +280,11 @@ describe("agent channels", () => {
 
   it("reuses GitHub Actions bot activity when its installation token cannot resolve /user", async () => {
     const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/app/installations/123/access_tokens") return Response.json({ message: "Not Found" }, { status: 404 })
       if (url.pathname === "/user") return Response.json({ message: "Resource not accessible by integration" }, { status: 403 })
       if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
         return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "github-actions[bot]" } }])
@@ -292,7 +295,10 @@ describe("agent channels", () => {
     vi.stubEnv("GITHUB_TOKEN", "actions-installation-token")
     vi.stubGlobal("fetch", fetcher)
     try {
-      const channel = github({ activity: true })
+      const channel = github({
+        activity: true,
+        app: { appId: "1", fetch: fetcher, installationId: 123, privateKey: privateKeyPem },
+      })
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channel.activity?.update({
         activity: { links: [], runId: "run-actions", status: "running", tasks: [] },
@@ -300,7 +306,7 @@ describe("agent channels", () => {
         memo: vi.fn(),
         run: { runId: "run-actions" },
         runtime: "unknown",
-        target: { issue: 42, repository: "acme/app" },
+        target: { installationId: 123, issue: 42, repository: "acme/app" },
         waitUntil: vi.fn(),
       } as never)
 

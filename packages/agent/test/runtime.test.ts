@@ -12294,6 +12294,47 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("projects failed activity when a direct Workflow has no name", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const statuses: AgentActivityUpdate["status"][] = []
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+        }) as never,
+        workflow: () => import("@vite-hub/workflow"),
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow(),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toThrow("requires a name")
+
+        expect(statuses).toEqual(["queued", "failed"])
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("projects terminal activity from an already-settled Workflow run", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { defineChannel } = await import("../src/channels.ts")
@@ -12337,7 +12378,7 @@ describe("agent message protocol", () => {
         }, {})
 
         expect(updates.map(({ status, summary }) => ({ status, summary }))).toEqual([
-          { status: "queued", summary: undefined },
+          { status: "queued", summary: "" },
           { status: "completed", summary: "Already finished." },
         ])
       }
